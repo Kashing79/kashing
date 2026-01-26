@@ -12,7 +12,10 @@
     "analyze": "node scripts/analyze-news.js",
     "auto": "node scripts/auto-runner.js",
     "auto:daemon": "node scripts/auto-runner.js --daemon",
-    "auto:fast": "node scripts/auto-runner.js --daemon --interval 15"
+    "auto:fast": "node scripts/auto-runner.js --daemon --interval 15",
+    "financial": "node scripts/financial-analyze.js",
+    "stock": "node scripts/financial-analyze.js",
+    "watchlist": "node scripts/financial-analyze.js --watchlist"
   },
   "dependencies": {
     "next": "^14.0.0",
