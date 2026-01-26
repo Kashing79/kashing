@@ -24,6 +24,7 @@ export interface NewsSource {
   region: string;
   language: string;
   enabled: boolean;
+  priority?: number;
 }
 
 export interface HealthStatus {
@@ -64,4 +65,39 @@ export interface FetchResult {
   itemsFetched: number;
   error?: string;
   timestamp: string;
+}
+
+// === 数据分析类型 ===
+
+export interface SentimentResult {
+  sentiment: 'positive' | 'negative' | 'neutral';
+  score: number;
+  positiveCount: number;
+  negativeCount: number;
+}
+
+export interface KeywordAnalysis {
+  topics: string[];
+  scores: Record<string, number>;
+}
+
+export interface TrendData {
+  totalNews: number;
+  categoryDistribution: Record<string, number>;
+  sentimentByCategory: Record<string, { positive: number; negative: number; neutral: number }>;
+  trendingTopics: Array<{ topic: string; count: number }>;
+  hourlyDistribution: Record<number, number>;
+  analyzedAt: string;
+}
+
+export interface AnalysisResult {
+  trends: TrendData;
+  overallSentiment: {
+    positive: number;
+    negative: number;
+    neutral: number;
+  };
+  topSources: Array<{ source: string; count: number }>;
+  summary: string;
+  generatedAt: string;
 }

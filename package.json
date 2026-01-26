@@ -8,7 +8,11 @@
     "start": "next start",
     "lint": "next lint",
     "health-check": "node scripts/health-check.js",
-    "fetch-news": "node scripts/fetch-news.js"
+    "fetch-news": "node scripts/fetch-news.js",
+    "analyze": "node scripts/analyze-news.js",
+    "auto": "node scripts/auto-runner.js",
+    "auto:daemon": "node scripts/auto-runner.js --daemon",
+    "auto:fast": "node scripts/auto-runner.js --daemon --interval 15"
   },
   "dependencies": {
     "next": "^14.0.0",
