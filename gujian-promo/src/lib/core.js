@@ -445,7 +445,9 @@ export function grainTex(w, h, opts = {}) {
  * Fake relief lighting from a height map. Draw anything in greyscale onto a canvas (white = high, black = low),
  * pass it here, and you get a grey shading canvas (128 = flat). Composite it with 'overlay' / 'soft-light' / 'hard-light'
  * over your colour layer to make carving, tiles, plaster, brush ridges look embossed.
- * opts: angle (light direction in degrees, 225 = from top-left), strength (1..12), blur (px pre-blur of the height map), res
+ * opts: angle (degrees; the direction the light travels across the canvas: 45 = lit from the TOP-LEFT, 135 = from the top-right,
+ *       225 = from the bottom-right (the default, kept for backward compatibility), 315 = from the bottom-left),
+ *       strength (1..12), blur (px pre-blur of the height map), res
  */
 export function bumpLight(heightCanvas, opts = {}) {
   const { angle = 225, strength = 4, blur = 0, res = 0.5 } = opts;
@@ -511,6 +513,7 @@ export function paperTex(w, h, opts = {}) {
   }
   g.globalCompositeOperation = 'overlay'; g.globalAlpha = 1;
   g.drawImage(grainTex(w, h, { seed: seed + 5, amount: grain }), 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
 /** wood grain. opts: base, dark, seed, scale, dir ('h' | 'v'), rings (0..1 adds knots/ring swirl) */
@@ -526,6 +529,7 @@ export function woodTex(w, h, opts = {}) {
   g.drawImage(noiseTex(w, h, { seed: seed + 3, scale: scale * 5, octaves: 3, res: 0.25, ramp: [[0, mix(dark, base, 0.4)], [0.6, '#fff'], [1, '#fff']] }), 0, 0);
   g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.6;
   g.drawImage(grainTex(w, h, { seed: seed + 9, amount: 0.2 }), 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
 /** stone / plaster / brick-ish mottled surface. opts: base, dark, light, seed, scale, speck (0..1), rough (0..1) */
@@ -539,6 +543,7 @@ export function stoneTex(w, h, opts = {}) {
   if (speck > 0) speckle(g, { seed: seed + 4, count: 2600 * speck * (w * h) / (W * H), x: 0, y: 0, w, h, rMin: 0.4, rMax: 1.8, colors: [dark, light, '#2b2925'], alpha: [0.15, 0.6] });
   g.globalCompositeOperation = 'overlay';
   g.drawImage(grainTex(w, h, { seed: seed + 6, amount: 0.25 }), 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
 /** woven cloth. opts: base, warp (thread colour), weft, seed, pitch (thread spacing px), slub (0..1 irregularity) */
@@ -555,6 +560,7 @@ export function weaveTex(w, h, opts = {}) {
   g.drawImage(noiseTex(w, h, { seed: seed + 1, scale: 40, sx: 0.6, sy: 9, octaves: 3, res: 0.5, contrast: 1.8 }), 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'overlay';
   g.drawImage(grainTex(w, h, { seed: seed + 2, amount: 0.3 }), 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
 

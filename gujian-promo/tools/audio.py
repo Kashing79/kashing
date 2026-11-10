@@ -14,7 +14,9 @@ Each film of the series gets its own colour on the same skeleton (see PRESETS):
   coins     A-yu (minor) pentatonic · bronze chime-bell (编钟) strikes · coin clinks · a spinning coin under the last card
   antiques  F-gong pentatonic · guqin-like slides + porcelain chimes · jade clicks · singing bowl
 
-Usage: python3 tools/audio.py [out.wav] [--film arch|coins|antiques]
+  tcm       G-gong pentatonic · soft plucks over guqin bass · brass-mortar knocks · singing bowl
+
+Usage: python3 tools/audio.py [out.wav] [--film arch|coins|antiques|tcm]
 """
 import sys, wave, json, os
 import numpy as np
@@ -195,6 +197,15 @@ def bowl(f0=196.0, dur=3.4, vel=1.0):
     return y / (np.max(np.abs(y)) + 1e-9) * vel
 
 
+def mortar(vel=1.0, f=1560.0):
+    """pestle on a small brass mortar (铜冲): a short, warm bell-like knock."""
+    n = int(0.3 * SR)
+    t = np.arange(n) / SR
+    y = sum(a * np.sin(2 * np.pi * f * r * t + p) * np.exp(-t / d) for r, a, d, p in [(1, 1, 0.07, 0), (2.32, 0.5, 0.045, 1), (3.9, 0.25, 0.025, 2), (0.5, 0.35, 0.05, 0.5)])
+    y += band_noise(n, 800, 5000) * np.exp(-t / 0.004) * 0.5
+    return y / (np.max(np.abs(y)) + 1e-9) * vel
+
+
 def scale(names):
     return [note(n) for n in names]
 
@@ -216,6 +227,11 @@ PRESETS = {
         root=note('F1'), fifth=note('C2'), pad=['F2', 'C3', 'F3', 'C4'], trem=['C4', 'F4', 'G4', 'C5'],
         lead=guqin, lead_gain=1.0, low=guqin, tick=jade_click, tick_f=(2200.0, 1.26), chimes=['C6', 'F6'], ending='bowl', end_f=note('F2'), end_extra=note('C3'),
         sparkle=porcelain),
+    'tcm': dict(
+        scale=scale(['G2', 'A2', 'B2', 'D3', 'E3', 'G3', 'A3', 'B3', 'D4', 'E4', 'G4', 'A4', 'B4', 'D5', 'E5', 'G5']),
+        gliss=scale(['G3', 'A3', 'B3', 'D4', 'E4', 'G4', 'A4', 'B4', 'D5', 'E5', 'G5', 'A5', 'B5', 'D6']),
+        root=note('G1'), fifth=note('D2'), pad=['G2', 'D3', 'G3', 'D4'], trem=['D4', 'G4', 'A4', 'D5'],
+        lead=pluck, lead_gain=0.5, low=guqin, tick=mortar, tick_f=(1560.0, 1.33), chimes=['D6', 'G6'], ending='bowl', end_f=note('G2'), end_extra=note('D3')),
 }
 
 

@@ -20,7 +20,7 @@ const sstep = (a, b, x) => L.smooth((x - a) / (b - a));
 // ───────────────────────── the hand ─────────────────────────
 /**
  * One pull of the pen: blunt wet head, thinner fast middle, flicked tail; width breathes, line may skip.
- * opts: w, seed, prof ('pen' | 'leaf' | 'flat'), tin/tout (taper fractions), head, wob, gap (0..0.5 → skips), jit, step
+ * opts: w, seed, prof ('pen' | 'leaf' | 'flat'), tin/tout (taper fractions), head, wob, gap (0..0.5 → skips), jit, step, abs (ignore LW)
  */
 function pen(g, pts, o = {}) {
   const w = (o.w === undefined ? 2.2 : o.w) * (o.abs ? 1 : LW), seed = o.seed === undefined ? 1 : o.seed;
@@ -63,7 +63,7 @@ function blot(g, x, y, rad, seed) {
 function spatter(g, r, x, y, ang, n, reach) {
   for (let i = 0; i < n; i++) {
     const d = reach * Math.pow(r(), 0.7), a = ang + r.gauss() * 0.35;
-    blot(g, x + Math.cos(a) * d, y + Math.sin(a) * d, L.lerp(2.6, 0.7, d / reach) * r.range(0.6, 1.3), i * 3.3 + x);
+    blot(g, x + Math.cos(a) * d, y + Math.sin(a) * d, L.lerp(3.6, 1, d / reach) * r.range(0.6, 1.3), i * 3.3 + x);
   }
 }
 /** zig-zag scribble from A to B (pen never lifted) */
@@ -72,24 +72,27 @@ function zig(g, r, x0, y0, x1, y1, amp, pitch, o = {}) {
   const ux = (x1 - x0) / len, uy = (y1 - y0) / len, sk = o.skew || 0;
   const pts = [];
   for (let i = 0; i <= n; i++) {
-    const t = i / n, s = (i % 2 ? 1 : -1) * amp * r.range(0.55, 1.2) * (o.fade ? 1 - t * o.fade : 1);
+    const t = i / n, s = (i % 2 ? 1 : -1) * amp * r.range(0.45, 1.25) * (o.fade ? 1 - t * o.fade : 1);
     pts.push([x0 + ux * len * t - uy * s + ux * s * sk, y0 + uy * len * t + ux * s + uy * s * sk]);
   }
-  pen(g, pts, { w: 1.8, tin: 0.03, tout: 0.1, wob: 0.35, freq: 12, ...o });
+  pen(g, pts, { w: 1.8, tin: 0.03, tout: 0.1, wob: 0.4, freq: 12, ...o });
 }
-/** cursive "eeee" loops from A to B — shrubs, undergrowth */
-function loops(g, r, x0, y0, x1, y1, amp, pitch, o = {}) {
-  const len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(2, Math.round(len / pitch));
-  const ux = (x1 - x0) / len, uy = (y1 - y0) / len;
-  const pts = [];
-  let am = amp;
-  for (let i = 0; i <= n * 4; i++) {
-    if (i % 4 === 0) am = amp * r.range(0.5, 1.3);
-    const t = i / (n * 4), ph = (i / 4) * L.TAU;
-    const al = len * t + 0.62 * am * Math.sin(ph), up = am * (0.5 - 0.5 * Math.cos(ph));
-    pts.push([x0 + ux * al + uy * up, y0 + uy * al - ux * up]);
+/** a tangle: the pen races back and forth inside an ellipse without lifting — foliage, undergrowth, deep shade */
+function scrib(g, r, cx, cy, rx, ry, n, o = {}) {
+  const pts = [], tilt = o.tilt || 0;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = rx * (2 * t - 1) + r.range(-1, 1) * rx * (2.4 / n), y = (i % 2 ? 1 : -1) * ry * r.range(0.2, 1) * Math.sqrt(Math.max(0.15, 1 - (2 * t - 1) * (2 * t - 1) * 0.8));
+    pts.push([cx + x + y * tilt, cy + y]);
   }
-  pen(g, pts, { w: 1.7, tin: 0.03, tout: 0.08, wob: 0.35, freq: 16, ...o });
+  pen(g, pts, { w: 1.7, tin: 0.03, tout: 0.1, wob: 0.42, freq: 15, ...o });
+}
+/** a tuft of grass: quick upward flicks from one spot */
+function tuft(g, r, x, y, n, h, seed) {
+  for (let i = 0; i < n; i++) {
+    const an = -Math.PI / 2 + r.range(-0.75, 0.75), l = h * r.range(0.5, 1.25), bx = x + r.range(-0.35, 0.35) * h;
+    const ex = bx + Math.cos(an) * l, ey = y + Math.sin(an) * l;
+    pen(g, [[bx, y + r.range(-3, 3)], [(bx + ex) / 2 + r.range(-0.12, 0.12) * l, (y + ey) / 2 + 2], [ex, ey]], { w: r.range(1.7, 2.9), seed: seed + i, tout: 0.65, head: 1.45 });
+  }
 }
 /**
  * Parallel hatching (排线) over a region. inside(x,y) → bool, bb = [x0,y0,x1,y1], ang = stroke direction, gap = spacing.
@@ -112,7 +115,7 @@ function hatch(g, r, inside, bb, ang, gap, o = {}) {
   const P = (d, t) => [cx + nx * d + c * t, cy + ny * d + s * t];
   if (o.zig) {
     let pts = [], flip = false, k = 0;
-    const flush = () => { if (pts.length > 1) pen(g, pts, { w: w * r.range(0.85, 1.2), seed: seed + (k++) * 3.1, tin: 0.02, tout: 0.05, wob: 0.38, freq: 18 }); pts = []; };
+    const flush = () => { if (pts.length > 1) pen(g, pts, { w: w * r.range(0.8, 1.25), seed: seed + (k++) * 3.1, tin: 0.02, tout: 0.05, wob: 0.4, freq: 18 }); pts = []; };
     for (const [d, a0, a1] of runs) {
       if (r.chance(o.skip || 0)) { flush(); continue; }
       const A = P(d, a0 - r.range(-ov, ov)), B = P(d, a1 + r.range(-ov, ov));
@@ -126,14 +129,14 @@ function hatch(g, r, inside, bb, ang, gap, o = {}) {
       if (r.chance(o.skip || 0)) return;
       const A = P(d, a0 - r.range(-ov, ov)), B = P(d, a1 + r.range(-ov, ov));
       const m = [(A[0] + B[0]) / 2 + nx * r.range(-2.5, 2.5), (A[1] + B[1]) / 2 + ny * r.range(-2.5, 2.5)];
-      pen(g, r.chance(o.rev === undefined ? 0.5 : o.rev) ? [A, m, B] : [B, m, A], { w: w * r.range(0.8, 1.25), seed: seed + i * 1.7, tout: 0.42, head: 1.4 });
+      pen(g, r.chance(o.rev === undefined ? 0.5 : o.rev) ? [A, m, B] : [B, m, A], { w: w * r.range(0.8, 1.25), seed: seed + i * 1.7, tout: 0.45, head: 1.45 });
     });
   }
 }
 
 // ───────────────────────── the arc: one brush stroke ─────────────────────────
 function drawArcStroke(g, a) {
-  const s = a.span(PAD + 150), NB = 15, dth = 2.4 / a.R;
+  const s = a.span(PAD + 150), NB = 20, dth = 2.4 / a.R;
   const r = L.rng('s35arc');
   // a brush is a bundle of bristles: where the ink load runs low they separate → 飞白
   const pull = (t0, t1, widthAt, loadAt, drAt, key) => {
@@ -142,10 +145,10 @@ function drawArcStroke(g, a) {
       let prev = null;
       for (let th = t0; th <= t1; th += dth) {
         const w = widthAt(th);
-        const q = a.pt(th, drAt(th) + off * w + 0.45 * NZ.n2(th * 230 + b * 5.1, key));
-        const ink = loadAt(th) + 0.46 * NZ.n2(th * 36 + key * 3, off * 4.4 + key) - 0.13 * edge * edge - 0.09 * dry;
+        const q = a.pt(th, drAt(th) + off * w + 0.5 * NZ.n2(th * 230 + b * 5.1, key));
+        const ink = loadAt(th) + 0.48 * NZ.n2(th * 34 + key * 3, off * 4.6 + key) - 0.14 * edge * edge - 0.1 * dry;
         if (prev && ink > 0.3) {
-          g.lineWidth = Math.max(0.6, (w / NB) * 2.15 * L.clamp(0.55 + ink * 0.7, 0.5, 1.25));
+          g.lineWidth = Math.max(0.7, (w / NB) * 2.2 * L.clamp(0.55 + ink * 0.7, 0.5, 1.25));
           g.beginPath(); g.moveTo(prev.x, prev.y); g.lineTo(q.x, q.y); g.stroke();
         }
         prev = q;
@@ -154,26 +157,26 @@ function drawArcStroke(g, a) {
   };
   g.lineCap = 'round';
   // first pull: enters from the left, presses twice (顿), then runs dry and lifts off on the right
-  pull(-s, 0.352,
-    (th) => (10.6 + 5.6 * bump(th, -0.338, 0.045) + 3.4 * bump(th, -0.03, 0.085) - 2.0 * bump(th, -0.19, 0.06) - 3.2 * sstep(0.12, 0.3, th) + 1.2 * NZ.n2(th * 16, 2.2)) * (1 - 0.72 * sstep(0.315, 0.352, th)),
-    (th) => 1.05 - 0.36 * bump(th, -0.2, 0.05) - 0.68 * sstep(0.165, 0.27, th) - 0.25 * sstep(0.33, 0.352, th),
+  pull(-s, 0.356,
+    (th) => (15.2 + 7 * bump(th, -0.338, 0.045) + 4.6 * bump(th, -0.03, 0.085) - 3.2 * bump(th, -0.19, 0.06) - 3.6 * sstep(0.12, 0.3, th) + 1.6 * NZ.n2(th * 16, 2.2)) * (1 - 0.72 * sstep(0.318, 0.356, th)),
+    (th) => 1.05 - 0.4 * bump(th, -0.2, 0.05) - 0.7 * sstep(0.17, 0.275, th) - 0.25 * sstep(0.33, 0.356, th),
     (th) => 1.1 * NZ.n2(th * 7, 4.4) - 0.6, 1.7);
   // second pull (复笔): brush re-charged, set down again a little low, overlapping the dry tail
-  pull(0.306, s,
-    (th) => 11.2 + 5.2 * bump(th, 0.317, 0.016) - 1.6 * bump(th, 0.42, 0.05) + 1.2 * NZ.n2(th * 16, 6.2),
+  pull(0.308, s,
+    (th) => 15.4 + 7.5 * bump(th, 0.32, 0.016) - 2.2 * bump(th, 0.42, 0.05) + 1.6 * NZ.n2(th * 16, 6.2),
     (th) => 1.08 - 0.3 * bump(th, 0.47, 0.05),
-    (th) => -3.2 * Math.exp(-(th - 0.306) / 0.045) + 1.0 * NZ.n2(th * 7, 9.4) - 0.5, 5.3);
-  const h = a.pt(0.3065, -3.4); blot(g, h.x, h.y, 8.2, 3.1);
+    (th) => -4.2 * Math.exp(-(th - 0.308) / 0.045) + 1.0 * NZ.n2(th * 7, 9.4) - 0.5, 5.3);
+  const h = a.pt(0.3085, -4.4); blot(g, h.x, h.y, 11.5, 3.1);
   // a quick pen line re-stating the curve; it wanders in and out of the brush stroke
   const rest = (t0, t1, base, amp, key, o) => {
     const pts = [];
     for (let i = 0; i <= 28; i++) { const th = L.lerp(t0, t1, i / 28), q = a.pt(th, base + amp * NZ.n2(th * 6.5, key)); pts.push([q.x, q.y]); }
     pen(g, pts, o);
   };
-  rest(-0.31, 0.21, -1.5, 6.5, 8.8, { w: 2.5, seed: 11, tin: 0.02, tout: 0.12, gap: 0.08, gapFreq: 9 });
-  rest(-0.5, -0.27, -2.5, 6, 3.8, { w: 2.2, seed: 12, tin: 0.02, tout: 0.2, gap: 0.1, gapFreq: 7 });
+  rest(-0.31, 0.21, -3, 9, 8.8, { w: 2.1, seed: 11, tin: 0.02, tout: 0.12, gap: 0.08, gapFreq: 9 });
+  rest(-0.5, -0.27, -4, 8, 3.8, { w: 1.9, seed: 12, tin: 0.02, tout: 0.2, gap: 0.1, gapFreq: 7 });
   // drops shaken off where the brush first pressed
-  const d0 = a.pt(-0.345, 0); spatter(g, r, d0.x - 6, d0.y + 16, 2.2, 7, 60);
+  const d0 = a.pt(-0.345, 0); spatter(g, r, d0.x - 6, d0.y + 22, 2.2, 7, 70);
 }
 
 function drawRailing(g, a, r) {
@@ -182,282 +185,283 @@ function drawRailing(g, a, r) {
   const run = (base, wMin, wMax, gap, key) => {
     let th = -s, i = 0;
     while (th < s) {
-      const t1 = Math.min(s, th + r.range(0.08, 0.2)), pts = [];
-      for (let k = 0; k <= 8; k++) { const t = L.lerp(th, t1, k / 8), q = a.pt(t, base + 2.4 * NZ.n2(t * 9, key) + (k === 0 ? r.range(-2.5, 2.5) : 0)); pts.push([q.x, q.y]); }
+      const t1 = Math.min(s, th + r.range(0.09, 0.22)), pts = [];
+      for (let k = 0; k <= 8; k++) { const t = L.lerp(th, t1, k / 8), q = a.pt(t, base + 2.6 * NZ.n2(t * 9, key) + (k === 0 ? r.range(-3, 3) : 0)); pts.push([q.x, q.y]); }
       pen(g, pts, { w: r.range(wMin, wMax), seed: key * 40 + i, tout: 0.22, gap, gapFreq: 6 });
       th = t1 - r.range(-0.014, 0.03); i++;
     }
   };
-  run(-13, 1.4, 2.1, 0.2, 2.1);
-  run(-37, 1.9, 2.9, 0.1, 5.7);
+  run(-17, 1.1, 1.7, 0.22, 2.1);
+  run(-45, 1.9, 2.8, 0.1, 5.7);
   // posts (望柱): quick downward ticks, some doubled, some forgotten
-  a.along({ spacing: 76, t0: -s, t1: s }, (q) => {
-    if (r.chance(0.1)) return;
-    const th = q.theta + r.range(-0.004, 0.004);
-    const p0 = a.pt(th + r.range(-0.0012, 0.0012), -4), p1 = a.pt(th + r.range(-0.0016, 0.0016), -39 - r.range(0, 6));
-    pen(g, [[p0.x, p0.y], [p1.x, p1.y]], { w: r.range(2.2, 3.4), seed: 300 + q.i, tout: 0.35, head: 1.4 });
-    if (r.chance(0.65)) {
-      const o = r.range(5.5, 8) / a.R, q0 = a.pt(th + o, -5), q1 = a.pt(th + o + r.range(-0.001, 0.001), -36);
-      pen(g, [[q0.x, q0.y], [q1.x, q1.y]], { w: r.range(1.3, 2), seed: 400 + q.i, tout: 0.4 });
+  a.along({ spacing: 104, t0: -s, t1: s }, (q) => {
+    if (r.chance(0.08)) return;
+    const th = q.theta + r.range(-0.005, 0.005);
+    const p0 = a.pt(th + r.range(-0.0012, 0.0012), -7), p1 = a.pt(th + r.range(-0.002, 0.002), -47 - r.range(0, 8));
+    pen(g, [[p0.x, p0.y], [p1.x, p1.y]], { w: r.range(2.3, 3.4), seed: 300 + q.i, tout: 0.35, head: 1.45 });
+    if (r.chance(0.7)) {
+      const o = r.range(8, 11) / a.R, q0 = a.pt(th + o, -9), q1 = a.pt(th + o + r.range(-0.0014, 0.0014), -44);
+      pen(g, [[q0.x, q0.y], [q1.x, q1.y]], { w: r.range(1.2, 1.9), seed: 400 + q.i, tout: 0.4 });
     }
   });
 }
 
 // ───────────────────────── bridge body: arch, shadow, masonry ─────────────────────────
 const inArch = (x, y, d = 0) => y < AY && (x - AX) * (x - AX) + (y - AY) * (y - AY) < (AR + d) * (AR + d);
-const inSoffit = (x, y) => inArch(x, y, -5) && Math.hypot(x - AX - 20, y - AY - 47) > AR - 2;
+const inSoffit = (x, y) => inArch(x, y, -6) && Math.hypot(x - AX - 22, y - AY - 52) > AR - 2;
 
 function drawArch(g, a, r) {
   const ring = (rad, t0, t1, ox, oy, o) => {
     const pts = [];
-    for (let i = 0; i <= 40; i++) { const t = L.lerp(t0, t1, i / 40), rr = rad + 2.4 * NZ.n2(t * 2.2, o.seed); pts.push([AX + ox + Math.cos(t) * rr, AY + oy + Math.sin(t) * rr]); }
+    for (let i = 0; i <= 40; i++) { const t = L.lerp(t0, t1, i / 40), rr = rad + 3 * NZ.n2(t * 2.2, o.seed); pts.push([AX + ox + Math.cos(t) * rr, AY + oy + Math.sin(t) * rr]); }
     pen(g, pts, o);
   };
   // intrados twice (the second pass doesn't quite agree with the first), extrados once and broken
-  ring(AR, Math.PI - 0.05, L.TAU + 0.04, 0, 0, { w: 4.2, seed: 21, tin: 0.03, tout: 0.1, wob: 0.3, freq: 9 });
-  ring(AR - 4, L.TAU - 0.12, Math.PI + 0.2, 5, 3, { w: 2.2, seed: 22, tin: 0.03, tout: 0.2, gap: 0.14, gapFreq: 8 });
-  ring(AR + 31, Math.PI + 0.03, L.TAU - 0.02, -1, 2, { w: 2.3, seed: 23, tin: 0.03, tout: 0.15, gap: 0.2, gapFreq: 10 });
+  ring(AR, Math.PI - 0.06, L.TAU + 0.05, 0, 0, { w: 4.6, seed: 21, tin: 0.03, tout: 0.1, wob: 0.34, freq: 9 });
+  ring(AR - 5, L.TAU - 0.14, Math.PI + 0.24, 6, 4, { w: 2, seed: 22, tin: 0.03, tout: 0.2, gap: 0.14, gapFreq: 8 });
+  ring(AR + 36, Math.PI + 0.02, L.TAU - 0.01, -1, 2, { w: 2.3, seed: 23, tin: 0.03, tout: 0.15, gap: 0.16, gapFreq: 10 });
   // voussoir joints (拱石缝): radial ticks, the keystone pair a touch heavier
-  for (let t = Math.PI + 0.1; t < L.TAU - 0.06; t += r.range(0.085, 0.13)) {
-    if (r.chance(0.16)) continue;
-    const key = Math.abs(t - 1.5 * Math.PI) < 0.09, tt = t + r.range(-0.012, 0.012);
-    pen(g, [[AX + Math.cos(t) * (AR + 3), AY + Math.sin(t) * (AR + 3)], [AX + Math.cos(tt) * (AR + 30 + r.range(-3, 5)), AY + Math.sin(tt) * (AR + 30)]],
+  for (let t = Math.PI + 0.1; t < L.TAU - 0.06; t += r.range(0.11, 0.17)) {
+    if (r.chance(0.14)) continue;
+    const key = Math.abs(t - 1.5 * Math.PI) < 0.1, tt = t + r.range(-0.014, 0.014);
+    pen(g, [[AX + Math.cos(t) * (AR + 4), AY + Math.sin(t) * (AR + 4)], [AX + Math.cos(tt) * (AR + 35 + r.range(-3, 6)), AY + Math.sin(tt) * (AR + 35)]],
       { w: key ? 2.8 : r.range(1.3, 2.1), seed: 500 + t * 9, tout: 0.3 });
   }
   // the far edge of the barrel, seen through the opening
-  ring(AR - 1, Math.PI + 0.42, L.TAU - 0.5, 20, 47, { w: 1.9, seed: 24, tin: 0.04, tout: 0.25, gap: 0.16, gapFreq: 7 });
+  ring(AR - 1, Math.PI + 0.42, L.TAU - 0.5, 22, 52, { w: 1.7, seed: 24, tin: 0.04, tout: 0.25, gap: 0.16, gapFreq: 7 });
   // soffit in shadow: dense zig-zag hatching, then a second layer across it where it is darkest
-  hatch(g, r, inSoffit, [AX - AR, AY - AR, AX + AR, AY], 0.92, 6.2, { w: 1.9, zig: true, lift: 0.07, over: 3, seed: 600 });
-  hatch(g, r, (x, y) => inSoffit(x, y) && x < AX + 120 && y < AY - 120, [AX - AR, AY - AR, AX + AR, AY], 2.3, 8.5, { w: 1.6, zig: true, lift: 0.15, over: 3, seed: 640 });
-  hatch(g, r, (x, y) => inSoffit(x, y) && x < AX - 150, [AX - AR, AY - AR, AX, AY], 0.2, 7, { w: 1.7, zig: true, lift: 0.12, over: 2, seed: 660 });
+  hatch(g, r, inSoffit, [AX - AR, AY - AR, AX + AR, AY], 0.92, 8.6, { w: 1.9, zig: true, lift: 0.07, over: 4, seed: 600 });
+  hatch(g, r, (x, y) => inSoffit(x, y) && x < AX + 130 && y < AY - 120, [AX - AR, AY - AR, AX + AR, AY], 2.3, 12, { w: 1.6, zig: true, lift: 0.15, over: 4, seed: 640 });
+  hatch(g, r, (x, y) => inSoffit(x, y) && x < AX - 150, [AX - AR, AY - AR, AX, AY], 0.2, 10, { w: 1.7, zig: true, lift: 0.12, over: 3, seed: 660 });
   // piers dropping into the water
   for (const sgn of [-1, 1]) {
     const x = AX + sgn * AR;
-    pen(g, [[x + sgn * 2, AY - 30], [x + sgn * 1, AY + 12]], { w: 3, seed: 30 + sgn, tout: 0.3 });
-    pen(g, [[x + sgn * 33, AY - 44], [x + sgn * 31, AY + 6]], { w: 2, seed: 33 + sgn, tout: 0.4, gap: 0.1 });
+    pen(g, [[x + sgn * 2, AY - 34], [x + sgn * 1, AY + 14]], { w: 3.2, seed: 30 + sgn, tout: 0.3 });
+    pen(g, [[x + sgn * 38, AY - 48], [x + sgn * 36, AY + 6]], { w: 2, seed: 33 + sgn, tout: 0.4, gap: 0.1 });
   }
-  // spandrel masonry: a few course lines + staggered joints near the arch, hatched shade on the right
-  const deck = (x, y) => a.drAt(x, y) < -46;
-  const outside = (x, y) => Math.hypot(x - AX, y - AY) > AR + 37;
-  for (const [x0, x1, key] of [[505, 742, 1], [1150, 1345, 2]]) {
-    for (let dr = -82; dr > -330; dr -= r.range(40, 52)) {
+  // spandrel masonry: a few course lines + staggered joints near the arch
+  const deck = (x, y) => a.drAt(x, y) < -58;
+  const outside = (x, y) => Math.hypot(x - AX, y - AY) > AR + 44;
+  for (const [x0, x1] of [[500, 730], [1166, 1330]]) {
+    for (let dr = -100; dr > -340; dr -= r.range(52, 66)) {
       let x = x0 + r.range(-20, 30);
       while (x < x1) {
-        const xe = Math.min(x1 + r.range(-10, 30), x + r.range(50, 150));
+        const xe = Math.min(x1 + r.range(-10, 30), x + r.range(60, 160));
         const pts = [];
-        for (let k = 0; k <= 4; k++) { const xx = L.lerp(x, xe, k / 4), yy = a.yAt(xx, dr) + r.range(-1.6, 1.6); if (outside(xx, yy) && yy < AY - 8) pts.push([xx, yy]); }
-        if (pts.length > 2 && !r.chance(0.25)) pen(g, pts, { w: r.range(1.2, 1.9), seed: 700 + dr + x * 0.1, tout: 0.4, gap: 0.12 });
-        if (pts.length > 1 && r.chance(0.6)) { const j = pts[r.int(0, pts.length - 1)]; pen(g, [[j[0], j[1]], [j[0] + r.range(-2, 2), j[1] + r.range(26, 40)]], { w: 1.3, seed: 760 + x, tout: 0.5 }); }
-        x = xe + r.range(14, 60);
+        for (let k = 0; k <= 4; k++) { const xx = L.lerp(x, xe, k / 4), yy = a.yAt(xx, dr) + r.range(-1.8, 1.8); if (outside(xx, yy) && yy < AY - 8) pts.push([xx, yy]); }
+        if (pts.length > 2 && !r.chance(0.25)) pen(g, pts, { w: r.range(1.1, 1.7), seed: 700 + dr + x * 0.1, tout: 0.4, gap: 0.12 });
+        if (pts.length > 1 && r.chance(0.5)) { const j = pts[r.int(0, pts.length - 1)]; pen(g, [[j[0], j[1]], [j[0] + r.range(-2, 2), j[1] + r.range(30, 48)]], { w: 1.1, seed: 760 + x, tout: 0.5 }); }
+        x = xe + r.range(20, 70);
       }
     }
   }
-  hatch(g, r, (x, y) => deck(x, y) && outside(x, y) && y < AY - 14 && x - AX < 130 + (AY - y) * 0.55, [AX + 40, 600, AX + AR + 150, AY], 2.05, 12, { w: 1.5, over: 7, skip: 0.12, seed: 800 });
-  hatch(g, r, (x, y) => deck(x, y) && outside(x, y) && y < AY - 30 && y > AY - 250 && x > AX - AR - 76, [AX - AR - 80, 640, AX - 60, AY], 2.05, 15, { w: 1.3, over: 6, skip: 0.3, seed: 840 });
+  // shade on the wall: long racing zig-zags to the right of the arch, a lighter patch to its left
+  hatch(g, r, (x, y) => deck(x, y) && outside(x, y) && y < AY - 14 && x - AX < 120 + (AY - y) * 0.6, [AX + 30, 600, AX + AR + 170, AY], 2.02, 17, { w: 1.3, zig: true, lift: 0.22, over: 9, skip: 0.06, seed: 800 });
+  hatch(g, r, (x, y) => deck(x, y) && outside(x, y) && y < AY - 40 && y > AY - 260 && x > AX - AR - 96, [AX - AR - 100, 640, AX - 60, AY], 2.02, 21, { w: 1.2, over: 8, skip: 0.25, seed: 840 });
 }
 
 // ───────────────────────── banks & water ─────────────────────────
-const BANK_L = [[AX - AR - 12, AY + 3], [606, 992], [520, 1024], [430, 1072], [330, 1134], [190, 1250]];
-const BANK_R = [[AX + AR + 12, AY + 3], [1292, 994], [1370, 1032], [1442, 1080], [1544, 1142], [1690, 1250]];
+const BANK_L = [[AX - AR - 12, AY + 3], [596, 1002], [514, 1032], [430, 1078], [330, 1136], [190, 1250]];
+const BANK_R = [[AX + AR + 12, AY + 3], [1302, 1004], [1378, 1040], [1448, 1084], [1546, 1144], [1690, 1250]];
 function xOnBank(poly, y) {
   for (let i = 1; i < poly.length; i++) if (y <= poly[i][1]) { const p = poly[i - 1], q = poly[i]; return L.lerp(p[0], q[0], L.clamp((y - p[1]) / (q[1] - p[1]))); }
   return poly[poly.length - 1][0];
 }
 function drawBanks(g, r) {
   // where the bridge wall meets the ground
-  pen(g, [[-PAD - 20, 1004], [120, 996], [330, 1000], [520, 990], [AX - AR - 30, AY + 2]], { w: 2.6, seed: 41, tout: 0.2, gap: 0.14, gapFreq: 9, jit: 1.5 });
-  pen(g, [[AX + AR + 30, AY + 1], [1330, 992], [1420, 1000]], { w: 2.4, seed: 42, tout: 0.4, gap: 0.1, jit: 1.5 });
-  pen(g, [[1640, 1002], [1790, 994], [W + PAD + 20, 1002]], { w: 2.4, seed: 43, tout: 0.2, gap: 0.14, jit: 1.5 });
+  pen(g, [[-PAD - 20, 1012], [120, 1004], [330, 1008], [510, 1000], [AX - AR - 30, AY + 2]], { w: 2.2, seed: 41, tout: 0.2, gap: 0.16, gapFreq: 9, jit: 1.5 });
+  pen(g, [[AX + AR + 30, AY + 1], [1326, 1000], [1392, 1008]], { w: 2.1, seed: 42, tout: 0.4, gap: 0.1, jit: 1.5 });
+  pen(g, [[1700, 1030], [1800, 1022], [W + PAD + 20, 1030]], { w: 2.1, seed: 43, tout: 0.2, gap: 0.14, jit: 1.5 });
   // water's edge: a heavier, lumpy line each side, with a few shadow ticks hanging under the lip
   for (const [poly, sd] of [[BANK_L, 45], [BANK_R, 46]]) {
-    pen(g, poly, { w: 4.2, seed: sd, tin: 0.04, tout: 0.15, wob: 0.5, freq: 14, jit: 3.2, gap: 0.05 });
-    pen(g, poly.map(([x, y]) => [x + (sd === 45 ? 9 : -9), y + 9]), { w: 1.7, seed: sd + 10, tout: 0.3, gap: 0.22, gapFreq: 8, jit: 2.5 });
-    for (let i = 0; i < 26; i++) {
-      const y = r.range(AY + 8, H + 40), x = xOnBank(poly, y) + (sd === 45 ? 1 : -1) * r.range(2, 12);
-      pen(g, [[x, y], [x + (sd === 45 ? 1 : -1) * r.range(3, 10), y + r.range(8, 20)]], { w: r.range(1.2, 2), seed: 900 + i + sd, tout: 0.5 });
+    const sg = sd === 45 ? 1 : -1;
+    pen(g, poly, { w: 4, seed: sd, tin: 0.04, tout: 0.15, wob: 0.5, freq: 14, jit: 3.4, gap: 0.05 });
+    pen(g, poly.map(([x, y]) => [x + sg * 11, y + 10]), { w: 1.5, seed: sd + 10, tout: 0.3, gap: 0.22, gapFreq: 8, jit: 2.5 });
+    for (let i = 0; i < 16; i++) {
+      const y = r.range(AY + 10, H + 40), x = xOnBank(poly, y) + sg * r.range(2, 12);
+      pen(g, [[x, y], [x + sg * r.range(4, 12), y + r.range(10, 24)]], { w: r.range(1.2, 2), seed: 900 + i + sd, tout: 0.5 });
     }
   }
   // stones on the bank
   const rock = (x, y, w, h, sd) => {
-    pen(g, [[x - w * 0.5, y], [x - w * 0.42, y - h * 0.7], [x - w * 0.05, y - h], [x + w * 0.36, y - h * 0.78], [x + w * 0.52, y - h * 0.1], [x + w * 0.46, y + 2]], { w: 2.6, seed: sd, tout: 0.2, wob: 0.4, step: 5 });
-    hatch(g, r, (px, py) => px > x + w * 0.05 && py > y - h * 0.8 && py < y, [x - w * 0.5, y - h, x + w * 0.5, y], 1.2, 6, { w: 1.3, over: 3, seed: sd + 5 });
+    pen(g, [[x - w * 0.5, y], [x - w * 0.42, y - h * 0.7], [x - w * 0.05, y - h], [x + w * 0.36, y - h * 0.78], [x + w * 0.52, y - h * 0.1], [x + w * 0.46, y + 2]], { w: 2.6, seed: sd, tout: 0.2, wob: 0.45, step: 5 });
+    hatch(g, r, (px, py) => px > x + w * 0.02 && py > y - h * 0.82 && py < y, [x - w * 0.5, y - h, x + w * 0.5, y], 1.2, 8, { w: 1.3, zig: true, lift: 0.1, over: 3, seed: sd + 5 });
   };
-  rock(470, 1052, 86, 44, 51); rock(402, 1076, 58, 30, 52); rock(1462, 1070, 92, 46, 53); rock(1590, 1078, 60, 30, 54);
+  rock(474, 1060, 96, 50, 51); rock(398, 1086, 62, 32, 52); rock(1470, 1076, 100, 50, 53);
 }
 function drawWater(g, r) {
   // the reflection under each pier: sideways zig-zags that widen and loosen as they go down
   for (const sgn of [-1, 1]) {
-    let y = AY + 9;
-    for (let i = 0; i < 9; i++) {
-      const cx = AX + sgn * (AR + 14) + r.range(-10, 10), half = r.range(16, 30) + i * 5;
-      zig(g, r, cx - half, y, cx + half, y + r.range(-2, 2), 2.6 + i * 0.4, r.range(13, 20), { w: L.lerp(2.5, 1.5, i / 9), seed: 60 + i + sgn * 20 });
-      y += r.range(8, 13) + i * 1.2;
+    let y = AY + 11;
+    for (let i = 0; i < 7; i++) {
+      const cx = AX + sgn * (AR + 16) + r.range(-10, 10), half = r.range(18, 34) + i * 6;
+      zig(g, r, cx - half, y, cx + half, y + r.range(-2, 2), 3.2 + i * 0.5, r.range(15, 22), { w: L.lerp(2.3, 1.4, i / 7), seed: 60 + i + sgn * 20 });
+      y += r.range(10, 15) + i * 1.4;
     }
   }
   // the bright opening mirrored: a few long calm strokes, shorter broken ones toward the banks
-  for (let i = 0; i < 46; i++) {
-    const y = AY + 8 + Math.pow(r(), 0.8) * (H + 40 - AY), xl = xOnBank(BANK_L, y) + 26, xr = xOnBank(BANK_R, y) - 26;
-    const len = r.range(36, 250), x0 = r.range(xl, Math.max(xl + 10, xr - len)), x1 = Math.min(xr, x0 + len);
+  for (let i = 0; i < 30; i++) {
+    const y = AY + 10 + Math.pow(r(), 0.8) * (H + 40 - AY), xl = xOnBank(BANK_L, y) + 30, xr = xOnBank(BANK_R, y) - 30;
+    const len = r.range(44, 290), x0 = r.range(xl, Math.max(xl + 10, xr - len)), x1 = Math.min(xr, x0 + len);
     const pts = [[x0, y]];
-    for (let k = 1; k <= 3; k++) pts.push([L.lerp(x0, x1, k / 3), y + r.range(-1.8, 1.8)]);
+    for (let k = 1; k <= 3; k++) pts.push([L.lerp(x0, x1, k / 3), y + r.range(-2, 2)]);
     pen(g, pts, { w: r.range(1.2, 2.5), seed: 1000 + i, tin: 0.05, tout: 0.45, gap: 0.16, gapFreq: 5 });
   }
-  // dark mirror of the arch's shadow: the ring continued below the waterline in dashes
-  for (let t = 0.2; t < Math.PI - 0.2; t += r.range(0.1, 0.19)) {
-    const rr = AR * r.range(0.93, 1.0), x = AX + Math.cos(t) * rr, y = AY + Math.sin(t) * rr * 0.42 + 6, l = r.range(14, 34);
+  // dark mirror of the arch ring, continued below the waterline in dashes
+  for (let t = 0.2; t < Math.PI - 0.2; t += r.range(0.13, 0.24)) {
+    const rr = AR * r.range(0.93, 1.0), x = AX + Math.cos(t) * rr, y = AY + Math.sin(t) * rr * 0.4 + 8, l = r.range(16, 38);
     if (y < H + 30) pen(g, [[x - l, y + r.range(-1, 1)], [x, y + r.range(-1.5, 1.5)], [x + l, y + r.range(-1, 1)]], { w: r.range(1.6, 2.6), seed: 1100 + t * 10, tout: 0.4 });
   }
 }
 
 // ───────────────────────── pavilion with upturned eaves (翘角亭) ─────────────────────────
 const pv = (pts) => pts.map(([x, y]) => [PVX + PVS * x, PVY + PVS * y]);
-const HIP_R = [[4, -326], [26, -288], [62, -244], [112, -213], [160, -200], [192, -209], [207, -228]];
+const HIP_R = [[4, -326], [26, -288], [62, -244], [112, -213], [160, -200], [192, -209], [207, -228], [213, -240]];
 const HIP_L = HIP_R.map(([x, y]) => [-x, y]);
 const RIB_R = [[2, -324], [16, -280], [36, -232], [54, -196], [64, -176]];
 const RIB_L = RIB_R.map(([x, y]) => [-x, y]);
-const EAVE = [[-207, -228], [-184, -202], [-128, -183], [-46, -174], [46, -174], [128, -183], [184, -202], [207, -228]];
+const EAVE = [[-211, -238], [-186, -203], [-128, -183], [-46, -174], [46, -174], [128, -183], [186, -203], [211, -238]];
 function polyAt(poly, t) { const f = t * (poly.length - 1), i = Math.min(poly.length - 2, Math.floor(f)), k = f - i; return [L.lerp(poly[i][0], poly[i + 1][0], k), L.lerp(poly[i][1], poly[i + 1][1], k)]; }
 function drawPavilion(g, r) {
   const P = (pts, o) => pen(g, pv(pts), o);
   // roof: two hip ridges sweeping out in a concave curve and kicking up at the corners
-  P(HIP_L, { w: 4.6, seed: 71, tin: 0.04, tout: 0.22, head: 1.1, wob: 0.3 });
-  P(HIP_R, { w: 5.2, seed: 72, tin: 0.04, tout: 0.22, head: 1.1, wob: 0.3 });
+  P(HIP_L, { w: 4.4, seed: 71, tin: 0.04, tout: 0.2, head: 1.1, wob: 0.3 });
+  P(HIP_R, { w: 5.2, seed: 72, tin: 0.04, tout: 0.2, head: 1.1, wob: 0.3 });
   // eave edge: sags through the middle, lifts to both corners; re-stated once
-  P(EAVE, { w: 4.4, seed: 73, tin: 0.05, tout: 0.1, head: 1.0, wob: 0.35, freq: 9 });
-  P(EAVE.slice(1, 7).map(([x, y]) => [x * 0.93, y + 11]), { w: 2.1, seed: 74, tout: 0.2, gap: 0.14, gapFreq: 7 });
+  P(EAVE, { w: 4.4, seed: 73, tin: 0.05, tout: 0.08, head: 1.0, wob: 0.38, freq: 9 });
+  P(EAVE.slice(1, 7).map(([x, y]) => [x * 0.93, y + 12]), { w: 1.9, seed: 74, tout: 0.2, gap: 0.14, gapFreq: 7 });
   // inner ridges of the facing roof plane
-  P(RIB_L, { w: 2.6, seed: 75, tout: 0.25 });
-  P(RIB_R, { w: 3.2, seed: 76, tout: 0.25 });
+  P(RIB_L, { w: 2.4, seed: 75, tout: 0.25 });
+  P(RIB_R, { w: 3.1, seed: 76, tout: 0.25 });
   // tile rows: sparse on the lit faces, crowded on the right (shadow) face
   const rows = (A, B, n, t0, o) => {
     for (let k = 1; k <= n; k++) {
       const f = k / (n + 1), pts = [];
       for (let j = 0; j <= 6; j++) { const t = L.lerp(t0 + r.range(0, 0.12), 0.97, j / 6), p = polyAt(A, t), q = polyAt(B, Math.min(1, t * 0.98)); pts.push([L.lerp(p[0], q[0], f), L.lerp(p[1], q[1], f) + 2]); }
-      if (!r.chance(o.skip || 0)) P(pts, { w: r.range(1.2, 2), seed: 780 + k + n * 7, tout: 0.3, gap: o.gap || 0.1, gapFreq: 6 });
+      if (!r.chance(o.skip || 0)) P(pts, { w: r.range(1.2, 1.9), seed: 780 + k + n * 7, tout: 0.3, gap: o.gap || 0.1, gapFreq: 6 });
     }
   };
-  rows(RIB_R, HIP_R.slice(0, 5), 7, 0.22, { gap: 0.06 });
-  rows(RIB_L, RIB_R, 3, 0.4, { gap: 0.25, skip: 0.2 });
-  rows(HIP_L.slice(0, 5), RIB_L, 3, 0.35, { gap: 0.2 });
+  rows(RIB_R, HIP_R.slice(0, 5), 5, 0.22, { gap: 0.06 });
+  rows(RIB_L, RIB_R, 2, 0.42, { gap: 0.25 });
+  rows(HIP_L.slice(0, 5), RIB_L, 2, 0.35, { gap: 0.2 });
   // finial (宝顶): a bead on a short neck
-  P([[0, -322], [0, -364]], { w: 3, seed: 77, tout: 0.5 });
-  blot(g, PVX, PVY + PVS * -339, 8.2 * PVS, 7.1); blot(g, PVX + 0.5, PVY + PVS * -353, 4.6 * PVS, 7.9);
-  P([[-11, -324], [0, -329], [11, -324]], { w: 2.4, seed: 78, tout: 0.2 });
+  P([[0, -322], [0, -366]], { w: 3, seed: 77, tout: 0.5 });
+  blot(g, PVX, PVY + PVS * -340, 9.5 * PVS, 7.1); blot(g, PVX + 0.5, PVY + PVS * -355, 5.2 * PVS, 7.9);
+  P([[-12, -323], [0, -329], [12, -323]], { w: 2.4, seed: 78, tout: 0.2 });
   // deep shade tucked under the eave
-  zig(g, r, PVX + PVS * -150, PVY + PVS * -166, PVX + PVS * 152, PVY + PVS * -166, 5.5, 6.5, { w: 2.1, seed: 79 });
-  zig(g, r, PVX + PVS * 20, PVY + PVS * -158, PVX + PVS * 140, PVY + PVS * -160, 4, 6, { w: 1.7, seed: 80 });
+  scrib(g, r, PVX, PVY + PVS * -164, PVS * 150, PVS * 7, 40, { w: 2.1, seed: 79 });
+  scrib(g, r, PVX + PVS * 70, PVY + PVS * -157, PVS * 66, PVS * 6, 18, { w: 1.7, seed: 80 });
   // lintel, columns, hanging fretwork, bench rails
-  P([[-128, -152], [-40, -150], [50, -150], [130, -153]], { w: 2.4, seed: 81, tout: 0.15, gap: 0.08 });
-  P([[-122, -139], [0, -137], [124, -140]], { w: 1.6, seed: 82, tout: 0.2, gap: 0.16 });
-  for (const [x, w2, sd] of [[-120, 3.6, 83], [-44, 3.0, 84], [44, 3.2, 85], [120, 4.0, 86]]) {
-    P([[x + r.range(-2, 2), -156], [x + r.range(-1.5, 1.5), -90], [x + r.range(-2, 2), -20]], { w: w2, seed: sd, tin: 0.05, tout: 0.14, head: 1.25 });
-    if (x > -100) P([[x + 8, -148], [x + 8.5 + r.range(-1, 1), -24]], { w: 1.5, seed: sd + 20, tout: 0.3, gap: 0.14 });
+  P([[-130, -151], [-40, -149], [50, -149], [132, -152]], { w: 2.3, seed: 81, tout: 0.15, gap: 0.08 });
+  P([[-122, -137], [0, -135], [124, -138]], { w: 1.4, seed: 82, tout: 0.2, gap: 0.16 });
+  for (const [x, w2, sd] of [[-120, 3.5, 83], [-44, 2.9, 84], [44, 3.1, 85], [120, 4.0, 86]]) {
+    P([[x + r.range(-2, 2), -158], [x + r.range(-1.5, 1.5), -90], [x + r.range(-2, 2), -18]], { w: w2, seed: sd, tin: 0.05, tout: 0.14, head: 1.25 });
+    if (x > -100) P([[x + 9, -148], [x + 9.5 + r.range(-1, 1), -24]], { w: 1.3, seed: sd + 20, tout: 0.3, gap: 0.14 });
   }
   for (const [x0, x1] of [[-112, -52], [52, 112]]) {
-    zig(g, r, PVX + PVS * x0, PVY + PVS * -129, PVX + PVS * x1, PVY + PVS * -129, 5, 9, { w: 1.4, seed: 87 + x0 });
-    P([[x0 - 6, -60], [(x0 + x1) / 2, -62 + r.range(-2, 2)], [x1 + 6, -60]], { w: 2.3, seed: 88 + x0, tout: 0.2 });
-    P([[x0 - 4, -50], [x1 + 4, -51]], { w: 1.4, seed: 89 + x0, tout: 0.3, gap: 0.15 });
-    for (let x = x0 + 6; x < x1; x += r.range(11, 17)) P([[x, -58], [x + r.range(-1.5, 1.5), -26]], { w: 1.2, seed: 890 + x, tout: 0.4 });
+    zig(g, r, PVX + PVS * x0, PVY + PVS * -126, PVX + PVS * x1, PVY + PVS * -126, 6, 11, { w: 1.3, seed: 87 + x0 });
+    P([[x0 - 6, -62], [(x0 + x1) / 2, -64 + r.range(-2, 2)], [x1 + 6, -62]], { w: 2.2, seed: 88 + x0, tout: 0.2 });
+    for (let x = x0 + 8; x < x1; x += r.range(14, 21)) P([[x, -60], [x + r.range(-1.5, 1.5), -26]], { w: 1.1, seed: 890 + x, tout: 0.4 });
   }
   // plinth and steps
-  P([[-158, -22], [-60, -24], [70, -22], [160, -23]], { w: 3, seed: 91, tin: 0.04, tout: 0.12, gap: 0.05 });
-  P([[-170, 0], [-30, 2], [80, 0], [174, 2]], { w: 2.4, seed: 92, tout: 0.2, gap: 0.14, gapFreq: 7 });
-  P([[-160, -22], [-171, 1]], { w: 2.2, seed: 93, tout: 0.3 }); P([[161, -23], [175, 2]], { w: 2.6, seed: 94, tout: 0.3 });
-  P([[-34, -15], [36, -14]], { w: 1.6, seed: 95, tout: 0.3 }); P([[-40, -7], [42, -6]], { w: 1.6, seed: 96, tout: 0.3 });
-  hatch(g, r, () => true, [PVX + PVS * 60, PVY + PVS * -20, PVX + PVS * 160, PVY - 2], 1.25, 7, { w: 1.2, over: 2, skip: 0.15, seed: 97 });
+  P([[-158, -22], [-60, -24], [70, -22], [160, -23]], { w: 2.9, seed: 91, tin: 0.04, tout: 0.12, gap: 0.05 });
+  P([[-170, 0], [-30, 2], [80, 0], [174, 2]], { w: 2.2, seed: 92, tout: 0.2, gap: 0.14, gapFreq: 7 });
+  P([[-160, -22], [-171, 1]], { w: 2.1, seed: 93, tout: 0.3 }); P([[161, -23], [175, 2]], { w: 2.5, seed: 94, tout: 0.3 });
+  P([[-36, -14], [38, -13]], { w: 1.4, seed: 95, tout: 0.3 }); P([[-42, -6], [44, -5]], { w: 1.4, seed: 96, tout: 0.3 });
+  hatch(g, r, () => true, [PVX + PVS * 60, PVY + PVS * -20, PVX + PVS * 160, PVY - 2], 1.25, 9, { w: 1.1, zig: true, over: 2, seed: 97 });
   // shadow side of the roof: a second, slanting layer of hatching over the right-hand face
   hatch(g, r, (x, y) => {
     const lx = (x - PVX) / PVS, ly = (y - PVY) / PVS;
     if (ly < -300 || ly > -186) return false;
-    const t = (ly + 326) / 150, rib = polyAt(RIB_R, L.clamp(t)), hip = polyAt(HIP_R, L.clamp(t * 0.62));
+    const t = (ly + 326) / 150, rib = polyAt(RIB_R, L.clamp(t)), hip = polyAt(HIP_R, L.clamp(t * 0.55));
     return lx > rib[0] + 6 && lx < hip[0] + (ly > -214 ? 60 : 0) - 6;
-  }, [PVX, PVY + PVS * -310, PVX + PVS * 200, PVY + PVS * -180], 2.25, 7.5, { w: 1.4, over: 3, skip: 0.1, seed: 98 });
+  }, [PVX, PVY + PVS * -310, PVX + PVS * 200, PVY + PVS * -180], 2.25, 10, { w: 1.3, zig: true, lift: 0.2, over: 3, seed: 98 });
 }
 
 // ───────────────────────── bamboo, reeds, undergrowth ─────────────────────────
 function leafFan(g, r, x, y, dir, n, len, seed) {
   for (let i = 0; i < n; i++) {
-    const an = dir + (i - (n - 1) / 2) * r.range(0.3, 0.5) + r.range(-0.12, 0.12);
+    const an = dir + (i - (n - 1) / 2) * r.range(0.3, 0.52) + r.range(-0.12, 0.12);
     const l = len * r.range(0.7, 1.25), bend = r.range(-0.16, 0.16) * l;
     const ex = x + Math.cos(an) * l, ey = y + Math.sin(an) * l;
     pen(g, [[x, y], [(x + ex) / 2 - Math.sin(an) * bend, (y + ey) / 2 + Math.cos(an) * bend], [ex, ey]],
-      { w: r.range(7, 11) * Math.sqrt(l / 60), prof: 'leaf', seed: seed + i * 1.3, wob: 0.14, step: 2.5 });
+      { w: r.range(9.5, 14.5) * Math.sqrt(l / 70), abs: true, prof: 'leaf', seed: seed + i * 1.3, wob: 0.14, step: 2.5 });
   }
 }
 function drawBamboo(g, r) {
   const stems = [ // base x, base y, height, lean, width
-    [240, 1046, 452, 0.05, 4.8], [306, 1052, 372, 0.15, 4.2], [178, 1040, 356, -0.1, 4.0], [362, 1040, 286, 0.27, 3.4], [112, 1052, 300, -0.22, 3.4], [274, 1060, 250, -0.03, 3.0], [52, 1060, 330, -0.12, 3.6],
+    [306, 1056, 476, 0.06, 4.6], [378, 1060, 380, 0.17, 4.0], [236, 1052, 322, -0.08, 3.8], [446, 1052, 286, 0.28, 3.2], [150, 1060, 262, -0.2, 3.2], [58, 1066, 238, -0.1, 3.4],
   ];
   stems.forEach(([bx, by, h, lean, w], si) => {
-    const nseg = Math.max(3, Math.round(h / r.range(66, 84)));
+    const nseg = Math.max(3, Math.round(h / r.range(74, 92)));
     let x = bx, y = by, ang = -Math.PI / 2 + lean;
     for (let i = 0; i < nseg; i++) {
-      const sl = (h / nseg) * r.range(0.9, 1.1), nx = x + Math.cos(ang) * sl, ny = y + Math.sin(ang) * sl, k = 1 - 0.55 * (i / nseg);
+      const sl = (h / nseg) * r.range(0.9, 1.1), nx = x + Math.cos(ang) * sl, ny = y + Math.sin(ang) * sl, k = 1 - 0.5 * (i / nseg);
       // one joint of the culm, stopped short of the node; then the node tick
-      pen(g, [[x, y], [(x + nx) / 2 + r.range(-1.5, 1.5), (y + ny) / 2], [nx - Math.cos(ang) * 5, ny - Math.sin(ang) * 5]], { w: w * k, seed: 1200 + si * 20 + i, tin: 0.08, tout: 0.08, head: 1.25, wob: 0.2 });
-      if (i < nseg - 1) pen(g, [[nx - 6 * k - 1, ny + 1.5], [nx, ny - 1.5], [nx + 6 * k + 1, ny + 1]], { w: w * k * 0.85, seed: 1300 + si * 20 + i, tin: 0.2, tout: 0.3 });
+      pen(g, [[x, y], [(x + nx) / 2 + r.range(-1.5, 1.5), (y + ny) / 2], [nx - Math.cos(ang) * 6, ny - Math.sin(ang) * 6]], { w: w * k, seed: 1200 + si * 20 + i, tin: 0.1, tout: 0.07, head: 1.3, wob: 0.2 });
+      if (i < nseg - 1) pen(g, [[nx - 7 * k - 2, ny + 2], [nx, ny - 2], [nx + 7 * k + 2, ny + 1]], { w: w * k * 0.8, seed: 1300 + si * 20 + i, tin: 0.2, tout: 0.3 });
       // twigs + hanging leaf fans from the upper nodes
       if (i >= 1) {
-        const nt = i === nseg - 1 ? 2 : r.int(1, 2);
+        const top = i === nseg - 1, nt = top ? 1 : r.int(1, 2);
         for (let t = 0; t < nt; t++) {
           const side = t === 0 ? (r.chance(0.5) ? 1 : -1) : (t % 2 ? 1 : -1) * (r.chance(0.8) ? 1 : -1);
-          const ta = -Math.PI / 2 + side * r.range(0.7, 1.2), tl = r.range(24, 70);
+          const ta = -Math.PI / 2 + side * r.range(0.8, 1.3), tl = r.range(22, top ? 34 : 62);
           const tx = nx + Math.cos(ta) * tl, ty = ny + Math.sin(ta) * tl;
-          pen(g, [[nx, ny], [(nx + tx) / 2 + r.range(-3, 3), (ny + ty) / 2 + 3], [tx, ty]], { w: 1.6, seed: 1400 + si * 30 + i * 3 + t, tout: 0.4 });
-          const dir = side > 0 ? r.range(0.4, 1.05) : Math.PI - r.range(0.4, 1.05);
-          leafFan(g, r, tx, ty, dir, r.int(3, 5), r.range(44, 72), 1500 + si * 40 + i * 5 + t);
-          if (r.chance(0.45)) leafFan(g, r, (nx + tx) / 2, (ny + ty) / 2, dir + r.range(-0.3, 0.3), r.int(2, 3), r.range(34, 52), 1600 + si * 40 + i * 5 + t);
+          pen(g, [[nx, ny], [(nx + tx) / 2 + r.range(-3, 3), (ny + ty) / 2 + 3], [tx, ty]], { w: 1.4, seed: 1400 + si * 30 + i * 3 + t, tout: 0.4 });
+          const dir = side > 0 ? r.range(0.45, 1.1) : Math.PI - r.range(0.45, 1.1);
+          leafFan(g, r, tx, ty, dir, r.int(3, 4), r.range(58, 88), 1500 + si * 40 + i * 5 + t);
+          if (r.chance(0.3)) leafFan(g, r, (nx + tx) / 2, (ny + ty) / 2, dir + r.range(-0.3, 0.3), 2, r.range(44, 60), 1600 + si * 40 + i * 5 + t);
         }
       }
       x = nx; y = ny; ang += (lean >= 0 ? 1 : -1) * r.range(0.0, 0.05);
     }
-    leafFan(g, r, x, y, Math.PI / 2 + r.range(-0.5, 0.5) + lean * 2, r.int(3, 4), r.range(40, 60), 1700 + si * 9);
+    leafFan(g, r, x, y, Math.PI / 2 + r.range(-0.4, 0.4) + lean * 2, 3, r.range(54, 72), 1700 + si * 9);
   });
   // tangle at the foot of the clump
-  loops(g, r, 60, 1052, 420, 1040, 22, 26, { w: 1.9, seed: 1801 });
-  loops(g, r, 150, 1074, 380, 1066, 16, 20, { w: 1.5, seed: 1802 });
-  zig(g, r, -40, 1062, 150, 1030, 16, 11, { w: 1.6, seed: 1803, skew: 0.5 });
+  scrib(g, r, 250, 1060, 230, 24, 26, { w: 1.8, seed: 1801, tilt: 0.4 });
+  scrib(g, r, 90, 1076, 120, 18, 14, { w: 1.6, seed: 1802, tilt: -0.5 });
+  tuft(g, r, 520, 1050, 6, 46, 1810); tuft(g, r, 196, 1070, 7, 54, 1820); tuft(g, r, 12, 1052, 6, 60, 1830);
 }
-function reedClump(g, r, x, y, n, hMin, hMax, spread, leanBias, seed) {
+function reedClump(g, r, x, y, n, hMin, hMax, spread, leanBias, seed, o = {}) {
+  const k = o.k || 1;
   for (let i = 0; i < n; i++) {
-    const bx = x + r.range(-spread, spread), by = y + r.range(-8, 16), h = r.range(hMin, hMax), lean = leanBias + r.range(-0.24, 0.24);
-    const tx = bx + Math.sin(lean) * h, ty = by - Math.cos(lean) * h, bow = r.range(-0.1, 0.1) * h;
+    const bx = x + r.range(-spread, spread), by = y + r.range(-8, 16), h = r.range(hMin, hMax), lean = leanBias + r.range(-0.26, 0.26);
+    const tx = bx + Math.sin(lean) * h, ty = by - Math.cos(lean) * h, bow = r.range(-0.12, 0.12) * h;
     const mx = (bx + tx) / 2 + bow, my = (by + ty) / 2;
     const at = (u) => [bx * (1 - u) * (1 - 2 * u) + mx * 4 * u * (1 - u) + tx * u * (2 * u - 1), by * (1 - u) * (1 - 2 * u) + my * 4 * u * (1 - u) + ty * u * (2 * u - 1)];
-    pen(g, [[bx, by], [mx, my], [tx, ty]], { w: r.range(1.9, 3.3), seed: seed + i, tin: 0.04, tout: 0.5, head: 1.2, gap: 0.05 });
+    pen(g, [[bx, by], [mx, my], [tx, ty]], { w: r.range(2, 3.4) * k, seed: seed + i, tin: 0.04, tout: 0.5, head: 1.2, gap: 0.05 });
     // blades: leave the stalk, arc out, and droop — the odd one snapped
-    const nb = r.int(1, 3);
-    for (let k = 0; k < nb; k++) {
-      const [sx, sy] = at(r.range(0.18, 0.78)), side = r.chance(0.5 + lean) ? 1 : -1, l = r.range(60, 150), droop = r.range(-0.1, 0.5) * l;
+    const nb = r.int(1, 2);
+    for (let j = 0; j < nb; j++) {
+      const [sx, sy] = at(r.range(0.2, 0.75)), side = r.chance(0.5 + lean) ? 1 : -1, l = r.range(70, 170) * Math.sqrt(k), droop = r.range(-0.15, 0.45) * l;
       const pts = [[sx, sy], [sx + side * l * 0.38, sy - l * 0.5], [sx + side * l * 0.8, sy - l * 0.46], [sx + side * l * 1.08, sy - l * 0.2 + droop]];
-      if (r.chance(0.25)) pts.splice(3, 1, [sx + side * l * 0.86, sy - l * 0.3], [sx + side * l * 0.9, sy + l * 0.25]);
-      pen(g, pts, { w: r.range(3, 5.4), prof: 'leaf', seed: seed + 50 + i * 4 + k, wob: 0.2 });
+      if (r.chance(0.3)) pts.splice(3, 1, [sx + side * l * 0.86, sy - l * 0.3], [sx + side * l * 0.92, sy + l * 0.3]);
+      pen(g, pts, { w: r.range(5.5, 9) * k, abs: true, prof: 'leaf', seed: seed + 50 + i * 4 + j, wob: 0.2 });
     }
     // plume (芦花): a feathery zig-zag nodding to one side
-    if (r.chance(0.7)) {
-      const side = lean + bow * 0.01 >= 0 ? 1 : -1, pl = r.range(34, 62);
-      const ex = tx + side * pl * 0.75, ey = ty + pl * 0.35 - pl * 0.5;
-      zig(g, r, tx, ty + 6, ex, ey + 14, r.range(5, 8.5), 5.5, { w: 1.7, seed: seed + 90 + i, fade: 0.7 });
-      pen(g, [[tx, ty], [(tx + ex) / 2, ty - pl * 0.3], [ex + side * 6, ey + 20]], { w: 1.4, seed: seed + 95 + i, tout: 0.5 });
+    if (r.chance(0.75)) {
+      const side = lean >= 0 ? 1 : -1, pl = r.range(40, 70) * Math.sqrt(k);
+      const ex = tx + side * pl * 0.8, ey = ty - pl * 0.12;
+      zig(g, r, tx - side * 4, ty + 10, ex, ey + 16, r.range(6, 10), 6.5, { w: 1.7 * k, seed: seed + 90 + i, fade: 0.75 });
+      pen(g, [[tx, ty], [(tx + ex) / 2, ty - pl * 0.3], [ex + side * 8, ey + 22]], { w: 1.5 * k, seed: seed + 95 + i, tout: 0.5 });
     }
   }
 }
 function drawReeds(g, r) {
-  reedClump(g, r, 1296, 1092, 9, 170, 290, 76, 0.1, 2000);
-  reedClump(g, r, 1396, 1100, 5, 120, 210, 40, 0.3, 2100);
-  reedClump(g, r, 1822, 1078, 10, 200, 372, 78, -0.12, 2200);
-  reedClump(g, r, 1716, 1096, 4, 110, 190, 40, 0.22, 2300);
-  reedClump(g, r, 596, 1100, 7, 130, 236, 54, -0.16, 2400);
-  reedClump(g, r, 690, 1112, 3, 90, 150, 28, 0.2, 2500);
-  // wild crossing scribbles through the clumps: the hand moving faster than the eye
-  zig(g, r, 1206, 1082, 1420, 1040, 30, 15, { w: 1.5, seed: 2601, skew: 0.9 });
-  loops(g, r, 1230, 1096, 1440, 1088, 20, 22, { w: 1.6, seed: 2602 });
-  zig(g, r, 1724, 1066, 1940, 1036, 34, 16, { w: 1.5, seed: 2603, skew: -0.8 });
-  loops(g, r, 1700, 1084, 1960, 1070, 22, 24, { w: 1.7, seed: 2604 });
-  zig(g, r, 530, 1090, 700, 1066, 22, 13, { w: 1.4, seed: 2605, skew: -0.7 });
+  reedClump(g, r, 1262, 1104, 7, 150, 232, 62, 0.02, 2000);
+  reedClump(g, r, 1392, 1112, 4, 100, 170, 34, 0.26, 2100);
+  reedClump(g, r, 1846, 1090, 8, 190, 330, 62, 0.06, 2200);
+  reedClump(g, r, 1742, 1108, 3, 100, 170, 30, 0.2, 2300);
+  reedClump(g, r, 604, 1110, 6, 130, 228, 50, -0.14, 2400);
+  reedClump(g, r, 700, 1120, 3, 90, 150, 26, 0.2, 2500);
+  // the hand moving faster than the eye: tangles thrown through the clumps
+  scrib(g, r, 1300, 1066, 120, 30, 16, { w: 1.6, seed: 2601, tilt: 0.7 });
+  scrib(g, r, 1840, 1056, 120, 34, 16, { w: 1.6, seed: 2603, tilt: -0.6 });
+  scrib(g, r, 610, 1078, 96, 24, 13, { w: 1.5, seed: 2605, tilt: -0.6 });
+  tuft(g, r, 1600, 1064, 7, 50, 2610); tuft(g, r, 1690, 1052, 5, 40, 2620); tuft(g, r, 760, 1090, 5, 40, 2630); tuft(g, r, 1150, 1094, 6, 44, 2640);
   // ground strokes under things
-  for (const [x0, x1, y, sd] of [[60, 470, 1088, 1], [1330, 1700, 1022, 2], [1560, 1900, 1048, 3], [-60, 220, 1012, 4]]) {
-    pen(g, [[x0, y], [(x0 + x1) / 2, y + r.range(-5, 5)], [x1, y + r.range(-4, 4)]], { w: 1.8, seed: 2700 + sd, tout: 0.5, gap: 0.2, gapFreq: 6 });
+  for (const [x0, x1, y, sd] of [[60, 470, 1094, 1], [1380, 1720, 1050, 2], [1560, 1900, 1070, 3], [-60, 220, 1024, 4]]) {
+    pen(g, [[x0, y], [(x0 + x1) / 2, y + r.range(-5, 5)], [x1, y + r.range(-4, 4)]], { w: 1.7, seed: 2700 + sd, tout: 0.5, gap: 0.2, gapFreq: 6 });
   }
 }
 
@@ -476,48 +480,43 @@ function buildDark(env) {
     drawBamboo(g, r);
     drawReeds(g, r);
     // blots where the pen rested, a couple of flung drops
-    blot(g, 566, 934, 5.2, 1.1); blot(g, 574, 947, 2.2, 1.6);
-    blot(g, 1716, 826, 6.4, 2.2); spatter(g, r, 1716, 826, -0.6, 6, 52);
-    spatter(g, r, 430, 930, 2.5, 5, 44);
-    blot(g, 1118, 1046, 4.2, 3.4);
+    blot(g, 570, 930, 6.4, 1.1); blot(g, 580, 946, 2.8, 1.6);
+    blot(g, 1772, 842, 7.6, 2.2); spatter(g, r, 1772, 842, -0.5, 6, 60);
+    spatter(g, r, 520, 900, 2.5, 5, 50);
+    blot(g, 1118, 1050, 5, 3.4);
   });
 }
-/** pale ink: what lies far away, and the faint setting-out lines under the sketch */
+const HILL_L = [[-PAD - 30, 640], [-40, 590], [70, 528], [150, 486], [214, 470], [270, 496], [330, 528], [392, 514], [440, 522], [520, 566], [590, 600]];
+const HILL_R = [[1356, 604], [1440, 566], [1530, 536], [1600, 514], [1660, 530], [1740, 580], [1800, 600], [1880, 584], [1960, 606], [W + PAD + 30, 660]];
+/** pale ink: what lies far away */
 function buildLight(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
     g.strokeStyle = INK_L; g.fillStyle = INK_L; g.lineJoin = 'round';
     const r = L.rng('s35light');
     // far shore seen through the arch, with a smudge of trees
-    pen(g, [[AX - 262, AY - 50], [AX - 120, AY - 56], [AX + 40, AY - 51], [AX + 236, AY - 55]], { w: 2.2, seed: 3001, tout: 0.3, gap: 0.14, gapFreq: 7, jit: 1.5 });
-    loops(g, r, AX - 208, AY - 56, AX - 70, AY - 62, 22, 19, { w: 1.6, seed: 3002 });
-    loops(g, r, AX - 170, AY - 76, AX - 96, AY - 80, 15, 16, { w: 1.4, seed: 3003 });
-    loops(g, r, AX + 96, AY - 55, AX + 212, AY - 58, 15, 17, { w: 1.5, seed: 3004 });
-    for (let i = 0; i < 9; i++) { const x = AX + r.range(-230, 200), y = AY - r.range(26, 44); pen(g, [[x, y], [x + r.range(40, 120), y + r.range(-1.5, 1.5)]], { w: 1.3, seed: 3010 + i, tout: 0.5, gap: 0.2 }); }
-    // setting-out lines: the arch's axis and springing level, the pavilion's axis and eave level
-    pen(g, [[AX + 3, 606], [AX - 2, AY + 60]], { w: 1.1, seed: 3020, tin: 0.02, tout: 0.1, gap: 0.2, gapFreq: 9, head: 1 });
-    pen(g, [[AX - AR - 120, AY - 3], [AX + AR + 150, AY + 1]], { w: 1.1, seed: 3021, tin: 0.02, tout: 0.1, gap: 0.22, gapFreq: 11, head: 1 });
-    pen(g, [[PVX - 2, PVY + PVS * -372], [PVX + 2, PVY + 26]], { w: 1.1, seed: 3022, tin: 0.02, tout: 0.1, gap: 0.2, gapFreq: 9, head: 1 });
-    pen(g, [[PVX - PVS * 236, PVY + PVS * -176], [PVX + PVS * 240, PVY + PVS * -173]], { w: 1.0, seed: 3023, tin: 0.02, tout: 0.1, gap: 0.24, gapFreq: 8, head: 1 });
+    pen(g, [[AX - 270, AY - 54], [AX - 120, AY - 60], [AX + 40, AY - 55], [AX + 250, AY - 59]], { w: 1.8, seed: 3001, tout: 0.3, gap: 0.14, gapFreq: 7, jit: 1.5 });
+    scrib(g, r, AX - 150, AY - 82, 78, 24, 15, { w: 1.4, seed: 3002 });
+    scrib(g, r, AX - 60, AY - 72, 40, 14, 9, { w: 1.2, seed: 3003 });
+    scrib(g, r, AX + 160, AY - 74, 62, 16, 12, { w: 1.3, seed: 3004 });
+    for (let i = 0; i < 6; i++) { const x = AX + r.range(-230, 160), y = AY - r.range(22, 44); pen(g, [[x, y], [x + r.range(50, 130), y + r.range(-1.5, 1.5)]], { w: 1.1, seed: 3010 + i, tout: 0.5, gap: 0.2 }); }
     // paler reeds standing further back
-    reedClump(g, r, 1188, 1010, 4, 70, 130, 30, 0.1, 3100);
-    reedClump(g, r, 716, 1006, 4, 60, 120, 26, -0.1, 3200);
-    reedClump(g, r, 1690, 1010, 5, 90, 160, 44, 0.05, 3300);
+    reedClump(g, r, 1200, 1014, 4, 70, 130, 30, 0.1, 3100, { k: 0.6 });
+    reedClump(g, r, 706, 1010, 4, 60, 120, 26, -0.1, 3200, { k: 0.6 });
+    reedClump(g, r, 1756, 1030, 4, 90, 150, 40, 0.05, 3300, { k: 0.65 });
     // distant hills: one wet stroke each along the ridge (kept well clear of the caption above the crest)
-    g.save(); a.clipAbove(g, 9);
-    const ridge = (pts, sd) => { pen(g, pts, { w: 6.5, seed: sd, prof: 'flat', wob: 0.55, freq: 7, gap: 0.07, gapFreq: 5, jit: 2, step: 4 }); pen(g, pts.map(([x, y]) => [x + 5, y + 5]), { w: 2, seed: sd + 1, tout: 0.3, gap: 0.3, gapFreq: 6, jit: 2 }); };
+    g.save(); a.clipAbove(g, 14);
+    const ridge = (pts, sd) => { pen(g, pts, { w: 5.5, seed: sd, prof: 'flat', wob: 0.55, freq: 7, gap: 0.07, gapFreq: 5, jit: 2, step: 4 }); pen(g, pts.map(([x, y]) => [x + 6, y + 7]), { w: 1.6, seed: sd + 1, tout: 0.3, gap: 0.3, gapFreq: 6, jit: 2 }); };
     ridge(HILL_L, 3401); ridge(HILL_R, 3403);
     g.restore();
   });
 }
-const HILL_L = [[-PAD - 30, 640], [-40, 590], [70, 528], [150, 486], [214, 470], [270, 496], [330, 528], [392, 514], [440, 522], [520, 566], [590, 600]];
-const HILL_R = [[1356, 604], [1440, 566], [1530, 536], [1600, 514], [1660, 530], [1740, 580], [1800, 600], [1880, 584], [1960, 606], [W + PAD + 30, 660]];
 /** soft grey wash: hills, the shadowed soffit, the dark side of the roof, the reflection */
 function buildWash(env) {
   const a = env.arc;
   const c = L.makeLayer(PAD, (g) => {
     const fillPoly = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill(); };
-    g.save(); a.clipAbove(g, 10);
+    g.save(); a.clipAbove(g, 16);
     for (const hill of [HILL_L, HILL_R]) {
       const sm = L.smoothPath(hill, 8), top = Math.min(...hill.map((p) => p[1]));
       g.fillStyle = L.linear(g, 0, top, 0, top + 170, [[0, L.rgba(INK_L, 0.5)], [0.35, L.rgba(INK_L, 0.26)], [1, L.rgba(INK_L, 0.04)]]);
@@ -526,35 +525,35 @@ function buildWash(env) {
     g.restore();
     // soffit
     g.save(); g.beginPath(); g.arc(AX, AY, AR - 3, Math.PI, L.TAU); g.closePath(); g.clip();
-    g.beginPath(); g.rect(AX - AR - 10, AY - AR - 10, AR * 2 + 20, AR + 10); g.arc(AX + 20, AY + 47, AR - 2, 0, L.TAU, true);
-    g.fillStyle = L.rgba(INK_L, 0.42); g.fill('evenodd');
+    g.beginPath(); g.rect(AX - AR - 10, AY - AR - 10, AR * 2 + 20, AR + 10); g.arc(AX + 22, AY + 52, AR - 2, 0, L.TAU, true);
+    g.fillStyle = L.rgba(INK_L, 0.46); g.fill('evenodd');
     g.restore();
     // roof shade + under-eave
-    g.fillStyle = L.rgba(INK_L, 0.36);
+    g.fillStyle = L.rgba(INK_L, 0.38);
     fillPoly(pv([...RIB_R, [64, -172], [128, -181], [184, -200], ...HIP_R.slice(0, 6).reverse()]));
-    g.fillStyle = L.rgba(INK_L, 0.3);
-    fillPoly(pv([[-150, -172], [150, -172], [128, -150], [-126, -150]]));
+    g.fillStyle = L.rgba(INK_L, 0.32);
+    fillPoly(pv([[-150, -172], [150, -172], [128, -148], [-126, -148]]));
     // pier reflections
-    for (const sgn of [-1, 1]) { g.fillStyle = L.linear(g, 0, AY, 0, AY + 150, [[0, L.rgba(INK_L, 0.34)], [1, L.rgba(INK_L, 0)]]); g.fillRect(AX + sgn * (AR + 16) - 34, AY + 4, 68, 150); }
+    for (const sgn of [-1, 1]) { g.fillStyle = L.linear(g, 0, AY, 0, AY + 150, [[0, L.rgba(INK_L, 0.36)], [1, L.rgba(INK_L, 0)]]); g.fillRect(AX + sgn * (AR + 18) - 38, AY + 4, 76, 150); }
     // a breath of tone behind the bamboo
-    g.fillStyle = L.radial(g, 230, 800, 20, 230, [[0, L.rgba(INK_L, 0.2)], [1, L.rgba(INK_L, 0)]]); g.fillRect(-PAD, 540, 620, 560);
+    g.fillStyle = L.radial(g, 300, 850, 20, 240, [[0, L.rgba(INK_L, 0.2)], [1, L.rgba(INK_L, 0)]]); g.fillRect(-PAD, 560, 700, 560);
   });
   // wet edges + granulation
   const out = L.blurred(c, 3.2);
   const g = out.getContext('2d');
   g.globalCompositeOperation = 'destination-out'; g.globalAlpha = 0.6;
-  g.drawImage(L.noiseTex(out.width, out.height, { seed: 's35wash', scale: 70, octaves: 4, res: 0.33, contrast: 1.8, ramp: [[0, 'rgba(0,0,0,0.75)'], [0.55, 'rgba(0,0,0,0.1)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+  g.drawImage(L.noiseTex(out.width, out.height, { seed: 's35wash', scale: 70, octaves: 3, res: 0.25, contrast: 1.8, ramp: [[0, 'rgba(0,0,0,0.75)'], [0.55, 'rgba(0,0,0,0.1)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
   return out;
 }
 
-const CREASES = [[1364, -PAD, 1349, H + PAD, 1], [-PAD, 856, W + PAD, 843, 2]];
+const CREASES = [[1366, -PAD, 1351, H + PAD, 1], [-PAD, 868, W + PAD, 851, 2]];
 function alongCrease(g, c, fn) {
   const [x0, y0, x1, y1] = c, len = Math.hypot(x1 - x0, y1 - y0);
   g.save(); g.translate(x0, y0); g.rotate(Math.atan2(y1 - y0, x1 - x0)); fn(len); g.restore();
 }
 function buildPaper(env) {
   const a = env.arc, w = W + PAD * 2, h = H + PAD * 2;
-  const c = L.paperTex(w, h, { base: PAPER, seed: 's35p', tone: SPOT, fiber: 1, stain: 0.9, grain: 0.18 });
+  const c = L.paperTex(w, h, { base: PAPER, seed: 's35p', tone: SPOT, fiber: 1, stain: 0.7, grain: 0.16 });
   c._pad = PAD;
   const g = c.getContext('2d');
   g.setTransform(1, 0, 0, 1, PAD, PAD); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
@@ -562,17 +561,17 @@ function buildPaper(env) {
   const inZone = (x, y) => x > 590 && x < 1330 && y > 250 && y < a.crestY + 4;
   // blotchy age-toning, then the sheet browning toward its edges
   g.globalCompositeOperation = 'multiply';
-  g.globalAlpha = 0.5;
-  g.drawImage(L.noiseTex(w, h, { seed: 's35m1', scale: 300, octaves: 4, warp: 0.7, res: 0.25, contrast: 1.5, ramp: [[0, '#bda06a'], [0.5, '#eee2c8'], [1, '#ffffff']] }), -PAD, -PAD);
-  g.globalAlpha = 0.34;
-  g.drawImage(L.noiseTex(w, h, { seed: 's35m2', scale: 44, octaves: 3, res: 0.33, contrast: 1.7, ramp: [[0, '#b39a68'], [0.45, '#f6efde'], [1, '#ffffff']] }), -PAD, -PAD);
+  g.globalAlpha = 0.42;
+  g.drawImage(L.noiseTex(w, h, { seed: 's35m1', scale: 320, octaves: 4, warp: 0.7, res: 0.2, contrast: 1.4, ramp: [[0, '#c9b184'], [0.5, '#f1e8d2'], [1, '#ffffff']] }), -PAD, -PAD);
+  g.globalAlpha = 0.3;
+  g.drawImage(L.noiseTex(w, h, { seed: 's35m2', scale: 40, octaves: 3, res: 0.25, contrast: 1.7, ramp: [[0, '#b9a273'], [0.45, '#f6efde'], [1, '#ffffff']] }), -PAD, -PAD);
   g.globalAlpha = 1;
-  g.fillStyle = L.radial(g, 940, 450, 480, 1480, [[0, '#ffffff'], [0.5, '#efe2c2'], [1, '#c6a973']]);
+  g.fillStyle = L.radial(g, 940, 440, 520, 1500, [[0, '#ffffff'], [0.5, '#f1e6c9'], [1, '#cdb486']]);
   g.fillRect(-PAD, -PAD, w, h);
   // water stains (水渍): pale pools ringed by a brown tide-line
   {
     const res = 1 / 3, cw = Math.round(w * res), ch = Math.round(h * res), img = new ImageData(cw, ch), d = img.data, nz = L.makeNoise('s35stain');
-    const pools = [[236, 948, 330, 0.9], [1808, 136, 300, 0.8], [1160, 1042, 150, 0.6], [44, 150, 230, 0.7], [1700, 760, 120, 0.45]];
+    const pools = [[236, 948, 330, 0.9], [1808, 136, 300, 0.8], [1160, 1052, 150, 0.6], [44, 150, 230, 0.7], [1700, 770, 120, 0.45]];
     for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
       const fx = x / res - PAD, fy = y / res - PAD;
       let al = 0;
@@ -580,21 +579,21 @@ function buildPaper(env) {
         const p = pools[i], dx = fx - p[0], dy = fy - p[1];
         if (Math.abs(dx) > p[2] * 1.5 || Math.abs(dy) > p[2] * 1.5) continue;
         const dd = Math.hypot(dx, dy) / p[2] + 0.3 * nz.fbm(fx / 190 + i * 9.1, fy / 190 - i * 4.7, 3) + 0.035 * nz.n2(fx / 21, fy / 21);
-        if (dd < 1) { const e = sstep(0.9, 0.995, dd); al += p[3] * (0.045 + 0.42 * e * e + 0.1 * bump(dd, 0.66, 0.025)); }
+        if (dd < 1) { const e = sstep(0.9, 0.995, dd); al += p[3] * (0.05 + 0.44 * e * e + 0.1 * bump(dd, 0.66, 0.025)); }
       }
-      const k = (y * cw + x) * 4; d[k] = 122; d[k + 1] = 84; d[k + 2] = 36; d[k + 3] = Math.min(255, al * 255);
+      const k = (y * cw + x) * 4; d[k] = 126; d[k + 1] = 90; d[k + 2] = 42; d[k + 3] = Math.min(255, al * 255);
     }
     const sc = L.makeCanvas(cw, ch); sc.getContext('2d').putImageData(img, 0, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(sc, -PAD, -PAD, w, h);
   }
   // foxing (霉斑): rusty freckles, gathered in drifts; almost none where the caption will sit
-  const drifts = [[1580, 300, 240], [400, 190, 260], [1000, 880, 300], [1760, 900, 220], [110, 600, 200], [1420, 700, 200], [700, 720, 220]];
+  const drifts = [[1580, 290, 240], [400, 190, 260], [1000, 900, 300], [1760, 900, 220], [110, 600, 200], [1420, 700, 200], [700, 740, 220]];
   for (let i = 0; i < 330; i++) {
     let x, y;
     if (i % 3) { const dft = drifts[i % drifts.length]; x = dft[0] + r.gauss() * dft[2] * 0.6; y = dft[1] + r.gauss() * dft[2] * 0.6; } else { x = r.range(-PAD, W + PAD); y = r.range(-PAD, H + PAD); }
-    const zone = inZone(x, y); if (zone && r.chance(0.8)) continue;
-    const rad = L.lerp(2, zone ? 6 : 17, Math.pow(r(), 2.6)), al = r.range(0.12, 0.5) * (zone ? 0.5 : 1);
+    const zone = inZone(x, y); if (zone && r.chance(0.85)) continue;
+    const rad = L.lerp(2, zone ? 5 : 17, Math.pow(r(), 2.6)), al = r.range(0.14, 0.52) * (zone ? 0.45 : 1);
     const col = r.pick(['#8f5f2a', '#9a6b33', '#a57a3e', '#7c5226']);
     g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(col, al)], [0.5, L.rgba(col, al * 0.7)], [1, L.rgba(col, 0)]]);
     g.beginPath(); g.ellipse(x, y, rad, rad * r.range(0.7, 1), r() * 3, 0, L.TAU); g.fill();
@@ -608,7 +607,11 @@ function buildPaper(env) {
     }
   }
   g.globalCompositeOperation = 'source-over';
-  L.speckle(g, { seed: 's35spk', count: 1500, x: -PAD, y: -PAD, w, h, rMin: 0.4, rMax: 1.7, colors: ['#5a4424', '#7a5a2c', '#3a2c18'], alpha: [0.1, 0.5], test: (x, y) => !inZone(x, y) || ((x * 7 + y * 13) | 0) % 3 === 0 });
+  // the caption's patch of paper is the cleanest on the sheet
+  g.save(); g.translate(960, a.crestY - 140); g.scale(1, 0.56);
+  g.fillStyle = L.radial(g, 0, 0, 120, 520, [[0, L.rgba('#dccda8', 0.5)], [0.6, L.rgba('#dccda8', 0.3)], [1, L.rgba('#dccda8', 0)]]);
+  g.beginPath(); g.arc(0, 0, 520, 0, L.TAU); g.fill(); g.restore();
+  L.speckle(g, { seed: 's35spk', count: 1700, x: -PAD, y: -PAD, w, h, rMin: 0.4, rMax: 1.8, colors: ['#5a4424', '#7a5a2c', '#3a2c18'], alpha: [0.1, 0.55], test: (x, y) => !inZone(x, y) || ((x * 7 + y * 13) | 0) % 3 === 0 });
   // long fibres caught in the sheet
   g.lineCap = 'round';
   for (let i = 0; i < 520; i++) {
@@ -619,60 +622,67 @@ function buildPaper(env) {
   }
   // fold creases (折痕): a tonal step across the fold, a dark hairline, a worn pale ridge
   for (const cr of CREASES) alongCrease(g, cr, (len) => {
-    g.fillStyle = L.linear(g, 0, -64, 0, 0, [[0, 'rgba(74,50,14,0)'], [1, 'rgba(74,50,14,0.14)']]); g.fillRect(0, -64, len, 64);
-    g.fillStyle = L.linear(g, 0, 0, 0, 52, [[0, 'rgba(255,248,226,0.2)'], [1, 'rgba(255,248,226,0)']]); g.fillRect(0, 0, len, 52);
+    g.fillStyle = L.linear(g, 0, -60, 0, 0, [[0, 'rgba(74,50,14,0)'], [1, 'rgba(74,50,14,0.09)']]); g.fillRect(0, -60, len, 60);
+    g.fillStyle = L.linear(g, 0, 0, 0, 50, [[0, 'rgba(255,248,226,0.14)'], [1, 'rgba(255,248,226,0)']]); g.fillRect(0, 0, len, 50);
     for (let x = 0; x < len; x += 5) {
-      const n = NZ.n2(x * 0.012, cr[4] * 3.3), yy = 1.8 * NZ.n2(x * 0.004, 7 + cr[4]);
-      g.fillStyle = `rgba(70,48,18,${(0.26 + 0.22 * n).toFixed(3)})`; g.fillRect(x, yy - 1.4, 5.5, 1.4);
-      g.fillStyle = `rgba(255,250,232,${(0.34 + 0.28 * n).toFixed(3)})`; g.fillRect(x, yy, 5.5, 1.6);
+      const n = NZ.n2(x * 0.012, cr[4] * 3.3), yy = 2.6 * NZ.n2(x * 0.004, 7 + cr[4]);
+      g.fillStyle = `rgba(70,48,18,${Math.max(0, 0.16 + 0.2 * n).toFixed(3)})`; g.fillRect(x, yy - 1.3, 5.5, 1.3);
+      g.fillStyle = `rgba(255,250,232,${Math.max(0, 0.22 + 0.26 * n).toFixed(3)})`; g.fillRect(x, yy, 5.5, 1.5);
     }
-    for (let i = 0; i < len * 0.55; i++) { g.fillStyle = L.rgba('#fff9e8', r.range(0.1, 0.5)); g.fillRect(r() * len, r.gauss() * 3.2, r.range(1, 4), r.range(0.6, 1.7)); }
+    for (let i = 0; i < len * 0.4; i++) { g.fillStyle = L.rgba('#fff9e8', r.range(0.1, 0.45)); g.fillRect(r() * len, r.gauss() * 3.2, r.range(1, 4), r.range(0.6, 1.7)); }
   });
-  // paper tooth: fine relief lit from the upper left, plus gentle cockling
-  const tooth = L.noiseTex(w, h, { seed: 's35tooth', scale: 7, octaves: 3, res: 0.5, contrast: 1.5 });
+  // paper tooth (a coarser grain than the film's) and gentle cockling of the sheet
   g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
-  g.drawImage(L.bumpLight(tooth, { angle: 225, strength: 1.6, res: 0.5 }), -PAD, -PAD);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.32;
-  g.drawImage(L.noiseTex(w, h, { seed: 's35cockle', scale: 420, sx: 1.8, octaves: 3, res: 0.2, contrast: 1.6 }), -PAD, -PAD);
+  g.drawImage(L.grainTex(w, h, { seed: 's35tooth', amount: 0.2, size: 2 }), -PAD, -PAD);
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.26;
+  g.drawImage(L.noiseTex(w, h, { seed: 's35cockle', scale: 460, sx: 1.8, octaves: 3, res: 0.15, contrast: 1.5 }), -PAD, -PAD);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
 
-/** the paper's tooth shows through the ink: pinholes, dry patches, and wear along the folds */
-function erodeInk(dark) {
-  const w = dark.width, h = dark.height, g = dark.getContext('2d');
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  const r = L.rng('s35tooth'), img = new ImageData(w, h), d = img.data;
-  for (let i = 3; i < d.length; i += 4) { const v = r(); if (v > 0.86) d[i] = 70 + (v - 0.86) * 1200; }
-  const pin = L.makeCanvas(w, h); pin.getContext('2d').putImageData(img, 0, 0);
-  g.globalCompositeOperation = 'destination-out';
-  g.globalAlpha = 0.9; g.drawImage(pin, 0, 0);
-  g.globalAlpha = 1;
-  g.drawImage(L.noiseTex(w, h, { seed: 's35dry', scale: 26, octaves: 3, res: 0.5, contrast: 2.1, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.3, 'rgba(0,0,0,0.12)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
-  g.drawImage(L.noiseTex(w, h, { seed: 's35dry2', scale: 240, octaves: 3, res: 0.2, contrast: 1.6, ramp: [[0, 'rgba(0,0,0,0.26)'], [0.5, 'rgba(0,0,0,0.05)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+/** what the paper's tooth takes back out of the ink: pinholes, dry patches, wear along the folds (a destination-out mask) */
+function buildErosion() {
+  const w = W + PAD * 2, h = H + PAD * 2, hw = w >> 1, hh = h >> 1;
+  const c = L.makeCanvas(w, h), g = c.getContext('2d');
+  const r = L.rng('s35tooth'), img = new ImageData(hw, hh), d = img.data;
+  for (let i = 3; i < d.length; i += 4) { const v = r(); if (v > 0.9) d[i] = 50 + (v - 0.9) * 1500; }
+  const pin = L.makeCanvas(hw, hh); pin.getContext('2d').putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = true; g.globalAlpha = 0.75; g.drawImage(pin, 0, 0, w, h); g.globalAlpha = 1;
+  g.drawImage(L.noiseTex(w, h, { seed: 's35dry', scale: 22, octaves: 3, res: 0.33, contrast: 2.1, ramp: [[0, 'rgba(0,0,0,0.4)'], [0.26, 'rgba(0,0,0,0.08)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+  g.drawImage(L.noiseTex(w, h, { seed: 's35dry2', scale: 260, octaves: 3, res: 0.15, contrast: 1.6, ramp: [[0, 'rgba(0,0,0,0.2)'], [0.5, 'rgba(0,0,0,0.03)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
   g.translate(PAD, PAD);
   for (const cr of CREASES) alongCrease(g, cr, (len) => {
-    for (let i = 0; i < len * 0.9; i++) { g.fillStyle = `rgba(0,0,0,${r.range(0.3, 1).toFixed(2)})`; g.fillRect(r() * len, r.gauss() * 1.7 - 0.5, r.range(1, 4.5), r.range(0.8, 2.4)); }
+    for (let i = 0; i < len * 0.7; i++) { g.fillStyle = `rgba(0,0,0,${r.range(0.3, 1).toFixed(2)})`; g.fillRect(r() * len, r.gauss() * 1.7 - 0.5, r.range(1, 4.5), r.range(0.8, 2.4)); }
   });
-  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over';
-  return dark;
+  return c;
+}
+function erode(layer, mask, amt) {
+  const g = layer.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-out'; g.globalAlpha = amt;
+  g.drawImage(mask, 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
 }
 
 export default {
   name: '白描速写',
   tone: 'dark',
   init(env) {
-    const paper = buildPaper(env), wash = buildWash(env), light = buildLight(env), dark = buildDark(env);
-    const halo = L.blurred(dark, 4.5);      // ink feathering into the fibres (洇)
-    erodeInk(dark); erodeInk(light);
+    const T = [performance.now()], tk = () => T.push(performance.now());
+    const paper = buildPaper(env); tk();
+    const wash = buildWash(env); tk();
+    const light = buildLight(env); tk();
+    const dark = buildDark(env); tk();
+    const halo = L.blurred(dark, 5);      // ink feathering into the fibres (洇)
+    const mask = buildErosion(); erode(dark, mask, 0.8); erode(light, mask, 1); tk();
     const pic = L.makeLayer(PAD, (g) => {
       g.drawImage(paper, -PAD, -PAD);
       g.globalCompositeOperation = 'multiply';
       g.globalAlpha = 0.85; g.drawImage(wash, -PAD, -PAD);
-      g.globalAlpha = 0.3; g.drawImage(halo, -PAD, -PAD);
-      g.globalAlpha = 0.78; g.drawImage(light, -PAD, -PAD);
-      g.globalAlpha = 0.96; g.drawImage(dark, -PAD, -PAD);
-    });
+      g.globalAlpha = 0.26; g.drawImage(halo, -PAD, -PAD);
+      g.globalAlpha = 0.74; g.drawImage(light, -PAD, -PAD);
+      g.globalAlpha = 1; g.drawImage(dark, -PAD, -PAD);
+    }); tk();
+    console.warn('s35 timing paper/wash/light/dark/erode/comp: ' + T.slice(1).map((t, i) => Math.round(t - T[i])).join(' / '));
     S = { pic };
   },
   draw(ctx, env, p) {
@@ -680,7 +690,7 @@ export default {
     L.blit(ctx, env, S.pic, { rot: L.lerp(-0.0028, 0.0028, p), zoom: L.lerp(1.0, 1.012, p) });
     ctx.save();
     ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = L.linear(ctx, 0, 0, W, H, [[0, 'rgba(255,244,214,0.28)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(40,26,8,0.34)']]);
+    ctx.fillStyle = L.linear(ctx, 0, 0, W, H, [[0, 'rgba(255,246,222,0.26)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(40,26,8,0.3)']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
   },

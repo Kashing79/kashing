@@ -36,12 +36,12 @@ function makeTongues(uMax) {
   const r = L.rng('s36-flame');
   const T = [];
   const rows = [
-    { tip: RIM + 1, pitch: 132, len: 440, w: 31 },
+    { tip: RIM - 14, pitch: 132, len: 452, w: 31 },   // the tallest tongues run up under the rim
     { tip: RIM + 1 + ROWGAP, pitch: 132, len: 410, w: 31 },
     { tip: RIM + 1 + ROWGAP * 2, pitch: 132, len: 340, w: 30 },
   ];
-  // every tip flicks toward the axis of the niche (mirrored left / right); the one on the axis stands straight
-  const dirOf = (u) => (Math.abs(u) < 10 ? 0 : -Math.sign(u));
+  // every tip flicks toward the axis of the niche (mirrored left / right); near the axis the tongues straighten up
+  const dirOf = (u) => -Math.sign(u) * sstep(8, 230, Math.abs(u));
   rows.forEach((row, k) => {
     const n = Math.ceil(uMax / row.pitch) + 1;
     for (let i = -n; i <= n; i++) {
@@ -135,13 +135,11 @@ function buildStone(env) {
   }
 
   // ── noise fields (8-bit, read back once) ──
-  const __t0 = performance.now(); /*TIMING*/
   const nPit = noiseData(w, h, { seed: 's36pit', scale: 11 * RES, octaves: 3, gain: 0.6, res: 0.4, contrast: 1.5 });
   const nBig = noiseData(w, h, { seed: 's36big', scale: 300 * RES, octaves: 4, warp: 0.7, res: 0.2, contrast: 1.5 });
   const nBed = noiseData(w, h, { seed: 's36bed', scale: 34 * RES, sx: 16, sy: 0.5, octaves: 2, res: 0.25, contrast: 1.6 });
   const gr = L.rng('s36grain');
 
-  const __t1 = performance.now(); /*TIMING*/
   // ── 1) height field ──
   const hgt = new Float32Array(N), dep = new Float32Array(N), ang = new Float32Array(N);
   const TAU = L.TAU;
@@ -212,12 +210,10 @@ function buildStone(env) {
     }
   }
 
-  const __t2 = performance.now(); /*TIMING*/
   // ── 2) occlusion (two radii) + cast shadows from the low key light ──
   const b1 = boxBlur(hgt, w, h, Math.round(6.5 * RES), 2), b2 = boxBlur(hgt, w, h, Math.round(21 * RES), 2);
-  let lx = -0.24, ly = 0.9, lz = 0.4; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
+  let lx = -0.32, ly = 0.86, lz = 0.4; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
   const lm = Math.hypot(lx, ly), sxs = lx / lm, sys = ly / lm, tanE = lz / lm;
-  const __t3 = performance.now(); /*TIMING*/
   // cast shadows: sweep away from the light carrying the shadow horizon (soft, unlimited range, no banding)
   const hor = new Float32Array(N);
   {
@@ -235,7 +231,7 @@ function buildStone(env) {
     }
   }
   const img = new ImageData(w, h); const o = img.data;
-  const ramp = L.makeRamp([[0, '#030303'], [0.07, '#0f0d0a'], [0.2, '#3a342c'], [0.42, '#857864'], [0.58, '#a89a84'], [0.8, '#d6cab6'], [1, '#efe6d6'], [1.3, '#fffaf0']].map(([t, c]) => [t / 1.3, c]));
+  const ramp = L.makeRamp([[0, '#030303'], [0.07, '#0f0d0a'], [0.2, '#3a342c'], [0.42, '#897b63'], [0.58, '#a89a84'], [0.8, '#d6cab6'], [1, '#efe6d6'], [1.3, '#fffaf0']].map(([t, c]) => [t / 1.3, c]));
   const LN = 1024, lut = new Float32Array(LN * 3);
   for (let i = 0; i < LN; i++) { const c = ramp(i / (LN - 1)); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const voidV = BAND + MOLD, GAIN = 1.35;
@@ -252,7 +248,7 @@ function buildStone(env) {
       const sh = 1 - L.clamp(ex / 3.2) * 0.9;
       const ao1 = L.clamp(1 + (h0 - b1[i]) / 6, 0.3, 1.6), ao2 = L.clamp(1 + (h0 - b2[i]) / 18, 0.25, 1.3);
       let I = (0.12 + 0.26 * inv) * ao1 * ao2 + 0.88 * d * sh * (0.55 + 0.45 * ao2);
-      if (v < BAND) I *= 0.07 + 0.93 * sstep(-24, -9, h0);   // the deep-cut ground drops into shadow
+      if (v < BAND) I *= 0.1 + 0.9 * sstep(-24, -9, h0);   // the deep-cut ground drops into shadow
       else if (v < voidV) I *= 0.74;
       // lamp falloff: brightest over the niche, easing off toward the springing of the arch
       const un = Math.abs(ang[i]) / 1250;
@@ -271,7 +267,6 @@ function buildStone(env) {
       o[k4] = lut[li * 3] * (1 + warm); o[k4 + 1] = lut[li * 3 + 1]; o[k4 + 2] = lut[li * 3 + 2] * (1 - warm * 1.4); o[k4 + 3] = 255;
     }
   }
-  const __t4 = performance.now(); /*TIMING*/
   const small = L.makeCanvas(w, h);
   small.getContext('2d').putImageData(img, 0, 0);
 
@@ -286,8 +281,19 @@ function buildStone(env) {
     g.globalCompositeOperation = 'destination-in';
     g.fillStyle = '#000'; a.pathBelow(g, 0); g.fill();
   });
-  console.warn('TIMING noise', (__t1-__t0)|0, 'height', (__t2-__t1)|0, 'blur', (__t3-__t2)|0, 'shade', (__t4-__t3)|0, 'compose', (performance.now()-__t4)|0, 'tongues', nT); /*TIMING*/
   return stone;
+}
+
+/** heavily blurred copy of a layer, built at reduced resolution (cheap) and returned at layer size */
+function softCopy(src, scale, px) {
+  const sw = Math.round(src.width * scale), sh = Math.round(src.height * scale);
+  const sm = L.makeCanvas(sw, sh), sg = sm.getContext('2d');
+  sg.filter = `blur(${px * scale}px)`; sg.drawImage(src, 0, 0, sw, sh);
+  const out = L.makeCanvas(src.width, src.height), og = out.getContext('2d');
+  og.imageSmoothingEnabled = true; og.imageSmoothingQuality = 'high';
+  og.drawImage(sm, 0, 0, out.width, out.height);
+  out._pad = src._pad;
+  return out;
 }
 
 export default {
@@ -295,16 +301,24 @@ export default {
   tone: 'light',
   init(env) {
     const stone = buildStone(env);
-    S = { stone, halo: L.blurred(stone, 13) };
+    const halo = L.blurred(stone, 13), mist = softCopy(stone, 0.25, 44);
+    // everything shares one camera move, so flatten it into a single opaque layer:
+    // black → wide soft light → bloom spilling a few px over the edge → the stone → a veil of the same bloom on top
+    const comp = L.makeLayer(PAD, (g) => {
+      g.fillStyle = '#030303'; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
+      g.globalCompositeOperation = 'screen';
+      g.globalAlpha = 0.2; g.drawImage(mist, -PAD, -PAD);
+      g.globalAlpha = 0.55; g.drawImage(halo, -PAD, -PAD);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(stone, -PAD, -PAD);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.3; g.drawImage(halo, -PAD, -PAD);
+    });
+    S = { comp };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.0035, 0.0035, p), zoom = L.lerp(1.0, 1.012, p);
     ctx.fillStyle = '#030303'; ctx.fillRect(0, 0, W, H);
-    // soft bloom spilling a few px over the edge, then the stone itself, then a veil of the same bloom on top
-    L.blit(ctx, env, S.halo, { rot, zoom, alpha: 0.6, blend: 'screen' });
-    L.blit(ctx, env, S.stone, { rot, zoom });
-    L.blit(ctx, env, S.halo, { rot, zoom, alpha: 0.26, blend: 'screen' });
+    L.blit(ctx, env, S.comp, { rot, zoom });
     // the lamp breathes: a patch of warmer light drifts along the band (overlay → the black stays black)
     const q = a.pt(L.lerp(-0.07, 0.05, p), -170);
     L.glow(ctx, q.x, q.y, 820, '#fff0d2', 0.2 + 0.05 * Math.sin(p * 7), 'overlay');

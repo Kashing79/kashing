@@ -5,12 +5,12 @@
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 240;
+const PAD = 160;   // the move is small (rot ≤ 0.012 rad, zoom ≤ 1.03 → < 40 px of travel), so a modest margin is plenty
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const BOTTOM = H + PAD + 10;
 // nothing but sky lives above frame row Y0, so the big procedural textures only cover the rows below it (halves init time)
 const Y0 = 540, TEXH = LH - (Y0 + PAD);
-const tex = (opts) => L.noiseTex(LW, TEXH, { ...opts, oy: Y0 + PAD });
+const tex = (opts) => L.noiseTex(LW, TEXH, { ...opts, ox: 240 - PAD, oy: Y0 + 240 });
 let S = null;
 
 const COL = { sky: '#3fb0c8', wall: '#ece9e1', stain: '#8f918e', tile: '#2e2f33', brick: '#6f7478' };
@@ -415,7 +415,7 @@ function drawRoof(g, r, x0, x1, yR, k) {
     g.fillRect(c + cw / 2, y0, pitch - cw, BOTTOM - y0);
     g.fillStyle = L.linear(g, c - cw / 2, 0, c + cw / 2, 0, [[0, L.shade('#25272b', tone)], [0.27, L.shade('#868d95', tone)], [0.55, L.shade('#52565c', tone)], [1, L.shade('#15161a', tone)]]);
     g.fillRect(c - cw / 2, y0, cw, BOTTOM - y0);
-    for (let y = y0 + r.range(2, lap); y < BOTTOM; y += lap) {
+    for (let y = y0 + r.range(2, lap); y < H + 80; y += lap) {
       if (r.chance(0.28)) { g.fillStyle = r.chance(0.55) ? 'rgba(0,0,0,0.28)' : 'rgba(170,178,186,0.13)'; g.fillRect(c - cw / 2, y, cw, lap); }
       g.strokeStyle = 'rgba(6,7,8,0.8)'; g.lineWidth = 1.3 * k; g.beginPath(); g.moveTo(c - cw / 2, y); g.quadraticCurveTo(c, y + 2.8 * k, c + cw / 2, y); g.stroke();
       g.strokeStyle = 'rgba(196,204,212,0.42)'; g.lineWidth = 1.1 * k; g.beginPath(); g.moveTo(c - cw * 0.34, y + 2.4 * k); g.quadraticCurveTo(c - cw * 0.05, y + 4.2 * k, c + cw * 0.24, y + 3 * k); g.stroke();
@@ -565,9 +565,8 @@ export default {
   init(env) {
     S = build(env);
     // canvas ops are rasterised lazily: touch every plate once here so that cost lands in init, not in the first frame
-    const warm = L.makeCanvas(W, H).getContext('2d');
+    const warm = L.makeCanvas(W, H).getContext('2d', { willReadFrequently: true });
     this.draw(warm, env, 0.5);
-    warm.getImageData(0, 0, 1, 1);
   },
   draw(ctx, env, p) {
     // the wall group slides along the arc (rot about its centre keeps every tip on the curve) with a slight push-in;

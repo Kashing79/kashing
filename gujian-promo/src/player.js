@@ -112,6 +112,7 @@ async function renderShot(id, p, opts = {}) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ensureGrain();
   const t0 = performance.now();
   if (!rec.mod) errorSlate(`scene ${shot.scene} failed to load\n` + errors.join('\n'));
   else {
@@ -130,8 +131,10 @@ async function renderShot(id, p, opts = {}) {
     L.overlayGrain(ctx, g, 0.3, 'overlay', Math.floor(r() * 64), Math.floor(r() * 64));
     L.vignette(ctx, { strength: 0.16, inner: 0.55, outer: 1.1 });
   }
+  ctx.getImageData(0, 0, 1, 1); // canvas drawing is deferred: read one pixel back so the timing includes rasterisation
+  const drawMs = performance.now() - t0;
   if (guide) drawGuide(rec.env);
-  return { drawMs: performance.now() - t0, initMs: rec.initMs };
+  return { drawMs, initMs: rec.initMs };
 }
 
 async function renderFrame(n, opts = {}) {

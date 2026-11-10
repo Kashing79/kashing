@@ -12,7 +12,7 @@ const X0 = -PAD, Y0 = -PAD, FULLW = W + PAD * 2, FULLH = H + PAD * 2;
 const FW = 214;       // face width of the honed-brick door frame on the wall (outside the opening)
 const BW = 100;       // on-screen depth of the reveal (inside the opening)
 const HZ = 848;       // far shore waterline (frame y)
-const GX = 990;       // axis of the moonlight on the water
+const GX = 960;       // axis of the moonlight on the water
 const PITCH = 0.305;  // angular length of one brick piece of the frame (a joint never sits on the crest)
 let S = null;
 
@@ -155,7 +155,7 @@ function buildFar(env) {
       const hw = 14 + (y - HZ) * 0.46;
       const x = GX + rg.gauss() * hw * 0.55;
       const w = (5 + (y - HZ) * 0.09) * rg.range(0.5, 1.5), hh = 1.2 + (y - HZ) * 0.012;
-      g.globalAlpha = rg.range(0.2, 0.75) * (1 - 0.5 * kk);
+      g.globalAlpha = rg.range(0.2, 0.7) * (1 - 0.45 * kk);
       g.beginPath(); g.ellipse(x, y, w, hh, 0, 0, TAU); g.fill();
     }
     g.restore();
@@ -183,7 +183,7 @@ function buildMist() {
 
 function makeGlints() {
   const r = L.rng('s19glitB'); const out = [];
-  for (let i = 0; i < 170; i++) {
+  for (let i = 0; i < 230; i++) {
     const k = Math.pow(r(), 1.5);
     const y = HZ + 5 + k * 250;
     const hw = 14 + (y - HZ) * 0.5;
@@ -344,6 +344,7 @@ function buildRock(w, h, seed) {
     [0.4, 0.64, 0.22, 0.075], [0.56, 0.75, 0.28, 0.085], [0.45, 0.88, 0.34, 0.09], [0.5, 1.0, 0.44, 0.08]];
   g.fillStyle = '#081221';
   blobs.forEach(([bx, by, rx, ry], k) => { blob(bx, by, rx, ry, k, 0.12); g.fill(); });
+  const solid = L.makeCanvas(w, h); solid.getContext('2d').drawImage(c, 0, 0);
   // the holes (漏 · 透): one long slanting eye near the top, smaller ones scattered down the body
   g.globalCompositeOperation = 'destination-out';
   [[0.5, 0.2, 0.12, 0.034, 1, -0.45], [0.7, 0.33, 0.045, 0.026, 2, 0.7], [0.47, 0.47, 0.085, 0.04, 3, 0.25], [0.66, 0.6, 0.04, 0.022, 4, -0.4],
@@ -358,12 +359,14 @@ function buildRock(w, h, seed) {
   // its foot sinks into the shadow of the bank
   g.fillStyle = L.linear(g, 0, h * 0.5, 0, h * 0.78, [[0, 'rgba(3,7,14,0)'], [1, 'rgba(3,7,14,0.85)']]);
   g.fillRect(0, 0, w, h);
-  // moon rim: upper-left edges of the mass and the far lips of the holes
+  // moon rim on the outer shoulders only (the holes stay clean cut-outs)
   const rim = L.makeCanvas(w, h); const rg = rim.getContext('2d');
-  rg.drawImage(c, 0, 0);
-  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#b4cff0'; rg.fillRect(0, 0, w, h);
-  rg.globalCompositeOperation = 'destination-out'; rg.drawImage(c, 2.4, 3);
-  g.globalAlpha = 0.62; g.drawImage(rim, 0, 0);
+  rg.drawImage(solid, 0, 0);
+  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#a8c6ec'; rg.fillRect(0, 0, w, h);
+  rg.globalCompositeOperation = 'destination-out'; rg.drawImage(solid, 2.6, 3.2);
+  rg.globalCompositeOperation = 'destination-in'; rg.drawImage(c, 0, 0);
+  rg.fillStyle = L.linear(rg, 0, h * 0.45, 0, h * 0.75, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]); rg.fillRect(0, 0, w, h);
+  g.globalAlpha = 0.6; g.drawImage(rim, 0, 0);
   return c;
 }
 
@@ -380,7 +383,7 @@ function buildNear(env) {
     const r = L.rng('s19bamboo');
     const nz = L.makeNoise('s19near');
     // the Taihu rock beside the bamboo (竹石), a pierced silhouette against the moonlit water
-    g.drawImage(buildRock(220, 420, 's19rock'), 646, 792);
+    g.drawImage(buildRock(236, 450, 's19rock'), 700, 784);
     // near bank
     const top = (x) => 938 + 0.09 * x + 0.00013 * x * x + 6 * nz.n2(x * 0.016, 1.1) + 3 * nz.n2(x * 0.08, 4.2);
     g.fillStyle = L.linear(g, 0, 930, 0, 1090, [[0, '#0a1626'], [0.3, '#050b15'], [1, '#03070e']]);
@@ -416,10 +419,12 @@ function buildNear(env) {
     culm(290, 1210, 560, 600, 9);
 
     // leafy sprays arching into the opening
-    const leaf = (x, y, ang, len, wid, col, rimCol) => {
+    const leaf = (x, y, ang, len, wid, col, rimCol, lit) => {
       g.save(); g.translate(x, y); g.rotate(ang);
       const bend = r.range(-0.1, 0.16) * len;
-      g.fillStyle = col; leafPath(g, len, wid, bend); g.fill();
+      g.fillStyle = lit ? L.linear(g, 0, -wid, 0, wid, [[0, '#213c5c'], [0.5, col], [1, '#0a1626']]) : col;
+      leafPath(g, len, wid, bend); g.fill();
+      if (lit) { g.strokeStyle = 'rgba(4,10,19,0.6)'; g.lineWidth = 1; g.beginPath(); g.moveTo(3, 0); g.quadraticCurveTo(len * 0.5, bend * 0.3, len - 4, bend); g.stroke(); }
       if (rimCol) { g.strokeStyle = rimCol; g.lineWidth = 1.5; g.beginPath(); g.moveTo(2, -1); g.bezierCurveTo(len * 0.22, -wid, len * 0.62, -wid * 0.85 + bend * 0.5, len, bend); g.stroke(); }
       g.restore();
     };
@@ -444,7 +449,7 @@ function buildNear(env) {
           // leaves closest to the gate pick up a little of the lantern
           const warm = L.clamp(1 - (-a.drAt(x, y) - BW) / 150) * (r.chance(0.5) ? 1 : 0);
           const rimCol = warm > 0.2 ? `rgba(255,150,84,${(0.5 * warm).toFixed(3)})` : lit ? 'rgba(150,184,228,0.6)' : null;
-          leaf(x, y, ang, len, wid, lit ? '#152a44' : '#040a13', rimCol);
+          leaf(x, y, ang, len, wid, lit ? '#152a44' : '#040a13', rimCol, lit);
         }
       }
     });
@@ -575,14 +580,24 @@ function buildWall(env, band) {
   });
 }
 
+function glintSprite() {
+  const c = L.makeCanvas(96, 96); const g = c.getContext('2d');
+  g.fillStyle = L.radial(g, 48, 48, 0, 48, [[0, 'rgba(240,247,255,1)'], [0.45, 'rgba(216,230,246,0.92)'], [0.7, 'rgba(180,205,235,0.3)'], [1, 'rgba(160,190,230,0)']]);
+  g.fillRect(0, 0, 96, 96);
+  return c;
+}
+
 function drawGlints(ctx, env) {
   ctx.save();
-  ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = '#cfe0f2';
+  ctx.globalCompositeOperation = 'screen';
   for (const q of S.glints) {
     const tw = 0.5 + 0.5 * Math.sin(q.ph + env.frame * q.sp);
-    const al = q.a * (0.2 + 0.8 * tw * tw);
-    ctx.globalAlpha = al * 0.28; ctx.beginPath(); ctx.ellipse(q.x, q.y, q.w * 1.9, q.h * 2.8, 0, 0, TAU); ctx.fill();
-    ctx.globalAlpha = al; ctx.beginPath(); ctx.ellipse(q.x, q.y, q.w, q.h, 0, 0, TAU); ctx.fill();
+    const al = q.a * (0.15 + 0.85 * tw * tw);
+    const w = q.w * 2.2, h = q.h * 4;
+    ctx.globalAlpha = al * 0.3;
+    ctx.drawImage(S.sprite, q.x - w, q.y - h, w * 2, h * 2);                         // soft flare
+    ctx.globalAlpha = al;
+    ctx.drawImage(S.sprite, q.x - q.w * 1.5, q.y - q.h * 1.7, q.w * 3, q.h * 3.4);   // bright sliver
   }
   ctx.restore();
 }
@@ -594,7 +609,7 @@ export default {
     const band = buildBand(env);
     S = {
       far: buildFar(env), mist: buildMist(), mid: buildMid(), near: buildNear(env),
-      wall: buildWall(env, band), glowS: bloom(band, 9, 2), glowL: bloom(band, 44, 6), glints: makeGlints(),
+      wall: buildWall(env, band), glowS: bloom(band, 9, 2), glowL: bloom(band, 44, 6), glints: makeGlints(), sprite: glintSprite(),
     };
   },
   draw(ctx, env, p) {
@@ -606,6 +621,7 @@ export default {
     L.cam(ctx, env, far, () => drawGlints(ctx, env));
     L.blit(ctx, env, S.mist, { zoom: 1 + k * 0.3, dx: L.lerp(-12, 12, p), blend: 'screen', alpha: 0.9 });
     L.blit(ctx, env, S.mid, { zoom: 1 + k * 0.4, dx: L.lerp(-2.5, 2.5, p) });
+    L.blit(ctx, env, S.mist, { zoom: 1 + k * 0.5, dx: L.lerp(16, -16, p), dy: 122, blend: 'screen', alpha: 0.42 });   // a nearer veil across the pavilion's foot
     L.blit(ctx, env, S.near, { zoom: 1 + k * 0.72 });
     L.blit(ctx, env, S.wall, { zoom: zW });
     // lantern light breathing on the brick

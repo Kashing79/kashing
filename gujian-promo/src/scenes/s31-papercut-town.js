@@ -11,7 +11,7 @@ const GW = W + PAD * 2, GH = H + PAD * 2;
 let S = null;
 
 const C = {
-  card: '#efe8d8', blue: '#24509a', white: '#f6f3ea', black: '#1c1b1a', moon: '#f2e27a',
+  card: '#efe8d8', blue: '#24509a', white: '#faf7ee', black: '#1c1b1a', moon: '#f2e27a',
   red: '#c8261c', green: '#3f9a54', brown: '#6a3a1e',
 };
 
@@ -162,7 +162,7 @@ function paper(g, polys, o) {
     // the sheet is never perfectly flat: light falls off across it
     const a = L.deg(48) + r.range(-0.6, 0.6), rad = Math.hypot(hw, hh);
     const dx = Math.cos(a) * rad, dy = Math.sin(a) * rad;
-    g.fillStyle = L.linear(g, cx - dx, cy - dy, cx + dx, cy + dy, [[0, `rgba(255,252,240,${(0.11 * curl).toFixed(3)})`], [0.45, 'rgba(255,252,240,0)'], [0.6, 'rgba(0,0,20,0)'], [1, `rgba(0,0,20,${(0.16 * curl).toFixed(3)})`]]);
+    g.fillStyle = L.linear(g, cx - dx, cy - dy, cx + dx, cy + dy, [[0, `rgba(255,252,240,${(0.11 * curl).toFixed(3)})`], [0.45, 'rgba(255,252,240,0)'], [0.6, 'rgba(0,0,20,0)'], [1, `rgba(0,0,20,${(0.11 * curl).toFixed(3)})`]]);
     g.fillRect(x0 - 8, y0 - 8, x1 - x0 + 16, y1 - y0 + 16);
   }
   // … and the lifted corner itself turns toward the light
@@ -314,10 +314,10 @@ function buildCollage(env) {
     paper(g, cut(roundish(598, 706, 92, 92, 12, 'moon'), 'moon', 1.0, 80, 10), { color: C.moon, lift: 1.2, tex: 0.5, crumple: 0.22, curl: 1.1, peel: [[664, 772, 95]] });
 
     // ── left bank: gable house (behind) + eave house (front) ──
-    paper(g, cut([[250, 1140], [247, 792], [352, 702], [471, 788], [473, 1140]], 'Lb', 1.8), { color: C.white, tex: 0.55, crumple: 0.2 });
+    paper(g, cut([[250, 1140], [247, 792], [352, 702], [471, 788], [473, 1140]], 'Lb', 1.8), { color: C.white, tex: 0.42, crumple: 0.16 });
     win(362, 872, 42, 54);
     paper(g, cut([[352, 668], [507, 777], [489, 805], [352, 709], [221, 815], [203, 790]], 'Lbr', 1.4, 110), { color: C.black, tex: 0.34, lift: 0.8, crumple: 0.16, peel: [[498, 790, 90]] });
-    paper(g, cut([[-95, 1140], [-92, 884], [268, 878], [264, 1140]], 'Lf', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.2 });
+    paper(g, cut([[-95, 1140], [-92, 884], [268, 878], [264, 1140]], 'Lf', 1.8), { color: '#f6f2e6', tex: 0.42, crumple: 0.16 });
     paper(g, cut([[96, 1140], [99, 966], [160, 962], [158, 1140]], 'door', 1.2, 70), { color: C.brown, lift: 0.5, tex: 0.5 });
     {
       const tl = [-78, 806], tr = [236, 798], br = [297, 880], bl = [-116, 886];
@@ -328,10 +328,10 @@ function buildCollage(env) {
     lantern(41, 890, 938); lantern(229, 888, 936);
 
     // ── right bank: gable house + low eave house running off frame ──
-    paper(g, cut([[1565, 1140], [1563, 824], [1682, 732], [1801, 820], [1803, 1140]], 'Rm', 1.8), { color: C.white, tex: 0.55, crumple: 0.2 });
+    paper(g, cut([[1565, 1140], [1563, 824], [1682, 732], [1801, 820], [1803, 1140]], 'Rm', 1.8), { color: C.white, tex: 0.42, crumple: 0.16 });
     win(1694, 888, 38, 50); win(1762, 884, 36, 48);
     paper(g, cut([[1682, 700], [1838, 811], [1821, 839], [1682, 741], [1546, 844], [1527, 818]], 'Rmr', 1.4, 110), { color: C.black, tex: 0.34, lift: 0.8, crumple: 0.16, peel: [[1830, 824, 90]] });
-    paper(g, cut([[1796, 1140], [1794, 894], [2030, 892], [2032, 1140]], 'Rs', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.2 });
+    paper(g, cut([[1796, 1140], [1794, 894], [2030, 892], [2032, 1140]], 'Rs', 1.8), { color: '#f6f2e6', tex: 0.42, crumple: 0.16 });
     {
       const tl = [1808, 824], tr = [2030, 832], br = [2062, 898], bl = [1771, 900];
       paper(g, cut(eaveRoof(tl, tr, br, bl, 9), 'Rsr', 1.0, 120, 7), { color: C.black, tex: 0.34, lift: 0.9, crumple: 0.16 });
@@ -431,8 +431,12 @@ function buildCollage(env) {
     g.restore();
 
     // ── one light over the whole sheet: warm from the upper left, falling away to the lower right ──
-    g.save(); g.globalCompositeOperation = 'source-atop';
-    g.fillStyle = L.radial(g, 420, 380, 120, 1950, [[0, 'rgba(255,248,230,0.10)'], [0.45, 'rgba(255,248,230,0)'], [0.6, 'rgba(6,8,30,0)'], [1, 'rgba(6,8,30,0.26)']]);
+    g.save(); sheet(eW); g.clip();
+    g.globalCompositeOperation = 'overlay';
+    g.fillStyle = L.radial(g, 380, 420, 100, 1500, [[0, 'rgba(255,244,220,0.20)'], [1, 'rgba(255,244,220,0)']]);
+    g.fillRect(-PAD, -PAD, GW, GH);
+    g.globalCompositeOperation = 'multiply';
+    g.fillStyle = L.radial(g, 380, 420, 900, 2100, [[0, 'rgb(255,255,255)'], [1, 'rgb(196,198,222)']]);
     g.fillRect(-PAD, -PAD, GW, GH);
     g.restore();
   });

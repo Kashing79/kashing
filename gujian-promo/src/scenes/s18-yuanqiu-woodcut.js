@@ -3,14 +3,16 @@
 // the hatched waist of its terrace wall (台帮) with a row of 螭首 water spouts under the posts.
 // The arc is the top of the UPPER tier's handrail; everything above it is the solid printed black of the sky.
 // Pipeline: draw the design as a crisp black/white "block" → per-pixel printing pass (cut-edge wobble, salt specks,
-// wood-grain 飞白, ink squash, stray pepper) → composite onto laid paper. One sheet, one camera move.
+// wood-grain 飞白, ink squash, stray pepper) → composite onto laid paper. One sheet, one camera move, plus a
+// macro-lens falloff that keeps the arc in focus and lets the lower tiers go slightly soft.
+// Deliberate simplifications: the 柱头 are kept short (they would otherwise climb into the tagline), the lower tiers
+// are drawn larger (nearer) rather than with more panels, and no stairway is shown (it would cut the arc at the crest).
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
 const PAD = 120;
 const LW = W + PAD * 2, LH = H + PAD * 2;
-const INK = [12, 11, 10];
-const PAPER = '#efe9da';
+const INK = [12, 11, 10];   // 墨黑 #0c0b0a
 let S = null;
 
 // ── tier layout (d = px below the arc, s = scale; all bay geometry is in "unit px" × s) ──
@@ -36,7 +38,7 @@ function drawTier(g, a, T) {
   const pitch = PU * s;
   const half = Math.asin(Math.min(0.999, (W / 2 + PAD + 150) / Rt)) * Rt;
   const N = Math.ceil(half / pitch) + 1;
-  const JIT = 0.55 * Math.sqrt(s);
+  const JIT = 0.75 * Math.sqrt(s);
   let u0 = 0;
   const M = (u, d) => { const th = (u0 + u * s) / Rt, rr = Rt - d * s; return [a.cx + rr * Math.sin(th), a.cy - rr * Math.cos(th)]; };
   const jit = (j) => (r() - 0.5) * 2 * j;
@@ -53,8 +55,8 @@ function drawTier(g, a, T) {
     g.fillStyle = col; g.beginPath();
     for (let i = 0; i <= n; i++) {
       const t = i / n, mid = i > 0 && i < n;
-      const hw = L.lerp(wa, wb, t) * (0.5 + (mid ? r.range(-0.08, 0.08) : 0));
-      const off = mid ? r.range(-0.4, 0.4) : 0;
+      const hw = L.lerp(wa, wb, t) * (0.5 + (mid ? r.range(-0.12, 0.12) : 0));
+      const off = mid ? r.range(-0.55, 0.55) : 0;
       const cu = ua + du * t, cd = da + dd * t;
       const p1 = M(cu + nx * (hw + off), cd + ny * (hw + off)), p2 = M(cu - nx * (hw - off), cd - ny * (hw - off));
       const x = p1[0] + jit(j), y = p1[1] + jit(j);
@@ -92,14 +94,15 @@ function drawTier(g, a, T) {
     const k = shadeAt(u0 + pitch * 0.5), kp = shadeAt(u0);
 
     // ── terrace wall (台帮) ──
-    seg(-0.6, BAL, PU + 0.6, BAL, 3.4, 3.4, '#000');
+    seg(-0.6, BAL, PU + 0.6, BAL, 4.2, 4.2, '#000');
     poly([[-0.6, 115.6], [PU + 0.6, 115.6], [PU + 0.6, 148.4], [-0.6, 148.4]], '#000');
     for (let u = 4 + r.range(-0.6, 0.6); u < PU - 3; u += 7.4 + r.range(-0.6, 0.6)) {   // 束腰: dark, hatched with white cuts
       const top = 119.2 + r.range(-0.9, 0.9), bot = 145.6 - Math.pow(r(), 2) * 8;
       if (r.chance(0.3 * k)) continue;
       seg(u, top, u + r.range(-0.7, 0.7), bot, 3.4 * (1 - 0.4 * k), 1.5 * (1 - 0.4 * k), '#fff', 0.35);
     }
-    nick(20, PU - 36, 103, 111.5, 0.6); nick(4, PU - 20, 152.5, 160, 0.55);
+    seg(-0.6, 164.9, PU + 0.6, 164.9, 2.6, 2.6, '#000', JIT * 1.5);                          // hand-cut lower edge of the 下枋
+    nick(20, PU - 36, 103, 111.5, 0.6); nick(4, PU * 0.5, 152.5, 159, 0.6); nick(PU * 0.5, PU - 20, 152.5, 159, 0.5);
     ticks(19, PU - 17, 101.2, 113.8, k * 0.9); ticks(2, PU - 2, 151, 162, k * 0.8);
     // a broken white cut in the shadow between the tiers (the lip of the terrace below)
     if (r.chance(0.85)) { const ua = r.range(-4, 40), ub = r.range(84, PU + 8); seg(ua, 169.6 + r.range(-0.7, 0.7), ub, 169.6 + r.range(-0.7, 0.7), 0.6, 2.0, '#fff', 0.3); }
@@ -113,29 +116,29 @@ function drawTier(g, a, T) {
     poly([[B, 12.6], ...VASE.map(([w, d]) => [B - w * 0.8, d]), [B, 34.8]], '#fff', 0.4);
     seg(mid - 3.4, 26.2, mid + 3.6, 26.2, 1.5, 1.2, '#000', 0.25); // belly line of the vase
     // handrail (寻杖): a broken shadow line along the round bar, and the post's shadow falling on it
-    { const ua = A + r.range(16, 30), ub = B - r.range(4, 26); seg(ua, 8.4, ub, 8.7, 1.7, 0.9, '#000', 0.3); }
+    { const ua = A + r.range(16, 30), ub = B - r.range(4, 26); seg(ua, 8.4, ub, 8.7, 2.0, 1.0, '#000', 0.3); }
     for (let q = 0; q < 3; q++) seg(A + 2.2 + q * 3.6, 2.6 + q * 0.8, A + 2.4 + q * 3.6, 11.6 - q * 2.6, 2.0, 0.8, '#000', 0.25);
     nick(A + 30, B - 20, 3, 6, 0.3);
     ticks(A + 15, B - 2, 5.4, 12.6, k * 0.85);
     // 面枋 strip with the post's shadow, then the recessed field: frame (top/left heavier = in shadow)
     for (let q = 0; q < 4; q++) seg(A + 2.4 + q * 3.7, 36 + q * 0.3, A + 2.6 + q * 3.7, 43.2 - q * 1.5, 2.0, 0.8, '#000', 0.25);
     ticks(A + 18, B - 2, 36, 43.6, k);
-    seg(A + 7, 46.2, B - 7, 46.2, 3.1, 2.9, '#000');
-    seg(A + 8.4, 45, A + 8.4, 80, 3.0, 2.7, '#000');
-    seg(A + 7, 79.3, B - 7, 79.3, 1.9, 2.1, '#000');
-    seg(B - 7.9, 45, B - 7.9, 80, 1.9, 1.9, '#000');
+    seg(A + 7, 46.3, B - 7, 46.3, 3.8, 3.5, '#000');
+    seg(A + 8.6, 45, A + 8.6, 80, 3.6, 3.2, '#000');
+    seg(A + 7, 79.3, B - 7, 79.3, 2.3, 2.5, '#000');
+    seg(B - 7.9, 45, B - 7.9, 80, 2.3, 2.3, '#000');
     {
       // vertical hatching, long under the post's shadow and dying away toward the light
-      const uA = A + 13.8, uB = B - 11.6, n = Math.round((uB - uA) / 6.5);
+      const uA = A + 14.6, uB = B - 12, n = Math.round((uB - uA) / 7.1);
       for (let q = 0; q <= n; q++) {
         const t = q / n, u = L.lerp(uA, uB, t) + r.range(-0.5, 0.5);
         const lit = L.lerp(29, 8.5, Math.pow(t, 0.8)) + r.range(-3, 3);
         const len = Math.min(30.6, L.lerp(lit, 30.6 - r.range(0, 2.5), Math.pow(k, 0.85)));
-        seg(u, 47.4, u + r.range(-0.5, 0.5), 47.4 + len, 2.7 + 0.5 * k, 0.8 + 0.7 * k, '#000', 0.3);
+        seg(u, 47.6, u + r.range(-0.6, 0.6), 47.6 + len, 3.1 + 0.5 * k, 0.9 + 0.8 * k, '#000', 0.35);
       }
     }
     // 地栿
-    seg(A, 84.6, B, 84.6, 2.5, 2.3, '#000');
+    seg(A, 84.6, B, 84.6, 3.0, 2.8, '#000');
     nick(A + 4, B - 20, 88.5, 94, 0.5);
     ticks(A + 2, B - 2, 87.2, 96.4, k * 0.9);
 
@@ -155,11 +158,11 @@ function drawTier(g, a, T) {
     seg(-9.6, -3.3, 9.6, -3.3, 1.9, 1.9, '#000', 0.25);                                           // neck ring
     poly([[6.3, -17], [10.1, -13.8], [11, -9.2], [10.6, -5.6], [7.4, -5.6], [8.3, -10], [7.5, -13.8]], '#000', 0.3); // shade on the cap
     seg(-4.6, -15.8, -4.9, -7.4, 1.6, 0.8, '#000', 0.25); seg(0.9, -16.8, 0.6, -7.4, 1.6, 0.8, '#000', 0.25);
-    seg(-10.8, 0, -10.8, BAL, 2.4, 2.4, '#000');
-    seg(10.3, 0, 10.3, BAL, 3.4, 3.4, '#000');
+    seg(-10.6, 0, -10.6, BAL, 2.9, 2.9, '#000');
+    seg(10, 0, 10, BAL, 4.0, 4.0, '#000');
     for (let d = 8 + r.range(-1, 1); d < BAL - 4; d += 7.2 + r.range(-0.6, 0.6)) {                // shadow ticks down the right side
       const len = L.lerp(r.range(3.6, 7.2), r.range(11, 18.5), Math.pow(kp, 1.3));
-      seg(9.6, d, 9.6 - len, d + r.range(0.2, 1.1), 2.1 + 0.4 * kp, 0.6, '#000', 0.25);
+      seg(9, d, 9 - len, d + r.range(0.2, 1.1), 2.3 + 0.4 * kp, 0.6, '#000', 0.25);
     }
   }
 }
@@ -307,6 +310,7 @@ function buildInk(env, design) {
 
 function buildSheet(env) {
   const ink = buildInk(env, buildDesign(env));
+  // base a touch lighter than 纸白 #efe9da: stain, laid lines and ink bleed bring it back down to it
   const paper = L.paperTex(LW, LH, { base: '#f4eee0', seed: 's18paper', tone: '#9c8a64', fiber: 0.6, stain: 0.2, grain: 0.16 });
   return L.makeLayer(PAD, (g) => {
     g.drawImage(paper, -PAD, -PAD);
@@ -322,12 +326,12 @@ function buildSheet(env) {
 /** macro-lens falloff: a softened copy of the sheet that fades in away from the arc (the plane of focus) */
 function buildSoft(env, sheet) {
   const a = env.arc;
-  const soft = L.blurred(sheet, 2.6);
+  const soft = L.blurred(sheet, 2.4);
   const g = soft.getContext('2d');
   g.filter = 'none'; g.globalCompositeOperation = 'destination-in';
   const r0 = a.R - 760, r1 = a.R + 860, st = (dr) => (a.R + dr - r0) / (r1 - r0);
   g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, r0, r1, [
-    [0, 'rgba(0,0,0,1)'], [st(-640), 'rgba(0,0,0,1)'], [st(-420), 'rgba(0,0,0,0.5)'], [st(-200), 'rgba(0,0,0,0)'],
+    [0, 'rgba(0,0,0,1)'], [st(-700), 'rgba(0,0,0,1)'], [st(-460), 'rgba(0,0,0,0.5)'], [st(-230), 'rgba(0,0,0,0)'],
     [st(300), 'rgba(0,0,0,0)'], [st(540), 'rgba(0,0,0,0.55)'], [st(760), 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']]);
   g.fillRect(0, 0, LW, LH);
   return soft;

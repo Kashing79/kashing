@@ -69,7 +69,7 @@ function makePlan(env) {
       band: r.range(30, 95), tr: r.range(50, 100),    // fully bare band right under the cornice, then the troughs fill with snow
       k: r.range(-0.5, 0.2),                       // width bias of the bare strip (negative = wider)
       len: u < 0.24 ? r.range(160, 240) : u < 0.58 ? r.range(240, 360) : u < 0.83 ? r.range(360, 480) : 5000,
-      tip: r.range(40, 95),
+      tip: r.range(16, 44),
       hole: null,
       tone: r.range(-0.06, 0.06),
       jit: r.range(-6, 6),
@@ -136,7 +136,7 @@ function buildTiles(env, P) {
             [0.55, L.shade('#e6a40f', tone)], [0.74, L.shade('#b06a06', tone)], [0.9, L.shade('#693803', tone)], [1, L.shade('#341c02', tone)]]);
           g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
           // each tile swells very slightly and darkens toward the end tucked under its neighbour
-          g.fillStyle = L.linear(g, 0, d0, 0, d1, [[0, 'rgba(60,30,0,0.34)'], [0.14, 'rgba(60,30,0,0)'], [0.8, 'rgba(255,236,150,0)'], [1, 'rgba(255,236,150,0.16)']]);
+          g.fillStyle = L.linear(g, 0, d0, 0, d1, [[0, 'rgba(60,30,0,0.18)'], [0.1, 'rgba(60,30,0,0)'], [0.85, 'rgba(255,236,150,0)'], [1, 'rgba(255,236,150,0.08)']]);
           g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
           // glaze: a broad soft sheen, a hard wet streak, a second faint reflection
           g.lineCap = 'round';
@@ -234,7 +234,7 @@ function buildSnow(env, P) {
       // the sheet lying on the roof
       const sa = th * R, s = sa / PITCH - 0.5, j = Math.floor(s), f = s - j;
       // snow drifts a little to one side of a ridge or the other
-      const T = -Math.cos(L.TAU * (f + 0.07 * nz.n2(sa / 330 + 11.3, d / 190 - 4.2)));
+      const T = -Math.cos(L.TAU * (f + 0.1 * nz.n2(sa / 330 + 11.3, d / 150 - 4.2)));
       let dq = d * 0.5; if (dq < 0) dq = 0; else if (dq > KN - 2) dq = KN - 2;
       const di = dq | 0, df = dq - di;
       let jj = j + n + 2; if (jj < 0) jj = 0; else if (jj > NRm) jj = NRm;
@@ -378,13 +378,14 @@ function buildRoof(env, P, snow) {
   full(snow.sheet);
   // crumbs of snow left behind on the bare glaze near the melting edges
   const rc = L.rng('s25crumb');
-  for (let k = 0; k < 1500; k++) {
-    const X = rc.range(-PAD, W + PAD), Y = rc.range(a.crestY, H + PAD), rad = 1.1 + 3.6 * Math.pow(rc(), 2.4);
+  for (let k = 0; k < 1700; k++) {
+    const X = rc.range(-PAD, W + PAD), Y = rc.range(a.crestY, H + PAD), rad = 0.9 + 2.6 * Math.pow(rc(), 3);
     const q = snow.at(X, Y);
-    if (!q || q.cornice > 0.01 || q.S > -0.14 || q.S < -0.8) continue;
-    g.fillStyle = 'rgba(52,22,30,0.45)'; g.beginPath(); g.ellipse(X + rad * 0.5, Y + rad * 0.7, rad, rad * 0.8, 0, 0, L.TAU); g.fill();
-    g.fillStyle = L.radial(g, X - rad * 0.3, Y - rad * 0.35, 0, rad * 1.25, [[0, '#ffffff'], [0.6, '#ebe7f5'], [1, '#b5aed6']]);
-    g.beginPath(); g.ellipse(X, Y, rad, rad * rc.range(0.7, 1), rc.range(0, 3), 0, L.TAU); g.fill();
+    if (!q || q.cornice > 0.01 || q.S > -0.12 || q.S < -0.42) continue;
+    const sq = rc.range(0.5, 0.9), ang = rc.range(0, 3.14);
+    g.fillStyle = 'rgba(60,26,40,0.32)'; g.beginPath(); g.ellipse(X + rad * 0.45, Y + rad * 0.6, rad * 1.05, rad * sq, ang, 0, L.TAU); g.fill();
+    g.fillStyle = rc.chance(0.5) ? '#f4f1f8' : '#dedaf0'; g.beginPath(); g.ellipse(X, Y, rad, rad * sq, ang, 0, L.TAU); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.ellipse(X - rad * 0.25, Y - rad * 0.25, rad * 0.5, rad * sq * 0.5, ang, 0, L.TAU); g.fill();
   }
   // the cornice throws a long violet shadow down the roof (dark gold on tile, blue-violet on snow)
   full(castShadow(env, snow.cornice, { push: 36, dx: 8, blur: 12, color: 'rgba(82,54,134,0.8)' }), 'multiply');
@@ -403,6 +404,13 @@ function buildRoof(env, P, snow) {
   g.save(); g.globalCompositeOperation = 'source-atop';
   g.fillStyle = L.radial(g, a.cx, a.cy, R - 46, R + 6, [[0, L.rgba(C.sun, 0)], [0.45, L.rgba(C.sun, 0.14)], [0.72, L.rgba(C.sun, 0.42)], [1, L.rgba(C.sun, 0.9)]]);
   a.pathBand(g, 8, -46, -sEdge, sEdge); g.fill();
+  g.restore();
+  // the low sun rakes in from the left: a warm breath there, the far side sinking into violet
+  g.save(); g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,196,120,0.2)'], [0.4, 'rgba(255,196,120,0)'], [0.6, 'rgba(96,70,170,0)'], [1, 'rgba(96,70,170,0.26)']]);
+  g.fillRect(-PAD, -PAD, LW, LH);
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 760, R - 260, [[0, 'rgba(70,48,130,0.3)'], [1, 'rgba(70,48,130,0)']]);
+  g.fillRect(-PAD, -PAD, LW, LH);
   g.restore();
   // cut the silhouette: everything above the (gently undulating) top edge goes
   g.save(); g.globalCompositeOperation = 'destination-in';

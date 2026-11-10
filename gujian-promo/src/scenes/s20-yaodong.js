@@ -273,6 +273,10 @@ function buildLattice(env, G) {
     g.globalCompositeOperation = 'source-in';
     g.fillStyle = L.radial(g, G.lamp.x, G.lamp.y, 0, 1100, [[0, '#e09a48'], [0.25, '#a85c1c'], [0.6, '#743610'], [1, '#48200a']]);
     g.fillRect(-PAD, -PAD, FW, FH);
+    // the head's own soffit stays in shadow, so the brightest step in the picture is the paper's edge — exactly on the arc
+    g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + SOFFIT, [[0, 'rgba(38,14,4,0.35)'], [1, 'rgba(38,14,4,0.85)']]);
+    a.pathBand(g, SOFFIT + 1, 0); g.fill();
   });
   return L.makeLayer(PAD, (g) => { g.drawImage(side, -PAD, -PAD); g.drawImage(V, -PAD, -PAD); g.drawImage(Hz, -PAD, -PAD); });
 }
@@ -301,11 +305,30 @@ function buildWall(env) {
     g.lineCap = 'round';
     for (let i = 0; i < 1500; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(-PAD, a.yAt(L.clamp(x, 0, W)) + 30), len = r.range(7, 24), an = r.gauss() * 0.6;
-      g.strokeStyle = r.chance(0.62) ? `rgba(232,160,90,${r.range(0.05, 0.2).toFixed(3)})` : `rgba(40,10,4,${r.range(0.08, 0.24).toFixed(3)})`;
+      g.strokeStyle = r.chance(0.62) ? `rgba(240,170,96,${r.range(0.08, 0.3).toFixed(3)})` : `rgba(40,10,4,${r.range(0.1, 0.3).toFixed(3)})`;
       g.lineWidth = r.range(0.7, 1.6);
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(an) * len, y + Math.sin(an) * len); g.stroke();
     }
     L.speckle(g, { seed: 's20pit', count: 700, x: -PAD, y: -PAD, w: FW, h: FH, rMin: 0.8, rMax: 3, colors: ['#3a0f06', '#2a0a04', '#b8602e'], alpha: [0.08, 0.3] });
+    // hairline shrinkage cracks, kept well clear of the tagline
+    const nz = L.makeNoise('s20crack');
+    for (let i = 0; i < 9; i++) {
+      const left = i % 2 === 0;
+      let x = left ? r.range(-40, 520) : r.range(1400, W + 40), y = r.range(-60, 430), an = r.range(0.9, 2.2);
+      for (let b = 0; b < 2; b++) {
+        let cx = x, cy = y, ca = an + b * r.range(0.5, 1.1);
+        g.strokeStyle = 'rgba(34,8,3,0.34)'; g.lineWidth = b ? 1 : 1.5;
+        g.beginPath(); g.moveTo(cx, cy);
+        const steps = b ? r.int(8, 16) : r.int(22, 44);
+        for (let k2 = 0; k2 < steps; k2++) {
+          ca += nz.n2(i * 7.1 + k2 * 0.33, b * 3.7) * 0.5;
+          cx += Math.cos(ca) * 7; cy += Math.sin(ca) * 7;
+          if (cx > 590 && cx < 1330) break;
+          g.lineTo(cx, cy);
+        }
+        g.stroke();
+      }
+    }
     // keep the tagline's patch of wall quiet
     const ty = a.crestY - 140;
     g.save(); g.translate(a.cx, ty); g.scale(1, 0.56); g.translate(-a.cx, -ty);
@@ -395,7 +418,7 @@ function buildStrings(env) {
   });
   return L.makeLayer(PAD, (g) => {
     g.save(); g.globalAlpha = 0.55; g.filter = 'blur(18px) brightness(0)'; g.drawImage(sharp, -PAD + 18, -PAD + 12); g.restore();
-    g.filter = 'blur(3.4px)'; g.drawImage(sharp, -PAD, -PAD); g.filter = 'none';
+    g.filter = 'blur(4px)'; g.drawImage(sharp, -PAD, -PAD); g.filter = 'none';
   });
 }
 
@@ -421,12 +444,12 @@ export default {
     });
     const base = L.makeLayer(PAD, (g) => {
       g.drawImage(buildWall(env), -PAD, -PAD);
-      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.5; g.drawImage(fog, -PAD, -PAD);   // the fog lies on the wall…
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.58; g.drawImage(fog, -PAD, -PAD);   // the fog lies on the wall…
       g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(win, -PAD, -PAD);
       g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.75; g.drawImage(halo, -PAD, -PAD);  // …the bars only get a breath of halation
     });
     // soft focus: fold a blurred copy back in
-    const scene = L.makeLayer(PAD, (g) => { g.drawImage(base, -PAD, -PAD); g.globalAlpha = 0.24; g.drawImage(soft(base, 8, 2), -PAD, -PAD); });
+    const scene = L.makeLayer(PAD, (g) => { g.drawImage(base, -PAD, -PAD); g.globalAlpha = 0.36; g.drawImage(soft(base, 11, 2), -PAD, -PAD); });
     S = { scene, fog, strings: buildStrings(env), lamp: G.lamp };
   },
   draw(ctx, env, p) {
@@ -438,7 +461,7 @@ export default {
     L.blit(ctx, env, S.scene, { zoom });
     L.blit(ctx, env, S.strings, { zoom: 1 + (zoom - 1) * 2.4 });
     L.blit(ctx, env, S.fog, { zoom, alpha: 0.03 + 0.07 * fl, blend: 'screen' });
-    L.glow(ctx, S.lamp.x, S.lamp.y, 300, '#ffdc9a', 0.08 + 0.1 * fl);
+    L.glow(ctx, S.lamp.x, S.lamp.y, 300, '#ffdc9a', 0.09 + 0.08 * fl);
     L.vignette(ctx, { strength: 0.36, color: '#1c0703', inner: 0.5, outer: 1.08 });
   },
 };

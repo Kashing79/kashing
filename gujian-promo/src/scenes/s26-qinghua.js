@@ -37,6 +37,9 @@ function buildGlaze(env) {
       [t(-4), 'rgba(150,186,202,0.3)'], [t(36), 'rgba(160,192,206,0.2)'], [t(130), 'rgba(190,208,222,0.05)'], [t(280), 'rgba(255,255,255,0)'],
       [t(440), 'rgba(255,255,255,0.45)'], [t(600), 'rgba(205,217,228,0.3)'], [t(800), 'rgba(160,180,200,0.7)']]);
     full();
+    // the far wall mirrors a dim room, upper left — the window panes in the sheen layer sit inside this
+    g.save(); g.filter = 'blur(80px)'; g.fillStyle = 'rgba(126,152,182,0.5)';
+    g.beginPath(); g.ellipse(262, 96, 450, 205, -0.1, 0, TAU); g.fill(); g.restore();
     g.save();
     // slow drift in glaze thickness (kept very gentle: porcelain, not paper)
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.2;
@@ -597,20 +600,19 @@ function buildSheen(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
     const rr = (x, y, w, h, rad) => { g.beginPath(); g.moveTo(x + rad, y); g.arcTo(x + w, y, x + w, y + h, rad); g.arcTo(x + w, y + h, x, y + h, rad); g.arcTo(x, y + h, x, y, rad); g.arcTo(x, y, x + w, y, rad); g.closePath(); };
-    // a window reflected in the glaze, upper left: a broad glow with four soft panes in it, skewed by the curve of the wall
-    g.save(); g.filter = 'blur(60px)'; g.translate(270, 70); g.rotate(-0.12);
-    g.fillStyle = 'rgba(255,255,255,0.6)'; rr(-400, -190, 800, 330, 80); g.fill(); g.restore();
-    g.save(); g.filter = 'blur(13px)'; g.translate(262, 104); g.transform(1, -0.13, 0.24, 1, 0, 0);
-    g.fillStyle = 'rgba(255,255,255,0.62)';
-    for (const [px, py] of [[-166, -88], [8, -88], [-166, 6], [8, 6]]) { rr(px, py, 158, 82, 10); g.fill(); }
+    // a window reflected in the glaze, upper left: four soft panes, skewed by the curve of the wall
+    // (the glaze layer darkens the wall a little around it, so the panes read as light ON the surface)
+    g.save(); g.filter = 'blur(11px)'; g.translate(258, 108); g.transform(1, -0.13, 0.24, 1, 0, 0);
+    g.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const [px, py] of [[-176, -96], [8, -96], [-176, 6], [8, 6]]) { rr(px, py, 168, 90, 10); g.fill(); }
     g.restore();
     // a smaller glow, upper right
     g.save(); g.filter = 'blur(30px)'; g.translate(1760, -10); g.rotate(0.2);
     g.fillStyle = 'rgba(255,255,255,0.6)'; rr(-200, -90, 400, 150, 50); g.fill(); g.restore();
-    // window bars slanting across the painted well
-    g.save(); g.filter = 'blur(22px)';
-    g.fillStyle = 'rgba(235,244,255,0.42)'; g.beginPath(); g.moveTo(1268, 560); g.lineTo(1404, 560); g.lineTo(1654, 1280); g.lineTo(1480, 1280); g.closePath(); g.fill();
-    g.fillStyle = 'rgba(235,244,255,0.26)'; g.beginPath(); g.moveTo(1452, 570); g.lineTo(1500, 570); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
+    // the same window's bars slanting across the painted well
+    g.save(); g.filter = 'blur(16px)';
+    g.fillStyle = 'rgba(235,244,255,0.5)'; g.beginPath(); g.moveTo(1268, 540); g.lineTo(1400, 540); g.lineTo(1654, 1280); g.lineTo(1484, 1280); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(235,244,255,0.32)'; g.beginPath(); g.moveTo(1446, 560); g.lineTo(1494, 560); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
     g.restore();
     // the fold above the lines catches a thin streak of light
     g.save(); g.filter = 'blur(3px)'; g.lineCap = 'round';

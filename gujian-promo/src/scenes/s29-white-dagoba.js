@@ -124,8 +124,8 @@ function buildDome(env) {
       // raised lips left by the trowel's edge
       const rg = nB.ridged(a2 / 820 + 3.7, s2 / 58 + 1.9, 2);
       h += 1.3 * rg * rg * rg * rg;
-      // bristle tracks of the limewash brush
-      h += 0.62 * nB.fbm(a2 / 330, s2 / 6.5, 2);
+      // bristle tracks of the limewash brush (faded out where the rim squeezes them below a pixel or two)
+      h += 0.62 * sm((squash(s) - 0.25) / 0.25) * nB.fbm(a2 / 330, s2 / 6.5, 2);
       // chalky lumps and sand
       h += 1.5 * nC.fbm(av / 62, s / 62, 3);
       h += 0.55 * nC.fbm(av / 27 + 13, s / 27 + 5, 2);
@@ -306,6 +306,10 @@ function buildDome(env) {
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.9;
     g.drawImage(L.blurred(tears, 2.6), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    // dusk grade: the lit shoulder stays lime-white; the shadow flank picks up a little ochre bounce from the rock
+    g.globalCompositeOperation = 'multiply';
+    g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#ffffff'], [0.5, '#fffefb'], [0.75, '#fbf6ee'], [1, '#f6eee2']]);
+    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     // fine tooth of the lime
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
     g.drawImage(L.grainTex(W + PAD * 2, H + PAD * 2, { seed: 's29-g1', amount: 0.2, size: 1 }), -PAD, -PAD);

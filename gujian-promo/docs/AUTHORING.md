@@ -75,6 +75,7 @@ export default {
 每个镜头只有 5–31 帧（0.2–1.2 秒），运动要**小而确定**：
 - `L.blit(ctx, env, layer, { rot, zoom, dx, dy, alpha, blend })` 把预渲染图层画到画面上。
   `rot` 是绕弧的圆心旋转（弧线本身不动，细节沿弧滑动），常用 `L.lerp(-0.008, 0.008, p)`；`zoom` 以弧顶为中心推近，常用 `1 → 1.04`。
+- 注意 `zoom` 以弧顶为中心放大，会把弧的半径同比放大：zoom = 1.03 时画面最左右两端的弧线会偏离约 6 px。所以 zoom 建议控制在 0.99—1.03；想要更大的推近感，用 `rot` 和视差代替。
 - 前景动得多、背景动得少，就有视差。也可以让一束高光、一点光斑随 p 移动。
 - 图层用 `L.makeLayer(PAD, (g) => { ... })` 创建：里面直接用画面坐标（0..1920, 0..1080），可以画到边界外的 PAD 余量里。
   **凡是会被 rot/zoom 的图层，内容必须画满余量区**（弧线两端各多画 `arc.span(PAD+100)`），否则运动时会露边。
@@ -100,6 +101,7 @@ export default {
   - `overlayOn(layer, tex, {blend, alpha})`：只在图层**已有像素处**叠加纹理或 bumpLight 光影（透明区域保持透明）。
   - 注意：`makeLayer` 返回的画布，其 2D context 永久带着 `translate(pad, pad)`（所以用画面坐标作画）；而 `blurred / filtered / noiseLayer / polarNoiseLayer / bumpLight` 返回的画布 context 没有这个平移。之后要在后者上补画，先自己 `g.translate(pad, pad)`。
 - 纹理：`noiseTex(w,h,opts) noiseLayer(pad,opts) polarNoiseLayer(env,pad,opts)`（沿弧 / 沿半径拉伸的噪声）`grainTex bumpLight(heightCanvas,opts) speckle(ctx,opts)`
+  - `bumpLight` 的 `angle` 是光线在画面上行进的方向：**45 = 左上来光**，135 = 右上来光，225（默认）= 右下来光。
 - 现成材质：`paperTex woodTex stoneTex weaveTex`（返回 w×h 的 canvas）
 - 笔触：`inkStroke(ctx, pts, opts)`（毛笔）`chalkStroke / chalkLine`（粉笔、蜡笔）`sketchLine`（钢笔、铅笔）`roughPoly`（撕纸边）`smoothPath arcPts(arc, dr, t0, t1, n)`
 - 效果：`vignette glow overlayGrain`；文字：`text`

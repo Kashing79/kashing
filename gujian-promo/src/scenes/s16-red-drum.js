@@ -307,27 +307,26 @@ function buildDrum(env) {
     });
   }
 
-  const cnv = L.makeCanvas(RW, RH);
-  cnv.getContext('2d').putImageData(img, 0, 0);
-  const body = L.makeLayer(PAD, (g) => { g.drawImage(cnv, X0, Y0); });
+  // everything lives in region-sized canvases (RW × RH, top-left at X0,Y0): nothing but black exists above the rim
+  const body = L.makeCanvas(RW, RH);
+  body.getContext('2d').putImageData(img, 0, 0);
   // the cracks themselves go on their own layer, laid over the picture AFTER the moving highlight so they cut through it
   const cimg = new ImageData(RW, RH), cp = cimg.data;
   for (let k = 0; k < N; k++) { if (Ck[k]) { const o = k * 4; cp[o] = 26; cp[o + 1] = 6; cp[o + 2] = 4; cp[o + 3] = Ck[k]; } }
-  cnv.getContext('2d').putImageData(cimg, 0, 0);
-  const cracks = L.makeLayer(PAD, (g) => { g.drawImage(cnv, X0, Y0); });
+  const cracks = L.makeCanvas(RW, RH);
+  cracks.getContext('2d').putImageData(cimg, 0, 0);
   // macro lens: the barrel swells toward the camera at the bottom of frame and drops out of focus
   for (const layer of [body, cracks]) {
     const soft = L.blurred(layer, 3.2), sg = soft.getContext('2d'), lg = layer.getContext('2d');
-    const mask = (g, c0, c1) => { g.globalCompositeOperation = c0 ? 'destination-out' : 'destination-in'; g.fillStyle = L.radial(g, cx + PAD, cy + PAD, R - 640, R - 400, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]); g.setTransform(1, 0, 0, 1, 0, 0); g.fillRect(0, 0, soft.width, soft.height); };
-    mask(sg, false);
-    if (layer === cracks) mask(lg, true);       // (the crack layer is see-through, so swap sharp for soft instead of covering it)
+    const mask = (g, op) => { g.globalCompositeOperation = op; g.fillStyle = L.radial(g, cx - X0, cy - Y0, R - 640, R - 400, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]); g.fillRect(0, 0, RW, RH); };
+    mask(sg, 'destination-in');
+    if (layer === cracks) mask(lg, 'destination-out');   // (the crack layer is see-through, so swap sharp for soft instead of covering it)
     lg.globalCompositeOperation = layer === cracks ? 'lighter' : 'source-over';
     lg.drawImage(soft, 0, 0);
   }
-  // halation: a quarter-res blurred copy, screened back over the picture in draw()
-  const BW = Math.ceil((W + PAD * 2) / 4), BH = Math.ceil((H + PAD * 2) / 4);
-  const bloom = L.makeCanvas(BW, BH), bg = bloom.getContext('2d');
-  bg.filter = 'blur(5px)'; bg.drawImage(body, 0, 0, BW, BH);
+  // halation: a quarter-res blurred copy (with some headroom above the rim), screened back over the picture in draw()
+  const BT = 96, bloom = L.makeCanvas(RW / 4, (RH + BT) / 4), bg = bloom.getContext('2d');
+  bg.filter = 'blur(5px)'; bg.drawImage(body, 0, BT / 4, RW / 4, RH / 4);
 
   // per-frame highlight: half-resolution fields (only the rows the band can reach) + 1-D profiles
   const JS = 140, hw = RW >> 1, hh = (RH - JS) >> 1, HN = hw * hh;
@@ -348,7 +347,7 @@ function buildDrum(env) {
   }
   const LL = new Float32Array(1024);   // lateral falloff vs |U − Uc|, 2 px steps
   for (let n = 0; n < 1024; n++) { const t = (n * 2) / 900; LL[n] = Math.exp(-t * t) * 0.92 + 0.08; }
-  return { body, cracks, bloom, E2, U2, G2, M2, HN, spec, specC, sctx: specC.getContext('2d'), BL, LL, sx: X0, sy: Y0 + JS, sw: hw * 2, sh: hh * 2 };
+  return { body, cracks, bloom, X0, Y0, BT, E2, U2, G2, M2, HN, spec, specC, sctx: specC.getContext('2d'), BL, LL, sy: Y0 + JS, sw: hw * 2, sh: hh * 2 };
 }
 
 /** refresh the lacquer's specular band for this frame. E0 = depth of the band's centre, Uc = where it is brightest along the rim */
@@ -373,13 +372,14 @@ export default {
     const a = env.arc;
     const rot = L.lerp(-0.006, 0.006, p);
     ctx.fillStyle = '#040404'; ctx.fillRect(0, 0, W, H);
-    L.blit(ctx, env, S.body, { rot });
     // the light stays put while the drum turns under it → the band creeps down the barrel and along the rim
     renderSpec(L.lerp(228, 246, p), L.lerp(-330, -250, p) - rot * a.R);
     L.cam(ctx, env, { rot }, () => {
-      ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(S.specC, S.sx, S.sy, S.sw, S.sh);
-      ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(S.cracks, -PAD, -PAD);
-      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.3; ctx.drawImage(S.bloom, -PAD, -PAD, S.bloom.width * 4, S.bloom.height * 4);
+      const { X0, Y0 } = S;
+      ctx.drawImage(S.body, X0, Y0);
+      ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(S.specC, X0, S.sy, S.sw, S.sh);
+      ctx.globalCompositeOperation = 'source-over'; ctx.drawImage(S.cracks, X0, Y0);
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.3; ctx.drawImage(S.bloom, X0, Y0 - S.BT, S.bloom.width * 4, S.bloom.height * 4);
     });
   },
 };

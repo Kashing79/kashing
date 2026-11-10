@@ -11,9 +11,11 @@ const { W, H } = L;
 const PAD = 120;                       // the move is a few px of rot + a breath of zoom
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const RIM = 15;                        // width of the foam bead that rides the arc (its outer edge IS the arc)
-const ROWS = [[98, 9], [116, 88], [138, 156], [162, 232]];   // 平水 rows: [radius, depth of the apex below the arc]
-const BASE = ROWS[3][0] + ROWS[3][1];  // depth where the last (whole half-round) row sits on the 立水
-const VR = 52;                         // spray volute radius
+// rows of billows, nearest the arc first: [radius, depth of the apex below the arc]. The last row is the 立水:
+// big arches whose foam lip trims a field of slanted ribs.
+const ROWS = [[120, 9], [142, 104], [168, 186], [198, 280], [256, 384]];
+const LI_ROW = 4, LI_LIP = 27;         // the 立水 row and the width (px) of its foam lip
+const VR = 64;                         // spray volute radius
 let S = null;
 
 // ───────────── glaze colours (albedo, 0..1) ─────────────
@@ -26,10 +28,11 @@ const DG_HI = rgb('#176f5a'), DG_LO = rgb('#0c3936');
 const GRV = [0.04, 0.115, 0.2];        // glaze pooled dark in the grooves
 const BODY = rgb('#d8cbae');           // the fired clay body where glaze has worn off
 // bands of one billow from its free edge inwards: [lo, hi] colour, per colour scheme
-const EDGES = [1, 0.866, 0.67, 0.505, 0.438, 0.272, 0];
+const EDGES = [1, 0.852, 0.628, 0.41, 0];
+const NB = EDGES.length - 2;           // index of the innermost band (the domed heart)
 const PAL = [
-  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [WH_LO, WH_HI], [BL_LO, BL_HI], [DB_LO, DB_HI]],
-  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [WH_LO, WH_HI], [GR_LO, GR_HI], [DG_LO, DG_HI]],
+  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [DB_LO, DB_HI]],
+  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [DG_LO, DG_HI]],
 ];
 
 // sample outputs (module-level to keep the per-pixel loop allocation-free)
@@ -38,20 +41,20 @@ let oR = 0, oG = 0, oB = 0, oH = 0, oGl = 0, oTop = 0;
 /** one 平水 billow: concentric rounded ridges. t = 0 at its centre … 1 at its free edge */
 function sampleScale(t, r, v, tone) {
   let i = 0;
-  while (i < 5 && t < EDGES[i + 1]) i++;
+  while (i < NB && t < EDGES[i + 1]) i++;
   const e0 = EDGES[i], e1 = EDGES[i + 1], bw = (e0 - e1) * r;
   let u = (e0 - t) / (e0 - e1); if (u < 0) u = 0; else if (u > 1) u = 1;
   let s, edgePx;
-  if (i === 5) { s = Math.sqrt(1 - (1 - u) * (1 - u)); edgePx = u * bw; }           // domed heart
+  if (i === NB) { s = Math.sqrt(1 - (1 - u) * (1 - u)); edgePx = u * bw; }          // domed heart
   else { s = Math.sin(Math.PI * u); edgePx = (u < 0.5 ? u : 1 - u) * bw; if (i === 0 && u < 0.5) edgePx = 99; }
   let g = edgePx / 2.3; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
   const lo = PAL[v][i][0], hi = PAL[v][i][1], k = s * (0.55 + 0.45 * s), m = 1 + tone;
   oR = GRV[0] + ((lo[0] + (hi[0] - lo[0]) * k) * m - GRV[0]) * g;
   oG = GRV[1] + ((lo[1] + (hi[1] - lo[1]) * k) * m - GRV[1]) * g;
   oB = GRV[2] + ((lo[2] + (hi[2] - lo[2]) * k) * m - GRV[2]) * g;
-  const amp = (bw * 0.3 > 8 ? 8 : bw * 0.3) * (i === 0 ? 1.25 : 1);
+  const amp = (bw * 0.3 > 9 ? 9 : bw * 0.3) * (i === 0 ? 1.2 : i === NB ? 0.6 : 1);
   oH = amp * Math.pow(s, 0.8) + 4.5 * t;       // each billow lifts toward its free edge, like an overlapping scale
-  oGl = 0.35 + 0.65 * g; oTop = s;
+  oGl = 0.35 + 0.65 * g; oTop = i === NB ? 0 : s;
 }
 
 const VW = 0.5, VDUTY = 0.58, VEYE = 0.16;
@@ -97,23 +100,41 @@ function sampleRim(u) {
   oGl = 0.4 + 0.6 * g; oTop = s;
 }
 
-const LI_SIN = Math.sin(L.deg(58)), LI_COS = Math.cos(L.deg(58)), LI_PER = 76;
+const LI_SIN = Math.sin(L.deg(57)), LI_COS = Math.cos(L.deg(57)), LI_PER = 92;
+/** the 立水 row: a white foam lip (t near 1) trimming the field of slanted ribs */
+function sampleLishuiArch(t, r, s, d) {
+  const lipPx = (1 - t) * r;
+  if (lipPx < LI_LIP) {
+    const u = lipPx / LI_LIP, sn = Math.sin(Math.PI * u);
+    let g = u < 0.5 ? 1 : ((1 - u) * LI_LIP) / 2.4; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
+    const k = sn * (0.55 + 0.45 * sn);
+    oR = GRV[0] + (WH_LO[0] + (WH_HI[0] - WH_LO[0]) * k - GRV[0]) * g;
+    oG = GRV[1] + (WH_LO[1] + (WH_HI[1] - WH_LO[1]) * k - GRV[1]) * g;
+    oB = GRV[2] + (WH_LO[2] + (WH_HI[2] - WH_LO[2]) * k - GRV[2]) * g;
+    oH = 9.5 * Math.pow(sn, 0.8) + 4.5 * t; oGl = 0.35 + 0.65 * g; oTop = sn;
+    return;
+  }
+  sampleLishui(s, d);
+  let g = (lipPx - LI_LIP) / 2.4; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
+  oR = GRV[0] + (oR - GRV[0]) * g; oG = GRV[1] + (oG - GRV[1]) * g; oB = GRV[2] + (oB - GRV[2]) * g;
+  oH = oH * g + 4.5 * t; oGl *= 0.5 + 0.5 * g;
+}
 /** 立水: parallel slanted ribs, blue / green / white in turn. s = arc length from the crest, d = depth */
 function sampleLishui(s, d) {
   const along = -s * LI_COS + d * LI_SIN;
   let q = (s * LI_SIN + d * LI_COS + 7 * Math.sin(along / 38)) / LI_PER;
   const f = (q - Math.floor(q)) * LI_PER;
   let u, bw, lo, hi;
-  if (f < 31) { u = f / 31; bw = 31; lo = BL_LO; hi = BL_HI; }
-  else if (f < 59) { u = (f - 31) / 28; bw = 28; lo = GR_LO; hi = GR_HI; }
-  else { u = (f - 59) / 17; bw = 17; lo = WH_LO; hi = WH_HI; }
+  if (f < 37) { u = f / 37; bw = 37; lo = BL_LO; hi = BL_HI; }
+  else if (f < 71) { u = (f - 37) / 34; bw = 34; lo = GR_LO; hi = GR_HI; }
+  else { u = (f - 71) / 21; bw = 21; lo = WH_LO; hi = WH_HI; }
   const sn = Math.sin(Math.PI * u);
   let g = ((u < 0.5 ? u : 1 - u) * bw) / 2.4; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
   const k = sn * (0.55 + 0.45 * sn);
   oR = GRV[0] + (lo[0] + (hi[0] - lo[0]) * k - GRV[0]) * g;
   oG = GRV[1] + (lo[1] + (hi[1] - lo[1]) * k - GRV[1]) * g;
   oB = GRV[2] + (lo[2] + (hi[2] - lo[2]) * k - GRV[2]) * g;
-  oH = (bw * 0.3 > 8 ? 8 : bw * 0.3) * Math.pow(sn, 0.8);
+  oH = (bw * 0.3 > 9 ? 9 : bw * 0.3) * Math.pow(sn, 0.8);
   oGl = 0.35 + 0.65 * g; oTop = sn;
 }
 
@@ -137,14 +158,14 @@ function buildField(env) {
   const rows = ROWS.map(([r0, top], k) => {
     const c = top + r0, dth = (r0 * 1.94) / (R - c);
     const n = Math.ceil(half / dth) + 2, count = 2 * n + 1, ph = k % 2 ? 0.5 : 0;
-    const row = { c, dth, n, count, ph, level: 4 + 8 * k, clip: c + r0 > BASE, lo: 0, hi: 0,
+    const row = { c, dth, n, count, ph, level: 4 + 8 * k, li: k === LI_ROW, lo: 0, hi: 0,
       x: new Float32Array(count), y: new Float32Array(count), r: new Float32Array(count), th: new Float32Array(count), tone: new Float32Array(count), vr: new Uint8Array(count) };
     let rmax = 0;
     for (let j = -n; j <= n; j++) {
       const i = j + n;
       const rr = r0 * (1 + rnd.range(-0.04, 0.04));
       const th = (j + ph + rnd.range(-0.03, 0.03)) * dth;
-      const cc = k === 0 ? top + rr : k === 3 ? c : c + rnd.range(-0.03, 0.03) * r0;
+      const cc = k === 0 ? top + rr : c + rnd.range(-0.03, 0.03) * r0;
       row.th[i] = th; row.r[i] = rr;
       row.x[i] = cxL + (R - cc) * Math.sin(th); row.y[i] = cyL - (R - cc) * Math.cos(th);
       row.tone[i] = rnd.range(-0.1, 0.08); row.vr[i] = (k + (rnd.chance(0.14) ? 1 : 0)) % 2;
@@ -165,7 +186,7 @@ function buildField(env) {
     const fx = a.cx + R * Math.sin(th);
     const maxUp = Math.abs(fx - a.cx) < 400 ? a.yAt(fx) - (a.crestY - 10) - 10 : 80;
     const big = rnd.range(0.85, 1.15);
-    for (const [ox, up, dr] of [[14, 19, 10.5], [38, 39, 6.8], [-9, 41, 5.2], [61, 23, 4.3], [24, 62, 3.4]]) {
+    for (const [ox, up, dr] of [[16, 22, 12], [44, 45, 7.8], [-10, 47, 6], [70, 26, 5], [28, 72, 4]]) {
       const rr2 = dr * big * rnd.range(0.9, 1.1), up2 = up * big + rnd.range(-3, 3), ox2 = ox * big + rnd.range(-4, 4);
       if (up2 + rr2 > maxUp) continue;
       const t2 = th + ox2 / R;
@@ -227,12 +248,9 @@ function buildField(env) {
         }
       }
       // 3) 平水 rows, nearest row (largest k) first
-      const below = d > BASE - 0.5;
       for (let k = K - 1; k >= 0 && A < 0.995; k--) {
         const row = rows[k];
         if (d < row.lo || d > row.hi) continue;
-        let cl = 1;
-        if (row.clip) { if (d > BASE + 0.5) continue; if (below) cl = BASE + 0.5 - d; }
         const j0 = Math.round(theta / row.dth - row.ph) + row.n;
         let bt = 9, bi = -1, bd = 0;
         for (let idx = j0 - 1; idx <= j0 + 1; idx++) {
@@ -242,41 +260,35 @@ function buildField(env) {
           if (e > -0.5 && e < 18) {
             const ee = e > 0 ? e : 0, f = 1 - ee / 18;
             let cast = ((vx * S2x + vy * S2y) / dist + 0.1) / 0.8; if (cast < 0) cast = 0; else if (cast > 1) cast = 1;
-            const s1 = cast * f * f * 0.8 * cl, s2 = 0.5 * Math.exp(-ee / 3.5) * cl, ss = s1 > s2 ? s1 : s2;
+            const s1 = cast * f * f * 0.8, s2 = 0.5 * Math.exp(-ee / 3.5), ss = s1 > s2 ? s1 : s2;
             if (ss > sh) sh = ss;
           }
         }
         if (bi < 0) continue;
         const rr = row.r[bi], e = bd - rr;
         if (e < 0.5) {
-          const cov = (e < -0.5 ? 1 : 0.5 - e) * cl, w = (1 - A) * cov;
-          sampleScale(bt > 1 ? 1 : bt, rr, row.vr[bi], row.tone[bi]);
+          const cov = e < -0.5 ? 1 : 0.5 - e, w = (1 - A) * cov;
+          if (row.li) sampleLishuiArch(bt > 1 ? 1 : bt, rr, theta * R + qx - X, d + qy - Y);
+          else sampleScale(bt > 1 ? 1 : bt, rr, row.vr[bi], row.tone[bi]);
           ar += w * oR; ag += w * oG; ab += w * oB; ah += w * (row.level + oH); agl += w * oGl; atop += w * oTop; aoc += w * sh; A += w;
         }
       }
-      // 4) what is left: 立水 below the last row, a dark ground in any chink above it
+      // 4) any chink left between the billows: dark ground
       if (A < 0.995) {
         const w = 1 - A;
-        if (below) {
-          const e = d - BASE > 0 ? d - BASE : 0;
-          if (e < 22) { const f = 1 - e / 22, s1 = 0.85 * f * f, s2 = 0.55 * Math.exp(-e / 3.5), ss = s1 > s2 ? s1 : s2; if (ss > sh) sh = ss; }
-          sampleLishui(theta * R, d);
-          ar += w * oR; ag += w * oG; ab += w * oB; ah += w * (2 + oH); agl += w * oGl; atop += w * oTop; aoc += w * sh;
-        } else {
-          ar += w * GRV[0] * 1.3; ag += w * GRV[1] * 1.3; ab += w * GRV[2] * 1.3; agl += w * 0.5; aoc += w * (sh > 0.4 ? sh : 0.4);
-        }
+        ar += w * GRV[0] * 1.3; ag += w * GRV[1] * 1.3; ab += w * GRV[2] * 1.3; agl += w * 0.5; aoc += w * (sh > 0.4 ? sh : 0.4);
       }
       // glaze life: uneven thickness, worn ridges showing the clay body, pin-prick surface
       const mot = MOT[i4] / 255, fine = FINE[i4] / 255;
       const mm = 0.84 + 0.32 * mot;
       ar *= mm; ag *= mm; ab *= mm;
-      let chip = (CHIP[i4] / 255 - 0.79 + 0.13 * atop) / 0.045; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
+      let chip = (CHIP[i4] / 255 - 0.93 + 0.1 * atop) / 0.04; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
       if (chip > 0) {
         const bb = 0.86 + 0.28 * fine;
         ar += (BODY[0] * bb - ar) * chip; ag += (BODY[1] * bb - ag) * chip; ab += (BODY[2] * bb - ab) * chip;
         agl *= 1 - 0.92 * chip; ah -= 1.3 * chip;
       }
-      ah += (fine - 0.5) * 1.5;
+      ah += (fine - 0.5) * 0.5 + (mot - 0.5) * 2.5;
       const aE = d < 0.5 ? d + 0.5 : 1;
       Hh[i] = ah * aE; Al[i] = aE; Oc[i] = aoc; Gl[i] = agl; Cr[i] = ar; Cg[i] = ag; Cb[i] = ab;
     }
@@ -320,7 +332,7 @@ function shadeField(F, az, el) {
     let nh = nx * Hx + ny * Hy + inv * Hz; if (nh < 0) nh = 0;
     const oc = Oc[i], amb = 0.33 * (1 - 0.5 * oc), dif = 0.98 * nl * (1 - 0.92 * oc);
     const n2 = nh * nh, n4 = n2 * n2, n8 = n4 * n4, n16 = n8 * n8, n32 = n16 * n16, n64 = n32 * n32;
-    const sp = Gl[i] * (1 - oc) * (n64 * n32 * 1.2 + n16 * 0.2);
+    const sp = Gl[i] * (1 - oc) * (n64 * n32 * 1.5 + n16 * 0.3);
     const j = i * 4;
     o[j] = (Cr[i] * (amb * 0.92 + dif * 1.04) + sp) * 255;
     o[j + 1] = (Cg[i] * (amb * 0.98 + dif) + sp * 0.99) * 255;
@@ -352,20 +364,20 @@ function buildCrackle(env) {
   const hC = Math.min(LH, Math.ceil(a.yAt(-PAD) + PAD) + 3);
   const img = new ImageData(LW, hC), o = img.data;
   const vary = L.noiseTex(LW, hC, { seed: 's30cv', scale: 320, octaves: 3, res: 0.1, contrast: 1.9 }).getContext('2d').getImageData(0, 0, LW, hC).data;
-  const R2 = (a.R + 1.5) * (a.R + 1.5), S1 = 36, S2 = 13;
+  const R2 = (a.R + 1.5) * (a.R + 1.5), S1 = 25, S2 = 9;
   for (let y = 0; y < hC; y++) {
     const ddy = cyL - (y + 0.5);
     for (let x = 0; x < LW; x++) {
       const ddx = x + 0.5 - cxL;
       if (ddx * ddx + ddy * ddy < R2) continue;
       const e1 = worleyEdge(x / S1, y / S1, 0x51ed27) * S1;
-      let al = e1 < 1.2 ? (1 - e1 / 1.2) * 0.55 : 0;
+      let al = e1 < 0.95 ? (1 - e1 / 0.95) * 0.4 : 0;
       const e2 = worleyEdge(x / S2 + 9.3, y / S2 + 4.1, 0x2f6b1d) * S2;
-      const a2 = e2 < 0.85 ? (1 - e2 / 0.85) * 0.2 : 0;
+      const a2 = e2 < 0.7 ? (1 - e2 / 0.7) * 0.13 : 0;
       if (a2 > al) al = a2;
       if (al <= 0) continue;
       const i4 = (y * LW + x) * 4;
-      al *= (0.3 + 0.95 * (vary[i4] / 255)) * (1 - 0.55 * calm(env, x - PAD + 0.5, y - PAD + 0.5));
+      al *= (0.12 + 1.15 * (vary[i4] / 255)) * (1 - 0.6 * calm(env, x - PAD + 0.5, y - PAD + 0.5));
       o[i4] = 108; o[i4 + 1] = 62; o[i4 + 2] = 4; o[i4 + 3] = al * 255;
     }
   }
@@ -379,7 +391,7 @@ function flakePath(g, f) {
   g.beginPath();
   for (let i = 0; i < n; i++) {
     const ph = (i / n) * L.TAU, ux = Math.cos(ph), uy = Math.sin(ph);
-    const k = 1 + 0.3 * nz.n2(ux * 1.2 + 3, uy * 1.2) + 0.15 * nz.n2(ux * 3.4, uy * 3.4 + 7) + 0.07 * nz.n2(ux * 9, uy * 9 + 1);
+    const k = 1 + 0.3 * nz.n2(ux * 1.2 + 3, uy * 1.2) + 0.11 * nz.n2(ux * 3.4, uy * 3.4 + 7) + 0.035 * nz.n2(ux * 9, uy * 9 + 1);
     const lx = f.rx * k * ux, ly = f.ry * k * uy, x = f.x + lx * cs - ly * sn, y = f.y + lx * sn + ly * cs;
     if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
   }
@@ -417,6 +429,10 @@ function buildBase(env, F, relief) {
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y1', scale: 430, octaves: 4, res: 0.16, contrast: 1.5, ramp: [[0, 'rgba(176,112,0,0.3)'], [0.5, 'rgba(232,184,32,0)'], [1, 'rgba(255,240,156,0.3)']] }), -PAD, -PAD);
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y2', scale: 52, octaves: 3, res: 0.33, contrast: 1.5, ramp: [[0, 'rgba(160,100,0,0.13)'], [0.5, 'rgba(232,184,32,0)'], [1, 'rgba(255,244,170,0.13)']] }), -PAD, -PAD);
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y3', scale: 80, sx: 0.4, sy: 8, octaves: 3, res: 0.33, contrast: 1.6, ramp: [[0, 'rgba(150,92,0,0.16)'], [0.55, 'rgba(0,0,0,0)'], [1, 'rgba(255,242,170,0.12)']] }), -PAD, -PAD);
+    // the glassy surface is never dead flat: a faint orange-peel that catches the light
+    g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
+    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's30peel', scale: 54, octaves: 3, res: 0.3, contrast: 1.3 }), { angle: 230, strength: 2.4, res: 0.5 }), -PAD, -PAD);
+    g.restore();
     // big facing tiles: each fired a shade differently; the title sits inside one tile
     const tiles = [[-285, JY, 830, 1400, 'rgba(206,140,6,0.1)'], [1375, JY, 830, 1400, 'rgba(255,238,150,0.1)'],
       [-580, JY - 560, 830, 560, 'rgba(255,240,160,0.09)'], [250, JY - 560, 830, 560, 'rgba(200,134,4,0.08)'], [1080, JY - 560, 830, 560, 'rgba(240,170,20,0.07)']];
