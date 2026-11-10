@@ -169,9 +169,9 @@ function buildTiles(env, P) {
     // 3) glaze mottling that runs down the slope, a little grime
     g.save(); a.clipBelow(g, 16);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.42;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25glaze', scale: 30, sx: 1, sy: 7, octaves: 3, contrast: 1.5, res: 0.33 }), -PAD, -PAD);
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25glaze', scale: 30, sx: 1, sy: 7, octaves: 3, contrast: 1.5, res: 0.25 }), -PAD, -PAD);
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.25;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25dirt', scale: 230, octaves: 3, warp: 0.5, res: 0.2, ramp: [[0, '#7a4a1a'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25dirt', scale: 230, octaves: 3, warp: 0.5, res: 0.14, ramp: [[0, '#7a4a1a'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
     g.restore();
     // richer, deeper gold: the layer overlaid on itself (a cheap contrast + saturation lift)
     g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.55; g.drawImage(g.canvas, 0, 0); g.restore();
@@ -244,7 +244,7 @@ function buildSnow(env, P) {
       let K = k0 + (k1 - k0) * fs;
       K += 0.24 * nz.fbm(sa / 62, d / 105, 2) + 0.28 * nz.n2(sa / 340 + 5.1, d / 460 + 1.3);
       // here and there a whole slab has slid off, baring ridges and troughs together
-      K -= 1.9 * sm((nz.fbm(sa / 520 + 2.2, d / 360 + 7.7, 2) - 0.3) / 0.3) * (1 - sm((d - 300) / 220));
+      if (d < 520) K -= 1.9 * sm((nz.fbm(sa / 520 + 2.2, d / 360 + 7.7, 2) - 0.3) / 0.3) * (1 - sm((d - 300) / 220));
       SS[i] = T + K; TT[i] = T;
     }
   }
@@ -261,7 +261,7 @@ function buildSnow(env, P) {
       if (Ss > 0) {
         const X = (gx + 0.5) * inv - PAD;
         const e = Ss > 0.85 ? 1 : Ss / 0.85;
-        hS[i] = HS * Math.sqrt(e) + e * (8 * nz.fbm(X / 210, Y / 210, 3) - 3.2 * TT[i] + 1.6 * nz.n2(X / 47, Y / 47) + 0.18 * nz.n2(X / 12, Y / 12));
+        hS[i] = HS * Math.sqrt(e) + e * (8 * nz.fbm(X / 210, Y / 210, 2) - 3.2 * TT[i] + 1.6 * nz.n2(X / 47, Y / 47) + 0.18 * nz.n2(X / 12, Y / 12));
       }
     }
   }
@@ -287,7 +287,7 @@ function buildSnow(env, P) {
         let cr = lutC[q], cg = lutC[q + 1], cb = lutC[q + 2];
         // broad, soft violet shadow patches and a slow fall into shade down the roof
         const X = (x + 0.5) * inv - PAD, d = dD[i];
-        let cool = isCornice ? 0 : 0.1 * sm((d - 220) / 650) + 0.17 * sm(0.1 + 1.4 * nz.fbm(X / 360 + 3.7, Y / 250 - 1.9, 2)) * sm((d - 90) / 120);
+        let cool = isCornice ? 0 : 0.1 * sm((d - 220) / 650) + 0.17 * sm(0.1 + 1.1 * nz.n2(X / 300 + 3.7, Y / 210 - 1.9)) * sm((d - 90) / 120);
         if (cool > 0) { cr += (shadeRGB[0] - cr) * cool; cg += (shadeRGB[1] - cg) * cool; cb += (shadeRGB[2] - cb) * cool; }
         // crystalline grain, the odd sparkle on lit snow
         const rv = rj();
@@ -306,27 +306,31 @@ function buildSnow(env, P) {
   };
   const sheet = colorize(hS, aS, slS, false);
   const cornice = colorize(hC, aC, null, true);
+  // look-ups for dressing the roof afterwards: is this frame point bare glaze / solid snow?
+  const at = (X, Y) => {
+    const gx = Math.round((X + PAD) * RES - 0.5), gy = Math.round((Y + PAD) * RES - 0.5);
+    if (gx < 2 || gy < 2 || gx >= gw - 2 || gy >= gh - 2) return null;
+    const i = gy * gw + gx;
+    return { S: SS[i], sheet: aS[i], cornice: aC[i], d: dD[i], h: hS[i] };
+  };
   // sparkle sites: lit, solid snow
   const rs = L.rng('s25spark');
   const sparks = [];
   let guard = 0;
   while (sparks.length < 110 && guard++ < 6000) {
     const X = rs.range(-40, W + 40), Y = rs.range(a.crestY - 10, H + 20);
-    const gx = Math.round((X + PAD) * RES), gy = Math.round((Y + PAD) * RES);
-    if (gx < 2 || gy < 2 || gx >= gw - 2 || gy >= gh - 2) continue;
-    const i = gy * gw + gx;
-    const onC = aC[i] > 0.98 && dD[i] > 6 && dD[i] < 46, onS = aS[i] > 0.98 && aC[i] < 0.01 && hS[i] > HS * 0.9;
+    const q = at(X, Y); if (!q) continue;
+    const onC = q.cornice > 0.98 && q.d > 6 && q.d < 40, onS = q.sheet > 0.98 && q.cornice < 0.01 && q.h > HS * 0.9;
     if (!onC && !onS) continue;
     const p = a.polar(X, Y);
     sparks.push({ theta: p.theta, dr: p.dr, size: rs.range(0.7, 1.7) * (onC ? 1.15 : 1), ph: rs.int(0, 3), warm: rs.chance(0.45) });
   }
-  return { sheet, cornice, gw, gh, sparks };
+  return { sheet, cornice, gw, gh, sparks, at };
 }
 
-/** silhouette of a (low-res) snow canvas pushed down the roof and blurred → a cast shadow, as a full padded layer */
+/** silhouette of a (low-res) snow canvas pushed down the roof and blurred → a cast shadow (still low-res; upscale when compositing) */
 function castShadow(env, src, { push, dx, blur, color }) {
   const a = env.arc;
-  const LW = W + PAD * 2, LH = H + PAD * 2;
   const small = L.makeCanvas(src.width, src.height), sg = small.getContext('2d');
   const k = (a.R - push) / a.R, ccx = (a.cx + PAD) * RES, ccy = (a.cy + PAD) * RES;
   sg.filter = `blur(${blur * RES}px)`;
@@ -334,10 +338,7 @@ function castShadow(env, src, { push, dx, blur, color }) {
   sg.drawImage(src, 0, 0);
   sg.setTransform(1, 0, 0, 1, 0, 0); sg.filter = 'none';
   sg.globalCompositeOperation = 'source-in'; sg.fillStyle = color; sg.fillRect(0, 0, small.width, small.height);
-  const out = L.makeCanvas(LW, LH), g = out.getContext('2d');
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  g.drawImage(small, 0, 0, LW, LH);
-  return out;
+  return small;
 }
 
 function drawIcicle(g, len, w, r) {
@@ -367,61 +368,73 @@ function buildRoof(env, P, snow) {
   { const nE = Math.ceil((2 * sEdge * R) / 3); for (let i = 0; i <= nE; i++) { const th = L.lerp(-sEdge, sEdge, i / nE); edge.push([th, topOf(th)]); } }
   const traceEdge = (g, off) => { edge.forEach(([th, dr], i) => { const p = a.pt(th, dr + off); if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y); }); };
 
-  const tA = performance.now();
-  const tiles = buildTiles(env, P);
-  const tB = performance.now();
-  const roof = tiles;
-  console.warn('TIMING tiles', (tB - tA) | 0, 'filter', (performance.now() - tB) | 0);
+  const roof = buildTiles(env, P);
   const g = roof.getContext('2d');
   g.setTransform(1, 0, 0, 1, PAD, PAD);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
   const full = (c, op = 'source-over', alpha = 1) => { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = op; g.globalAlpha = alpha; g.drawImage(c, 0, 0, LW, LH); g.restore(); };
-  const TT = [performance.now()]; const mark = (n) => { TT.push(performance.now()); console.warn('TIMING', n, (TT[TT.length - 1] - TT[TT.length - 2]) | 0); };
   // thin shadow of the snow sheet on the glaze, then the sheet
   full(castShadow(env, snow.sheet, { push: 8, dx: 4, blur: 5, color: 'rgba(66,26,40,0.5)' }), 'multiply');
   full(snow.sheet);
-  mark('sheet');
+  // crumbs of snow left behind on the bare glaze near the melting edges
+  const rc = L.rng('s25crumb');
+  for (let k = 0; k < 1500; k++) {
+    const X = rc.range(-PAD, W + PAD), Y = rc.range(a.crestY, H + PAD), rad = 1.1 + 3.6 * Math.pow(rc(), 2.4);
+    const q = snow.at(X, Y);
+    if (!q || q.cornice > 0.01 || q.S > -0.14 || q.S < -0.8) continue;
+    g.fillStyle = 'rgba(52,22,30,0.45)'; g.beginPath(); g.ellipse(X + rad * 0.5, Y + rad * 0.7, rad, rad * 0.8, 0, 0, L.TAU); g.fill();
+    g.fillStyle = L.radial(g, X - rad * 0.3, Y - rad * 0.35, 0, rad * 1.25, [[0, '#ffffff'], [0.6, '#ebe7f5'], [1, '#b5aed6']]);
+    g.beginPath(); g.ellipse(X, Y, rad, rad * rc.range(0.7, 1), rc.range(0, 3), 0, L.TAU); g.fill();
+  }
   // the cornice throws a long violet shadow down the roof (dark gold on tile, blue-violet on snow)
   full(castShadow(env, snow.cornice, { push: 36, dx: 8, blur: 12, color: 'rgba(82,54,134,0.8)' }), 'multiply');
   full(castShadow(env, snow.cornice, { push: 10, dx: 2, blur: 5, color: 'rgba(54,26,70,0.55)' }), 'multiply');
-  mark('cornice shadows');
   // icicles hanging from the drip lobes
   const r = L.rng('s25ice');
   for (const lb of P.lobes) {
-    if (!lb || lb.amp < 15 || !r.chance(0.72)) continue;
+    if (!lb || lb.amp < 14 || !r.chance(0.8)) continue;
     const th = ((lb.j + 1) * PITCH + lb.off) / R;
     const c = P.lut(P.cL, th);
-    a.at(g, th, -(c - 8), () => drawIcicle(g, 18 + lb.amp * r.range(0.9, 2.1), r.range(8, 13), r));
-    if (r.chance(0.55)) { const o = r.range(11, 24) * r.sign(); const th2 = th + o / R; a.at(g, th2, -(P.lut(P.cL, th2) - 8), () => drawIcicle(g, r.range(16, 40), r.range(5.5, 8.5), r)); }
+    a.at(g, th, -(c - 8), () => drawIcicle(g, 22 + lb.amp * r.range(1.1, 2.4), r.range(8.5, 13.5), r));
+    if (r.chance(0.6)) { const o = r.range(11, 24) * r.sign(); const th2 = th + o / R; a.at(g, th2, -(P.lut(P.cL, th2) - 8), () => drawIcicle(g, r.range(18, 46), r.range(5.5, 9), r)); }
   }
-  mark('icicles');
   full(snow.cornice);
   // warm sunset wash over the crown of the cornice
   g.save(); g.globalCompositeOperation = 'source-atop';
   g.fillStyle = L.radial(g, a.cx, a.cy, R - 46, R + 6, [[0, L.rgba(C.sun, 0)], [0.45, L.rgba(C.sun, 0.14)], [0.72, L.rgba(C.sun, 0.42)], [1, L.rgba(C.sun, 0.9)]]);
   a.pathBand(g, 8, -46, -sEdge, sEdge); g.fill();
   g.restore();
-  mark('cornice+wash');
   // cut the silhouette: everything above the (gently undulating) top edge goes
   g.save(); g.globalCompositeOperation = 'destination-in';
   g.beginPath(); traceEdge(g, 0);
   g.lineTo(a.pt(sEdge, 0).x + 400, H + PAD + 900); g.lineTo(a.pt(-sEdge, 0).x - 400, H + PAD + 900); g.closePath();
   g.fillStyle = '#000'; g.fill();
   g.restore();
-  mark('cut');
-  // the thread of gold light on the very top of the snow
+  // the thread of gold light on the very top of the snow (it thins and swells along the edge)
   const rim = L.makeLayer(PAD, (rg) => {
     rg.lineJoin = 'round'; rg.lineCap = 'round';
     rg.strokeStyle = '#ffc45e'; rg.lineWidth = 8; rg.beginPath(); traceEdge(rg, -4); rg.stroke();
     rg.strokeStyle = '#fff1cc'; rg.lineWidth = 2.6; rg.beginPath(); traceEdge(rg, -1.6); rg.stroke();
     rg.globalCompositeOperation = 'destination-in';
-    rg.drawImage(L.noiseTex(LW, LH, { seed: 's25rim', scale: 120, sx: 1, sy: 30, octaves: 2, res: 0.2, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.5, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), -PAD, -PAD);
+    rg.imageSmoothingEnabled = true; rg.imageSmoothingQuality = 'high';
+    rg.drawImage(L.noiseTex(480, 4, { seed: 's25rim', scale: 22, octaves: 2, res: 1, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.5, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), -PAD, -PAD, LW, LH);
   });
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop'; g.drawImage(rim, 0, 0); g.restore();
-  mark('rim');
   const bloom = L.blurred(rim, 9);
-  mark('bloom');
-  return { roof, bloom };
+  // glint sites: on the wet highlight of bare, sunlit tube tiles
+  const rg2 = L.rng('s25glint');
+  const glints = [];
+  for (let k = 0; k < 400 && glints.length < 16; k++) {
+    const rd = P.ridges[rg2.int(0, P.ridges.length - 1)], d = rg2.range(rd.c + 80, 500);
+    const hw = (HALF * (R - d)) / R, theta = rd.theta - (0.46 * hw) / (R - d);
+    const pt = a.pt(theta, -d);
+    if (pt.x < -30 || pt.x > W + 30 || pt.y > H + 10) continue;
+    const q = snow.at(pt.x, pt.y);
+    if (!q || q.S > -0.75 || q.cornice > 0.01) continue;
+    if (glints.some((o) => Math.hypot(o.x - pt.x, o.y - pt.y) < 150)) continue;
+    glints.push({ x: pt.x, y: pt.y, theta, dr: -d, size: rg2.range(0.7, 1.25), ph: rg2.int(0, 2) });
+  }
+  return { roof, bloom, glints };
 }
 
 // ───────────────────────── sky ─────────────────────────
@@ -435,12 +448,22 @@ function buildSky(env) {
   g.fillStyle = L.linear(g, 0, 0, 0, 430, [[0, 'rgba(46,6,70,0.16)'], [1, 'rgba(46,6,70,0)']]);
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.13;
-  g.drawImage(L.noiseTex(W, H, { seed: 's25sky', scale: 460, octaves: 3, res: 0.2 }), 0, 0);
-  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
-  g.drawImage(L.grainTex(W, H, { seed: 's25sky', amount: 0.12, size: 2 }), 0, 0);
-  g.globalAlpha = 0.35;
-  g.drawImage(L.grainTex(W, H, { seed: 's25sky2', amount: 0.1, size: 1 }), 0, 0);
+  g.drawImage(L.noiseTex(W, H, { seed: 's25sky', scale: 460, octaves: 3, res: 0.15 }), 0, 0);
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.6;
+  g.drawImage(L.grainTex(W, H, { seed: 's25sky', amount: 0.13, size: 2 }), 0, 0);
   return c;
+}
+
+/** a small four-point glint of sun on wet glaze */
+function star(ctx, x, y, rad, al) {
+  ctx.fillStyle = L.radial(ctx, x, y, 0, rad, [[0, `rgba(255,252,236,${al})`], [0.18, `rgba(255,232,160,${al * 0.5})`], [1, 'rgba(255,220,140,0)']]);
+  ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  for (const [sx, sy] of [[1, 0.07], [0.07, 1]]) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy);
+    ctx.fillStyle = L.radial(ctx, 0, 0, 0, rad * 2.1, [[0, `rgba(255,255,246,${al})`], [0.3, `rgba(255,240,190,${al * 0.55})`], [1, 'rgba(255,230,160,0)']]);
+    ctx.fillRect(-rad * 2.1, -rad * 2.1, rad * 4.2, rad * 4.2);
+    ctx.restore();
+  }
 }
 
 export default {
@@ -449,13 +472,12 @@ export default {
   init(env) {
     const t0 = performance.now();
     const P = makePlan(env);
-    const t1 = performance.now();
     const snow = buildSnow(env, P);
+    const t1 = performance.now();
+    const { roof, bloom, glints } = buildRoof(env, P, snow);
     const t2 = performance.now();
-    const { roof, bloom } = buildRoof(env, P, snow);
-    const t3 = performance.now();
-    S = { sky: buildSky(env), roof, bloom, sparks: snow.sparks };
-    console.warn('TIMING plan', (t1 - t0) | 0, 'snow', (t2 - t1) | 0, 'roof', (t3 - t2) | 0, 'sky', (performance.now() - t3) | 0);
+    S = { sky: buildSky(env), roof, bloom, sparks: snow.sparks, glints };
+    console.warn('TIMING snow', (t1 - t0) | 0, 'roof', (t2 - t1) | 0, 'sky', (performance.now() - t2) | 0);
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -470,9 +492,9 @@ export default {
     L.glow(ctx, gl.x, gl.y, 330, '#ffdca0', 0.2, 'soft-light');
     L.glow(ctx, gl.x, gl.y, 150, '#fff0cc', 0.16, 'screen');
     ctx.restore();
-    // snow crystals flashing
     L.cam(ctx, env, { rot }, () => {
       ctx.globalCompositeOperation = 'lighter';
+      // snow crystals flashing
       for (const sp of S.sparks) {
         const k = (env.frame + sp.ph) % 4;
         if (k > 1) continue;
@@ -481,6 +503,12 @@ export default {
         ctx.fillRect(q.x - rad, q.y - rad, rad * 2, rad * 2);
         ctx.fillStyle = L.rgba('#ffffff', al);
         ctx.fillRect(q.x - 0.9 * sp.size, q.y - 0.9 * sp.size, 1.8 * sp.size, 1.8 * sp.size);
+      }
+      // sun glinting off the wet glaze: each glint swells and dies within three frames
+      for (const gt of S.glints) {
+        const k = (env.frame + gt.ph) % 3;
+        const q = a.pt(gt.theta, gt.dr);
+        star(ctx, q.x, q.y, 17 * gt.size * (k === 0 ? 1 : k === 1 ? 0.72 : 0.45), k === 0 ? 0.95 : k === 1 ? 0.7 : 0.4);
       }
     });
   },

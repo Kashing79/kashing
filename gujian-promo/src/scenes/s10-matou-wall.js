@@ -565,8 +565,8 @@ export default {
   init(env) {
     S = build(env);
     // canvas ops are rasterised lazily: touch every plate once here so that cost lands in init, not in the first frame
-    const warm = L.makeCanvas(8, 8).getContext('2d', { willReadFrequently: true });
-    for (const c of [S.back, S.far, S.main, S.near]) warm.drawImage(c, 0, 0, 8, 8);
+    const warm = L.makeCanvas(W, H).getContext('2d');
+    this.draw(warm, env, 0.5);
     warm.getImageData(0, 0, 1, 1);
   },
   draw(ctx, env, p) {

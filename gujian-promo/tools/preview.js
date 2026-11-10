@@ -32,10 +32,10 @@ const { openPlayer, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
       fs.writeFileSync(f, buf);
       return { f, info };
     };
-    const a = await grab(0, { text: !noText }, 'p00');
+    const a = await grab(0, { text: !noText }, 'tmp-start');
     const b = await grab(0.5, { text: !noText }, 'mid');
-    const c = await grab(1, { text: !noText }, 'p100');
-    const g = await grab(0.5, { text: true, guide: true }, 'guide');
+    const c = await grab(1, { text: !noText }, 'tmp-end');
+    const g = await grab(0.5, { text: true, guide: true }, 'tmp-guide');
     if (extraP !== null) await grab(extraP, { text: !noText }, 'p' + Math.round(extraP * 100));
     // 2×2 contact sheet (each tile 960×540)
     const sheet = path.join(outDir, `${id}_sheet.jpg`);

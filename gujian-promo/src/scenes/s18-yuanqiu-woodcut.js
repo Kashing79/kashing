@@ -287,7 +287,7 @@ function buildInk(env, design) {
         const gv = vn(l4, x / 230 + y * 0.003, y / 2.6 + 2.4 * f2v);
         const dg = sstep(0.8, 0.93, gv) * (0.25 + 0.75 * v2) * amt * (0.2 + 0.8 * patch) * (0.35 + 0.65 * inside);
         if (dg > drop) drop = dg;
-        D = I * (1 - drop) * (1 - 0.035 * inside * (0.6 * v1 + 0.4 * v2));
+        D = I * (1 - drop) * (1 - 0.02 * inside * (0.6 * v1 + 0.4 * v2));
       }
       if (I < 0.5 && inside > 0.02) {
         // pepper: flecks of ink that strayed onto the cleared wood beside the lines
@@ -307,7 +307,7 @@ function buildInk(env, design) {
 
 function buildSheet(env) {
   const ink = buildInk(env, buildDesign(env));
-  const paper = L.paperTex(LW, LH, { base: PAPER, seed: 's18paper', tone: '#9c8a64', fiber: 0.6, stain: 0.2, grain: 0.16 });
+  const paper = L.paperTex(LW, LH, { base: '#f4eee0', seed: 's18paper', tone: '#9c8a64', fiber: 0.6, stain: 0.2, grain: 0.16 });
   return L.makeLayer(PAD, (g) => {
     g.drawImage(paper, -PAD, -PAD);
     // laid lines of the hand-made sheet
@@ -319,11 +319,26 @@ function buildSheet(env) {
   });
 }
 
+/** macro-lens falloff: a softened copy of the sheet that fades in away from the arc (the plane of focus) */
+function buildSoft(env, sheet) {
+  const a = env.arc;
+  const soft = L.blurred(sheet, 2.6);
+  const g = soft.getContext('2d');
+  g.filter = 'none'; g.globalCompositeOperation = 'destination-in';
+  const r0 = a.R - 760, r1 = a.R + 860, st = (dr) => (a.R + dr - r0) / (r1 - r0);
+  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, r0, r1, [
+    [0, 'rgba(0,0,0,1)'], [st(-640), 'rgba(0,0,0,1)'], [st(-420), 'rgba(0,0,0,0.5)'], [st(-200), 'rgba(0,0,0,0)'],
+    [st(300), 'rgba(0,0,0,0)'], [st(540), 'rgba(0,0,0,0.55)'], [st(760), 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']]);
+  g.fillRect(0, 0, LW, LH);
+  return soft;
+}
+
 export default {
   name: '圜丘·木刻版画',
   tone: 'light',
   init(env) {
-    S = { sheet: buildSheet(env) };
+    const sheet = buildSheet(env);
+    S = { sheet, soft: buildSoft(env, sheet) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -331,6 +346,7 @@ export default {
     const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(0.986, 1.014, p);
     ctx.fillStyle = '#0c0b0a'; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.sheet, { rot, zoom });
+    L.blit(ctx, env, S.soft, { rot, zoom });
     // copy-stand light: raking in from the upper left, falling off toward the lower right
     ctx.save(); ctx.globalCompositeOperation = 'soft-light';
     ctx.fillStyle = L.linear(ctx, 0, a.crestY - 200, W, H, [[0, 'rgba(255,248,230,0.3)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,0,0.3)']]);

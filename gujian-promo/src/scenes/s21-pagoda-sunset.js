@@ -138,8 +138,8 @@ function drawPagoda(g, cx, by, k) {
   const N = 7;
   const doors = [], glints = [];
   g.fillStyle = INK;
-  rect(-72, -46, 144, 52); rect(-63, 6, 126, 6);                   // 台基 (its foot runs down into the slope)
-  let y = 12, bw = 44, h = 58, e = 30;
+  rect(-78, -46, 156, 52); rect(-69, 6, 138, 6);                   // 台基 (its foot runs down into the slope)
+  let y = 12, bw = 50, h = 58, e = 30;
   for (let i = 0; i < N; i++) {
     const T = y + h, rH = h * 0.26, last = i === N - 1;
     const tipX = bw + e, tipY = T - rH * 0.6;
