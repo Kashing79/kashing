@@ -311,7 +311,11 @@ function build(env) {
     g.fillRect(0, 0, LW, LH);
     g.restore();
   }
-  return { sheet };
+  // hand the finished sheet over on a CPU-backed canvas, so the per-frame blit never triggers a GPU read-back
+  const out = L.makeCanvas(LW, LH);
+  out.getContext('2d', { willReadFrequently: true }).drawImage(sheet, 0, 0);
+  out._pad = PAD;
+  return { sheet: out };
 }
 
 export default {

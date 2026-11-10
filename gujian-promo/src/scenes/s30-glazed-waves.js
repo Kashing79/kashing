@@ -13,7 +13,7 @@ const LW = W + PAD * 2, LH = H + PAD * 2;
 const RIM = 15;                        // width of the foam bead that rides the arc (its outer edge IS the arc)
 // rows of billows, nearest the arc first: [radius, depth of the apex below the arc]. The last row is the 立水:
 // big arches whose foam lip trims a field of slanted ribs.
-const ROWS = [[120, 9], [142, 104], [168, 186], [198, 280], [256, 384]];
+const ROWS = [[120, 9], [142, 100], [168, 177], [198, 264], [256, 358]];
 const LI_ROW = 4, LI_LIP = 27;         // the 立水 row and the width (px) of its foam lip
 const VR = 64;                         // spray volute radius
 let S = null;
@@ -28,11 +28,11 @@ const DG_HI = rgb('#176f5a'), DG_LO = rgb('#0c3936');
 const GRV = [0.04, 0.115, 0.2];        // glaze pooled dark in the grooves
 const BODY = rgb('#d8cbae');           // the fired clay body where glaze has worn off
 // bands of one billow from its free edge inwards: [lo, hi] colour, per colour scheme
-const EDGES = [1, 0.852, 0.628, 0.41, 0];
+const EDGES = [1, 0.86, 0.665, 0.47, 0.285, 0];
 const NB = EDGES.length - 2;           // index of the innermost band (the domed heart)
 const PAL = [
-  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [DB_LO, DB_HI]],
-  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [DG_LO, DG_HI]],
+  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [DB_LO, DB_HI]],
+  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [DG_LO, DG_HI]],
 ];
 
 // sample outputs (module-level to keep the per-pixel loop allocation-free)
@@ -190,7 +190,12 @@ function buildField(env) {
       const rr2 = dr * big * rnd.range(0.9, 1.1), up2 = up * big + rnd.range(-3, 3), ox2 = ox * big + rnd.range(-4, 4);
       if (up2 + rr2 > maxUp) continue;
       const t2 = th + ox2 / R;
-      drops.push({ x: cxL + (R + up2) * Math.sin(t2), y: cyL - (R + up2) * Math.cos(t2), r: rr2 });
+      const hx = cxL + (R + up2) * Math.sin(t2), hy = cyL - (R + up2) * Math.cos(t2);
+      // each bead trails a short tail back toward the curl it flew from
+      const ox0 = cxL + (R - 6) * Math.sin(th - 8 / R), oy0 = cyL - (R - 6) * Math.cos(th - 8 / R);
+      const dl = Math.hypot(ox0 - hx, oy0 - hy);
+      const len = rr2 > 4.6 ? Math.min(rr2 * 2.3, dl - rr2 - 4) : 0;
+      drops.push({ x: hx, y: hy, r: rr2, tx: (ox0 - hx) / dl, ty: (oy0 - hy) / dl, len: len > 0 ? len : 0 });
     }
   }
 
@@ -214,7 +219,7 @@ function buildField(env) {
       const i = py * LW + px, i4 = i * 4;
       const theta = Math.atan2(ddx, ddy);
       // hand-modelled wobble: rows wander a few px (none at the arc, which must stay exact)
-      let wk = d / 150; if (wk > 1) wk = 1; const wamp = 13 * wk * wk * (3 - 2 * wk);
+      let wk = d / 150; if (wk > 1) wk = 1; const wamp = 6.5 * wk * wk * (3 - 2 * wk);
       const qx = X + (WXf[i4] / 255 - 0.5) * wamp, qy = Y + (WYf[i4] / 255 - 0.5) * wamp;
       let A = 0, ar = 0, ag = 0, ab = 0, ah = 0, agl = 0, aoc = 0, atop = 0, sh = 0;
       // 1) foam bead on the arc
@@ -282,7 +287,7 @@ function buildField(env) {
       const mot = MOT[i4] / 255, fine = FINE[i4] / 255;
       const mm = 0.84 + 0.32 * mot;
       ar *= mm; ag *= mm; ab *= mm;
-      let chip = (CHIP[i4] / 255 - 0.93 + 0.1 * atop) / 0.04; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
+      let chip = (CHIP[i4] / 255 - 0.975 + 0.1 * atop) / 0.035; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
       if (chip > 0) {
         const bb = 0.86 + 0.28 * fine;
         ar += (BODY[0] * bb - ar) * chip; ag += (BODY[1] * bb - ag) * chip; ab += (BODY[2] * bb - ab) * chip;
@@ -295,17 +300,23 @@ function buildField(env) {
   }
   // spray beads above the arc
   for (const dp of drops) {
-    const x0 = Math.max(1, Math.floor(dp.x - dp.r - 1)), x1 = Math.min(LW - 2, Math.ceil(dp.x + dp.r + 1));
-    const ya = Math.max(1, Math.floor(dp.y - dp.r - 1) - y0), yb = Math.min(fh - 2, Math.ceil(dp.y + dp.r + 1) - y0);
+    const ex = dp.x + dp.tx * dp.len, ey = dp.y + dp.ty * dp.len, m = dp.r + 1;
+    const x0 = Math.max(1, Math.floor(Math.min(dp.x, ex) - m)), x1 = Math.min(LW - 2, Math.ceil(Math.max(dp.x, ex) + m));
+    const ya = Math.max(1, Math.floor(Math.min(dp.y, ey) - m) - y0), yb = Math.min(fh - 2, Math.ceil(Math.max(dp.y, ey) + m) - y0);
     for (let py = ya; py <= yb; py++) for (let px = x0; px <= x1; px++) {
-      const vx = px + 0.5 - dp.x, vy = py + y0 + 0.5 - dp.y, dist = Math.sqrt(vx * vx + vy * vy), e = dist - dp.r;
+      let vx = px + 0.5 - dp.x, vy = py + y0 + 0.5 - dp.y, rt = dp.r;
+      if (dp.len > 0) {
+        let t = (vx * dp.tx + vy * dp.ty) / dp.len; t = t < 0 ? 0 : t > 1 ? 1 : t;
+        vx -= dp.tx * dp.len * t; vy -= dp.ty * dp.len * t; rt = dp.r * (1 - 0.84 * Math.pow(t, 0.8));
+      }
+      const dist = Math.sqrt(vx * vx + vy * vy), e = dist - rt;
       if (e >= 0.5) continue;
-      const cov = e < -0.5 ? 1 : 0.5 - e, u = dist / dp.r, s = Math.sqrt(u < 1 ? 1 - u * u : 0), i = py * LW + px;
+      const cov = e < -0.5 ? 1 : 0.5 - e, u = dist / rt, s = Math.sqrt(u < 1 ? 1 - u * u : 0), i = py * LW + px;
       const na = cov + Al[i] * (1 - cov), wo = (Al[i] * (1 - cov)) / na, wn = cov / na;
       Cr[i] = Cr[i] * wo + (WH_LO[0] + (WH_HI[0] - WH_LO[0]) * s) * wn;
       Cg[i] = Cg[i] * wo + (WH_LO[1] + (WH_HI[1] - WH_LO[1]) * s) * wn;
       Cb[i] = Cb[i] * wo + (WH_LO[2] + (WH_HI[2] - WH_LO[2]) * s) * wn;
-      Gl[i] = Gl[i] * wo + wn; Oc[i] *= wo; Al[i] = na; Hh[i] += cov * dp.r * 0.85 * s;
+      Gl[i] = Gl[i] * wo + wn; Oc[i] *= wo; Al[i] = na; Hh[i] += cov * rt * 0.85 * s;
     }
   }
   // soften the height a touch so edges read as rounded glaze, not knife cuts
@@ -332,7 +343,7 @@ function shadeField(F, az, el) {
     let nh = nx * Hx + ny * Hy + inv * Hz; if (nh < 0) nh = 0;
     const oc = Oc[i], amb = 0.33 * (1 - 0.5 * oc), dif = 0.98 * nl * (1 - 0.92 * oc);
     const n2 = nh * nh, n4 = n2 * n2, n8 = n4 * n4, n16 = n8 * n8, n32 = n16 * n16, n64 = n32 * n32;
-    const sp = Gl[i] * (1 - oc) * (n64 * n32 * 1.5 + n16 * 0.3);
+    const sp = Gl[i] * (1 - oc) * (n64 * n32 * 1.6 + n16 * 0.4);
     const j = i * 4;
     o[j] = (Cr[i] * (amb * 0.92 + dif * 1.04) + sp) * 255;
     o[j + 1] = (Cg[i] * (amb * 0.98 + dif) + sp * 0.99) * 255;
@@ -424,14 +435,14 @@ function buildBase(env, F, relief) {
   const JY = a.crestY - 298;                    // one bed joint, well above the title
   return L.makeLayer(PAD, (g) => {
     // glaze body: imperial yellow, a little lighter toward the light
-    g.fillStyle = L.linear(g, -PAD, -PAD, W + PAD, H * 0.75, [[0, '#f4cf48'], [0.4, '#eabb22'], [1, '#dca612']]);
+    g.fillStyle = L.linear(g, -PAD, -PAD, W + PAD, H * 0.75, [[0, '#f8d654'], [0.4, '#eec028'], [1, '#e2ad16']]);
     g.fillRect(-PAD, -PAD, LW, LH);
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y1', scale: 430, octaves: 4, res: 0.16, contrast: 1.5, ramp: [[0, 'rgba(176,112,0,0.3)'], [0.5, 'rgba(232,184,32,0)'], [1, 'rgba(255,240,156,0.3)']] }), -PAD, -PAD);
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y2', scale: 52, octaves: 3, res: 0.33, contrast: 1.5, ramp: [[0, 'rgba(160,100,0,0.13)'], [0.5, 'rgba(232,184,32,0)'], [1, 'rgba(255,244,170,0.13)']] }), -PAD, -PAD);
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y3', scale: 80, sx: 0.4, sy: 8, octaves: 3, res: 0.33, contrast: 1.6, ramp: [[0, 'rgba(150,92,0,0.16)'], [0.55, 'rgba(0,0,0,0)'], [1, 'rgba(255,242,170,0.12)']] }), -PAD, -PAD);
     // the glassy surface is never dead flat: a faint orange-peel that catches the light
-    g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
-    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's30peel', scale: 54, octaves: 3, res: 0.3, contrast: 1.3 }), { angle: 230, strength: 2.4, res: 0.5 }), -PAD, -PAD);
+    g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.26;
+    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's30peel', scale: 76, octaves: 3, res: 0.3, contrast: 1.3 }), { angle: 230, strength: 2.4, res: 0.5 }), -PAD, -PAD);
     g.restore();
     // big facing tiles: each fired a shade differently; the title sits inside one tile
     const tiles = [[-285, JY, 830, 1400, 'rgba(206,140,6,0.1)'], [1375, JY, 830, 1400, 'rgba(255,238,150,0.1)'],
@@ -487,9 +498,11 @@ function buildBase(env, F, relief) {
     g.save(); g.strokeStyle = 'rgba(56,30,0,0.7)'; g.lineWidth = 3.2; a.stroke(g, 0.6); g.restore();
     // spray beads throw small shadows on the yellow
     g.save(); g.filter = 'blur(2.5px)';
+    g.fillStyle = 'rgba(96,52,0,0.55)'; g.strokeStyle = 'rgba(96,52,0,0.5)'; g.lineCap = 'round';
     for (const d of F.drops) {
       const x = d.x - PAD + d.r * 0.5, y = d.y - PAD + d.r * 0.62;
-      g.fillStyle = 'rgba(96,52,0,0.55)'; g.beginPath(); g.arc(x, y, d.r * 1.02, 0, L.TAU); g.fill();
+      g.beginPath(); g.arc(x, y, d.r * 1.02, 0, L.TAU); g.fill();
+      if (d.len > 0) { g.lineWidth = d.r * 0.9; g.beginPath(); g.moveTo(x, y); g.lineTo(x + d.tx * d.len * 0.8, y + d.ty * d.len * 0.8); g.stroke(); }
     }
     g.restore();
     // the relief
