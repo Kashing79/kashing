@@ -1,0 +1,3 @@
+build/
+assets/fonts/*.ttf
+node_modules/
