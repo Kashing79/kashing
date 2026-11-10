@@ -442,8 +442,7 @@ function drawRoof(g, r, x0, x1, yR, k) {
 // ───────────────────────── scene ─────────────────────────
 function build(env) {
   const a = env.arc, cx = a.cx;
-  const __t = [performance.now()]; const __m = (n) => { __t.push(performance.now()); (globalThis.__s10t = globalThis.__s10t || []).push(n + ':' + Math.round(__t[__t.length - 1] - __t[__t.length - 2])); };
-  const T = buildTextures(); __m('tex');
+  const T = buildTextures();
   const tmp = L.makeLayer(PAD);
 
   // far → near. every tip sits on the arc; walls further back are smaller in detail and hazier
@@ -456,14 +455,12 @@ function build(env) {
   const wC = renderWall(T, tmp, { tiers: symTiers(a, 1.2, [180, 535]), k: 1.2, seed: 's10C', cracks: 8, chips: 3,
     windows: [[cx - 338, 756, 0.92], [cx + 300, 770, 0.85]], patches: [[cx - 64, 832, 40], [cx + 412, 846, 44], [cx - 452, 842, 30], [cx + 96, 742, 15]] });
 
-  __m('walls');
   const far = L.makeLayer(PAD, (g) => {
     g.drawImage(wLL, -PAD, -PAD); g.drawImage(wRR, -PAD, -PAD);
     stack(g, wL, { alpha: 0.42, dx: 26, dy: 14, q: 4, blur: 1.2 }); stack(g, wR, { alpha: 0.42, dx: 26, dy: 14, q: 4, blur: 1.2 });
     stack(g, wC, { alpha: 0.5, dx: 40, dy: 22, draw: false, q: 4, blur: 1.2, color: '#22323f' });
   });
 
-  __m('far');
   // foreground: a row of tiled roofs stepping up toward the centre, an echo of the skyline
   const r = L.rng('s10roof');
   const near = L.makeLayer(PAD, (g) => {
@@ -487,7 +484,6 @@ function build(env) {
     g.globalCompositeOperation = 'source-over';
   });
 
-  __m('near');
   const main = L.makeLayer(PAD, (g) => {
     g.drawImage(wC, -PAD, -PAD);
     // the alley between this wall and the roofs in front is dim
@@ -505,7 +501,6 @@ function build(env) {
     g.globalCompositeOperation = 'source-over';
   }
 
-  __m('main+sun');
   // 青山: a far wooded hill whose crest IS the arc — darkest along the ridge line, paling into valley haze behind the village
   const hill = L.makeLayer(PAD, (g) => {
     g.save(); a.clipBelow(g, 0);
@@ -535,7 +530,6 @@ function build(env) {
     });
   });
 
-  __m('hill');
   // flat teal sky with the faintest breath of unevenness
   const sky = L.makeCanvas(W, H);
   {
@@ -547,21 +541,41 @@ function build(env) {
     g.drawImage(L.noiseTex(W, H, { seed: 's10sky', scale: 520, octaves: 3, res: 0.15 }), 0, 0);
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.3;
     g.drawImage(L.grainTex(W, H, { seed: 's10sg', amount: 0.14 }), 0, 0);
+    // the hill is concentric with the arc and never moves, so it is baked into the same plate: its crest stays exactly on the arc
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    g.drawImage(hill, -PAD, -PAD);
   }
-  __m('sky'); const __n = L.blurred(near, 0.8); __m('blur');
-  return { sky, hill, far, main, near: __n };
+  return { back: sky, far, main, near: L.blurred(near, 0.8) };
+}
+
+/** L.blit for these layers, but rasterising only the rows that hold anything (above frame row TOP0 they are empty sky) */
+const TOP0 = 516;
+function blitLow(ctx, env, layer, rot, zoom) {
+  const a = env.arc, sy = PAD + TOP0;
+  ctx.save();
+  ctx.translate(a.cx, a.crestY); ctx.scale(zoom, zoom); ctx.translate(-a.cx, -a.crestY);
+  ctx.translate(a.cx, a.cy); ctx.rotate(rot); ctx.translate(-a.cx, -a.cy);
+  ctx.drawImage(layer, 0, sy, LW, LH - sy, -PAD, TOP0, LW, LH - sy);
+  ctx.restore();
 }
 
 export default {
   name: '徽派马头墙',
   tone: 'light',
-  init(env) { S = build(env); },
+  init(env) {
+    S = build(env);
+    // canvas ops are rasterised lazily: touch every plate once here so that cost lands in init, not in the first frame
+    const warm = L.makeCanvas(8, 8).getContext('2d', { willReadFrequently: true });
+    for (const c of [S.back, S.far, S.main, S.near]) warm.drawImage(c, 0, 0, 8, 8);
+    warm.getImageData(0, 0, 1, 1);
+  },
   draw(ctx, env, p) {
+    // the wall group slides along the arc (rot about its centre keeps every tip on the curve) with a slight push-in;
+    // rear walls move less, the foreground roofs more → parallax
     const rot = L.lerp(-0.008, 0.008, p), z = L.lerp(1.0, 1.018, p);
-    ctx.drawImage(S.sky, 0, 0);
-    L.blit(ctx, env, S.hill, { rot: rot * 0.45 });   // no zoom: the crest stays exactly on the arc
-    L.blit(ctx, env, S.far, { rot: rot * 0.72, zoom: 1 + (z - 1) * 0.7 });
-    L.blit(ctx, env, S.main, { rot, zoom: z });
-    L.blit(ctx, env, S.near, { rot: rot * 1.4, zoom: 1 + (z - 1) * 1.5 });
+    ctx.drawImage(S.back, 0, 0);
+    blitLow(ctx, env, S.far, rot * 0.72, 1 + (z - 1) * 0.7);
+    blitLow(ctx, env, S.main, rot, z);
+    blitLow(ctx, env, S.near, rot * 1.4, 1 + (z - 1) * 1.5);
   },
 };

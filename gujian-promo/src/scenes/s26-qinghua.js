@@ -27,9 +27,9 @@ function buildGlaze(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
     const full = () => g.fillRect(-PAD, -PAD, LW, LH);
-    g.fillStyle = '#dde7ed'; full();
+    g.fillStyle = '#e2ebf1'; full();
     // key light from the upper left, falling away to the lower right
-    g.fillStyle = L.linear(g, 150, -260, 1750, 1340, [[0, 'rgba(240,246,249,0.95)'], [0.45, 'rgba(226,235,241,0.6)'], [1, 'rgba(186,202,216,0.95)']]); full();
+    g.fillStyle = L.linear(g, 150, -260, 1750, 1340, [[0, 'rgba(244,249,251,0.95)'], [0.45, 'rgba(229,238,243,0.6)'], [1, 'rgba(190,205,219,0.85)']]); full();
     // the dish's form, concentric with the arc: flat well below, a fold where glaze pools blue-green, the wall rising above
     const r0 = a.R - 700, r1 = a.R + 800, t = (dr) => (dr + 700) / 1500;
     g.fillStyle = L.radial(g, a.cx, a.cy, r0, r1, [
@@ -229,10 +229,10 @@ function roof(P, cx, yr, hr, ye, he, ext, lift, o = {}) {
     }
   });
   // tile courses (瓦垄) fanning from ridge to eave
-  const n = Math.max(3, Math.round(he / (15 * k)));
+  const n = Math.max(3, Math.round(he / (16 * k)));
   for (let i = -n; i <= n; i++) {
     const t = (i + r.range(-0.18, 0.18)) / n, x0 = cx + t * hr * 0.97, x1 = cx + t * (he - 8);
-    line([[x0, yr + 5 * k], [L.lerp(x0, x1, 0.38) + r.range(-2, 2), L.lerp(yr, ye, 0.66)], [x1, ye + drop * 0.5 + r.range(-2, 3)]], 2.9 * k, r.range(0.45, 0.72), { taper: [0.05, 0.12], wobble: 0.35 });
+    line([[x0, yr + 5 * k], [L.lerp(x0, x1, 0.38) + r.range(-2, 2), L.lerp(yr, ye, 0.66)], [x1, ye + drop * 0.5 + r.range(-2, 3)]], 2.5 * k, r.range(0.36, 0.62), { taper: [0.05, 0.12], wobble: 0.35 });
   }
   // hip ridges running out to the corner tips
   line(tl, 7.6 * k, 0.94, { taper: [0.03, 0.34], dun: true }); line(tr, 7.6 * k, 0.94, { taper: [0.03, 0.34], dun: true });
@@ -507,9 +507,9 @@ function handWarp(src) {
   const w = LW, h = LH;
   const nx = read(L.noiseTex(w, h, { seed: 's26wx', scale: 110, octaves: 2, res: 0.08, contrast: 1.7 }));
   const ny = read(L.noiseTex(w, h, { seed: 's26wy', scale: 110, octaves: 2, res: 0.08, contrast: 1.7 }));
-  const nt = read(L.noiseTex(w, h, { seed: 's26wt', scale: 30, octaves: 2, res: 0.2, contrast: 1.7 }));
+  const nt = read(L.noiseTex(w, h, { seed: 's26wt', scale: 64, octaves: 2, res: 0.12, contrast: 1.7 }));
   const out = new Uint8ClampedArray(w * h);
-  const A1 = 6.5 / 128, A2 = 2.2 / 128;
+  const A1 = 5.5 / 128, A2 = 1.1 / 128;
   for (let y = 0; y < h; y++) {
     const y2 = (y + 211) % h;
     for (let x = 0; x < w; x++) {
@@ -597,16 +597,20 @@ function buildSheen(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
     const rr = (x, y, w, h, rad) => { g.beginPath(); g.moveTo(x + rad, y); g.arcTo(x + w, y, x + w, y + h, rad); g.arcTo(x + w, y + h, x, y + h, rad); g.arcTo(x, y + h, x, y, rad); g.arcTo(x, y, x + w, y, rad); g.closePath(); };
-    // soft-box, upper left (half out of frame)
-    g.save(); g.filter = 'blur(34px)'; g.translate(250, 20); g.rotate(-0.15);
-    g.fillStyle = 'rgba(255,255,255,0.9)'; rr(-420, -170, 800, 270, 70); g.fill(); g.restore();
-    // a smaller one, upper right
+    // a window reflected in the glaze, upper left: a broad glow with four soft panes in it, skewed by the curve of the wall
+    g.save(); g.filter = 'blur(60px)'; g.translate(270, 70); g.rotate(-0.12);
+    g.fillStyle = 'rgba(255,255,255,0.6)'; rr(-400, -190, 800, 330, 80); g.fill(); g.restore();
+    g.save(); g.filter = 'blur(13px)'; g.translate(262, 104); g.transform(1, -0.13, 0.24, 1, 0, 0);
+    g.fillStyle = 'rgba(255,255,255,0.62)';
+    for (const [px, py] of [[-166, -88], [8, -88], [-166, 6], [8, 6]]) { rr(px, py, 158, 82, 10); g.fill(); }
+    g.restore();
+    // a smaller glow, upper right
     g.save(); g.filter = 'blur(30px)'; g.translate(1760, -10); g.rotate(0.2);
     g.fillStyle = 'rgba(255,255,255,0.6)'; rr(-200, -90, 400, 150, 50); g.fill(); g.restore();
     // window bars slanting across the painted well
     g.save(); g.filter = 'blur(22px)';
-    g.fillStyle = 'rgba(235,244,255,0.3)'; g.beginPath(); g.moveTo(1268, 560); g.lineTo(1404, 560); g.lineTo(1654, 1280); g.lineTo(1480, 1280); g.closePath(); g.fill();
-    g.fillStyle = 'rgba(235,244,255,0.18)'; g.beginPath(); g.moveTo(1452, 570); g.lineTo(1500, 570); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(235,244,255,0.42)'; g.beginPath(); g.moveTo(1268, 560); g.lineTo(1404, 560); g.lineTo(1654, 1280); g.lineTo(1480, 1280); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(235,244,255,0.26)'; g.beginPath(); g.moveTo(1452, 570); g.lineTo(1500, 570); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
     g.restore();
     // the fold above the lines catches a thin streak of light
     g.save(); g.filter = 'blur(3px)'; g.lineCap = 'round';
@@ -627,6 +631,6 @@ export default {
     const rot = L.lerp(-0.003, 0.003, p), zoom = L.lerp(1.0, 1.012, p);
     L.blit(ctx, env, S.plate, { rot, zoom });
     L.blit(ctx, env, S.sheen, { rot: -rot * 2.5, dx: L.lerp(10, -10, p), blend: 'screen', alpha: 0.9 });
-    L.vignette(ctx, { strength: 0.2, color: '#0c1a34', inner: 0.5, outer: 1.08 });
+    L.vignette(ctx, { strength: 0.13, color: '#0c1a34', inner: 0.5, outer: 1.08 });
   },
 };

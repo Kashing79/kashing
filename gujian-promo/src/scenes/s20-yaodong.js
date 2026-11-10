@@ -12,7 +12,7 @@ const FW = W + PAD * 2, FH = H + PAD * 2;
 // lattice dimensions (px)
 const FRAME = 13;                     // bowed head of the window frame — sits just OUTSIDE the arc, so lit paper starts exactly on it
 const SOFFIT = 5;                     // we look up at the window: every horizontal member shows this much of its lit underside
-const FLANK = 0.011;                  // …and every upright shows the flank that faces the middle of the frame (px per px off-centre)
+const FLANK = 0.009;                  // …and every upright shows the flank that faces the middle of the frame (px per px off-centre)
 const BAND = 132;                     // depth of the fan of radial ribs under the arch
 const RAIL = 22;                      // concentric rail that closes the fan
 const RIB = 16, RIB_PITCH = 96;       // radial ribs: width / spacing along the arc
@@ -229,7 +229,7 @@ function buildPaper(env, G) {
       const pc = papercut(q.kind, q.r, q.kind + q.x);
       g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
       g.globalCompositeOperation = 'multiply'; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.42; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.5; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
       g.restore();
     }
     g.restore();
@@ -271,7 +271,7 @@ function buildLattice(env, G) {
   const side = L.makeLayer(PAD, (g) => {
     g.fillStyle = '#000'; fillVerticals(g, a, G, 0, FLANK); fillHorizontals(g, a, G, 0, SOFFIT);
     g.globalCompositeOperation = 'source-in';
-    g.fillStyle = L.radial(g, G.lamp.x, G.lamp.y, 0, 1100, [[0, '#f2ac54'], [0.3, '#c87422'], [0.65, '#904614'], [1, '#5c280c']]);
+    g.fillStyle = L.radial(g, G.lamp.x, G.lamp.y, 0, 1100, [[0, '#e09a48'], [0.25, '#a85c1c'], [0.6, '#743610'], [1, '#48200a']]);
     g.fillRect(-PAD, -PAD, FW, FH);
   });
   return L.makeLayer(PAD, (g) => { g.drawImage(side, -PAD, -PAD); g.drawImage(V, -PAD, -PAD); g.drawImage(Hz, -PAD, -PAD); });
@@ -411,7 +411,7 @@ export default {
       const hg = halo.getContext('2d');
       hg.globalCompositeOperation = 'source-atop'; hg.fillStyle = 'rgba(255,128,30,0.6)'; hg.fillRect(0, 0, halo.width, halo.height);
       hg.globalCompositeOperation = 'destination-in';
-      hg.fillStyle = L.radial(hg, G.lamp.x + PAD, G.lamp.y + PAD, 40, 1000, [[0, 'rgba(0,0,0,1)'], [0.16, 'rgba(0,0,0,0.6)'], [0.4, 'rgba(0,0,0,0.17)'], [1, 'rgba(0,0,0,0.06)']]);
+      hg.fillStyle = L.radial(hg, G.lamp.x + PAD, G.lamp.y + PAD, 40, 1000, [[0, 'rgba(0,0,0,1)'], [0.1, 'rgba(0,0,0,0.5)'], [0.24, 'rgba(0,0,0,0.13)'], [1, 'rgba(0,0,0,0.04)']]);
       hg.fillRect(0, 0, halo.width, halo.height);
     }
     const haze = soft(win, 84, 6);        // wide fog of lamp light, reddened like light through dust
@@ -438,7 +438,7 @@ export default {
     L.blit(ctx, env, S.scene, { zoom });
     L.blit(ctx, env, S.strings, { zoom: 1 + (zoom - 1) * 2.4 });
     L.blit(ctx, env, S.fog, { zoom, alpha: 0.03 + 0.07 * fl, blend: 'screen' });
-    L.glow(ctx, S.lamp.x, S.lamp.y, 420, '#ffdc9a', 0.1 + 0.08 * fl);
+    L.glow(ctx, S.lamp.x, S.lamp.y, 300, '#ffdc9a', 0.08 + 0.1 * fl);
     L.vignette(ctx, { strength: 0.36, color: '#1c0703', inner: 0.5, outer: 1.08 });
   },
 };

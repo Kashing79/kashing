@@ -171,20 +171,20 @@ function buildStone(env) {
             if (!tRip[t] && tau < 0.3) hw *= tau * (2 - tau / 0.3) / 0.3;   // wisps taper at the root too
             const xc = tUB[t] + tLen[t] * (tLean[t] * tau + tBow[t] * (SINL[i0] + (SINL[i0 + 1] - SINL[i0]) * f) + tFlick[t] * tau * tau * tau);
             const d = Math.abs(u - xc);
-            if (d >= hw) {
-              // V-groove along the outline, cut into whatever lies behind this tongue
-              if (d < hw + CARVE && tt > 0.03) { const g = 1 - (d - hw) / CARVE; hh -= 9 * g * g * Math.min(1, tt / 0.12); if (hh < floor) hh = floor; }
-              continue;
-            }
+            if (d >= hw + CARVE) continue;
+            // a V-groove follows the outline, cut into whatever lies behind this tongue (fades out at tip and root)
+            let kc = tt < 0.12 ? tt / 0.12 : 1; if (tt > 0.94) kc *= (1 - tt) / 0.06;
+            if (d >= hw) { const g = 1 - (d - hw) / CARVE; hh -= 9 * g * g * kc; if (hh < floor) hh = floor; continue; }
+            let under = hh - 9 * kc; if (under < floor) under = floor;
             const q = d / hw;
             let p = 0.4 * (1 - q) + 0.6 * (1 - q * q);                   // a clear spine, rounded flanks
             if (tRip[t]) p -= tRip[t] * 0.5 * (1 - Math.cos(TAU * tNs[t] * q)) * (0.35 + 0.65 * q); // incised contour lines
             const tipF = tt < 0.16 ? Math.sqrt(tt / 0.16) : 1;            // the tip thins into the ground
             const own = 7 + SLOPE * (tVT[t] - RIM) + tKey[t] * 2.2 + tAmp[t] * (0.3 + 0.7 * p) * tipF;
-            const top = own > hh + 2 ? own : hh + 2;                      // never sink below what it overlaps
+            const top = own > under + 2 ? own : under + 2;                // never sink below what it overlaps
             let e = (hw - d) / 3; if (e > 1) e = 1;
             if (tt > 0.94) e *= (1 - tt) / 0.06;
-            hh += (top - hh) * e;
+            hh = under + (top - under) * e;
           }
         }
         hh -= SLOPE * (v - RIM);
@@ -215,7 +215,7 @@ function buildStone(env) {
   const __t2 = performance.now(); /*TIMING*/
   // ── 2) occlusion (two radii) + cast shadows from the low key light ──
   const b1 = boxBlur(hgt, w, h, Math.round(6.5 * RES), 2), b2 = boxBlur(hgt, w, h, Math.round(21 * RES), 2);
-  let lx = -0.5, ly = 0.78, lz = 0.4; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
+  let lx = -0.24, ly = 0.9, lz = 0.4; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
   const lm = Math.hypot(lx, ly), sxs = lx / lm, sys = ly / lm, tanE = lz / lm;
   const __t3 = performance.now(); /*TIMING*/
   // cast shadows: sweep away from the light carrying the shadow horizon (soft, unlimited range, no banding)

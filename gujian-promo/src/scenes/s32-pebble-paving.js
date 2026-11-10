@@ -474,7 +474,7 @@ export default {
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.0065, 0.0065, p), zoom = L.lerp(1.0, 1.016, p);
+    const rot = L.lerp(-0.0065, 0.0065, p), zoom = L.lerp(1.0, 1.012, p);   // keep zoom small: a scaled circle drifts off the shared arc at the frame edges
     L.blit(ctx, env, S.base, { rot, zoom });
     // a patch of sun sliding along the band of begonias
     ctx.save(); a.clipBelow(ctx, -2);

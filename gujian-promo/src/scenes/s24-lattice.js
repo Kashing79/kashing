@@ -1,8 +1,10 @@
 // s24 — 窗棂纹样. The top of a giant round lattice window (花窗), white-painted timber against pure black — the
 // architectural answer to a piece of lace. The arc is the upper edge of the wide outer frame (边框); under it run a
 // fine key-fret band (回纹) and a thin inner rail (仔边), then the field: ice-crack lattice (冰裂纹 — straight bars of
-// uneven length meeting in irregular triangles / quads / pentagons), set with begonia roundels (海棠纹) and one round
-// 步步锦 panel (nested rectangles tied by short bars) at the centre. No characters anywhere, only geometry.
+// uneven length meeting in irregular triangles / quads / pentagons, never repeating), set with begonia roundels
+// (海棠纹), one round 步步锦 panel (nested rectangles of horizontal + vertical bars tied by short bars) at the centre,
+// and a few small plum blossoms on the joints (冰梅). No characters anywhere, only geometry.
+// Everything is built once in init() into a single layer; draw() is one blit plus a drifting pool of light.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -19,14 +21,14 @@ const FRET_H = 50;            // key-fret band between frame and rail
 const FB = 6, FQ = 13;        // fret bar width / pitch
 const RAIL_W = 9;
 const RAILC = -(FRAME_W + FRET_H + RAIL_W / 2);   // centre line of the inner rail
-const BAR = 7.6;               // ice-crack bar width
+const BAR = 7.6;              // ice-crack bar width
 const FLW = 16;               // blossom radius
 const EXT = 3.6;              // thickness showing under every lattice bar
 const TARGET = 4100;          // typical area of one ice-crack cell (px²)
 
 // ───────────────────────── geometry ─────────────────────────
 function buildGeometry(a) {
-  const r = L.rng('s24-ice-4');
+  const r = L.rng('s24-ice-5');
   const sp = a.span(PAD + 80);
   const bottom = H + PAD + 50;
 

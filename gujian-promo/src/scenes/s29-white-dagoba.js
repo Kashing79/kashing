@@ -165,7 +165,7 @@ function buildDome(env) {
   }
 
   // shade: sunlit lime white → warm grey shadow
-  const lut = lutOf([[0, '#5e5448'], [0.13, '#978c7b'], [0.26, '#aea392'], [0.38, '#bfb5a4'], [0.49, '#dbd4c7'], [0.59, '#eeeae0'], [0.72, '#f7f4ed'], [1, '#fffefa']]);
+  const lut = lutOf([[0, '#5e5448'], [0.13, '#978c7b'], [0.26, '#aea392'], [0.38, '#bfb5a4'], [0.48, '#ddd6c9'], [0.57, '#f0ece2'], [0.7, '#f8f5ee'], [1, '#fffefa']]);
   const img = new ImageData(cw, ch); const px = img.data;
   const K = 1.25 * RES * 0.5;
   for (let iy = 0; iy < ch; iy++) {
@@ -407,9 +407,7 @@ export default {
   init(env) {
     const over = L.makeCanvas(W, H);
     L.vignette(over.getContext('2d'), { strength: 0.13, inner: 0.5, outer: 1.1 });
-    const t0 = performance.now(); const dome = buildDome(env); const t1 = performance.now(); const back = buildBack(env); const t2 = performance.now();
-    console.warn('TIMING dome', (t1 - t0).toFixed(0), 'back', (t2 - t1).toFixed(0));
-    S = { dome, back, shadow: buildShadow(env), over };
+    S = { dome: buildDome(env), back: buildBack(env), shadow: buildShadow(env), over };
   },
   draw(ctx, env, p) {
     // the plaster slides a few px round the dome; the far rock barely moves

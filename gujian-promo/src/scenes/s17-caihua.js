@@ -214,21 +214,33 @@ function buildGold(env) {
   });
 }
 
-/** glitter that only exists where there is gold; two of these cross-fade → the leaf twinkles */
+/** glitter that only exists where there is gold; two of these cross-fade → the leaf twinkles. Covers botRect only. */
 function buildSpark(env, gold, seed) {
   const B = botRect(env.arc);
   const dot = L.makeCanvas(24, 24), dg = dot.getContext('2d');
   dg.fillStyle = L.radial(dg, 12, 12, 0, 12, [[0, 'rgba(255,252,230,1)'], [0.35, 'rgba(255,236,150,0.8)'], [1, 'rgba(255,210,90,0)']]);
   dg.fillRect(0, 0, 24, 24);
-  return L.makeLayer(PAD, (g) => {
-    const r = L.rng(seed);
-    for (let i = 0; i < 3400; i++) {
-      const x = r.range(B.x, B.x + B.w), y = r.range(B.y, B.y + B.h), rad = r.range(1.2, 4.2);
-      g.drawImage(dot, x - rad, y - rad, rad * 2, rad * 2);
-    }
-    g.globalCompositeOperation = 'destination-in';
-    g.drawImage(gold, -PAD, -PAD);
-  });
+  const c = L.makeCanvas(B.w, B.h), g = c.getContext('2d');
+  g.translate(-B.x, -B.y);
+  const r = L.rng(seed);
+  for (let i = 0; i < 3400; i++) {
+    const x = r.range(B.x, B.x + B.w), y = r.range(B.y, B.y + B.h), rad = r.range(1.2, 4.2);
+    g.drawImage(dot, x - rad, y - rad, rad * 2, rad * 2);
+  }
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(gold, -PAD, -PAD);
+  return c;
+}
+
+/** L.blit for an image whose top-left sits at frame (x0, y0) */
+function blitAt(ctx, env, img, x0, y0, { rot = 0, zoom = 1, alpha = 1, blend = 'source-over' } = {}) {
+  const a = env.arc;
+  ctx.save();
+  ctx.globalAlpha *= alpha; ctx.globalCompositeOperation = blend;
+  ctx.translate(a.cx, a.crestY); ctx.scale(zoom, zoom); ctx.translate(-a.cx, -a.crestY);
+  if (rot) { ctx.translate(a.cx, a.cy); ctx.rotate(rot); ctx.translate(-a.cx, -a.cy); }
+  ctx.drawImage(img, x0, y0);
+  ctx.restore();
 }
 
 // ───────────────────────── ageing: craquelure + flaked cells ─────────────────────────
@@ -410,25 +422,27 @@ function flare(ctx, x, y, size, alpha) {
 export default {
   name: '旋子彩画',
   tone: 'light',
-  init(env) {
-    const a = env.arc, dth = dTheta(a);
+  async init(env) {
+    const a = env.arc, dth = dTheta(a), B = botRect(a);
     const { main, gold } = buildMain(env);
     // where the leaf catches the light: the rosette eyes and a few points on the bead
     const glints = [];
     for (let k = -3; k <= 3; k++) { const q = a.pt(k * dth, FC); glints.push({ x: q.x - 12, y: q.y - 14, ph: (k + 3) * 0.37, size: 26 }); }
     [-0.31, -0.118, 0.052, 0.236].forEach((th, i) => { const q = a.pt(th, -4); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 20 }); });
-    S = { main, sparkA: buildSpark(env, gold, 's17spA'), sparkB: buildSpark(env, gold, 's17spB'), glints }; MARK('spark');
+    // flatten everything that is drawn per frame into plain bitmaps (a canvas built from thousands of small draws
+    // is re-rasterised every time it is used as a source, which made each frame cost ~170 ms)
+    const [mainB, sparkA, sparkB] = await Promise.all([main, buildSpark(env, gold, 's17spA'), buildSpark(env, gold, 's17spB')].map((c) => createImageBitmap(c)));
+    S = { main: mainB, sparkA, sparkB, bx: B.x, by: B.y, glints }; MARK('spark');
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(1.0, 1.022, p);
-    const SK = window.__skip || {};
-    L.blit(ctx, env, S.main, SK.norot ? {} : { rot, zoom });
+    blitAt(ctx, env, S.main, -PAD, -PAD, { rot, zoom });
     // gold leaf twinkles
     const tw = 0.5 + 0.5 * Math.sin(TAU * (p * 0.9 + 0.1));
-    if (!SK.sparks) L.blit(ctx, env, S.sparkA, { rot, zoom, alpha: 0.2 + 0.8 * tw, blend: 'lighter' });
-    if (!SK.sparks) L.blit(ctx, env, S.sparkB, { rot, zoom, alpha: 0.2 + 0.8 * (1 - tw), blend: 'lighter' });
-    if (!SK.sheen) L.cam(ctx, env, { rot, zoom }, () => {
+    blitAt(ctx, env, S.sparkA, S.bx, S.by, { rot, zoom, alpha: 0.2 + 0.8 * tw, blend: 'lighter' });
+    blitAt(ctx, env, S.sparkB, S.bx, S.by, { rot, zoom, alpha: 0.2 + 0.8 * (1 - tw), blend: 'lighter' });
+    L.cam(ctx, env, { rot, zoom }, () => {
       // a sheen sliding along the gilded bead and across the paint below it
       const sx = L.lerp(620, 1330, p);
       ctx.save(); a.clipBand(ctx, 0, -BEAD);
@@ -442,12 +456,12 @@ export default {
       ctx.fillRect(sx - 720, a.crestY - 520, 1440, 1460);
       ctx.restore();
     });
-    if (!SK.flares) L.cam(ctx, env, { rot, zoom }, () => {
+    L.cam(ctx, env, { rot, zoom }, () => {
       for (const q of S.glints) {
         const k = Math.sin(Math.PI * L.clamp(p * 1.15 - q.ph * 0.5 + 0.35));
         flare(ctx, q.x, q.y, q.size, 0.15 + 0.75 * k * k);
       }
     });
-    if (!SK.vig) L.vignette(ctx, { strength: 0.3, inner: 0.5 });
+    L.vignette(ctx, { strength: 0.3, inner: 0.5 });
   },
 };

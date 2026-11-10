@@ -44,7 +44,7 @@ function buildTextures() {
     const u = u0 + 0.32 * nz.n2(u0 * 0.8 + 3.1, v0 * 0.8), v = v0 + 0.32 * nz.n2(u0 * 0.8 - 5.2, v0 * 0.8 + 9.4);
     const c1 = nz.cell(u, v), c2 = nz.cell(u * 2.4 + 11.3, v * 2.4 + 7.1);
     let s = 128 + (c1.id - 0.5) * 64 + (c2.id - 0.5) * 30;
-    s += 34 * Math.exp(-(c1.edge * c1.edge) / 0.0016) + 14 * Math.exp(-(c2.edge * c2.edge) / 0.003);
+    s += 13 * Math.exp(-(c1.edge * c1.edge) / 0.0016) + 6 * Math.exp(-(c2.edge * c2.edge) / 0.003);
     d[k++] = s; d[k++] = s; d[k++] = s; d[k++] = 255;
   }
   const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
@@ -314,10 +314,10 @@ function buildCollage(env) {
     paper(g, cut(roundish(598, 706, 92, 92, 12, 'moon'), 'moon', 1.0, 80, 10), { color: C.moon, lift: 1.2, tex: 0.5, crumple: 0.22, curl: 1.1, peel: [[664, 772, 95]] });
 
     // ── left bank: gable house (behind) + eave house (front) ──
-    paper(g, cut([[250, 1140], [247, 792], [352, 702], [471, 788], [473, 1140]], 'Lb', 1.8), { color: C.white, tex: 0.55, crumple: 0.3 });
+    paper(g, cut([[250, 1140], [247, 792], [352, 702], [471, 788], [473, 1140]], 'Lb', 1.8), { color: C.white, tex: 0.55, crumple: 0.2 });
     win(362, 872, 42, 54);
     paper(g, cut([[352, 668], [507, 777], [489, 805], [352, 709], [221, 815], [203, 790]], 'Lbr', 1.4, 110), { color: C.black, tex: 0.34, lift: 0.8, crumple: 0.16, peel: [[498, 790, 90]] });
-    paper(g, cut([[-95, 1140], [-92, 884], [268, 878], [264, 1140]], 'Lf', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.3 });
+    paper(g, cut([[-95, 1140], [-92, 884], [268, 878], [264, 1140]], 'Lf', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.2 });
     paper(g, cut([[96, 1140], [99, 966], [160, 962], [158, 1140]], 'door', 1.2, 70), { color: C.brown, lift: 0.5, tex: 0.5 });
     {
       const tl = [-78, 806], tr = [236, 798], br = [297, 880], bl = [-116, 886];
@@ -328,17 +328,17 @@ function buildCollage(env) {
     lantern(41, 890, 938); lantern(229, 888, 936);
 
     // ── right bank: gable house + low eave house running off frame ──
-    paper(g, cut([[1565, 1140], [1563, 824], [1682, 732], [1801, 820], [1803, 1140]], 'Rm', 1.8), { color: C.white, tex: 0.55, crumple: 0.3 });
+    paper(g, cut([[1565, 1140], [1563, 824], [1682, 732], [1801, 820], [1803, 1140]], 'Rm', 1.8), { color: C.white, tex: 0.55, crumple: 0.2 });
     win(1694, 888, 38, 50); win(1762, 884, 36, 48);
     paper(g, cut([[1682, 700], [1838, 811], [1821, 839], [1682, 741], [1546, 844], [1527, 818]], 'Rmr', 1.4, 110), { color: C.black, tex: 0.34, lift: 0.8, crumple: 0.16, peel: [[1830, 824, 90]] });
-    paper(g, cut([[1796, 1140], [1794, 894], [2030, 892], [2032, 1140]], 'Rs', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.3 });
+    paper(g, cut([[1796, 1140], [1794, 894], [2030, 892], [2032, 1140]], 'Rs', 1.8), { color: '#f3efe4', tex: 0.55, crumple: 0.2 });
     {
       const tl = [1808, 824], tr = [2030, 832], br = [2062, 898], bl = [1771, 900];
       paper(g, cut(eaveRoof(tl, tr, br, bl, 9), 'Rsr', 1.0, 120, 7), { color: C.black, tex: 0.34, lift: 0.9, crumple: 0.16 });
       tileLines(tl, tr, br, bl, 9);
       ridge(tl, tr, 'Rsg');
     }
-    lantern(1824, 902, 948); lantern(1879, 902, 950);
+    lantern(1824, 902, 938); lantern(1879, 902, 941);
 
     // ── the bridge ──
     const BX = 985, YB = 1010;
@@ -356,7 +356,7 @@ function buildCollage(env) {
 
     // ── pencil-hatched scrap: the stone quay in the corner ──
     {
-      const poly = cut([[1492, 1001], [1650, 986], [1657, 973], [2040, 950], [2046, 1150], [1488, 1150]], 'quay', 1.4, 100);
+      const poly = cut([[1492, 1003], [1650, 990], [1657, 978], [2040, 990], [2046, 1150], [1488, 1150]], 'quay', 1.4, 100);
       paper(g, poly, { color: '#ebe6d7', tex: 0.5, crumple: 0.3, lift: 1.0 });
       const x0 = 1440, y0 = 930, w = 640, h = 240;
       const c = L.makeCanvas(w, h); const k = c.getContext('2d'); k.translate(-x0, -y0);
@@ -371,7 +371,7 @@ function buildCollage(env) {
         L.sketchLine(k, pts, { width: wd, color: '#34343a', seed: sd, wobble: 1.6, passes: 2, alpha: al });
       };
       scribble(1504, 1790, 1012, 1090, 44, 15, 2.9, 0.85, 3);
-      scribble(1700, 2040, 988, 1092, 60, 19, 2.5, 0.8, 5);
+      scribble(1700, 2040, 1004, 1094, 56, 19, 2.5, 0.8, 5);
       scribble(1560, 1900, 1000, 1085, -38, 27, 2.1, 0.6, 8);
       k.setTransform(1, 0, 0, 1, 0, 0); k.globalCompositeOperation = 'destination-out';
       k.drawImage(L.noiseTex(w, h, { seed: 's31graphite', scale: 1.7, octaves: 2, res: 1, contrast: 2.0, ramp: [[0, 'rgba(0,0,0,0.8)'], [0.4, 'rgba(0,0,0,0.22)'], [0.7, 'rgba(0,0,0,0)']] }), 0, 0);

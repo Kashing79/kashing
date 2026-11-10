@@ -322,6 +322,26 @@ export function blit(ctx, env, layerCanvas, opts = {}) {
   ctx.drawImage(layerCanvas, -pad, -pad);
   ctx.restore();
 }
+/**
+ * Composite a texture/shading canvas onto a layer ONLY where the layer already has pixels (transparent areas stay transparent).
+ * Plain multiply/overlay/soft-light would also paint the transparent parts; this clips the texture by the layer's alpha first.
+ *   overlayOn(layer, tex, { blend: 'overlay', alpha: 0.6 })   → mutates and returns `layer`
+ * `tex` must be the same pixel size as `layer` (e.g. both made with makeLayer(PAD) / noiseLayer(PAD) / bumpLight(layer)).
+ */
+export function overlayOn(layerCanvas, tex, opts = {}) {
+  const { blend = 'overlay', alpha = 1 } = opts;
+  const tmp = makeCanvas(layerCanvas.width, layerCanvas.height);
+  const tg = tmp.getContext('2d');
+  tg.drawImage(tex, 0, 0, tmp.width, tmp.height);
+  tg.globalCompositeOperation = 'destination-in';
+  tg.drawImage(layerCanvas, 0, 0);
+  const g = layerCanvas.getContext('2d');
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalAlpha = alpha; g.globalCompositeOperation = blend;
+  g.drawImage(tmp, 0, 0);
+  g.restore();
+  return layerCanvas;
+}
 /** apply the same camera transform to live drawing: cam(ctx, env, {rot, zoom, dx, dy}, () => {...}) */
 export function cam(ctx, env, opts, fn) {
   const { rot = 0, zoom = 1, dx = 0, dy = 0, pivot = null } = opts || {};

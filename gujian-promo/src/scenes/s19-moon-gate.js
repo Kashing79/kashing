@@ -12,7 +12,7 @@ const X0 = -PAD, Y0 = -PAD, FULLW = W + PAD * 2, FULLH = H + PAD * 2;
 const FW = 214;       // face width of the honed-brick door frame on the wall (outside the opening)
 const BW = 100;       // on-screen depth of the reveal (inside the opening)
 const HZ = 848;       // far shore waterline (frame y)
-const GX = 930;       // axis of the moonlight on the water
+const GX = 990;       // axis of the moonlight on the water
 const PITCH = 0.305;  // angular length of one brick piece of the frame (a joint never sits on the crest)
 let S = null;
 
@@ -122,8 +122,7 @@ function buildFar(env) {
     for (let x = X0; x <= W + PAD; x += 4) g.lineTo(x, HZ - treeH(x));
     g.lineTo(W + PAD, HZ + 2); g.closePath(); g.fill();
     for (let x = X0; x <= W + PAD; x += r.range(7, 16)) { const rad = r.range(6, 15); g.beginPath(); g.arc(x, HZ - treeH(x) + rad * 0.3, rad, 0, TAU); g.fill(); }
-    canopy(g, 560, HZ - 88, 90, 50, 's19t1', { n: 60, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
-    canopy(g, 1180, HZ - 84, 74, 46, 's19t2', { n: 54, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
+    canopy(g, 1230, HZ - 86, 110, 50, 's19t2', { n: 80, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
 
     // the garden's boundary wall across the pond: whitewash pale under the moon, dark tile coping (粉墙黛瓦)
     const wx0 = 610, wx1 = W + PAD, wTop = HZ - 40;
@@ -133,8 +132,7 @@ function buildFar(env) {
     g.beginPath(); g.moveTo(wx0 - 9, wTop + 1); g.lineTo(wx0 - 3, wTop - 9); g.lineTo(wx1, wTop - 9); g.lineTo(wx1, wTop + 1); g.closePath(); g.fill();
     g.fillStyle = 'rgba(160,190,228,0.45)'; g.fillRect(wx0 - 3, wTop - 9, wx1 - wx0, 1.6);
     // trees and shrubs on this side of the wall break it up
-    canopy(g, 596, HZ - 60, 78, 54, 's19t3', { n: 60, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
-    canopy(g, 1168, HZ - 52, 60, 46, 's19t4', { n: 50, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
+    canopy(g, 590, HZ - 56, 84, 56, 's19t3', { n: 70, dark: '#0a1728', light: '#2a4668', lit: 0.5 });
     g.fillStyle = '#0c1a2e';
     for (let i = 0; i < 16; i++) { const x = r.range(wx0, 1700), rad = r.range(6, 15); g.beginPath(); g.ellipse(x, HZ - rad * 0.4 + 3, rad * 1.4, rad, 0, 0, TAU); g.fill(); }
 
@@ -286,41 +284,41 @@ function pavilion(g, cx, eaveY, baseY) {
 
 function buildMid() {
   const layer = L.makeLayer(PAD, (g) => {
-    const cx = 1312, eaveY = 862, baseY = 966;
+    const cx = 1362, eaveY = 862, baseY = 966;
     const nz = L.makeNoise('s19bank');
     // trees behind and to the right of the pavilion
     g.strokeStyle = '#050b15'; g.lineWidth = 12; g.lineCap = 'round';
     g.beginPath(); g.moveTo(1716, 990); g.quadraticCurveTo(1700, 900, 1738, 820); g.stroke();
     canopy(g, 1760, 800, 200, 124, 's19tr1', { n: 150 });
     canopy(g, 2000, 850, 180, 130, 's19tr2', { n: 110 });
-    canopy(g, 1570, 930, 64, 40, 's19sh1', { n: 40, lit: 0.4 });
-    // reflections on the water in front of the bank
-    g.fillStyle = L.linear(g, 0, 980, 0, 1110, [[0, 'rgba(4,9,18,0.72)'], [1, 'rgba(4,9,18,0)']]);
-    g.beginPath(); g.moveTo(1040, 984);
-    for (let x = 1040; x <= 1640; x += 12) g.lineTo(x, 1040 + 60 * L.smooth((x - 1040) / 220) + 14 * nz.n2(x * 0.03, 2.2));
-    g.lineTo(1640, 984); g.closePath(); g.fill();
+    canopy(g, 1640, 930, 80, 46, 's19sh1', { n: 50, lit: 0.4 });
+    // the bank and pavilion darken the water in front of them
+    g.save(); g.translate(cx + 20, 992); g.scale(1, 0.24);
+    g.fillStyle = L.radial(g, 0, 0, 60, 380, [[0, 'rgba(3,7,14,0.78)'], [0.6, 'rgba(3,7,14,0.5)'], [1, 'rgba(3,7,14,0)']]);
+    g.fillRect(-400, 0, 800, 400);
+    g.restore();
     for (const x of [-148, -74, 74, 148]) {
       g.fillStyle = L.linear(g, 0, 990, 0, 1100, [[0, 'rgba(3,7,14,0.7)'], [1, 'rgba(3,7,14,0)']]);
       g.fillRect(cx + x - 6, 990, 12, 110);
     }
     // the bank: piled rockery embankment (驳岸) curving round toward us at the right
-    const top = (x) => 968 + 5 * nz.n2(x * 0.02, 0.4) + 3 * nz.n2(x * 0.09, 3.1) - 40 * L.smooth((x - 1540) / 260);
+    const top = (x) => 968 + 5 * nz.n2(x * 0.02, 0.4) + 3 * nz.n2(x * 0.09, 3.1) - 40 * L.smooth((x - 1590) / 260);
     g.fillStyle = L.linear(g, 0, 950, 0, 1010, [[0, '#0d1a2c'], [1, '#050b15']]);
-    g.beginPath(); g.moveTo(1068, 990);
-    g.quadraticCurveTo(1082, 972, 1104, top(1104));
-    for (let x = 1104; x <= W + PAD; x += 8) g.lineTo(x, top(x));
-    g.lineTo(W + PAD, H + PAD); g.lineTo(1330, H + PAD);
-    g.quadraticCurveTo(1500, 1090, 1560, 996);
-    for (let x = 1560; x >= 1068; x -= 14) g.lineTo(x, 992 + 3 * nz.n2(x * 0.05, 7.7));
+    g.beginPath(); g.moveTo(1118, 990);
+    g.quadraticCurveTo(1132, 972, 1154, top(1154));
+    for (let x = 1154; x <= W + PAD; x += 8) g.lineTo(x, top(x));
+    g.lineTo(W + PAD, H + PAD); g.lineTo(1400, H + PAD);
+    g.quadraticCurveTo(1560, 1090, 1610, 996);
+    for (let x = 1610; x >= 1118; x -= 14) g.lineTo(x, 992 + 3 * nz.n2(x * 0.05, 7.7));
     g.closePath(); g.fill();
     // moonlit lip of the embankment stones
     g.strokeStyle = 'rgba(120,152,196,0.4)'; g.lineWidth = 2;
-    g.beginPath(); for (let x = 1104; x <= 1540; x += 8) { if (x === 1104) g.moveTo(x, top(x)); else g.lineTo(x, top(x)); } g.stroke();
+    g.beginPath(); for (let x = 1154; x <= 1590; x += 8) { if (x === 1154) g.moveTo(x, top(x)); else g.lineTo(x, top(x)); } g.stroke();
     pavilion(g, cx, eaveY, baseY);
     // low rocks and shrubs at the foot of the pavilion
     const r = L.rng('s19rocks');
     g.fillStyle = '#060d19';
-    for (let i = 0; i < 12; i++) { const x = r.range(1100, 1560), rad = r.range(7, 16); g.beginPath(); g.ellipse(x, 984 + r.range(-4, 6), rad * 1.4, rad * 0.8, 0, 0, TAU); g.fill(); }
+    for (let i = 0; i < 12; i++) { const x = r.range(1150, 1610), rad = r.range(7, 16); g.beginPath(); g.ellipse(x, 984 + r.range(-4, 6), rad * 1.4, rad * 0.8, 0, 0, TAU); g.fill(); }
   });
   return L.blurred(layer, 1.7);
 }
@@ -342,32 +340,30 @@ function buildRock(w, h, seed) {
     g.closePath();
   };
   // slender, top-heavy, deeply waisted (瘦 · 云头雨脚)
-  const blobs = [[0.56, 0.1, 0.3, 0.08], [0.36, 0.2, 0.25, 0.075], [0.63, 0.3, 0.29, 0.085], [0.42, 0.41, 0.21, 0.075], [0.58, 0.52, 0.26, 0.085],
-    [0.4, 0.63, 0.23, 0.075], [0.56, 0.74, 0.29, 0.085], [0.45, 0.87, 0.35, 0.09], [0.5, 1.0, 0.44, 0.08]];
-  g.fillStyle = '#16263c';
-  blobs.forEach(([bx, by, rx, ry], k) => { blob(bx, by, rx, ry, k); g.fill(); });
+  const blobs = [[0.54, 0.11, 0.31, 0.085], [0.34, 0.22, 0.24, 0.08], [0.64, 0.31, 0.28, 0.09], [0.43, 0.42, 0.2, 0.075], [0.6, 0.53, 0.25, 0.085],
+    [0.4, 0.64, 0.22, 0.075], [0.56, 0.75, 0.28, 0.085], [0.45, 0.88, 0.34, 0.09], [0.5, 1.0, 0.44, 0.08]];
+  g.fillStyle = '#081221';
+  blobs.forEach(([bx, by, rx, ry], k) => { blob(bx, by, rx, ry, k, 0.12); g.fill(); });
   // the holes (漏 · 透): one long slanting eye near the top, smaller ones scattered down the body
   g.globalCompositeOperation = 'destination-out';
-  [[0.5, 0.185, 0.115, 0.03, 1, -0.5], [0.69, 0.32, 0.04, 0.024, 2, 0.7], [0.45, 0.455, 0.075, 0.036, 3, 0.25], [0.64, 0.585, 0.034, 0.018, 4, -0.4],
-    [0.4, 0.7, 0.06, 0.024, 5, 0.6], [0.62, 0.82, 0.05, 0.022, 6, -0.2]]
-    .forEach(([bx, by, rx, ry, k, rot]) => { blob(bx, by, rx, ry, k + 20, 0.26, rot); g.fill(); });
-  // pale limestone under the moon: lit from the upper left, water-worn furrows (皱) running down it
+  [[0.5, 0.2, 0.12, 0.034, 1, -0.45], [0.7, 0.33, 0.045, 0.026, 2, 0.7], [0.47, 0.47, 0.085, 0.04, 3, 0.25], [0.66, 0.6, 0.04, 0.022, 4, -0.4],
+    [0.42, 0.71, 0.07, 0.028, 5, 0.6], [0.62, 0.83, 0.05, 0.022, 6, -0.2]]
+    .forEach(([bx, by, rx, ry, k, rot]) => { blob(bx, by, rx, ry, k + 20, 0.2, rot); g.fill(); });
+  // limestone under the moon: a pale shoulder on the upper left, water-worn furrows (皱) running down it
   g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.linear(g, 0, h * 0.1, w, h * 0.5, [[0, 'rgba(150,184,228,0.62)'], [0.42, 'rgba(92,126,172,0.26)'], [0.7, 'rgba(0,0,0,0.2)'], [1, 'rgba(0,0,0,0.62)']]);
+  g.fillStyle = L.linear(g, 0, h * 0.05, w * 0.8, h * 0.45, [[0, 'rgba(120,156,204,0.5)'], [0.4, 'rgba(70,104,150,0.2)'], [0.75, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.3)']]);
   g.fillRect(0, 0, w, h);
-  g.drawImage(L.noiseTex(w, h, { seed: seed + 'fur', scale: 44, sx: 0.8, sy: 1.7, octaves: 3, ridged: true, warp: 0.9, contrast: 1.5, res: 0.5,
-    ramp: [[0, 'rgba(3,8,16,0.8)'], [0.36, 'rgba(3,8,16,0.28)'], [0.6, 'rgba(3,8,16,0)'], [0.8, 'rgba(176,204,240,0)'], [1, 'rgba(196,218,246,0.4)']] }), 0, 0);
-  g.drawImage(L.noiseTex(w, h, { seed: seed + 'pit', scale: 22, cellular: true, contrast: 1, res: 0.5,
-    ramp: [[0, 'rgba(2,6,12,0.6)'], [0.18, 'rgba(2,6,12,0.14)'], [0.3, 'rgba(2,6,12,0)'], [1, 'rgba(2,6,12,0)']] }), 0, 0);
+  g.drawImage(L.noiseTex(w, h, { seed: seed + 'fur', scale: 50, sx: 0.8, sy: 1.8, octaves: 3, ridged: true, warp: 0.8, contrast: 1.4, res: 0.5,
+    ramp: [[0, 'rgba(2,6,12,0.7)'], [0.4, 'rgba(2,6,12,0.2)'], [0.62, 'rgba(2,6,12,0)'], [0.82, 'rgba(160,190,230,0)'], [1, 'rgba(176,204,240,0.3)']] }), 0, 0);
   // its foot sinks into the shadow of the bank
-  g.fillStyle = L.linear(g, 0, h * 0.5, 0, h * 0.8, [[0, 'rgba(3,7,14,0)'], [1, 'rgba(3,7,14,0.9)']]);
+  g.fillStyle = L.linear(g, 0, h * 0.5, 0, h * 0.78, [[0, 'rgba(3,7,14,0)'], [1, 'rgba(3,7,14,0.85)']]);
   g.fillRect(0, 0, w, h);
   // moon rim: upper-left edges of the mass and the far lips of the holes
   const rim = L.makeCanvas(w, h); const rg = rim.getContext('2d');
   rg.drawImage(c, 0, 0);
-  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#bcd4f0'; rg.fillRect(0, 0, w, h);
-  rg.globalCompositeOperation = 'destination-out'; rg.drawImage(c, 2.2, 2.8);
-  g.globalAlpha = 0.5; g.drawImage(rim, 0, 0);
+  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#b4cff0'; rg.fillRect(0, 0, w, h);
+  rg.globalCompositeOperation = 'destination-out'; rg.drawImage(c, 2.4, 3);
+  g.globalAlpha = 0.62; g.drawImage(rim, 0, 0);
   return c;
 }
 
@@ -383,12 +379,8 @@ function buildNear(env) {
   const layer = L.makeLayer(PAD, (g) => {
     const r = L.rng('s19bamboo');
     const nz = L.makeNoise('s19near');
-    // the Taihu rock on the right bank, pale against the dark trees
-    g.drawImage(buildRock(250, 470, 's19rock'), 1548, 806);
-    g.fillStyle = L.linear(g, 0, 1030, 0, 1100, [[0, '#08121f'], [1, '#03070e']]);
-    g.beginPath(); g.moveTo(1440, H + PAD); g.quadraticCurveTo(1500, 1070, 1600, 1058);
-    for (let x = 1600; x <= W + PAD; x += 10) g.lineTo(x, 1058 - (x - 1600) * 0.07 + 5 * nz.n2(x * 0.02, 8.8));
-    g.lineTo(W + PAD, H + PAD); g.closePath(); g.fill();
+    // the Taihu rock beside the bamboo (竹石), a pierced silhouette against the moonlit water
+    g.drawImage(buildRock(220, 420, 's19rock'), 646, 792);
     // near bank
     const top = (x) => 938 + 0.09 * x + 0.00013 * x * x + 6 * nz.n2(x * 0.016, 1.1) + 3 * nz.n2(x * 0.08, 4.2);
     g.fillStyle = L.linear(g, 0, 930, 0, 1090, [[0, '#0a1626'], [0.3, '#050b15'], [1, '#03070e']]);

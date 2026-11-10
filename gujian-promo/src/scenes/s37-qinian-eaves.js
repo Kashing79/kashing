@@ -9,7 +9,7 @@ const { W, H } = L;
 const PAD = 200;
 const PITCH = 68;        // rafter spacing along the eave edge (px)
 const TILE = 56;         // tile spacing along the eave edge (px)
-const WAN = true;        // flying-rafter heads carry the gold 卍 (as restored on the hall); false → a plain gold pearl
+const WAN = false;       // true → flying-rafter heads carry the gold 卍 as restored on the hall; false → a plain gold pearl (default: the 0.2 s shot is too short for the symbol to read correctly out of context)
 const FLY_HW = 18;       // half-width of a (square) flying rafter
 const EAVE_HW = 17;      // half-width of a (round) eave rafter
 // radial layout: px inward from the eave edge (local +y of arc.at points to the circle centre)

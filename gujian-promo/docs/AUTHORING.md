@@ -97,6 +97,8 @@ export default {
 - 随机 / 噪声：`rng(seed)`（`.range .int .pick .chance .gauss`）、`makeNoise(seed)` → `{n2, fbm, ridged, cell}`。**禁止 `Math.random()` 和 `Date`**（渲染必须可复现）。
 - 颜色：`rgba(c,a) mix(a,b,t) shade(c,±amt) hsl() makeRamp(stops) rampCss()`；渐变 `linear(ctx,x0,y0,x1,y1,stops) radial(ctx,x,y,r0,r1,stops)`
 - 图层 / 镜头：`makeCanvas makeLayer(pad, draw) blit(ctx, env, layer, opts) cam(ctx, env, opts, fn) blurred(c,px) filtered(c,'css filter')`
+  - `overlayOn(layer, tex, {blend, alpha})`：只在图层**已有像素处**叠加纹理或 bumpLight 光影（透明区域保持透明）。
+  - 注意：`makeLayer` 返回的画布，其 2D context 永久带着 `translate(pad, pad)`（所以用画面坐标作画）；而 `blurred / filtered / noiseLayer / polarNoiseLayer / bumpLight` 返回的画布 context 没有这个平移。之后要在后者上补画，先自己 `g.translate(pad, pad)`。
 - 纹理：`noiseTex(w,h,opts) noiseLayer(pad,opts) polarNoiseLayer(env,pad,opts)`（沿弧 / 沿半径拉伸的噪声）`grainTex bumpLight(heightCanvas,opts) speckle(ctx,opts)`
 - 现成材质：`paperTex woodTex stoneTex weaveTex`（返回 w×h 的 canvas）
 - 笔触：`inkStroke(ctx, pts, opts)`（毛笔）`chalkStroke / chalkLine`（粉笔、蜡笔）`sketchLine`（钢笔、铅笔）`roughPoly`（撕纸边）`smoothPath arcPts(arc, dr, t0, t1, n)`
