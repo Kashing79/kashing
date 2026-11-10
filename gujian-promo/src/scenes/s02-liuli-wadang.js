@@ -25,14 +25,14 @@ function buildRoof(env) {
     const DEPTH = 1150;
     // 1) the pan tiles (板瓦) in the troughs: darker amber, lit from the upper left
     g.save(); a.clipBelow(g, 7);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 900, a.R + 8, [[0, '#6b4208'], [0.55, '#9a6610'], [1, '#b98214']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 900, a.R + 8, [[0, '#3f2604'], [0.55, '#6e480a'], [1, '#8f6410']]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.restore();
     // trough tile laps: thin curved shadows stepping down the roof
     g.save(); a.clipBelow(g, 7);
-    for (let d = 40; d < DEPTH; d += 62) {
-      g.strokeStyle = 'rgba(60,32,4,0.5)'; g.lineWidth = 5; a.stroke(g, -d);
-      g.strokeStyle = 'rgba(255,214,120,0.22)'; g.lineWidth = 2; a.stroke(g, -d - 5);
+    for (let d = 40; d < DEPTH; d += 78) {
+      g.strokeStyle = 'rgba(40,20,2,0.55)'; g.lineWidth = 6; a.stroke(g, -d);
+      g.strokeStyle = 'rgba(255,214,120,0.3)'; g.lineWidth = 2; a.stroke(g, -d - 6);
     }
     g.restore();
     // 2) drip-tile lips (滴水) poking out between the ridges → a scalloped eave edge
@@ -51,20 +51,24 @@ function buildRoof(env) {
       a.at(g, th, 0, () => {
         const far = (HALF * (a.R - DEPTH)) / a.R;
         const tone = r.range(-0.07, 0.07);
+        // contact shadow the ridge throws into the trough on its right
+        g.fillStyle = L.linear(g, HALF - 4, 0, HALF + 20, 0, [[0, 'rgba(24,12,0,0.75)'], [1, 'rgba(24,12,0,0)']]);
+        g.beginPath(); g.moveTo(HALF - 4, 6); g.lineTo(HALF + 20, 12); g.lineTo(far + 14, DEPTH); g.lineTo(far - 4, DEPTH); g.closePath(); g.fill();
         // cylinder shading across the tile: shadow – body – highlight – body – deep shadow
         g.fillStyle = L.linear(g, -HALF, 0, HALF, 0, [
-          [0, L.shade('#8a5a0a', tone)], [0.2, L.shade('#d39a1a', tone)], [0.36, L.shade('#ffe07a', tone)], [0.46, L.shade('#f2bf35', tone)],
-          [0.72, L.shade('#c08412', tone)], [1, L.shade('#5a3606', tone)]]);
+          [0, L.shade('#7a4c06', tone)], [0.18, L.shade('#d89c18', tone)], [0.33, L.shade('#ffe88f', tone)], [0.44, L.shade('#f6c232', tone)],
+          [0.7, L.shade('#b87a0e', tone)], [1, L.shade('#3f2403', tone)]]);
         g.beginPath(); g.moveTo(-HALF, 4); g.quadraticCurveTo(0, -16, HALF, 4); g.lineTo(far, DEPTH); g.lineTo(-far, DEPTH); g.closePath(); g.fill();
         // joints between tile lengths
-        for (let d = 118 + r.range(-6, 6); d < DEPTH; d += 122) {
+        for (let d = 150 + r.range(-8, 8); d < DEPTH; d += 168) {
           const hw = (HALF * (a.R - d)) / a.R;
-          g.strokeStyle = 'rgba(70,40,4,0.6)'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(-hw, d); g.quadraticCurveTo(0, d - 5, hw, d); g.stroke();
+          g.strokeStyle = 'rgba(60,34,2,0.5)'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(-hw, d); g.quadraticCurveTo(0, d - 5, hw, d); g.stroke();
           g.strokeStyle = 'rgba(255,236,160,0.35)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-hw, d + 3); g.quadraticCurveTo(0, d - 2, hw, d + 3); g.stroke();
         }
         // long glossy streak of glaze
-        g.strokeStyle = 'rgba(255,250,215,0.5)'; g.lineWidth = 2.2; g.lineCap = 'round';
-        g.beginPath(); g.moveTo(-HALF * 0.34, 16); g.lineTo(-far * 0.34, DEPTH * 0.55); g.stroke();
+        g.lineCap = 'round';
+        g.strokeStyle = 'rgba(255,244,190,0.22)'; g.lineWidth = 9; g.beginPath(); g.moveTo(-HALF * 0.3, 20); g.lineTo(-far * 0.3, DEPTH * 0.7); g.stroke();
+        g.strokeStyle = 'rgba(255,253,235,0.75)'; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-HALF * 0.36, 14); g.lineTo(-far * 0.36, DEPTH * 0.5); g.stroke();
         // the nail cap (瓦钉帽): a glazed dome near the eave end of every ridge
         const cy = 46, cr = 15.5;
         g.fillStyle = 'rgba(40,22,2,0.5)'; g.beginPath(); g.ellipse(4, cy + 7, cr * 1.05, cr * 0.8, 0, 0, L.TAU); g.fill();
@@ -75,9 +79,9 @@ function buildRoof(env) {
     }
     // 4) glaze mottling + weathering that follows the roof's radial direction
     g.save(); a.clipBelow(g, 8);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.75;
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.5;
     g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 34, sx: 1, sy: 7, octaves: 4, contrast: 1.5, res: 0.4 }), -PAD, -PAD);
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.55;
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.4;
     g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's02dirt', scale: 240, octaves: 4, warp: 0.6, res: 0.25, ramp: [[0, '#5a4a22'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
     g.restore();
     // 5) depth: the roof falls into shadow toward the bottom of frame
@@ -111,7 +115,7 @@ export default {
   name: '黄琉璃瓦檐口',
   tone: 'light',            // tagline colour if this shot carries text: 'light' on dark backgrounds, 'dark' on light ones
   init(env) {
-    const roof = buildRoof(env);
+    const roof = L.filtered(buildRoof(env), 'saturate(1.35) brightness(1.12) contrast(1.05)');
     S = { roof, back: buildBack(), dust: buildDust(), rim: null };
   },
   draw(ctx, env, p) {
@@ -122,7 +126,7 @@ export default {
     L.blit(ctx, env, S.dust, { rot: rot * 0.6, zoom, dy: -10 * p, alpha: 0.9 });
     // soft warm bounce light spilling over the eave
     L.glow(ctx, a.cx - 180, a.crestY + 10, 760, '#ffb53a', 0.13);
-    L.blit(ctx, env, S.roof, { rot, zoom });
+    L.blit(ctx, env, S.roof, { rot, zoom, dy: 9 });   // the scalloped eave lips rise ~9 px above the ridge line → nudge so the visible edge sits on the arc
     // sun glint travelling along the eave line
     const gl = a.pt(L.lerp(-0.16, 0.02, p), -30);
     L.glow(ctx, gl.x, gl.y, 230, '#fff2c0', 0.2);

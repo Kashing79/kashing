@@ -18,14 +18,14 @@ function buildWall(env) {
     const s = a.span(PAD + 80);
     g.fillStyle = '#0b0706';
     // wall body hugging the ridge line
-    a.pathBand(g, 13, -4, -s, s); g.fill();
+    a.pathBand(g, 1, -16, -s, s); g.fill();
     // merlons (垛口)
-    a.along({ spacing: 25, dr: 13, t0: -s, t1: s }, (q) => {
-      a.at(g, q.theta, 13, () => { g.fillRect(-7.5, -10, 15, 11); });
+    a.along({ spacing: 25, dr: 1, t0: -s, t1: s }, (q) => {
+      a.at(g, q.theta, 1, () => { g.fillRect(-7.5, -9, 15, 10); });
     });
     // watchtowers (敌楼): two-storey masonry blocks with arched openings and a crenellated top
     const tower = (theta, k) => {
-      a.at(g, theta, 10, () => {
+      a.at(g, theta, -2, () => {
         g.scale(k, k);
         g.fillStyle = '#0b0706';
         g.beginPath(); g.moveTo(-36, 2); g.lineTo(-33, -56); g.lineTo(33, -56); g.lineTo(36, 2); g.closePath(); g.fill();
@@ -143,7 +143,7 @@ export function drawDawn(ctx, env, { tilt = 0, k = 0 } = {}) {
   // ember rim along the ridge near the sun
   ctx.save(); ctx.globalCompositeOperation = 'screen';
   ctx.strokeStyle = L.linear(ctx, sun.x - 520, 0, sun.x + 520, 0, [[0, 'rgba(255,120,40,0)'], [0.5, `rgba(255,170,80,${0.55 * gl})`], [1, 'rgba(255,120,40,0)']]);
-  ctx.lineWidth = 2.2; a.stroke(ctx, 1.5);
+  ctx.lineWidth = 2.2; a.stroke(ctx, -17);
   ctx.restore();
   ctx.restore();
 }
