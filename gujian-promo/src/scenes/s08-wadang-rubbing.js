@@ -19,10 +19,11 @@ const FIELD = RING0 - STR1;      // depth of the cloud field
 const THC = 0.245;               // angular centre of each visible cloud scroll
 const LINE = 21;                 // width of the raised cloud lines
 
-// half of the "mushroom" cloud (蘑菇形卷云): the cap runs parallel to the rim, then curls down and inward into a volute.
-// X along the arc from the stem, Y up from the centre ring.
-const ARM = [[0, 237], [72, 239], [152, 236], [230, 221], [285, 185], [306, 135], [290, 84], [246, 52], [192, 48],
-  [148, 76], [132, 122], [150, 164], [190, 182], [228, 170], [246, 138], [234, 108], [208, 100]];
+// half of a cloud scroll (卷云纹): a stem rises from the centre ring and splits into two arms that sweep up toward the rim,
+// then roll outward, down and inward into a volute. X along the arc from the stem, Y up from the centre ring.
+const STEM = 118;
+const ARM = [[0, STEM], [22, 171], [80, 218], [160, 240], [246, 224], [302, 174], [312, 112], [274, 60], [210, 44],
+  [156, 70], [140, 122], [166, 165], [212, 175], [246, 148], [241, 114], [215, 101]];
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
 
@@ -75,7 +76,7 @@ function buildRelief(env) {
         const e = pts[pts.length - 1];
         g.beginPath(); g.arc(e[0], e[1], LINE * 0.66, 0, L.TAU); g.fill();
       }
-      const st = [[0, -6], [1.5, 110], [0, 236]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
+      const st = [[0, -6], [1.5, STEM * 0.5], [0, STEM + 6]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
       L.inkStroke(g, st, { width: LINE * 1.12, color: '#fff', seed: seed + 11, taper: [0, 0], wobble: 0.12 });
     };
     cloud(-THC, 101); cloud(THC, 202);
@@ -272,6 +273,21 @@ function buildSheet(env) {
     L.speckle(g, { seed: 's08fox', count: 90, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 5, colors: ['#b0915a', '#a58450'], alpha: [0.05, 0.22] });
     L.speckle(g, { seed: 's08fleck', count: 46, x: 190, y: 300, w: 420, h: 260, rMin: 0.6, rMax: 3.2, colors: ['#1b1814'], alpha: [0.1, 0.5], test: (x, y) => a.drAt(x, y) > 12 });
     g.fillStyle = L.radial(g, 330, 470, 0, 150, [[0, 'rgba(30,27,24,0.07)'], [1, 'rgba(30,27,24,0)']]); g.fillRect(180, 320, 300, 300);
+    // puckers in the paper where it was pressed down over the edge of the tile: short radial creases outside the rim
+    const rc = L.rng('s08crease');
+    g.save(); g.lineCap = 'round';
+    for (let i = 0; i < 64; i++) {
+      const th = rc.range(-0.72, 0.72), d0 = rc.range(3, 16), len = rc.range(22, 120) * (rc.chance(0.2) ? 1.6 : 1);
+      const lean = rc.range(-0.35, 0.35), bend = rc.range(-10, 10), al = rc.range(0.35, 1);
+      a.at(g, th, d0, () => {
+        const ex = Math.sin(lean) * len, ey = -Math.cos(lean) * len;
+        for (const [ox, col, w] of [[0, `rgba(96,76,44,${(0.13 * al).toFixed(3)})`, 1.5], [-1.5, `rgba(255,253,244,${(0.5 * al).toFixed(3)})`, 1.2]]) {
+          g.strokeStyle = col; g.lineWidth = w;
+          g.beginPath(); g.moveTo(ox, 0); g.quadraticCurveTo(ex * 0.5 + bend + ox, ey * 0.5, ex + ox, ey); g.stroke();
+        }
+      });
+    }
+    g.restore();
     // the rubbing
     g.drawImage(ink, -PAD, -PAD);
     // the paper was beaten into the relief while wet: a whisper of emboss along every raised edge (light from the upper left)
