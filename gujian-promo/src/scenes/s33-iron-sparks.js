@@ -102,7 +102,10 @@ function streak(d, tx, ty, hx, hy, ti, hi, k, wid) {
     if (wid) {
       const s = 0.75 * t;
       splat(d, x + px, y + py, r * s, g * s, b * s); splat(d, x - px, y - py, r * s, g * s, b * s);
-      if (wid > 1) { const s2 = 0.4 * t; splat(d, x + 2 * px, y + 2 * py, r * s2, g * s2, b * s2); splat(d, x - 2 * px, y - 2 * py, r * s2, g * s2, b * s2); }
+      if (wid > 1) {
+        const s2 = (wid > 2 ? 0.7 : 0.4) * t; splat(d, x + 2 * px, y + 2 * py, r * s2, g * s2, b * s2); splat(d, x - 2 * px, y - 2 * py, r * s2, g * s2, b * s2);
+        if (wid > 2) { const s3 = 0.4 * t * t; splat(d, x + 3.2 * px, y + 3.2 * py, r * s3, g * s3, b * s3); splat(d, x - 3.2 * px, y - 3.2 * py, r * s3, g * s3, b * s3); }
+      }
     }
   }
 }
@@ -177,10 +180,12 @@ function buildSparks(env, heapTop) {
   // the fresh splash right at the impact: young, fast, white-hot
   for (let n = 0; n < 1150; n++) { const s = sampleCore(r); s.type = 0; add(s, L.clamp(1.1 - s.tau0 * 0.8 + r.range(-0.25, 0.1))); }
   // heavy gobs of molten iron: slower, barely braked by the air, trailing long tails
-  for (let n = 0; n < 80; n++) {
+  for (let n = 0, tries = 0; n < 64 && tries < 2000; tries++) {
     const s = sampleCore(r); s.type = 0;
-    const slow = r.range(0.32, 0.6); s.vx *= slow; s.vy *= slow; s.k = r.range(0.55, 1.0); s.tau0 = 0.03 + 0.5 * r();
-    add(s, 1); s.wid = 2; s.gain = 1.5; s.hot = true; s.glob = true; s.ex = r.range(2.2, 3.4); s.fork = false;
+    const slow = r.range(0.32, 0.62); s.vx *= slow; s.vy *= slow; s.k = r.range(0.55, 1.0); s.tau0 = 0.05 + 0.55 * r();
+    flightAt(s, s.tau0 + SIMT, P);
+    if (Math.abs(P[0] - 960) < 470 && P[1] > 215) continue;   // their long tails must never trail through the tagline
+    add(s, 1); n++; s.wid = 3; s.gain = 1.5; s.hot = true; s.glob = true; s.ex = r.range(3, 5); s.fork = false;
   }
   // rain: cooled sparks from the previous throw, falling at terminal speed in front of the gateway
   for (let n = 0; n < 950; n++) {
@@ -277,9 +282,9 @@ function buildWall(env, height) {
       lum += alb * (0.02 + 0.1 * canopy(x, y)) * Math.max(0, 0.6 + rel * 0.8);
       if (dr < RING + 40) {
         const rel2 = ((gx * ex + gy * ey) / rr) * K;     // lit from below, by the embers in the gateway
-        lum += alb * (0.15 * Math.exp(-dr / 40) + 0.5 * Math.exp(-dr / 4.5)) * Math.max(0, 0.55 + rel2);
+        lum += alb * (0.2 * Math.exp(-dr / 42) + 0.5 * Math.exp(-dr / 4.5)) * Math.max(0, 0.55 + rel2);
       }
-      if (x > 400 && x < 1520 && y > 200) lum *= 1 - 0.5 * zoneMask(x, y, crest);
+      if (x > 400 && x < 1520 && y > 200) lum *= 1 - 0.62 * zoneMask(x, y, crest);
       if (dr < 0.5) lum *= dr + 0.5;
       lum += (hash2(x, y) - 0.5) * 0.008;
       const li = (lum <= 0 ? 0 : lum >= 1 ? 1023 : (lum * 1023) | 0) * 3;
@@ -510,7 +515,7 @@ function buildBokeh(env) {
   const crest = env.arc.crestY;
   const r = L.rng('s33bokeh');
   const out = [];   // x, y, rad, r, g, b, parallax
-  const cols = [[255, 52, 22], [255, 52, 22], [255, 84, 26], [255, 120, 34], [255, 176, 70]];
+  const cols = [[255, 46, 20], [255, 46, 20], [255, 70, 24], [255, 96, 28], [255, 128, 40]];
   for (let n = 0; n < 150;) {
     const x = r.range(-30, W + 30), y = r.range(-30, H + 30);
     if (r() < zoneMask(x, y, crest) * 1.3) continue;
@@ -619,6 +624,16 @@ export default {
     g.filter = 'blur(1.2px)'; g.drawImage(trails, 0, 0);
     g.filter = 'none'; g.globalAlpha = 0.6; g.drawImage(trails, 0, 0);
     g.restore();
+    {
+      const sw = 1100, sh = 460;
+      const fume = L.noiseTex(sw, sh, { seed: 's33fume', scale: 170, octaves: 4, warp: 1.1, res: 0.25, contrast: 1.6, ramp: [[0, 'rgba(255,90,30,0)'], [0.4, 'rgba(255,90,30,0)'], [1, 'rgba(255,120,44,0.5)']] });
+      const fg = fume.getContext('2d');
+      fg.globalCompositeOperation = 'destination-in';
+      fg.translate(sw / 2, sh * 0.42); fg.scale(1, 0.42);
+      fg.fillStyle = L.radial(fg, 0, 0, 0, sw / 2, [[0, 'rgba(0,0,0,1)'], [0.45, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0)']]);
+      fg.fillRect(-sw, -sh * 3, sw * 2, sh * 6);
+      g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.55; g.drawImage(fume, IMP.x - sw / 2, IMP.y - sh * 0.42); g.restore();
+    }
     drawSplat(g);
     // ember bed, the light it throws up into the passage and a breath of lit smoke above it
     g.save(); g.globalCompositeOperation = 'lighter';

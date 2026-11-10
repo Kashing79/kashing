@@ -450,7 +450,7 @@ function buildBase(env, F, relief) {
     g.drawImage(L.noiseTex(LW, LH, { seed: 's30y3', scale: 80, sx: 0.4, sy: 8, octaves: 3, res: 0.2, contrast: 1.6, ramp: [[0, 'rgba(160,98,0,0.07)'], [0.55, 'rgba(0,0,0,0)'], [1, 'rgba(255,242,170,0.08)']] }), -PAD, -PAD);
     // the glassy surface is never dead flat: a faint orange-peel that catches the light
     g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.26;
-    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's30peel', scale: 76, octaves: 3, res: 0.2, contrast: 1.3 }), { angle: 230, strength: 2.4, res: 0.34 }), -PAD, -PAD);
+    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's30peel', scale: 76, octaves: 3, res: 0.2, contrast: 1.3 }), { angle: 48, strength: 2.4, res: 0.34 }), -PAD, -PAD);
     g.restore();
     // big facing tiles: each fired a shade differently; the title sits inside one tile
     const tiles = [[-285, JY, 830, 1400, 'rgba(206,140,6,0.1)'], [1375, JY, 830, 1400, 'rgba(255,238,150,0.1)'],

@@ -11,7 +11,6 @@ const { W, H } = L;
 const PAD = 170;
 const LW = W + PAD * 2, LH = H + PAD * 2;
 let S = null;
-const tick = (n) => { if (globalThis.__s24t) globalThis.__s24t(n); };   // TEMP profiling hook
 
 const INK = '#050505';
 const FACE = '#f5f2ea';       // painted timber
@@ -90,9 +89,6 @@ function buildGeometry(a) {
     for (let i = 0; i < m; i++) { const u = poly[i], v = poly[(i + 1) % m]; const l = Math.hypot(v.x - u.x, v.y - u.y); len.push(l); tot += l; cum.push(tot); }
     const pickEdge = () => { const t = r() * tot; let i = 0; while (i < m - 1 && cum[i] < t) i++; return i; };
     const big = A > TARGET * 12;
-    // only joints close to this cell can crowd a new bar end (same test as scanning them all, a fraction of the work)
-    const [jx0, jy0, jx1, jy1] = bbox(poly);
-    const nearJ = joints.filter((jt) => jt[0] > jx0 - MINJ - 1 && jt[0] < jx1 + MINJ + 1 && jt[1] > jy0 - MINJ - 1 && jt[1] < jy1 + MINJ + 1);
     let best = null, found = 0;
     for (let k = 0; k < (big ? 600 : 320) && found < 9; k++) {
       let i, j, ti, tj;
@@ -116,7 +112,7 @@ function buildGeometry(a) {
       const e1x = (a1.x - a0.x) / len[i], e1y = (a1.y - a0.y) / len[i], e2x = (b1.x - b0.x) / len[j], e2y = (b1.y - b0.y) / len[j];
       if (Math.abs(e1x * uy - e1y * ux) < SIN_MIN || Math.abs(e2x * uy - e2y * ux) < SIN_MIN) continue;
       let ok = true;
-      for (const jt of nearJ) { if (Math.hypot(jt[0] - P.x, jt[1] - P.y) < MINJ || Math.hypot(jt[0] - Q.x, jt[1] - Q.y) < MINJ) { ok = false; break; } }
+      for (const jt of joints) { if (Math.hypot(jt[0] - P.x, jt[1] - P.y) < MINJ || Math.hypot(jt[0] - Q.x, jt[1] - Q.y) < MINJ) { ok = false; break; } }
       if (!ok) continue;
       // keep bars from grazing a medallion ring: either miss it clearly or cross it squarely
       for (const md of near) { const h = segDist(md.x, md.y, P.x, P.y, Q.x, Q.y); if (h > md.R * (lax ? 0.78 : 0.68) && h < md.R + (lax ? 18 : 26)) { ok = false; break; } }
@@ -260,46 +256,22 @@ function chipPattern(g, kind) {
   return g.createPattern(chipTiles[kind], 'repeat');
 }
 
-// Nothing is ever drawn above the frame, and the frame itself is a shallow band: the full-layer pixel passes (relief
-// light, extrusion, glow) only have to visit the layer rows that can hold timber. Rows are layer pixel rows (frame y + PAD).
-const topRow = (a) => Math.max(0, Math.floor((PAD + a.crestY - 28) / 4) * 4);   // multiple of 4 → the 0.75 / 0.5-res relief grids stay aligned
-const frameEndRow = (a) => Math.min(LH, Math.ceil((PAD + a.yAt(-PAD, -FRAME_W) + FRAME_EXT + 16) / 4) * 4);
-const clipRows = (g, y0, y1) => { g.beginPath(); g.rect(0, y0, LW, y1 - y0); g.clip(); };
-
-/** relief light (L.bumpLight) of a height map blurred by `blur` px, worked out for rows y0…y1 only → draw the result at (0, y0) */
-function relief(src, blur, y0, y1, opts) {
-  const c = L.makeCanvas(LW, y1 - y0);
-  const g = c.getContext('2d');
-  g.filter = `blur(${blur}px)`; g.drawImage(src, 0, -y0);
-  return L.bumpLight(c, opts);
-}
-
 /** extrude a white mask downward (the visible thickness of the timber) and put the finished face on top */
-function assemble(mask, face, ext, y0, y1) {
-  const side = (col) => {
-    const c = L.makeCanvas(LW, LH); const g = c.getContext('2d');
-    clipRows(g, y0, y1);
-    g.drawImage(mask, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(0, 0, LW, LH);
-    return c;
-  };
+function assemble(mask, face, ext) {
+  const side = (col) => { const c = L.makeCanvas(LW, LH); const g = c.getContext('2d'); g.drawImage(mask, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(0, 0, LW, LH); return c; };
   const dark = side('#4f4c46'), mid = side(GREY);
   const out = L.makeCanvas(LW, LH); out._pad = PAD;
   const g = out.getContext('2d');
-  g.save(); clipRows(g, y0, Math.min(LH, y1 + Math.ceil(ext) + 2));
   const steps = Math.ceil(ext * 2);
   for (let k = steps; k >= 1; k--) { const d = (k / steps) * ext; g.drawImage(k > steps * 0.55 ? dark : mid, d * 0.3, d); }
   g.drawImage(face, 0, 0);
-  g.restore();
   return out;
 }
 
 function buildLattice(env, geo) {
   const a = env.arc;
-  const y0 = topRow(a);
   const mask = L.makeLayer(PAD, (g) => drawLattice(g, a, geo, 0));
-  tick('lat.mask');
   const face = L.makeLayer(PAD, (g) => {
-    g.beginPath(); g.rect(-PAD, y0 - PAD, LW, LH - y0); g.clip();
     g.drawImage(mask, -PAD, -PAD);
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = FACE; g.fillRect(-PAD, -PAD, LW, LH);
@@ -337,36 +309,29 @@ function buildLattice(env, geo) {
       g.stroke();
       g.strokeStyle = 'rgba(64,60,53,0.7)'; g.lineWidth = 1.2; g.beginPath(); g.arc(f.x, f.y, 3.6, 0, L.TAU); g.stroke();
     }
-    tick('lat.face.strokes');
     // soft, broad unevenness of old paint
     g.globalAlpha = 0.6;
     g.drawImage(L.noiseLayer(PAD, { seed: 's24tone', scale: 210, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.32)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.3)']] }), -PAD, -PAD);
     g.globalAlpha = 1;
     // a few chips straight through the paint
-    tick('lat.face.tone');
     g.fillStyle = chipPattern(g, 'sparse'); g.fillRect(-PAD, -PAD, LW, LH);
-    tick('lat.face.chips');
   });
   // paint flaking along the arrises (edge band = mask − slightly shrunken mask)
   {
     const edge = L.makeLayer(PAD, (g) => {
-      g.fillStyle = chipPattern(g, 'dense'); g.fillRect(-PAD, y0 - PAD, LW, LH - y0);
+      g.fillStyle = chipPattern(g, 'dense'); g.fillRect(-PAD, -PAD, LW, LH);
       g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, -PAD, -PAD);
       g.globalCompositeOperation = 'destination-out'; drawLattice(g, a, geo, 1.7);
     });
-    tick('lat.edge');
     const g = face.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.7; g.drawImage(edge, 0, 0);
     // rounded arrises: relief light from the upper left
-    const bump = relief(mask, 1.1, y0, LH, { angle: 45, strength: 0.7, res: 0.75 });
-    tick('lat.bump');
-    g.globalAlpha = 0.75; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, y0);
+    const bump = L.bumpLight(L.blurred(mask, 1.1), { angle: 45, strength: 0.7, res: 0.75 });
+    g.globalAlpha = 0.75; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, 0);
     g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, 0, 0);
   }
-  tick('lat.bumpdraw');
-  const out = assemble(mask, face, EXT, y0, LH);
-  tick('lat.assemble');
+  const out = assemble(mask, face, EXT);
   // the frame stands proud of the lattice and shades the first rows beneath it
   const g = out.getContext('2d');
   g.translate(PAD, PAD); g.globalCompositeOperation = 'source-atop';
@@ -377,7 +342,6 @@ function buildLattice(env, geo) {
 
 function buildFrame(env) {
   const a = env.arc;
-  const y0 = topRow(a), y1 = frameEndRow(a);
   const mask = L.makeLayer(PAD, (g) => { g.fillStyle = '#fff'; a.pathBand(g, 0, -FRAME_W); g.fill(); });
   // moulding profile as a height map across the band (t = 0 inner edge … 1 outer edge)
   const T = (dr) => (FRAME_W + dr) / FRAME_W;
@@ -388,7 +352,6 @@ function buildFrame(env) {
     a.pathBand(g, 0, -FRAME_W); g.fill();
   });
   const face = L.makeLayer(PAD, (g) => {
-    g.beginPath(); g.rect(-PAD, y0 - PAD, LW, y1 - y0); g.clip();
     g.drawImage(mask, -PAD, -PAD);
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = FACE; g.fillRect(-PAD, -PAD, LW, LH);
@@ -419,38 +382,26 @@ function buildFrame(env) {
   });
   const g = face.getContext('2d');
   g.setTransform(1, 0, 0, 1, 0, 0);
-  tick('frm.face');
-  const bump = relief(height, 1, y0, y1, { angle: 45, strength: 2.6, res: 0.5 });
-  tick('frm.bump');
-  g.globalAlpha = 0.8; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, y0);
+  const bump = L.bumpLight(L.blurred(height, 1), { angle: 45, strength: 2.6, res: 0.5 });
+  g.globalAlpha = 0.8; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, 0, 0);
-  return assemble(mask, face, FRAME_EXT, y0, y1);
+  return assemble(mask, face, FRAME_EXT);
 }
 
 export default {
   name: '窗棂纹样',
   tone: 'light',
   init(env) {
-    tick('start');
     const geo = buildGeometry(env.arc);
-    tick('geometry');
     const win = buildLattice(env, geo);
-    tick('lattice.done');
-    const y0 = topRow(env.arc), yf = Math.min(LH, frameEndRow(env.arc) + FRAME_EXT + 4);
     const wg = win.getContext('2d');
     wg.setTransform(1, 0, 0, 1, 0, 0); wg.globalCompositeOperation = 'source-over';
-    wg.drawImage(buildFrame(env), 0, y0, LW, yf - y0, 0, y0, LW, yf - y0);
-    tick('frame.done');
+    wg.drawImage(buildFrame(env), 0, 0);
     // halation: a breath of glow around the white timber, baked under it
     const out = L.makeCanvas(LW, LH); out._pad = PAD;
     const g = out.getContext('2d');
-    const yh = Math.max(0, y0 - 44);   // the 12 px blur reaches ~36 px above the frame
-    const halo = L.makeCanvas(LW, LH - yh);
-    const hg = halo.getContext('2d');
-    hg.filter = 'blur(12px)'; hg.drawImage(win, 0, -yh);
-    g.globalAlpha = 0.17; g.drawImage(halo, 0, yh);
-    g.globalAlpha = 1; g.drawImage(win, 0, y0, LW, LH - y0, 0, y0, LW, LH - y0);
-    g.getImageData(0, 0, 1, 1); tick('halation');
+    g.globalAlpha = 0.17; g.drawImage(L.blurred(win, 12), 0, 0);
+    g.globalAlpha = 1; g.drawImage(win, 0, 0);
     S = { win: out };
   },
   draw(ctx, env, p) {

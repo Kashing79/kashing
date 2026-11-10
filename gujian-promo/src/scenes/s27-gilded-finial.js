@@ -1,14 +1,11 @@
 // s27 — 鎏金宝顶. Night. The arc is the upper limb of a huge gilded (copper-bodied) roof finial ball, seen from below.
-// The gold is alive with glitter: tens of thousands of fine flakes and leaf fragments baked on the ball, plus thousands
-// of live ones that flash on and off every frame (seeded by the frame number) — some bloom into four-point star flares.
+// The gold is alive with glitter: tens of thousands of fine flakes baked on the ball, plus a few thousand live ones
+// that flash on and off every frame (seeded by the frame number) — some bloom into four-point star flares.
 // Along the limb a fringe of gold dust lifts off into the black; the sky above the crest stays empty for the caption.
 //
 // Geometry: every point under the arc is mapped onto a real sphere of radius arc.R (Z = how far the surface faces the
 // lens, 0 at the limb). We look UP at the ball by TILT, so its horizontal hoops (latitude lines) show as shallow
 // arcs that close in on the limb toward the sides, and flakes are squashed toward the limb like on a real ball.
-//
-// Speed: everything static (ball, bloom, resting dust, corner falloff) is baked into ONE layer. The live glitter is
-// positioned by hand (same rot/zoom as the layer) and stamped unscaled at whole pixels from pre-sized sprites.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -154,41 +151,6 @@ function paintFlakes(g, env, cols) {
   g.setTransform(1, 0, 0, 1, PAD, PAD); g.globalAlpha = 1;
 }
 
-/** fragments of gold leaf (金箔) among the dust: larger flat facets lying on the ball — most take the local tone,
- *  some tilt away into shadow, a few mirror the light. Each is a small irregular polygon, foreshortened toward the limb. */
-function paintLeaf(g, env, cols) {
-  const a = env.arc, R = a.R, r = L.rng('s27leaf'), nz = L.makeNoise('s27patch');
-  const items = [];
-  for (let i = 0; i < 16000; i++) {
-    const Z = 0.02 + r() * 0.74, th = r.range(-0.8, 0.8);
-    const rad = R * Math.sqrt(1 - Z * Z), sn = Math.sin(th), cs = Math.cos(th);
-    const x = a.cx + rad * sn, y = a.cy - rad * cs;
-    if (x < -PAD - 8 || x > W + PAD + 8 || y > H + PAD + 8) continue;
-    const patch = nz.fbm(th * R / 120 + 40, Z * R / 120 - 17, 3);
-    if (r() > 0.45 + 0.7 * patch) continue;
-    const I0 = surfI(Z, th);
-    const s = 4.2 + 7.5 * Math.pow(r(), 2.2);
-    const kind = r();
-    const If = kind < 0.3 ? I0 * r.range(0.4, 0.72) : kind < 0.84 ? I0 * r.range(0.92, 1.16) : L.lerp(I0, 1.2, r.range(0.35, 0.95) * (0.4 + 0.6 * Math.min(1, I0)));
-    items.push({ x, y, sn, cs, s, fs: Math.min(1, 0.2 + 1.0 * Z), b: bucketOf(If), al: r.range(0.4, 0.8), rot: r() * L.TAU, n: r.int(4, 6), seed: r() });
-  }
-  items.sort((p, q) => p.b - q.b);
-  let cur = -1;
-  for (const it of items) {
-    if (it.b !== cur) { cur = it.b; g.fillStyle = cols[cur]; }
-    g.globalAlpha = it.al;
-    g.setTransform(it.cs, it.sn, -it.sn, it.cs, it.x + PAD, it.y + PAD);
-    g.beginPath();
-    for (let k = 0; k < it.n; k++) {
-      const ang = it.rot + (k / it.n) * L.TAU, rr = it.s * 0.5 * (0.72 + 0.28 * Math.abs(Math.sin(it.seed * 91 + k * 2.3)));
-      const px = Math.cos(ang) * rr, py = Math.sin(ang) * rr * it.fs;
-      if (k === 0) g.moveTo(px, py); else g.lineTo(px, py);
-    }
-    g.closePath(); g.fill();
-  }
-  g.setTransform(1, 0, 0, 1, PAD, PAD); g.globalAlpha = 1;
-}
-
 /** trace a latitude line of the ball (the visible front part) */
 function hoopPath(g, a, lat) {
   const cl = Math.cos(lat);
@@ -206,7 +168,6 @@ function buildBody(env, cols) {
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.55;
     g.drawImage(L.grainTex(LW, LH, { seed: 's27grain', amount: 0.36 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-    paintLeaf(g, env, cols);
     paintFlakes(g, env, cols);
     // the hoops catch a thin line of light on their upper shoulder, a hairline of shadow underneath
     for (const hp of HOOPS) {
@@ -243,7 +204,7 @@ function defocus(env, body) {
   return body;
 }
 
-// ── sprites: every size is drawn natively, so the live pass can stamp them unscaled at whole pixels ──
+// ── sprites ──
 function dotSprite(size, core, halo) {
   const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
   g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(core, 1)], [0.2, L.rgba(core, 0.95)], [0.38, L.rgba(halo, 0.5)], [0.68, L.rgba(halo, 0.13)], [1, L.rgba(halo, 0)]]);
@@ -252,7 +213,6 @@ function dotSprite(size, core, halo) {
 }
 function starSprite(size, core, halo) {
   const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
-  const thin = Math.max(0.028, 1.1 / m);      // small flares keep a visible hairline
   g.globalCompositeOperation = 'lighter';
   g.fillStyle = L.radial(g, m, m, 0, m * 0.3, [[0, L.rgba(core, 1)], [0.2, L.rgba(core, 0.9)], [0.45, L.rgba(halo, 0.35)], [1, L.rgba(halo, 0)]]);
   g.fillRect(0, 0, size, size);
@@ -262,28 +222,9 @@ function starSprite(size, core, halo) {
     g.beginPath(); g.arc(0, 0, len, 0, L.TAU); g.fill();
     g.restore();
   };
-  spike(0, m, thin, 1); spike(Math.PI / 2, m, thin, 1);
-  spike(Math.PI / 4, m * 0.4, thin * 1.8, 0.45); spike(-Math.PI / 4, m * 0.4, thin * 1.8, 0.45);
+  spike(0, m, 0.028, 1); spike(Math.PI / 2, m, 0.028, 1);
+  spike(Math.PI / 4, m * 0.4, 0.05, 0.45); spike(-Math.PI / 4, m * 0.4, 0.05, 0.45);
   return c;
-}
-function bokehSprite(size) {
-  const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
-  g.fillStyle = L.radial(g, m, m, 0, m, [[0, 'rgba(232,150,40,0.5)'], [0.6, 'rgba(236,160,46,0.56)'], [0.8, 'rgba(250,190,84,0.62)'], [0.9, 'rgba(240,170,60,0.3)'], [1, 'rgba(233,160,50,0)']]);
-  g.fillRect(0, 0, size, size);
-  return c;
-}
-/** a geometric ladder of sprite sizes; classOf() picks the rung nearest a wanted size */
-function spriteSet(make, s0, ratio, n) {
-  const sizes = [], imgs = [];
-  for (let i = 0; i < n; i++) { const s = Math.max(3, Math.round(s0 * Math.pow(ratio, i))); sizes.push(s); imgs.push(make(s)); }
-  return { sizes, imgs, s0, lr: 1 / Math.log(ratio), n };
-}
-const classOf = (set, s) => { const i = Math.round(Math.log(s / set.s0) * set.lr); return i < 0 ? 0 : i >= set.n ? set.n - 1 : i; };
-
-/** the layer's camera (rot about the ball's centre, zoom about the crest) as a matrix, so live glitter can follow it by hand */
-function camMatrix(a, rot, zoom) {
-  const c = Math.cos(rot) * zoom, s = Math.sin(rot) * zoom;
-  return { a: c, b: s, c: -s, d: c, e: a.cx - c * a.cx + s * a.cy, f: a.crestY * (1 - zoom) + zoom * a.cy - s * a.cx - c * a.cy };
 }
 
 /** live flakes: tiny rects grouped by colour, packed as [x, y, w, h, phase, speed, alpha] */
@@ -298,20 +239,19 @@ function genLiveFlakes(env, cols) {
     const I0 = surfI(Z, th);
     if (r() > 0.22 + 0.85 * I0) continue;                 // sparkle where the light is
     if (r() < 0.9 * defocusAt(Z)) continue;               // out of focus down there: the bokeh takes over
-    const big = r() < 0.12;                               // a leaf fragment turning its face to the light
-    const s = big ? 3.4 + 4.2 * Math.pow(r(), 2) : 1.2 + 2.2 * Math.pow(r(), 2.4);
+    const s = 1.2 + 2.2 * Math.pow(r(), 2.4);
     const If = L.lerp(I0, 1.25, r.range(0.45, 0.95));
-    buckets[bucketOf(If)].push(x, y, s, Math.max(1, s * (0.3 + 0.9 * Z)), r() * L.TAU, r.range(1.0, 2.6), r.range(0.55, 1) * (big ? 0.8 : 1));
+    buckets[bucketOf(If)].push(x, y, s, Math.max(1, s * (0.3 + 0.9 * Z)), r() * L.TAU, r.range(1.0, 2.6), r.range(0.55, 1));
   }
   return buckets.map((q, b) => ({ color: cols[b], d: new Float32Array(q) })).filter((q) => q.d.length);
 }
 
-/** live glints with a soft bloom, and the few that flare into four-point stars. Packed as [x, y, size, phase, speed, alpha] */
-function genGlints(env, sets) {
+/** live glints with a soft bloom, and the few that flare into four-point stars */
+function genGlints(env, spr) {
   const a = env.arc, R = a.R, r = L.rng('s27glint');
-  const gold = [], amber = [], bokeh = [], starG = [], starA = [];
-  for (let i = 0; i < 17000; i++) {
-    const Z = Math.pow(r(), 1.25) * 0.75, th = r.range(-0.78, 0.78);
+  const dots = [], stars = [];
+  for (let i = 0; i < 9500; i++) {
+    const Z = r() * 0.75, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
     if (x < -60 || x > W + 60 || y > H + 60) continue;
@@ -321,13 +261,13 @@ function genGlints(env, sets) {
     const df = defocusAt(Z);
     if (df > 0.25 && r() < df * 0.8) {
       // out-of-focus glints swell into soft discs
-      if (r() < 0.4) bokeh.push(x, y, (12 + 34 * Math.pow(r(), 1.8)) * (0.6 + 0.6 * df), r() * L.TAU, r.range(0.6, 1.6), r.range(0.2, 0.7));
+      if (r() < 0.55) dots.push({ x, y, s: (12 + 34 * Math.pow(r(), 1.8)) * (0.6 + 0.6 * df), img: spr.bokeh, ph: r() * L.TAU, sp: r.range(0.6, 1.6), k: 2, al: r.range(0.2, 0.7) });
       continue;
     }
-    (warm ? amber : gold).push(x, y, (5 + 27 * Math.pow(r(), 3.4)) * (0.6 + 0.5 * Z / 0.75) * (1 + 1.2 * df) * (1 + 0.4 * hot),
-      r() * L.TAU, r.range(0.8, 2.3), r.range(0.55, 1) * (0.55 + 0.45 * Math.min(1, I0)) * (1 - 0.3 * df));
+    dots.push({ x, y, s: (6 + 26 * Math.pow(r(), 2.6)) * (0.6 + 0.5 * Z / 0.75) * (1 + 1.2 * df) * (1 + 0.4 * hot), img: warm ? spr.dotAmber : spr.dotGold,
+      ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.55, 1) * (0.55 + 0.45 * Math.min(1, I0)) * (1 - 0.3 * df) });
   }
-  for (let i = 0; i < 900; i++) {
+  for (let i = 0; i < 820; i++) {
     const Z = Math.pow(r(), 1.5) * 0.74, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
@@ -336,38 +276,31 @@ function genGlints(env, sets) {
     if (r() > 0.4 + 0.35 * I0 + 0.5 * hot) continue;
     const s = (46 + 150 * Math.pow(r(), 2.6)) * (1 + 0.3 * hot);
     // keep flare spikes out of the caption zone above the crest
-    if (Math.abs(x - a.cx) < 400 && y - s * 0.5 < a.crestY - 6) continue;
+    if (Math.abs(x - a.cx) < 390 && y - s * 0.5 < a.crestY - 6) continue;
     const warm = r() > 0.35 + 0.6 * I0;
-    (warm ? starA : starG).push(x, y, s, r() * L.TAU, r.range(0.55, 1.25), r.range(0.6, 1) * (0.6 + 0.4 * Math.min(1, I0)));
+    stars.push({ x, y, s, img: warm ? spr.starAmber : spr.starGold, ph: r() * L.TAU, sp: r.range(0.55, 1.25), k: 4, al: r.range(0.6, 1) * (0.6 + 0.4 * Math.min(1, I0)) });
   }
-  const pack = (q, set, k) => ({ set, k, d: new Float32Array(q) });
-  return [pack(bokeh, sets.bokeh, 2), pack(amber, sets.dotAmber, 3), pack(gold, sets.dotGold, 3), pack(starA, sets.starAmber, 4), pack(starG, sets.starGold, 4)];
+  return { dots, stars };
 }
 
-/** gold dust lifting off the limb + a few motes adrift in the dark (none over the caption).
- *  → still: baked into the layer; live: [x, y, size, phase, speed, alpha, vx, vy] per colour; glows: the same with a soft sprite */
-const DUST_COLS = ['#fff3c0', '#f6d577', '#e9b949', '#c48e2b'];
-function genDust(env) {
+/** gold dust lifting off the limb + a few motes adrift in the dark (none over the caption) */
+function genDust(env, spr) {
   const a = env.arc, r = L.rng('s27dust');
-  const still = [], live = DUST_COLS.map(() => []), glows = [];
-  const tmax = a.span(PAD + 60);
+  const out = [];
+  const tmax = a.span(70);
   const inZone = (x, y) => x > 585 && x < 1335 && y > 240 && y < a.crestY - 8;
   // 1) the fringe hugging the limb: thin over the crest, fuller toward the sides
-  for (let i = 0; i < 7600; i++) {
+  for (let i = 0; i < 5200; i++) {
     const th = r.range(-tmax, tmax);
     const lam = L.lerp(4, 17, L.smooth(Math.abs(th) / 0.34)) * r.range(0.5, 1.5);
     const dr = -lam * Math.log(1 - 0.995 * r()) - 1.5;
     const p = a.pt(th, dr);
-    const near = Math.exp(-Math.max(0, dr) / 26);
-    const glow = r() < 0.07, ci = r.pick([0, 1, 2, 2, 3]);
-    const s = glow ? r.range(5, 11) : 0.8 + 1.5 * Math.pow(r(), 2), al = r.range(0.35, 1) * (0.35 + 0.65 * near);
-    const ph = r() * L.TAU, sp = r.range(0.9, 2.4);
-    const vx = Math.sin(th) * dr * 0.12 + r.range(-1.5, 1.5), vy = -Math.cos(th) * dr * 0.12 + r.range(-1.5, 0.5);
-    const isLive = r() < 0.34;
     if (inZone(p.x, p.y)) continue;
-    if (glow) glows.push(p.x, p.y, s, ph, sp, al, vx, vy);
-    else if (isLive) live[ci].push(p.x, p.y, s, ph, sp, al, vx, vy);
-    else still.push(p.x, p.y, s, ci, al);
+    const near = Math.exp(-Math.max(0, dr) / 26);
+    const glow = r() < 0.07;
+    out.push({ x: p.x, y: p.y, s: glow ? r.range(5, 11) : 0.8 + 1.5 * Math.pow(r(), 2), img: glow ? spr.dotGold : null,
+      col: r.pick(['#fff3c0', '#f6d577', '#e9b949', '#e9b949', '#c48e2b']), al: r.range(0.35, 1) * (0.35 + 0.65 * near),
+      ph: r() * L.TAU, sp: r.range(0.9, 2.4), vx: Math.sin(th) * dr * 0.12 + r.range(-1.5, 1.5), vy: -Math.cos(th) * dr * 0.12 + r.range(-1.5, 0.5) });
   }
   // 2) motes adrift, mostly off to the sides
   for (let i = 0; i < 300; i++) {
@@ -378,144 +311,95 @@ function genDust(env) {
     const far = Math.exp(-dr / 170);
     const kind = r();
     const th = a.thetaAtX(x);
-    const ph = r() * L.TAU, sp = r.range(0.7, 1.9), vx = Math.sin(th) * r.range(3, 12) + r.range(-5, 5), vy = -r.range(3, 14);
-    if (kind < 0.3) glows.push(x, y, r.range(5, 11), ph, sp, r.range(0.4, 0.9) * (0.35 + 0.65 * far), vx, vy);
-    else live[r.pick([0, 1, 2, 3])].push(x, y, 0.9 + 1.6 * Math.pow(r(), 1.6), ph, sp, r.range(0.4, 1) * (0.3 + 0.7 * far), vx, vy);
+    const base = { x, y, ph: r() * L.TAU, sp: r.range(0.7, 1.9), vx: Math.sin(th) * r.range(3, 12) + r.range(-5, 5), vy: -r.range(3, 14) };
+    if (kind < 0.3) out.push({ ...base, s: r.range(5, 11), img: spr.dotGold, col: null, al: r.range(0.4, 0.9) * (0.35 + 0.65 * far) });
+    else out.push({ ...base, s: 0.9 + 1.6 * Math.pow(r(), 1.6), img: null, col: r.pick(['#fff3c0', '#f6d577', '#e9b949', '#c48e2b']), al: r.range(0.4, 1) * (0.3 + 0.7 * far) });
   }
-  return { still, live: live.map((q, i) => ({ color: DUST_COLS[i], d: new Float32Array(q) })), glows: new Float32Array(glows) };
-}
-
-/** everything that never changes, flattened into one layer: ball + photographic bloom + resting dust + corner falloff */
-function bakeStill(env, body, dust) {
-  const g = body.getContext('2d');
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
-  // bloom: only the brightest gold bleeds, a few px past the limb
-  const bw = Math.ceil(LW / 2), bh = Math.ceil(LH / 2);
-  const bloom = L.makeCanvas(bw, bh), bg = bloom.getContext('2d');
-  bg.filter = 'brightness(0.8) contrast(2.2) blur(8px)';
-  bg.drawImage(body, 0, 0, bw, bh);
-  g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.45;
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  g.drawImage(bloom, 0, 0, LW, LH);
-  // the dust that just hangs there (the rest of it twinkles live)
-  g.globalCompositeOperation = 'lighter';
-  const q = dust.still;
-  for (let i = 0; i < q.length; i += 5) {
-    g.globalAlpha = Math.min(1, q[i + 4] * 0.62); g.fillStyle = DUST_COLS[q[i + 3]];
-    g.fillRect(q[i] + PAD - q[i + 2] / 2, q[i + 1] + PAD - q[i + 2] / 2, q[i + 2], q[i + 2]);
-  }
-  // the frame corners fall away into the night
-  g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 1;
-  const rad = Math.hypot(W / 2, H / 2);
-  g.fillStyle = L.radial(g, W / 2 + PAD, H / 2 + PAD, rad * 0.45, rad * 1.08, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.34)']]);
-  g.fillRect(0, 0, LW, LH);
-  g.restore();
-  return body;
+  return out;
 }
 
 export default {
   name: '鎏金宝顶',
   tone: 'light',
   init(env) {
-    const a = env.arc;
     const cols = bucketColours();
-    const sets = {
-      dotGold: spriteSet((s) => dotSprite(s, '#fffbe6', '#ffc955'), 4, 1.25, 14),
-      dotAmber: spriteSet((s) => dotSprite(s, '#ffe2a0', '#e8962a'), 4, 1.25, 14),
-      bokeh: spriteSet(bokehSprite, 8, 1.25, 10),
-      starGold: spriteSet((s) => starSprite(s, '#fffdf2', '#ffd169'), 32, 1.25, 10),
-      starAmber: spriteSet((s) => starSprite(s, '#fff0c4', '#f0a23a'), 32, 1.25, 10),
+    const spr = {
+      dotGold: dotSprite(48, '#fffbe6', '#ffc955'),
+      dotAmber: dotSprite(48, '#ffe2a0', '#e8962a'),
+      starGold: starSprite(192, '#fffdf2', '#ffd169'),
+      starAmber: starSprite(192, '#fff0c4', '#f0a23a'),
+      bokeh: (() => {
+        const c = L.makeCanvas(64, 64), g = c.getContext('2d');
+        g.fillStyle = L.radial(g, 32, 32, 0, 32, [[0, 'rgba(232,150,40,0.5)'], [0.6, 'rgba(236,160,46,0.56)'], [0.8, 'rgba(250,190,84,0.62)'], [0.9, 'rgba(240,170,60,0.3)'], [1, 'rgba(233,160,50,0)']]);
+        g.fillRect(0, 0, 64, 64); return c;
+      })(),
     };
-    const dust = genDust(env);
-    const body = bakeStill(env, defocus(env, L.filtered(buildBody(env, cols), 'saturate(1.1) contrast(1.05)')), dust);
-    S = {
-      body, top: Math.max(0, Math.floor(a.crestY - 150 + PAD)),      // nothing lives in the layer above this row → skip it when blitting
-      hero: starSprite(300, '#fffdf2', '#ffd169'), dotGold: sets.dotGold,
-      live: genLiveFlakes(env, cols), glints: genGlints(env, sets), dust,
-    };
+    const body = defocus(env, L.filtered(buildBody(env, cols), 'saturate(1.1) contrast(1.05)'));
+    // photographic bloom: only the brightest gold bleeds, a few px past the limb
+    const bw = Math.ceil(LW / 2), bh = Math.ceil(LH / 2);
+    const bloom = L.makeCanvas(bw, bh); const bg = bloom.getContext('2d');
+    bg.filter = 'brightness(0.8) contrast(2.2) blur(8px)';
+    bg.drawImage(body, 0, 0, bw, bh);
+    const gl = genGlints(env, spr);
+    S = { body, bloom, star: spr.starGold, live: genLiveFlakes(env, cols), dots: gl.dots, stars: gl.stars, dust: genDust(env, spr) };
   },
   draw(ctx, env, p) {
     const a = env.arc, f = env.frame;
     // rot slides the glitter along the limb; the push-in is kept tiny so the limb stays on the shared arc at the frame edges
     const rot = L.lerp(-0.009, 0.009, p), zoom = L.lerp(0.997, 1.005, p);
-    const M = camMatrix(a, rot, zoom), D = camMatrix(a, rot * 0.8, zoom);
-    const prof = globalThis.__s27prof; let t0 = prof ? performance.now() : 0;
-    const mark = (n) => { if (!prof) return; ctx.getImageData(0, 0, 1, 1); const t = performance.now(); prof[n] = +(t - t0).toFixed(1); t0 = t; };
     ctx.fillStyle = '#030303'; ctx.fillRect(0, 0, W, H);
-    ctx.save(); ctx.transform(M.a, M.b, M.c, M.d, M.e, M.f);
-    ctx.drawImage(S.body, 0, S.top, LW, LH - S.top, -PAD, S.top - PAD, LW, LH - S.top);
-    ctx.restore();
-    mark('body');
 
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    // the flakes that flash this frame
-    for (const B of S.live) {
-      ctx.fillStyle = B.color; const d = B.d;
-      for (let i = 0; i < d.length; i += 7) {
-        let t = Math.cos(d[i + 4] + d[i + 5] * f);
-        if (t < 0.3) continue;
-        t = t * t * t;
-        const x = d[i], y = d[i + 1];
-        ctx.globalAlpha = t * d[i + 6];
-        ctx.fillRect(M.a * x + M.c * y + M.e - d[i + 2] / 2, M.b * x + M.d * y + M.f - d[i + 3] / 2, d[i + 2], d[i + 3]);
+    L.blit(ctx, env, S.body, { rot, zoom });
+    L.cam(ctx, env, { rot, zoom }, () => {
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.45;
+      ctx.drawImage(S.bloom, -PAD, -PAD, LW, LH);
+      // the flakes that flash this frame
+      ctx.globalCompositeOperation = 'lighter';
+      for (const B of S.live) {
+        ctx.fillStyle = B.color; const d = B.d;
+        for (let i = 0; i < d.length; i += 7) {
+          let t = Math.cos(d[i + 4] + d[i + 5] * f);
+          if (t < 0.3) continue;
+          t = t * t * t;
+          ctx.globalAlpha = t * d[i + 6];
+          ctx.fillRect(d[i] - d[i + 2] / 2, d[i + 1] - d[i + 3] / 2, d[i + 2], d[i + 3]);
+        }
       }
-    }
-    mark('flakes');
-    // glints, bokeh discs and star flares
-    for (const G of S.glints) {
-      const d = G.d, set = G.set, k = G.k;
-      for (let i = 0; i < d.length; i += 6) {
-        let t = Math.cos(d[i + 3] + d[i + 4] * f);
-        if (t < 0.12) continue;
-        t = k === 2 ? t * t : k === 3 ? t * t * t : t * t * t * t;
-        const al = t * d[i + 5] * 1.35;
-        if (al < 0.04) continue;
-        const c = classOf(set, d[i + 2] * (0.7 + 0.3 * t)), hs = set.sizes[c] >> 1;
-        const x = d[i], y = d[i + 1];
-        ctx.globalAlpha = al > 1 ? 1 : al;
-        ctx.drawImage(set.imgs[c], Math.round(M.a * x + M.c * y + M.e) - hs, Math.round(M.b * x + M.d * y + M.f) - hs);
-      }
-    }
-    mark('glints');
-    // one hero glint where the key light glances off the limb (left of the caption), pulsing frame by frame
-    const hk = HERO[f % HERO.length], h0 = a.pt(KEY - 0.03, -3), hs = 290 * (0.78 + 0.22 * hk);
-    const hx = M.a * h0.x + M.c * h0.y + M.e, hy = M.b * h0.x + M.d * h0.y + M.f;
-    ctx.globalAlpha = hk;
-    ctx.drawImage(S.hero, hx - hs / 2, hy - hs / 2, hs, hs);
-    ctx.globalAlpha = 1;
-    L.glow(ctx, hx, hy, 70, '#ffe7a8', 0.5 * hk, 'lighter');
-    ctx.restore();
-    mark('hero');
+      const sprites = (arr) => {
+        for (const q of arr) {
+          let t = Math.cos(q.ph + q.sp * f);
+          if (t < 0.12) continue;
+          t = Math.pow(t, q.k);
+          const s = q.s * (0.7 + 0.3 * t);
+          ctx.globalAlpha = Math.min(1, t * q.al * 1.35);
+          ctx.drawImage(q.img, q.x - s / 2, q.y - s / 2, s, s);
+        }
+      };
+      sprites(S.dots);
+      sprites(S.stars);
+      // one hero glint where the key light glances off the limb (left of the caption), pulsing frame by frame
+      const hk = HERO[f % HERO.length], hp = a.pt(KEY - 0.03, -3), hs = 290 * (0.78 + 0.22 * hk);
+      ctx.globalAlpha = hk;
+      ctx.drawImage(S.star, hp.x - hs / 2, hp.y - hs / 2, hs, hs);
+      ctx.globalAlpha = 1;
+      L.glow(ctx, hp.x, hp.y, 70, '#ffe7a8', 0.5 * hk, 'lighter');
+    });
     // key light sweeping along the limb
     ctx.save(); a.clipBelow(ctx, 0);
     const gl = a.pt(KEY + L.lerp(-0.07, 0.07, p), -34);
     L.glow(ctx, gl.x, gl.y, 440, '#ffdc92', 0.3);
     ctx.restore();
-    mark('key');
     // gold dust lifting off the limb
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const B of S.dust.live) {
-      ctx.fillStyle = B.color; const d = B.d;
-      for (let i = 0; i < d.length; i += 8) {
-        const t = 0.4 + 0.6 * Math.max(0, Math.cos(d[i + 3] + d[i + 4] * f));
-        const x = d[i] + d[i + 6] * p, y = d[i + 1] + d[i + 7] * p, s = d[i + 2];
-        ctx.globalAlpha = Math.min(1, d[i + 5] * t);
-        ctx.fillRect(D.a * x + D.c * y + D.e - s / 2, D.b * x + D.d * y + D.f - s / 2, s, s);
+    L.cam(ctx, env, { rot: rot * 0.8, zoom }, () => {
+      ctx.globalCompositeOperation = 'lighter';
+      for (const q of S.dust) {
+        const t = 0.4 + 0.6 * Math.max(0, Math.cos(q.ph + q.sp * f));
+        const x = q.x + q.vx * p, y = q.y + q.vy * p;
+        ctx.globalAlpha = Math.min(1, q.al * t);
+        if (q.img) ctx.drawImage(q.img, x - q.s / 2, y - q.s / 2, q.s, q.s);
+        else { ctx.fillStyle = q.col; ctx.fillRect(x - q.s / 2, y - q.s / 2, q.s, q.s); }
       }
-    }
-    {
-      const d = S.dust.glows, set = S.dotGold;
-      for (let i = 0; i < d.length; i += 8) {
-        const t = 0.4 + 0.6 * Math.max(0, Math.cos(d[i + 3] + d[i + 4] * f));
-        const x = d[i] + d[i + 6] * p, y = d[i + 1] + d[i + 7] * p;
-        const c = classOf(set, d[i + 2]), hs2 = set.sizes[c] >> 1;
-        ctx.globalAlpha = Math.min(1, d[i + 5] * t);
-        ctx.drawImage(set.imgs[c], Math.round(D.a * x + D.c * y + D.e) - hs2, Math.round(D.b * x + D.d * y + D.f) - hs2);
-      }
-    }
-    ctx.restore();
-    mark('dust');
+    });
+    L.vignette(ctx, { strength: 0.3 });
   },
 };

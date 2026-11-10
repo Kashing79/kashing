@@ -4,7 +4,8 @@
 // ducking UNDER the next cross-beam at its middle, rope-lashed at every joint — a faceted arc, never one bent beam.
 // On the deck a small procession (stall under a sunshade, porter, parasol, donkey rider, sedan chair …) behind a
 // two-rail timber balustrade; under the arch the river's ink ripples and a boat with its mast lowered.
-// Three paint sheets (bridge / figures / near railing) are painted as flat washes + ink line, aged, then blit with a slow rot.
+// Three paint sheets (bridge / figures / near railing) are painted as flat washes + ink line, aged (mottled pigment, flaking,
+// silk weave, tide lines, mildew, roll creases), then blit with a slow rot; the procession drifts a few px further along the deck.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -787,7 +788,17 @@ export default {
     const fig = flatten(L.makeLayer(PAD), pf, tex);
     const pr = makePen(7000); paintRail(env, pr);
     const rail = flatten(L.makeLayer(PAD), pr, tex);
-    S = { back, fig, rail, aging: buildAging(creases) };
+    // bake the aging sheet into each paint sheet (multiply, keeping the sheet's own alpha) so draw() is just three blits
+    const aging = buildAging(creases);
+    const bake = (layer) => {
+      const keep = L.makeCanvas(LW, LH); keep.getContext('2d').drawImage(layer, 0, 0);
+      const g = layer.getContext('2d'); g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = 'multiply'; g.drawImage(aging, 0, 0);
+      g.globalCompositeOperation = 'destination-in'; g.drawImage(keep, 0, 0);
+      g.restore();
+      return layer;
+    };
+    S = { back: bake(back), fig: bake(fig), rail: bake(rail) };
   },
   draw(ctx, env, p) {
     // the whole painting slides along the arc; the procession drifts a little further, as if still walking
@@ -795,7 +806,6 @@ export default {
     L.blit(ctx, env, S.back, { rot, zoom });
     L.blit(ctx, env, S.fig, { rot: rot + L.lerp(-0.0022, 0.0022, p), zoom });
     L.blit(ctx, env, S.rail, { rot, zoom });
-    L.blit(ctx, env, S.aging, { rot, zoom, blend: 'multiply' });
     // raking light across the silk: warm upper left, falling away to the lower right
     ctx.save();
     ctx.globalCompositeOperation = 'soft-light';

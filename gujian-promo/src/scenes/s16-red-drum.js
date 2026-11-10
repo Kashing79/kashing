@@ -1,12 +1,14 @@
 // s16 — 朱漆更鼓. Macro of the shoulder of a big watch-drum (更鼓) against black:
 // the arc is the rim where the cowhide head folds over the barrel. Just below it the cream hide skirt is pinned
 // by two staggered rows of dome-headed drum nails; under that the barrel swells away in vermilion lacquer —
-// a wet highlight band, craquelure (断纹), a few rubbed patches and flakes, and worn gold-line clouds (描金云纹).
+// a wet highlight band, craquelure (断纹), a few rubbed scuffs and flakes, and worn gold-line clouds (描金云纹).
 //
 // Everything under the arc is shaded per pixel in init() from a height field laid out in drum coordinates
-// (U = distance along the rim, d = depth below it). The lacquer's specular band is NOT baked: init() stores, per pixel,
-// where on the barrel's curve that pixel "acts" once its bump slope is taken into account (E) — draw() then only looks
-// up a 1-D highlight profile at E − E0(p), so the reflection slides over the crackle plates as the shot runs.
+// (U = distance along the rim, d = depth below it); the nails are stamped on afterwards as little lit spheres.
+// The lacquer's specular band is NOT baked: init() stores, per (half-res) pixel, where on the barrel's curve that pixel
+// "acts" once its bump slope is taken into account (E). draw() only looks up a 1-D highlight profile at E − E0(p),
+// so the reflection creeps over the tilted crackle plates as the shot runs. Draw order per frame:
+// lit body → moving highlight (add) → crack lines (so they cut through the highlight) → halation.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -221,8 +223,10 @@ function buildDrum(env) {
   for (const nl of nails) eachPx(nl, 2.3, (k, ox, oy) => {
     if (Mat[k] !== 1) return;
     const dist = Math.sqrt(ox * ox + oy * oy), out = Math.max(0, dist - nl.rad), t = dist / (1.5 * nl.rad);
-    Hh[k] -= 2.2 * Math.exp(-t * t);
-    const fan = Math.exp(-out / (0.8 * nl.rad));
+    const win = 1 - sstep(1.6 * nl.rad, 2.25 * nl.rad, dist);
+    if (win <= 0) return;
+    Hh[k] -= 2.2 * Math.exp(-t * t) * win;
+    const fan = Math.exp(-out / (0.8 * nl.rad)) * win;
     Hh[k] += 0.55 * fan * nA.n2(Math.atan2(oy, ox) * 2.6 + nl.id * 3.1, dist / 70);
     const st = Math.exp(-out / (0.3 * nl.rad)) * (0.55 + 0.45 * nB.n2(ox / 14 + nl.id, oy / 14)) * 0.3, o = k * 4;
     px[o] += (126 - px[o]) * st; px[o + 1] += (84 - px[o + 1]) * st; px[o + 2] += (46 - px[o + 2]) * st;
