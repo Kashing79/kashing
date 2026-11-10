@@ -45,11 +45,11 @@ function buildDome(env) {
   const nA = L.makeNoise('s03a'), nB = L.makeNoise('s03b');
 
   // matcaps. gold seen under the key light / away from it, and the bare bronze where the gilding has worn through
-  const GOLD_LIT = lut([[0, '#c8381a'], [0.05, '#cf401c'], [0.11, '#d7541f'], [0.16, '#e27c2b'], [0.21, '#f0ab44'], [0.26, '#fbd985'],
-    [0.3, '#fff1b0'], [0.345, '#f9dc84'], [0.4, '#ecbd4c'], [0.46, '#dba83d'], [0.5, '#c99532'], [0.56, '#b07a26'], [0.68, '#8f5d19'], [1, '#6e4310']]);
-  const GOLD_DIM = lut([[0, '#a82c14'], [0.05, '#b03317'], [0.11, '#c0491b'], [0.16, '#d16f26'], [0.21, '#e09a38'], [0.26, '#ecbb56'],
-    [0.3, '#f2cb68'], [0.345, '#edc259'], [0.4, '#dfae42'], [0.46, '#cd9a36'], [0.5, '#b9862c'], [0.56, '#a37124'], [0.68, '#855617'], [1, '#643c0e']]);
-  const BRONZE = lut([[0, '#5e1c0c'], [0.11, '#6b2410'], [0.21, '#86501f'], [0.3, '#a9793c'], [0.4, '#7a4c16'], [0.56, '#643c10'], [1, '#452808']]);
+  const GOLD_LIT = lut([[0, '#c8381a'], [0.05, '#cf401c'], [0.11, '#d8541e'], [0.16, '#e47a28'], [0.21, '#f2a83c'], [0.255, '#ffcf58'],
+    [0.285, '#ffdc6e'], [0.298, '#fff1b0'], [0.312, '#ffdc6e'], [0.345, '#fbcf5a'], [0.4, '#efbd48'], [0.45, '#dfa236'], [0.5, '#c98426'], [0.56, '#ae6a1a'], [0.64, '#935414'], [0.8, '#7a4410'], [1, '#6e4310']]);
+  const GOLD_DIM = lut([[0, '#a82c14'], [0.05, '#b03317'], [0.11, '#c0491b'], [0.16, '#d16f26'], [0.21, '#e59e38'], [0.26, '#f6c85a'],
+    [0.3, '#fde08a'], [0.345, '#f5cc5e'], [0.4, '#e2ae42'], [0.45, '#d09432'], [0.5, '#ba7922'], [0.56, '#a06018'], [0.64, '#874c12'], [0.8, '#6e3d0e'], [1, '#643c0e']]);
+  const BRONZE = lut([[0, '#5e1c0c'], [0.11, '#6b2410'], [0.21, '#8a5220'], [0.3, '#b08040'], [0.4, '#855219'], [0.56, '#6e4310'], [1, '#4c2c0a']]);
 
   // 1) slow fields on a coarse grid (bilinear-sampled later)
   const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2;
@@ -58,7 +58,7 @@ function buildDome(env) {
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const ddx = X0 + i * CS - cx, ddy = cy - (Y0 + j * CS), rr = Math.hypot(ddx, ddy);
     const U = Math.atan2(ddx, ddy) * rr, Sv = R * Math.acos(Math.min(1, rr / R)), k = j * cw + i;
-    cWear[k] = nA.fbm(U / 560, Sv / 560, 5, 2, 0.55);
+    cWear[k] = nA.fbm(U / 230, Sv / 230, 3, 2, 0.55);
     cMed[k] = nA.fbm(U / 300 + 40, Sv / 300 - 13, 3);
     cTarn[k] = nB.fbm(U / 900 - 7, Sv / 620 + 3, 3);
     cVerd[k] = nB.fbm(U / 170 + 21, Sv / 170 + 77, 3);
@@ -71,8 +71,8 @@ function buildDome(env) {
   };
 
   // 2) height field at full resolution (units: radians of tilt per surface px once differentiated)
-  const Hh = new Float32Array(N), Fn = new Float32Array(N), Gl = new Float32Array(N), Fc = new Float32Array(N), Bw = new Float32Array(N), Cv = new Float32Array(N), Al = new Float32Array(N);
-  const AF = 1.0, AM = 2.4, AG = 0.09, AS = 0.045;
+  const Hh = new Float32Array(N), Wf = new Float32Array(N), Fn = new Float32Array(N), Gl = new Float32Array(N), Bw = new Float32Array(N), Cv = new Float32Array(N), Al = new Float32Array(N);
+  const AF = 1.25, AM = 1.5, AG = 0.09, AS = 0.045;
   for (let j = 0; j < RH; j++) {
     const ddy = cy - (Y0 + j);
     for (let i = 0; i < RW; i++) {
@@ -81,13 +81,14 @@ function buildDome(env) {
       const q = Math.min(1, rr / R), al = Math.acos(q), nz = Math.sqrt(1 - q * q);
       Al[k] = al;
       const U = Math.atan2(ddx, ddy) * rr, Sv = R * al;
-      const fadeFine = sstep(0.07, 0.24, nz), fadeBig = sstep(0.03, 0.15, nz);
+      const fadeFine = sstep(0.07, 0.24, nz), fadeBig = sstep(0.06, 0.22, nz);
       cell(U / 118 + bil(cWx, i, j) * 0.32, Sv / 118 + bil(cWy, i, j) * 0.32);
-      const bowl = Math.min(1, cD1 * 1.7);               // each hammer blow leaves a shallow dish
+      const bowl = sstep(0.02, 0.52 + 0.14 * (cId - 0.5), Math.sqrt(cD1));   // each hammer blow leaves a shallow round dish with a soft rim
       const g1 = nA.n2(U / 10, Sv / 10), g2 = nB.n2(U / 4.2 + 50, Sv / 4.2);   // cast "orange peel"
       const streak = nB.n2(U / 260, Sv / 6 + 91);        // burnishing lines running round the stud
       Hh[k] = (AF * bowl + AM * bil(cMed, i, j)) * fadeBig + (AG * (g1 * 0.6 + g2 * 0.4) + AS * streak) * fadeFine;
-      Fn[k] = g1; Gl[k] = g2; Fc[k] = cId; Bw[k] = bowl;
+      Fn[k] = g1; Gl[k] = g2; Bw[k] = bowl;
+      Wf[k] = 0.3 * nA.n2(U / 40 + 9, Sv / 40 - 4) + 0.16 * nB.n2(U / 16 - 3, Sv / 16 + 8) + 0.06 * g1;   // fine structure of the wear edges
     }
   }
 
@@ -116,7 +117,7 @@ function buildDome(env) {
 
   // 4) shade
   const img = new ImageData(RW, RH), d = img.data;
-  const lx = -0.55, ly = -0.835, KR = 0.9, GP = 150;
+  const KR = 2.6;
   for (let j = 0; j < RH; j++) {
     const ddy = cy - (Y0 + j), jm = j > 0 ? -RW : 0, jp = j < RH - 1 ? RW : 0;
     for (let i = 0; i < RW; i++) {
@@ -129,37 +130,37 @@ function buildDome(env) {
       // tilt the sphere normal by the bump: radial slope changes the elevation above the limb, tangential slope slides the highlight sideways
       let a2 = al - hv * nz; a2 = a2 < 0 ? 0 : a2 > AMAX ? AMAX : a2;
       const nx2 = ddx / R - ht;
-      const lt = (nx2 + 0.11) / 0.27, lat = Math.exp(-lt * lt);
+      const lt = (nx2 + 0.11) / 0.33, lat = Math.exp(-lt * lt);
       const li = ((a2 / AMAX) * (NLUT - 1) | 0) * 3;
       let cr = GOLD_DIM[li] + (GOLD_LIT[li] - GOLD_DIM[li]) * lat, cg = GOLD_DIM[li + 1] + (GOLD_LIT[li + 1] - GOLD_DIM[li + 1]) * lat, cb = GOLD_DIM[li + 2] + (GOLD_LIT[li + 2] - GOLD_DIM[li + 2]) * lat;
-      // the mirror-bright limb also carries the door's other studs, squeezed into thin gold dashes
-      if (a2 < 0.2) {
-        const ph = Math.cos(((Math.atan2(ddx, ddy) * rr - ht * 900) / GP) * L.TAU);
-        const e1 = (a2 - 0.128) / 0.022, e2 = (a2 - 0.074) / 0.012;
-        const wr = (Math.exp(-e1 * e1) * sstep(0.5, 0.86, ph) + 0.7 * Math.exp(-e2 * e2) * sstep(0.62, 0.9, ph)) * (0.55 + 0.45 * lat);
-        cr += (255 - cr) * wr * 0.9; cg += (206 - cg) * wr * 0.9; cb += (112 - cb) * wr * 0.9;
-      }
       const cav = Cv[k], g1 = Fn[k];
-      // gilding rubbed through to the bronze: patches, biased to the dish rims and to the crown of the dome (bottom of frame)
-      const wv = bil(cWear, i, j) * 0.5 + 0.5 + 0.05 * g1 + 0.08 * (Bw[k] - 0.4) + 0.15 * sstep(0.36, 0.6, nz) - 0.3 * (1 - sstep(0.14, 0.3, nz));
-      const wear = sstep(0.69, 0.78, wv);
+      // gilding rubbed thin (warmer, darker) toward the crown of the dome — the bottom of frame, where hands reach it —
+      // and chipped through to the bronze in flecks; the highlight band and the limb stay clean
+      const crown = sstep(0.36, 0.62, nz), wc = bil(cWear, i, j);
+      const thin = L.clamp(0.8 * crown + 0.5 * wc * (0.35 + crown));
+      if (thin > 0) { cr *= 1 - 0.07 * thin; cg *= 1 - 0.2 * thin; cb *= 1 - 0.36 * thin; }
+      const wear = sstep(0.6, 0.76, wc + Wf[k] + 0.08 * (Bw[k] - 0.5) + 0.36 * crown - 0.5 * (1 - sstep(0.16, 0.34, nz)));
       if (wear > 0) { cr += (BRONZE[li] - cr) * wear; cg += (BRONZE[li + 1] - cg) * wear; cb += (BRONZE[li + 2] - cb) * wear; }
-      // each hammered facet catches the light a little differently; slow tarnish drifts warmer/darker
-      const tone = 1 + 0.05 * (Fc[k] - 0.5) * (1 - wear), tarn = bil(cTarn, i, j);
-      cr *= tone * (1 + 0.06 * tarn); cg *= tone * (1 + 0.1 * tarn); cb *= tone * (1 + 0.15 * tarn);
-      // directional relief from the upper-left key light
-      let rel = -(hx * lx + hy * ly) * KR; rel = rel < -0.5 ? -0.5 : rel > 0.65 ? 0.65 : rel;
+      // slow tarnish: only ever warmer and darker
+      const tarn = Math.min(0.15, bil(cTarn, i, j)), tw = tarn < 0 ? tarn * 1.4 : tarn * 0.3;
+      cr *= 1 + 0.06 * tw; cg *= 1 + 0.1 * tw; cb *= 1 + (tarn < 0 ? 0.17 : 0.1) * tw;
+      // relief from the upper-left key light, measured on the surface (not the foreshortened screen) …
+      const tR = -hv * nz, tT = -ht;
+      let rel = -(tR * 0.835 + tT * 0.55) * KR * sstep(0.12, 0.3, nz); rel = rel < -0.5 ? -0.5 : rel > 0.65 ? 0.65 : rel;
       const sh = 1 + rel;
       cr *= sh; cg *= sh; cb *= sh;
+      // … plus a tight specular lobe: the wall of every dish that faces the light flashes
+      const e1 = tR + 0.023, e2 = tT + 0.016, spec = Math.exp(-(e1 * e1 + e2 * e2) / 0.0002);
+      if (spec > 0.02) { const sp = spec * 105 * (0.35 + 0.65 * lat) * (1 - wear * 0.8) * sstep(0.17, 0.3, nz); cr += sp; cg += sp * 0.92; cb += sp * 0.6; }
       // micro-glitter of the gilding where the light rakes across it
-      const gl = Gl[k] - 0.42;
-      if (gl > 0) { const sp = gl * 170 * (0.25 + 0.75 * lat) * (1 - wear * 0.8) * sstep(0.16, 0.26, nz) * (1 - sstep(0.36, 0.5, nz) * 0.6); cr += sp; cg += sp * 0.94; cb += sp * 0.72; }
+      const gl = Gl[k] - 0.5;
+      if (gl > 0) { const sp = gl * 70 * (0.25 + 0.75 * lat) * (1 - wear * 0.8) * sstep(0.2, 0.28, nz) * (1 - sstep(0.36, 0.5, nz) * 0.6); cr += sp; cg += sp * 0.94; cb += sp * 0.72; }
       // cavities go dark; a little verdigris gathers in some of them
       if (cav > 0) { const o = 1 - 0.82 * cav; cr *= o; cg *= o * 0.92; cb *= o * 0.85; }
-      const vm = sstep(0.8, 0.87, bil(cVerd, i, j) * 0.5 + 0.5 + 0.3 * cav + 0.08 * wear + 0.04 * g1) * sstep(0.12, 0.24, nz);
+      const vm = sstep(0.83, 0.9, bil(cVerd, i, j) * 0.5 + 0.5 + 0.32 * cav + 0.1 * wear + 0.04 * g1) * sstep(0.36, 0.46, nz);
       if (vm > 0) {
         const vs = (0.8 + 0.5 * rel + 0.1 * g1) * (1 - 0.45 * cav), m = vm * 0.8;
-        cr += (74 * vs - cr) * m; cg += (142 * vs - cg) * m; cb += (122 * vs - cb) * m;
+        cr += (82 * vs - cr) * m; cg += (140 * vs - cg) * m; cb += (114 * vs - cb) * m;
       }
       const o = k * 4;
       d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = 255;
@@ -178,18 +179,18 @@ function buildDome(env) {
     const rs = L.rng('s03scratch');
     g.lineCap = 'round';
     for (let n = 0; n < 70; n++) {
-      const U0 = rs.range(-1250, 1250), S0 = rs.range(620, 2050), ang = rs.range(0, Math.PI), len = rs.range(50, 420) * (rs.chance(0.15) ? 2 : 1), bend = rs.range(-0.25, 0.25);
+      const U0 = rs.range(-1250, 1250), S0 = rs.range(1000, 2100), ang = rs.range(0, Math.PI), len = rs.range(40, 300) * (rs.chance(0.12) ? 2 : 1), bend = rs.range(-0.12, 0.12);
       const pts = [];
-      for (let t = 0; t <= 10; t++) { const u = t / 10 - 0.5, aa = ang + bend * u; pts.push(toXY(U0 + Math.cos(aa) * len * u, S0 + Math.sin(aa) * len * u)); }
-      const al = rs.range(0.12, 0.4), lw = rs.range(0.6, 1.3);
+      for (let t = 0; t <= 10; t++) { const u = t / 10 - 0.5, aa = ang + bend * u; pts.push(toXY(U0 + Math.cos(aa) * len * u, Math.max(860, S0 + Math.sin(aa) * len * u))); }
+      const al = rs.range(0.08, 0.24), lw = rs.range(0.6, 1.1);
       const run = (dy, style) => { g.strokeStyle = style; g.lineWidth = lw; g.beginPath(); pts.forEach((p, t) => (t ? g.lineTo(p[0], p[1] + dy) : g.moveTo(p[0], p[1] + dy))); g.stroke(); };
-      run(0.9, `rgba(74,36,6,${al})`); run(0, `rgba(255,246,206,${al * 0.9})`);
+      run(0.9, `rgba(74,36,6,${al * 0.8})`); run(0, `rgba(255,246,206,${al})`);
     }
     // the dome turns away from the key light toward the right and the lower corners
     g.globalCompositeOperation = 'multiply';
-    g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, '#f4ead8'], [0.3, '#ffffff'], [0.62, '#f3e3cc'], [1, '#b99872']]);
+    g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, '#f6eddc'], [0.3, '#ffffff'], [0.62, '#f6e8d2'], [1, '#cdb089']]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-    g.fillStyle = L.radial(g, a.cx - 160, a.crestY + 120, 500, 1500, [[0, '#ffffff'], [1, '#a98660']]);
+    g.fillStyle = L.radial(g, a.cx - 160, a.crestY + 120, 500, 1500, [[0, '#ffffff'], [1, '#bf9f78']]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.restore();
   });
@@ -198,8 +199,13 @@ function buildDome(env) {
   sg.globalCompositeOperation = 'destination-in';
   sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, R - 96, R + 8, [[0, 'rgba(0,0,0,0)'], [0.72, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']]);
   sg.fillRect(0, 0, soft.width, soft.height);
+  // … and so does the crown of the dome, which bulges toward the lens at the bottom of frame
+  const near = L.blurred(layer, 4.5), ng = near.getContext('2d');
+  ng.globalCompositeOperation = 'destination-in';
+  ng.fillStyle = L.radial(ng, a.cx + PAD, a.cy + PAD, R - 640, R - 300, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+  ng.fillRect(0, 0, near.width, near.height);
   const lg = layer.getContext('2d');
-  lg.save(); a.clipBelow(lg, 0); lg.drawImage(soft, -PAD, -PAD); lg.restore();
+  lg.save(); a.clipBelow(lg, 0); lg.drawImage(soft, -PAD, -PAD); lg.drawImage(near, -PAD, -PAD); lg.restore();
   return layer;
 }
 
@@ -224,7 +230,7 @@ function buildBack(env) {
   const full = (g) => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   const sharp = L.makeLayer(PAD, (g) => {
     g.fillStyle = L.linear(g, 0, -PAD, 0, H * 0.8, [[0, '#a3261a'], [0.5, '#8f1d14'], [1, '#5a120c']]); full(g);
-    g.fillStyle = L.radial(g, 600, 150, 0, 1150, [[0, 'rgba(216,70,42,0.6)'], [0.5, 'rgba(170,40,26,0.22)'], [1, 'rgba(120,20,12,0)']]); full(g);
+    g.fillStyle = L.radial(g, 600, 150, 0, 1150, [[0, 'rgba(226,74,44,0.7)'], [0.5, 'rgba(180,44,28,0.3)'], [1, 'rgba(120,20,12,0)']]); full(g);
     // lacquer: brushed vertical sheen + slow blotches
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.7;
     g.drawImage(L.noiseLayer(PAD, { seed: 's03lac', scale: 90, sx: 0.5, sy: 7, octaves: 4, contrast: 1.6, res: 0.25 }), -PAD, -PAD);
@@ -253,8 +259,8 @@ function buildBack(env) {
   const discs = L.blurred(L.makeLayer(PAD, (b) => {
     for (const [x, y] of studs) {
       const bx = x - SR * 0.3, by = y - SR * 0.36, br = 27;
-      b.fillStyle = 'rgba(255,226,150,0.5)'; b.beginPath(); b.arc(bx, by, br, 0, L.TAU); b.fill();
-      b.strokeStyle = 'rgba(255,240,190,0.32)'; b.lineWidth = 3; b.beginPath(); b.arc(bx, by, br - 1.5, 0, L.TAU); b.stroke();
+      b.fillStyle = 'rgba(255,208,104,0.55)'; b.beginPath(); b.arc(bx, by, br, 0, L.TAU); b.fill();
+      b.strokeStyle = 'rgba(255,230,156,0.32)'; b.lineWidth = 3; b.beginPath(); b.arc(bx, by, br - 1.5, 0, L.TAU); b.stroke();
     }
   }), 1.6);
   g.globalCompositeOperation = 'screen'; g.drawImage(discs, -PAD, -PAD);
@@ -269,7 +275,13 @@ export default {
   name: '朱门金钉',
   tone: 'light',
   init(env) {
-    S = { back: buildBack(env), dome: buildDome(env) };
+    const dome = buildDome(env);
+    // bloom: only the hot parts of the gold, blurred wide → the stud glows and spills a little over its own limb
+    const bloom = L.blurred(L.filtered(dome, 'brightness(0.74) contrast(2.6) saturate(1.2)'), 20);
+    // a handful of pin-point glints in the highlight band; each flares once as the surface slides under the light
+    const rg = L.rng('s03glint'), glints = [];
+    for (let i = 0; i < 10; i++) glints.push({ th: rg.range(-0.27, 0.1), dr: -rg.range(104, 220), ph: rg(), k: rg.range(0.45, 1) });
+    S = { back: buildBack(env), dome, bloom, glints };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -283,13 +295,26 @@ export default {
     ctx.restore();
     // the stud: surface detail slides along the arc
     L.blit(ctx, env, S.dome, { rot });
+    L.blit(ctx, env, S.bloom, { rot, blend: 'screen', alpha: 0.22 });
     // travelling glint in the highlight band
     ctx.save(); a.clipBelow(ctx, 0); ctx.globalCompositeOperation = 'screen';
     a.at(ctx, L.lerp(-0.15, -0.075, p), -132, () => {
       ctx.scale(3.4, 1);
-      ctx.fillStyle = L.radial(ctx, 0, 0, 0, 150, [[0, 'rgba(255,248,214,0.34)'], [0.45, 'rgba(255,236,170,0.12)'], [1, 'rgba(255,230,150,0)']]);
+      ctx.fillStyle = L.radial(ctx, 0, 0, 0, 150, [[0, 'rgba(255,214,112,0.36)'], [0.45, 'rgba(255,196,84,0.14)'], [1, 'rgba(255,190,80,0)']]);
       ctx.fillRect(-160, -160, 320, 320);
     });
+    ctx.restore();
+    // pin-point glints
+    ctx.save(); ctx.globalCompositeOperation = 'screen';
+    for (const q of S.glints) {
+      const tw = (0.25 + 0.75 * Math.pow(Math.max(0, Math.cos((p * 0.8 + q.ph) * L.TAU)), 3)) * q.k;
+      if (tw < 0.03) continue;
+      a.at(ctx, q.th + rot, q.dr, () => {
+        ctx.scale(1, 0.42);
+        ctx.fillStyle = L.radial(ctx, 0, 0, 0, 34, [[0, `rgba(255,252,232,${0.95 * tw})`], [0.1, `rgba(255,240,180,${0.55 * tw})`], [0.4, `rgba(255,214,120,${0.12 * tw})`], [1, 'rgba(255,200,100,0)']]);
+        ctx.fillRect(-34, -34, 68, 68);
+      });
+    }
     ctx.restore();
     // rim light riding the limb
     ctx.save(); ctx.globalCompositeOperation = 'screen';

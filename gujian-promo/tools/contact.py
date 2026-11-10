@@ -6,11 +6,15 @@ import os, sys, glob
 from PIL import Image, ImageDraw
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-PREV = os.path.join(ROOT, 'build', 'preview')
-OUT = os.path.join(ROOT, 'build', 'contact')
+argv = sys.argv[1:]
+film = 'arch'
+if '--film' in argv:
+    i = argv.index('--film'); film = argv[i + 1]; argv = argv[:i] + argv[i + 2:]
+PREV = os.path.join(ROOT, 'build', 'preview') if film == 'arch' else os.path.join(ROOT, 'build', film, 'preview')
+OUT = os.path.join(ROOT, 'build', 'contact') if film == 'arch' else os.path.join(ROOT, 'build', film, 'contact')
 os.makedirs(OUT, exist_ok=True)
 ids = [f's{i:02d}' for i in range(1, 38)] + ['title']
-suffix = sys.argv[1] if len(sys.argv) > 1 else 'mid'
+suffix = argv[0] if argv else 'mid'
 tiles = []
 for i in ids:
     p = os.path.join(PREV, f'{i}_{suffix}.jpg')

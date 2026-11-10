@@ -14,7 +14,17 @@ get "mashanzheng/MaShanZheng-Regular.ttf" MaShanZheng.ttf
 get "zcoolxiaowei/ZCOOLXiaoWei-Regular.ttf" ZCOOLXiaoWei.ttf
 get "liujianmaocao/LiuJianMaoCao-Regular.ttf" LiuJianMaoCao.ttf
 get "cormorantgaramond/CormorantGaramond%5Bwght%5D.ttf" CormorantGaramond.ttf
-for d in notoserifsc mashanzheng zcoolxiaowei liujianmaocao cormorantgaramond; do
+get "longcang/LongCang-Regular.ttf" LongCang.ttf
+get "zhimangxing/ZhiMangXing-Regular.ttf" ZhiMangXing.ttf
+get "notoseriftc/NotoSerifTC%5Bwght%5D.ttf" NotoSerifTC.ttf
+get "zcoolqingkehuangyou/ZCOOLQingKeHuangYou-Regular.ttf" ZCOOLQingKeHuangYou.ttf
+# 霞鹜文楷 lives in its own repository (also SIL OFL 1.1)
+WK="https://raw.githubusercontent.com/lxgw/LxgwWenKai/main"
+for w in Light Regular Medium; do
+  [ -s "assets/fonts/LXGWWenKai-$w.ttf" ] || { echo "fetching LXGWWenKai-$w.ttf"; curl -fsSL --retry 3 -o "assets/fonts/LXGWWenKai-$w.ttf" "$WK/fonts/TTF/LXGWWenKai-$w.ttf"; }
+done
+[ -s assets/fonts/OFL-lxgwwenkai.txt ] || curl -fsSL --retry 3 -o assets/fonts/OFL-lxgwwenkai.txt "$WK/OFL.txt"
+for d in notoserifsc mashanzheng zcoolxiaowei liujianmaocao cormorantgaramond longcang zhimangxing notoseriftc zcoolqingkehuangyou; do
   [ -s "assets/fonts/OFL-$d.txt" ] || curl -fsSL --retry 3 -o "assets/fonts/OFL-$d.txt" "$BASE/$d/OFL.txt"
 done
 ls -la assets/fonts

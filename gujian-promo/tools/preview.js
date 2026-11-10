@@ -4,22 +4,24 @@
 //                                          build/preview/s02_mid.jpg    (full-res 1920×1080 middle frame, with tagline text if the shot has one)
 //   node tools/preview.js s02 s07 --notext   (hide the tagline overlay)
 //   node tools/preview.js s02 --p 0.25       (extra full-res still at progress 0.25 → s02_p25.jpg)
+//   node tools/preview.js s02 --film coins   (another film of the series → build/coins/preview/)
 // Exit code 1 if the scene threw or logged errors.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { openPlayer, dataUrlToBuffer, ROOT } = require('./harness');
+const { openPlayer, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
 
 (async () => {
-  const args = process.argv.slice(2);
+  const fa = filmArgs(process.argv.slice(2));
+  const args = fa.rest;
   const ids = args.filter((a) => /^(s\d\d|title)$/.test(a));
   const noText = args.includes('--notext');
   const pIdx = args.indexOf('--p');
   const extraP = pIdx >= 0 ? parseFloat(args[pIdx + 1]) : null;
   if (!ids.length) { console.error('usage: node tools/preview.js <shotId...> [--notext] [--p 0.25]'); process.exit(2); }
-  const outDir = path.join(ROOT, 'build', 'preview');
+  const outDir = fa.previewDir;
   fs.mkdirSync(outDir, { recursive: true });
-  const { page, logs, close } = await openPlayer();
+  const { page, logs, close } = await openPlayer(fa.film);
   let failed = false;
   for (const id of ids) {
     const shots = [];

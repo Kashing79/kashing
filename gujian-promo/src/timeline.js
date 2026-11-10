@@ -11,6 +11,12 @@ export const BEATS = {
   3: { text: '千年', size: 150, sizeEnd: 196, gap: 36, weight: 700, spacing: 14 },
 };
 
+// Typography. `font` is the tagline face (see FONTS in lib/core.js); `title` styles the closing card.
+export const STYLE = {
+  font: 'serif',
+  title: { font: 'serif', titleWeight: 600, ctaWeights: [600, 300] },
+};
+
 // arc presets — every shot's dominant curve is a circle arc cresting at frame centre.
 // Small variations between shots keep the match-cut alive, exactly as in the reference.
 const A = { R: 2400, crestY: 560 };   // default

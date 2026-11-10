@@ -3,6 +3,9 @@
 // cloud scrolls, centre ring, boss) print dense black peppered with un-inked white specks; the recessed
 // ground is a pale grey wash with stray ink dabs and a white halo hugging every raised line.
 // Everything lives on ONE sheet of xuan paper, so paper, ink, colophon and seal move together.
+// NOTE on proportions: a true tile whose rim sat on this arc would hide its field and boss far below the frame, so the
+// radial depths are compressed (rim → field → centre ring → boss all within ~530 px) and only the upright double-line
+// divider with its two flanking sectors is shown. The order and form of the parts are kept; their ratios are not to scale.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -17,7 +20,7 @@ const RING0 = 426, RING1 = 441;  // circle around the boss
 const BOSS = 470;                // 圆钮 starts here
 const FIELD = RING0 - STR1;      // depth of the cloud field
 const THC = 0.245;               // angular centre of each visible cloud scroll
-const LINE = 21;                 // width of the raised cloud lines
+const LINE = 23;                 // width of the raised cloud lines
 
 // half of a cloud scroll (卷云纹): a stem rises from the centre ring and splits into two arms that sweep up toward the rim,
 // then roll outward, down and inward into a volute. X along the arc from the stem, Y up from the centre ring.
@@ -120,7 +123,7 @@ function buildVoid(env) {
       const nz = L.makeNoise('s08crack' + seed); const n = 30; const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = i / n;
-        const th = L.lerp(th0, th1, t) + 0.011 * nz.fbm(t * 4.5, 1.1, 3) + 0.0035 * nz.n2(t * 26, 5.5);
+        const th = L.lerp(th0, th1, t) + 0.011 * nz.fbm(t * 4.5, 1.1, 3) + 0.0016 * nz.n2(t * 21, 5.5);
         const p = a.pt(th, -L.lerp(d0, d1, t)); pts.push(p);
       }
       g.strokeStyle = '#000';
@@ -150,6 +153,16 @@ function vn(lat, x, y) {
   return top + (r + (s - r) * fx - top) * fy;
 }
 
+/** one octave of value noise on a ROTATED lattice (so the grain never lines up with the pixel grid or with another octave) */
+function oct(lat, cell, ang, ox = 0, oy = 0) { return { lat, c: Math.cos(ang) / cell, s: Math.sin(ang) / cell, ox, oy }; }
+const vo = (o, x, y) => vn(o.lat, x * o.c - y * o.s + o.ox, x * o.s + y * o.c + o.oy);
+/** per-pixel white noise in [0,1) */
+function hash2(x, y) {
+  let h = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 /** the rubbing itself: per-pixel ink density from the relief mask + layered noise */
 function buildInk(env, relief, voidL) {
   const a = env.arc;
@@ -175,6 +188,8 @@ function buildInk(env, relief, voidL) {
     f3[i] = nC.fbm(X / 42, Y / 42, 2);
   }
   const l1 = makeLat('s08l1', 512), l2 = makeLat('s08l2', 512), l3 = makeLat('s08l3', 256), l4 = makeLat('s08l4', 256);
+  const O1 = oct(l1, 1.8, 0.47), O2 = oct(l2, 4.1, -0.66), O3 = oct(l3, 9.3, 1.07), O4 = oct(l4, 23, 0.21);
+  const P2 = oct(l2, 4.3, 0.95, 77.7, 19.3), P3 = oct(l3, 9.9, -0.38, 31.1, 57.9), P4 = oct(l4, 24, 1.4, 5.5, 9.1), Q2 = oct(l2, 2.7, 2.05, 11.3, 47.1);
   const nS = L.makeNoise('s08smudge');
 
   const out = new ImageData(LW, hh); const o = out.data;
@@ -188,9 +203,10 @@ function buildInk(env, relief, voidL) {
       const d = R - Math.sqrt(dx * dx + dy * dy); // > 0 inside the tile
       if (d < -40) continue;
       const k = (y * LW + x) * 4;
-      const v1 = vn(l1, x / 1.7, Y / 1.7), v2 = vn(l2, x / 3.9, Y / 3.9), v3 = vn(l3, x / 9.3, Y / 9.3), v4 = vn(l4, x / 23, Y / 23);
-      const z = (0.36 * v1 + 0.30 * v2 + 0.22 * v3 + 0.12 * v4 - 0.5) * 9; // ≈ N(0,1)
-      let D;
+      const v1 = vo(O1, x, Y), v2 = vo(O2, x, Y), v3 = vo(O3, x, Y), v4 = vo(O4, x, Y);
+      const wn = hash2(x, Y) - 0.5;
+      const z = (0.36 * v1 + 0.30 * v2 + 0.22 * v3 + 0.12 * v4 - 0.5) * 9 + wn * 0.8; // ≈ N(0,1)
+      let D, tone = 0;
       if (d < 0) {
         // paper just outside the rim: faint smudges where the pad overshot the edge
         const th = Math.atan2(dx, -dy);
@@ -206,23 +222,25 @@ function buildInk(env, relief, voidL) {
         const f3v = L.lerp(L.lerp(f3[i0], f3[i0 + 1], tx), L.lerp(f3[i1], f3[i1 + 1], tx), ty);
         const m = mS[k] / 255;
         // raised clay: solid ink, eaten by specks where the noise dips; the low fields vary how speckled it is
-        const a1 = (m - 0.5) * 4.7 + 0.95 * z + 1.4 * f1v + 1.5 * f2v + 0.5 * f3v;
+        // (the pad always bites hardest on the outer edge of the rim → keep that edge dense)
+        const a1 = (m - 0.5) * 4.7 + 0.28 + 0.95 * z + 1.15 * f1v + 1.2 * f2v + 0.5 * f3v + 1.2 * (1 - sstep(3, 22, d));
         D = sstep(0.9, 1.9, a1);
+        tone = 0.45 - 1.1 * f1v - 0.8 * f2v; tone = tone < 0 ? 0 : tone > 1 ? 1 : tone; // thinner ink where the pad was lighter
         // recessed ground: a dry, granular grey (stippled, not airbrushed) + stray dabs, thinning to bare paper beside raised lines
         const halo = sstep(10 + 14 * f3v, 46 + 22 * f3v, mW[(wrow + (x >> 1)) * 4]);
-        const z2 = (0.3 * vn(l2, x / 3.9 + 77.7, Y / 3.9 + 19.3) + 0.4 * vn(l3, x / 9.3 + 31.1, Y / 9.3 + 57.9) + 0.3 * vn(l4, x / 23 + 5.5, Y / 23 + 9.1) - 0.5) * 9;
-        let cover = 0.27 + 0.3 * f1v + 0.26 * f2v;
+        const z2 = (0.3 * vo(P2, x, Y) + 0.4 * vo(P3, x, Y) + 0.3 * vo(P4, x, Y) - 0.5) * 9;
+        let cover = 0.23 + 0.28 * f1v + 0.24 * f2v;
         cover = (cover < 0.05 ? 0.05 : cover > 0.6 ? 0.6 : cover) * (1 - 0.94 * halo);
-        const zf = (0.5 * v1 + 0.5 * vn(l2, x / 2.6 + 11.3, Y / 2.6 + 47.1) - 0.5) * 6.4;
+        const zf = (0.5 * v1 + 0.5 * vo(Q2, x, Y) - 0.5) * 6.4 + wn * 0.9;
         const tS = 1.9 - 4.2 * cover;
         const stip = sstep(tS - 0.4, tS + 0.4, zf);
-        const sp = (sstep(0.9, 1.8, z2 + 1.2 * f3v) * 0.8 + sstep(1.7, 2.4, z) * 0.4) * (1 - 0.94 * halo);
+        const sp = (sstep(1.0, 1.9, z2 + 1.2 * f3v) * 0.7 * (0.35 + 0.65 * sstep(-0.9, 0.3, zf)) + sstep(1.7, 2.4, z) * 0.4) * (1 - 0.94 * halo);
         const Dg = (cover * 0.42 + stip * 0.62 + sp) * sstep(0, 2.5, d);
         if (Dg > D) D = Dg;
       }
       D *= vd[k] / 255;
       if (D <= 0.004) continue;
-      o[k] = 20; o[k + 1] = 18; o[k + 2] = 16; o[k + 3] = D > 1 ? 255 : D * 255;
+      o[k] = 17 + 21 * tone; o[k + 1] = 15 + 20 * tone; o[k + 2] = 13 + 18 * tone; o[k + 3] = D > 1 ? 255 : D * 255;
     }
   }
   const ink = L.makeCanvas(LW, LH);
@@ -265,6 +283,19 @@ function buildSheet(env) {
     for (let y = -PAD; y < H + PAD; y += 9) g.fillRect(-PAD, y, LW, 1.2);
     g.fillStyle = 'rgba(255,252,240,0.05)';
     for (let x = -PAD + 60; x < W + PAD; x += 168) g.fillRect(x, -PAD, 2, LH);
+    // long fibres of the hand-made sheet (visible at this magnification), pale and tan, plus a few pulp clumps
+    const rf = L.rng('s08xuan');
+    g.save(); g.lineCap = 'round';
+    for (let i = 0; i < 420; i++) {
+      const x = rf.range(-PAD, W + PAD), y = rf.range(-PAD, H + PAD), len = rf.range(26, 150), ang = rf.range(0, Math.PI);
+      const cs = Math.cos(ang), sn = Math.sin(ang), b1 = rf.range(-18, 18), b2 = rf.range(-18, 18);
+      g.strokeStyle = rf.chance(0.55) ? `rgba(255,253,244,${rf.range(0.1, 0.32).toFixed(3)})` : `rgba(138,110,64,${rf.range(0.07, 0.2).toFixed(3)})`;
+      g.lineWidth = rf.range(0.6, 1.7) * (rf.chance(0.06) ? 2.2 : 1);
+      g.beginPath(); g.moveTo(x, y);
+      g.bezierCurveTo(x + cs * len * 0.33 - sn * b1, y + sn * len * 0.33 + cs * b1, x + cs * len * 0.66 - sn * b2, y + sn * len * 0.66 + cs * b2, x + cs * len, y + sn * len);
+      g.stroke();
+    }
+    g.restore();
     // gentle cockling of the sheet
     g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.3;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's08cockle', scale: 420, sx: 1.7, octaves: 3, res: 0.12, contrast: 1.5 }), -PAD, -PAD);
@@ -276,12 +307,12 @@ function buildSheet(env) {
     // puckers in the paper where it was pressed down over the edge of the tile: short radial creases outside the rim
     const rc = L.rng('s08crease');
     g.save(); g.lineCap = 'round';
-    for (let i = 0; i < 64; i++) {
-      const th = rc.range(-0.72, 0.72), d0 = rc.range(3, 16), len = rc.range(22, 120) * (rc.chance(0.2) ? 1.6 : 1);
-      const lean = rc.range(-0.35, 0.35), bend = rc.range(-10, 10), al = rc.range(0.35, 1);
+    for (let i = 0; i < 48; i++) {
+      const th = rc.range(-0.72, 0.72), d0 = rc.range(3, 14), len = rc.range(18, 86) * (rc.chance(0.15) ? 1.5 : 1);
+      const lean = rc.range(-0.35, 0.35), bend = rc.range(-10, 10), al = rc.range(0.3, 0.75) * (Math.abs(th) < 0.13 ? 0.35 : 1);
       a.at(g, th, d0, () => {
         const ex = Math.sin(lean) * len, ey = -Math.cos(lean) * len;
-        for (const [ox, col, w] of [[0, `rgba(96,76,44,${(0.13 * al).toFixed(3)})`, 1.5], [-1.5, `rgba(255,253,244,${(0.5 * al).toFixed(3)})`, 1.2]]) {
+        for (const [ox, col, w] of [[0.9, `rgba(96,76,44,${(0.15 * al).toFixed(3)})`, 1.8], [-0.9, `rgba(255,253,244,${(0.26 * al).toFixed(3)})`, 1.6]]) {
           g.strokeStyle = col; g.lineWidth = w;
           g.beginPath(); g.moveTo(ox, 0); g.quadraticCurveTo(ex * 0.5 + bend + ox, ey * 0.5, ex + ox, ey); g.stroke();
         }

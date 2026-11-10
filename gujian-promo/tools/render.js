@@ -1,21 +1,22 @@
 #!/usr/bin/env node
-// render.js — render the film (or selected shots) to PNG frames in build/frames/.
+// render.js — render a film (or selected shots) to PNG frames in build/<film>/frames/.  (--film arch|coins|antiques, default arch)
 //   node tools/render.js                 → all 500 frames
 //   node tools/render.js --shots s05,s06 → only those shots (frames keep their global numbering)
 //   node tools/render.js --missing-ok    → shots whose scene file does not exist yet are skipped instead of failing
 // Each shot renders in a fresh page so cached layers of earlier scenes are released.
 const fs = require('fs');
 const path = require('path');
-const { openBrowser, dataUrlToBuffer, ROOT } = require('./harness');
+const { openBrowser, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
 
 (async () => {
-  const args = process.argv.slice(2);
+  const fa = filmArgs(process.argv.slice(2));
+  const args = fa.rest;
   const sIdx = args.indexOf('--shots');
   const only = sIdx >= 0 ? args[sIdx + 1].split(',') : null;
   const missingOk = args.includes('--missing-ok');
-  const outDir = path.join(ROOT, 'build', 'frames');
+  const outDir = fa.framesDir;
   fs.mkdirSync(outDir, { recursive: true });
-  const b = await openBrowser();
+  const b = await openBrowser(fa.film);
   let page = await b.newPage();
   const shots = await page.evaluate(() => window.GJ.SHOTS.map((s) => ({ id: s.id, scene: s.scene, start: s.start, frames: s.frames })));
   await page.close();
@@ -23,7 +24,7 @@ const { openBrowser, dataUrlToBuffer, ROOT } = require('./harness');
   let failed = [];
   for (const shot of shots) {
     if (only && !only.includes(shot.id)) continue;
-    if (!fs.existsSync(path.join(ROOT, 'src', 'scenes', shot.scene + '.js'))) {
+    if (!fs.existsSync(path.join(fa.scenesDir, shot.scene + '.js'))) {
       if (missingOk) { console.log(`${shot.id}: scene file missing, skipped`); continue; }
       failed.push(`${shot.id}: scene file missing`); continue;
     }

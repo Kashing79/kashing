@@ -1,6 +1,14 @@
 // player.js — loads scenes, composites tagline text + film grain, exposes window.GJ for the renderer.
 import * as L from './lib/core.js';
-import { SHOTS, BEATS, TOTAL_FRAMES, shotAt, FPS } from './timeline.js';
+import { FONT_FILES } from './fonts.js';
+
+// which film to play: player.html?film=arch (default) | coins | antiques | …
+const FILM = new URLSearchParams(location.search).get('film') || 'arch';
+const BASE = FILM === 'arch' ? '.' : `./films/${FILM}`;
+const TL = await import(`${BASE}/timeline.js`);
+const { SHOTS, BEATS, TOTAL_FRAMES, shotAt, FPS } = TL;
+// per-film typography for the tagline overlay (a film's timeline.js may export STYLE to override)
+const STYLE = Object.assign({ font: 'serif', light: '#f7f2e8', dark: '#15110d', blur: 0.6 }, TL.STYLE || {});
 
 const { W, H } = L;
 const canvas = document.getElementById('c');
@@ -8,19 +16,13 @@ canvas.width = W; canvas.height = H;
 const ctx = canvas.getContext('2d');
 
 const errors = [];
+const missingFonts = [];
 const loaded = new Map(); // shot.id → { mod, env, initMs }
 
 async function loadFonts() {
-  const defs = [
-    ['GJ Serif', '../assets/fonts/NotoSerifSC.ttf', { weight: '200 900' }],
-    ['GJ Brush', '../assets/fonts/MaShanZheng.ttf', {}],
-    ['GJ XiaoWei', '../assets/fonts/ZCOOLXiaoWei.ttf', {}],
-    ['GJ Cao', '../assets/fonts/LiuJianMaoCao.ttf', {}],
-    ['GJ Latin', '../assets/fonts/CormorantGaramond.ttf', { weight: '300 700' }],
-  ];
-  await Promise.all(defs.map(async ([name, url, desc]) => {
-    try { const f = new FontFace(name, `url(${url})`, desc); await f.load(); document.fonts.add(f); }
-    catch (e) { errors.push(`font ${name}: ${e.message}`); }
+  await Promise.all(FONT_FILES.map(async ({ family, file, desc, required }) => {
+    try { const f = new FontFace(family, `url(../assets/fonts/${file})`, desc || {}); await f.load(); document.fonts.add(f); }
+    catch (e) { if (required) errors.push(`font ${family}: ${e.message}`); else missingFonts.push(family); }
   }));
 }
 
@@ -33,7 +35,7 @@ async function ensure(shot) {
   if (loaded.has(shot.id)) return loaded.get(shot.id);
   const t0 = performance.now();
   let mod;
-  try { mod = (await import(`./scenes/${shot.scene}.js`)).default; }
+  try { mod = (await import(`${BASE}/scenes/${shot.scene}.js`)).default; }
   catch (e) { errors.push(`${shot.id} import: ${e.message}`); mod = null; }
   const env = makeEnv(shot);
   if (mod && mod.init) {
@@ -51,7 +53,7 @@ function ensureGrain() {
   grains = [1, 2, 3, 4, 5].map((s) => L.grainTex(W + 64, H + 64, { seed: 'film' + s, amount: 0.42, size: 2 }));
 }
 
-const TEXT_LIGHT = '#f7f2e8', TEXT_DARK = '#15110d';
+const TEXT_LIGHT = STYLE.light, TEXT_DARK = STYLE.dark;
 const beatShots = { 1: SHOTS.filter((s) => s.beat === 1), 2: SHOTS.filter((s) => s.beat === 2), 3: SHOTS.filter((s) => s.beat === 3) };
 
 /** tagline text sits just above the arc crest, hard-cutting with every shot like the reference */
@@ -68,8 +70,8 @@ function drawBeatText(shot, rec) {
   // soft halo for legibility over busy textures
   ctx.shadowColor = tone === 'dark' ? 'rgba(255,250,240,0.45)' : 'rgba(0,0,0,0.5)';
   ctx.shadowBlur = size * 0.28;
-  ctx.filter = 'blur(0.6px)';
-  L.text(ctx, b.text, x, y, { font: 'serif', size, weight: b.weight, color, spacing: b.spacing * (size / b.size), rotate: r.range(-0.006, 0.006), alpha: 0.97 });
+  if (STYLE.blur) ctx.filter = `blur(${STYLE.blur}px)`;
+  L.text(ctx, b.text, x, y, { font: b.font || STYLE.font, size, weight: b.weight, color, spacing: b.spacing * (size / b.size), rotate: r.range(-0.006, 0.006), alpha: 0.97 });
   ctx.restore();
 }
 
@@ -132,7 +134,7 @@ async function renderFrame(n, opts = {}) {
 
 const ready = loadFonts();
 window.GJ = {
-  ready, errors, SHOTS, TOTAL_FRAMES, FPS,
+  ready, errors, missingFonts, SHOTS, TOTAL_FRAMES, FPS, film: FILM,
   renderShot, renderFrame,
   preload: async (ids) => { for (const s of SHOTS) if (!ids || ids.includes(s.id)) await ensure(s); return errors.slice(); },
   toDataURL: (type = 'image/png', q) => canvas.toDataURL(type, q),

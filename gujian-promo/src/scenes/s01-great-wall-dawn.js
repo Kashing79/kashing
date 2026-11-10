@@ -154,3 +154,7 @@ export default {
   init(env) { initDawn(env); },
   draw(ctx, env, p) { drawDawn(ctx, env, { tilt: 0, k: p }); },
 };
+
+// generic names used by the shared title card (every film's opening shot exports these three)
+export { initDawn as initOpening, drawDawn as drawOpening };
+export const TITLE_TILT = 720;

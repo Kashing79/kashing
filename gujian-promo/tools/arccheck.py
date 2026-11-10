@@ -14,19 +14,18 @@ from PIL import Image
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 W, H = 1920, 1080
-suffix = sys.argv[1] if len(sys.argv) > 1 else 'mid'
+argv = sys.argv[1:]
+film = 'arch'
+if '--film' in argv:
+    i = argv.index('--film'); film = argv[i + 1]; argv = argv[:i] + argv[i + 2:]
+suffix = argv[0] if argv else 'mid'
+PREV = os.path.join(ROOT, 'build', 'preview') if film == 'arch' else os.path.join(ROOT, 'build', film, 'preview')
 
-tl = open(os.path.join(ROOT, 'src', 'timeline.js'), encoding='utf-8').read()
-presets = {}
-for m in re.finditer(r"const (\w+) = \{ R: (\d+), crestY: (\d+) \};", tl):
-    presets[m.group(1)] = (int(m.group(2)), int(m.group(3)))
-shots = []
-for m in re.finditer(r"\{ id: '(\w+)', scene: '([\w-]+)', frames: (\d+)(?:, beat: (\d))?, arc: (\w+|\{ R: (\d+), crestY: (\d+) \}) \}", tl):
-    if m.group(6):
-        R, cy = int(m.group(6)), int(m.group(7))
-    else:
-        R, cy = presets[m.group(5)]
-    shots.append((m.group(1), R, cy))
+# shot arcs: ask node to evaluate the film's timeline (ES module) and print [id, R, crestY]
+import subprocess
+tl = os.path.join(ROOT, 'src', 'timeline.js') if film == 'arch' else os.path.join(ROOT, 'src', 'films', film, 'timeline.js')
+js = "import('file://%s').then(m => console.log(JSON.stringify(m.SHOTS.map(s => [s.id, s.arc.R, s.arc.crestY]))))" % tl.replace('\\', '/')
+shots = [tuple(x) for x in json.loads(subprocess.check_output(['node', '--input-type=module', '-e', js], cwd=ROOT).decode())]
 
 def profile(img, R, crestY):
     L = np.asarray(img.convert('L'), dtype=np.float32)
@@ -48,7 +47,7 @@ def profile(img, R, crestY):
 
 rows = []
 for sid, R, crestY in shots:
-    p = os.path.join(ROOT, 'build', 'preview', f'{sid}_{suffix}.jpg')
+    p = os.path.join(PREV, f'{sid}_{suffix}.jpg')
     if not os.path.exists(p):
         rows.append((sid, None)); continue
     offs, pr = profile(Image.open(p), R, crestY)
