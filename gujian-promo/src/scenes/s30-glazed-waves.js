@@ -360,8 +360,14 @@ function crackle(g, env, cell, seed, width, color, amount, skip) {
     SX[j * ni + i] = (i + i0 + 0.06 + 0.88 * ((h & 1023) / 1023)) * cell;
     SY[j * ni + i] = (j + i0 + 0.06 + 0.88 * (((h >>> 10) & 1023) / 1023)) * cell;
   }
-  const NBK = 5, paths = Array.from({ length: NBK }, () => new Path2D());
+  const NBK = 5;
+  let paths = Array.from({ length: NBK }, () => new Path2D()), pending = 0;
   let A = new Float64Array(72), B = new Float64Array(72);
+  g.save(); g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
+  const flush = () => {       // stroke in modest batches: very long paths get slow to append to
+    for (let b = 0; b < NBK; b++) { g.globalAlpha = amount * ((b + 0.5) / NBK); g.stroke(paths[b]); }
+    paths = Array.from({ length: NBK }, () => new Path2D()); pending = 0;
+  };
   for (let j = 2; j < nj - 2; j++) for (let i = 2; i < ni - 2; i++) {
     const c = j * ni + i, px = SX[c], py = SY[c];
     if (a.drAt(px, py) < -cell * 1.6 || (skip && r() < skip)) continue;
@@ -393,9 +399,9 @@ function crackle(g, env, cell, seed, width, color, amount, skip) {
     path.moveTo(A[0], A[1]);
     for (let q = 2; q < n; q += 2) path.lineTo(A[q], A[q + 1]);
     path.closePath();
+    if (++pending >= 600) flush();
   }
-  g.save(); g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round';
-  for (let b = 0; b < NBK; b++) { g.globalAlpha = amount * ((b + 0.5) / NBK); g.stroke(paths[b]); }
+  flush();
   g.restore();
 }
 
