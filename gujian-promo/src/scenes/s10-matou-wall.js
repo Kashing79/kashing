@@ -564,9 +564,8 @@ export default {
   tone: 'light',
   init(env) {
     S = build(env);
-    // canvas ops are rasterised lazily: touch every plate once here so that cost lands in init, not in the first frame
-    const warm = L.makeCanvas(W, H).getContext('2d', { willReadFrequently: true });
-    this.draw(warm, env, 0.5);
+    // the plates are rasterised lazily on first use: draw one throw-away frame so that cost lands in init, not in frame 0
+    this.draw(L.makeCanvas(W, H).getContext('2d'), env, 0.5);
   },
   draw(ctx, env, p) {
     // the wall group slides along the arc (rot about its centre keeps every tip on the curve) with a slight push-in;

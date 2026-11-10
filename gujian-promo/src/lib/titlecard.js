@@ -6,30 +6,39 @@ import * as L from './core.js';
 const CUT_B = 33;        // frame within the shot where card B replaces card A  → 17.28 s
 const TILT_START = 50;   // frame where the tilt-down begins                     → 17.96 s
 
-/** a small vermilion seal with two stacked characters */
+/** a small vermilion seal with two stacked characters (carved-stone look: near-square corners, worn edges, a slight tilt) */
 export function drawSeal(ctx, x, y, size, chars, opts = {}) {
-  const { color = '#b3261e', ink = '#f7f2e8', font = 'xiaowei', seed = 'seal' } = opts;
+  const { color = '#b3261e', ink = '#f7f2e8', font = 'serif', weight = 900, seed = 'seal', radius = 0.06, charScale = 0.5, rotate = -0.026 } = opts;
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y); ctx.rotate(rotate);
   const r = L.rng(seed);
-  ctx.fillStyle = color;
-  const h = size / 2, rad = size * 0.12;
-  ctx.beginPath();
-  ctx.moveTo(-h + rad, -h); ctx.lineTo(h - rad, -h); ctx.quadraticCurveTo(h, -h, h, -h + rad);
-  ctx.lineTo(h, h - rad); ctx.quadraticCurveTo(h, h, h - rad, h); ctx.lineTo(-h + rad, h); ctx.quadraticCurveTo(-h, h, -h, h - rad);
-  ctx.lineTo(-h, -h + rad); ctx.quadraticCurveTo(-h, -h, -h + rad, -h); ctx.closePath(); ctx.fill();
+  // paint on a private canvas so the "wear" only erases the seal, not the picture behind it
+  const pad = 8, c = L.makeCanvas(size + pad * 2, size + pad * 2), g = c.getContext('2d');
+  g.translate(pad + size / 2, pad + size / 2);
+  g.fillStyle = color;
+  const h = size / 2, rad = size * radius;
+  g.beginPath();
+  g.moveTo(-h + rad, -h); g.lineTo(h - rad, -h); g.quadraticCurveTo(h, -h, h, -h + rad);
+  g.lineTo(h, h - rad); g.quadraticCurveTo(h, h, h - rad, h); g.lineTo(-h + rad, h); g.quadraticCurveTo(-h, h, -h, h - rad);
+  g.lineTo(-h, -h + rad); g.quadraticCurveTo(-h, -h, -h + rad, -h); g.closePath(); g.fill();
+  // uneven seal paste
+  g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.45;
+  g.drawImage(L.noiseTex(size, size, { seed: seed + 'ink', scale: 40, octaves: 2, contrast: 1.2, res: 1, ramp: [[0, 'rgba(120,16,10,0.4)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(255,130,100,0.3)']] }), -h, -h);
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   const cs = Array.from(chars);
-  L.text(ctx, cs[0] || '', 0, -size * 0.235, { font, size: size * 0.46, weight: 400, color: ink });
-  L.text(ctx, cs[1] || '', 0, size * 0.235, { font, size: size * 0.46, weight: 400, color: ink });
-  // worn stone-seal edges
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 46; i++) {
+  const fs = size * charScale;
+  L.text(g, cs[0] || '', 0, -size * 0.235, { font, size: fs, weight, color: ink });
+  L.text(g, cs[1] || '', 0, size * 0.235, { font, size: fs, weight, color: ink });
+  // worn stone edges and a few pits
+  g.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 90; i++) {
     const px = r.range(-h, h), py = r.range(-h, h);
     const edge = Math.max(Math.abs(px), Math.abs(py)) / h;
-    if (r() > edge * edge) continue;
-    ctx.globalAlpha = r.range(0.25, 0.9);
-    ctx.beginPath(); ctx.ellipse(px, py, r.range(0.6, 2.4), r.range(0.6, 1.8), r() * 3, 0, L.TAU); ctx.fill();
+    if (r() > Math.pow(edge, 4) + 0.012) continue;
+    g.globalAlpha = r.range(0.3, 1);
+    g.beginPath(); g.ellipse(px, py, r.range(0.5, 2.6), r.range(0.5, 1.9), r() * 3, 0, L.TAU); g.fill();
   }
+  ctx.drawImage(c, -size / 2 - pad, -size / 2 - pad);
   ctx.restore();
 }
 
@@ -45,8 +54,8 @@ export function drawSeal(ctx, x, y, size, chars, opts = {}) {
 export function makeTitleScene(cfg) {
   const { initOpening, drawOpening, title, seal, cta, tilt0 = 720, dim = 0.35, dimColor = '#05070b' } = cfg;
   // style may be an object or a function returning one (resolved every frame, so typography can be swapped at runtime)
-  const style = () => Object.assign({ font: 'serif', titleSize: 92, titleWeight: 600, titleSpacing: 22, ctaSize: 64, ctaWeights: [600, 300], ctaSpacing: 10,
-    ink: '#f7f2e8', sealColor: '#b3261e', sealFont: 'xiaowei', sealSize: 78, y: 498 }, (typeof cfg.style === 'function' ? cfg.style() : cfg.style) || {});
+  const style = () => Object.assign({ font: 'serif', titleSize: 98, titleWeight: 500, titleSpacing: 28, ctaSize: 56, ctaWeights: [600, 400], ctaSpacing: 8, ctaGap: 0.75,
+    ink: '#f7f2e8', sealColor: '#b3261e', sealFont: 'serif', sealWeight: 900, sealSize: 82, y: 498 }, (typeof cfg.style === 'function' ? cfg.style() : cfg.style) || {});
   return {
     name: '片名卡',
     tone: 'light',
@@ -75,14 +84,14 @@ export function makeTitleScene(cfg) {
       const widthOf = (str, weight) => { ctx.font = `${weight} ${st.ctaSize}px ${fam}`; return Array.from(str).reduce((w, ch) => w + ctx.measureText(ch).width, 0) + st.ctaSpacing * (Array.from(str).length - 1); };
       const w0 = widthOf(cta[0], st.ctaWeights[0]), w1 = cta[1] ? widthOf(cta[1], st.ctaWeights[1]) : 0;
       ctx.restore();
-      const gapSeal = st.ctaSize * 0.42, gapMid = st.ctaSize * 0.62;
+      const gapSeal = st.ctaSize * 0.5, gapMid = st.ctaSize * st.ctaGap;
       const total = st.sealSize + gapSeal + w0 + (cta[1] ? gapMid + w1 : 0);
       const x0 = L.W / 2 - total / 2;
       ctx.save();
       for (let i = 0; i < passes; i++) {
         const o = passes === 1 ? 0 : L.lerp(-smear, smear, i / (passes - 1));
         ctx.globalAlpha = 1 / passes;
-        drawSeal(ctx, x0 + st.sealSize / 2, y + o, st.sealSize, seal, { color: st.sealColor, ink: st.ink, font: st.sealFont });
+        drawSeal(ctx, x0 + st.sealSize / 2, y + o + 2, st.sealSize, seal, { color: st.sealColor, ink: st.ink, font: st.sealFont, weight: st.sealWeight });
         L.text(ctx, cta[0], x0 + st.sealSize + gapSeal, y + o, { font: st.font, size: st.ctaSize, weight: st.ctaWeights[0], color: st.ink, align: 'left', spacing: st.ctaSpacing });
         if (cta[1]) L.text(ctx, cta[1], x0 + st.sealSize + gapSeal + w0 + gapMid, y + o, { font: st.font, size: st.ctaSize, weight: st.ctaWeights[1], color: st.ink, align: 'left', spacing: st.ctaSpacing });
       }

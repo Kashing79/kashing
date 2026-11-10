@@ -1,11 +1,14 @@
-// s36 — 石窟火焰纹龛楣. The flame-pattern lintel band (火焰纹龛楣) over a Northern-Wei cave niche, pale sandstone on black.
-// The arc is the outer contour of the lintel. Under it a dense field of carved flame tongues streams outward along
-// the radius — slender S-curved blades with a sharp spine and incised contour lines, overlapping like the barbs of a
-// feather — raked by a soft lamp from below. Below the band: a roll moulding, then the dark of the niche.
+// s36 — 石窟火焰纹龛楣. Detail of the flame-pattern lintel (火焰纹龛楣) over a Northern-Wei cave niche: pale sandstone on black.
+// The arc is the outer contour of the lintel (a plain fillet). Under it runs the stylised flame band: rows of slender,
+// S-curved tongues with a spine and incised contour lines, streaming outward along the radius and overlapping like the
+// barbs of a feather; their tips flick toward the axis of the niche, mirrored left / right. A roll moulding (龛梁)
+// closes the band; below it the niche falls into darkness, with one more faint concentric roll. Nothing above the arc.
+// (A carved, formalised pattern band — not realistic fire; no figures, text or dates.)
 //
-// Everything is a real height field: each tongue is evaluated analytically in polar (u = arc length, v = depth below
-// the arc) space, composited back-to-front, eroded with noise, then lit per pixel in init() (normal · key light,
-// two-radius cavity occlusion, marched cast shadows) and mapped onto the sandstone ramp.
+// Everything is a real height field: each tongue is evaluated analytically in polar space (u = arc length, v = depth
+// below the arc), composited back-to-front with a V-groove cut round its outline, eroded with noise, then lit per pixel
+// in init() — normal · low key light from below, two-radius cavity occlusion, swept-horizon cast shadows — and mapped
+// onto the sandstone ramp. draw() is a single blit.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -106,7 +109,11 @@ function boxBlur(src, w, h, r, passes = 2) {
   return out;
 }
 
-const noiseData = (w, h, opts) => L.noiseTex(w, h, opts).getContext('2d').getImageData(0, 0, w, h).data;
+function noiseData(w, h, opts) {
+  const c = L.makeCanvas(w, h), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(L.noiseTex(w, h, opts), 0, 0);
+  return g.getImageData(0, 0, w, h).data;
+}
 
 function buildStone(env) {
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
@@ -210,7 +217,7 @@ function buildStone(env) {
     }
   }
 
-  // ── 2) occlusion (two radii) + cast shadows from the low key light ──
+  // ── 2) lighting: occlusion at two radii, a low key light from below (slightly left), cast shadows ──
   const b1 = boxBlur(hgt, w, h, Math.round(6.5 * RES), 2), b2 = boxBlur(hgt, w, h, Math.round(21 * RES), 2);
   let lx = -0.32, ly = 0.86, lz = 0.4; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
   const lm = Math.hypot(lx, ly), sxs = lx / lm, sys = ly / lm, tanE = lz / lm;
@@ -267,13 +274,13 @@ function buildStone(env) {
       o[k4] = lut[li * 3] * (1 + warm); o[k4 + 1] = lut[li * 3 + 1]; o[k4 + 2] = lut[li * 3 + 2] * (1 - warm * 1.4); o[k4 + 3] = 255;
     }
   }
-  const small = L.makeCanvas(w, h);
-  small.getContext('2d').putImageData(img, 0, 0);
+  const lit = L.makeCanvas(w, h);
+  lit.getContext('2d').putImageData(img, 0, 0);
 
-  // ── 3) up to full resolution, exact silhouette on the arc, full-res grain ──
+  // ── 3) onto the layer: grain, pores, and an exact silhouette on the arc ──
   const stone = L.makeLayer(PAD, (g) => {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-    g.drawImage(small, -PAD, -PAD, LW, LH);
+    g.drawImage(lit, -PAD, -PAD, LW, LH);
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
     g.drawImage(L.grainTex(LW, LH, { seed: 's36g', amount: 0.3 }), -PAD, -PAD);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-atop';
@@ -300,10 +307,12 @@ export default {
   name: '石窟火焰纹龛楣',
   tone: 'light',
   init(env) {
+    const a = env.arc;
     const stone = buildStone(env);
     const halo = L.blurred(stone, 13), mist = softCopy(stone, 0.25, 44);
-    // everything shares one camera move, so flatten it into a single opaque layer:
+    // Everything shares one camera move, so it is flattened into a single opaque layer (one blit per frame):
     // black → wide soft light → bloom spilling a few px over the edge → the stone → a veil of the same bloom on top
+    // → the lamp's warm pool over the middle of the band (overlay, so the black stays black).
     const comp = L.makeLayer(PAD, (g) => {
       g.fillStyle = '#030303'; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
       g.globalCompositeOperation = 'screen';
@@ -311,16 +320,14 @@ export default {
       g.globalAlpha = 0.55; g.drawImage(halo, -PAD, -PAD);
       g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(stone, -PAD, -PAD);
       g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.3; g.drawImage(halo, -PAD, -PAD);
+      g.globalAlpha = 1;
+      const q = a.pt(-0.012, -190);
+      L.glow(g, q.x, q.y, 860, '#fff0d2', 0.24, 'overlay');
     });
     S = { comp };
   },
   draw(ctx, env, p) {
-    const a = env.arc;
-    const rot = L.lerp(-0.0035, 0.0035, p), zoom = L.lerp(1.0, 1.012, p);
-    ctx.fillStyle = '#030303'; ctx.fillRect(0, 0, W, H);
-    L.blit(ctx, env, S.comp, { rot, zoom });
-    // the lamp breathes: a patch of warmer light drifts along the band (overlay → the black stays black)
-    const q = a.pt(L.lerp(-0.07, 0.05, p), -170);
-    L.glow(ctx, q.x, q.y, 820, '#fff0d2', 0.2 + 0.05 * Math.sin(p * 7), 'overlay');
+    // 5 frames: the carving slides a few px along the arc while the camera creeps in
+    L.blit(ctx, env, S.comp, { rot: L.lerp(-0.0035, 0.0035, p), zoom: L.lerp(1.0, 1.012, p) });
   },
 };

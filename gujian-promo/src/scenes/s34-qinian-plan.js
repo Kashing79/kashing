@@ -7,7 +7,7 @@
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 100;   // the move is tiny (zoom ±1.5 %, rot ±0.003) so a small margin is plenty
+const PAD = 100;   // the move is tiny (zoom ±1.5 %, rot ±0.002) so a small margin is plenty
 const INK = '#1a1a1a', RED = '#d23a2a', BLUE = '#2a6fb8', PAPER = '#f4f2ec', LEAD = '#3a3a40';
 let S = null;
 
@@ -208,9 +208,6 @@ function build(env) {
       g.lineWidth = 1.5; g.beginPath(); g.arc(0, 0, rr * 1.2, 0, L.TAU); g.stroke();
       g.fillStyle = INK; g.beginPath(); g.arc(0, 0, rr, 0, L.TAU); g.fill();
       g.globalCompositeOperation = 'destination-out';
-      // filled-in ink dries a little thinner toward the light
-      g.fillStyle = L.radial(g, -rr * 0.35, -rr * 0.4, 0, rr * 1.15, [[0, 'rgba(0,0,0,0.2)'], [1, 'rgba(0,0,0,0)']]);
-      g.beginPath(); g.arc(0, 0, rr, 0, L.TAU); g.fill();
       g.lineWidth = 2.2;
       g.beginPath(); g.moveTo(-rr * 0.52, 0); g.lineTo(rr * 0.52, 0); g.moveTo(0, -rr * 0.52); g.lineTo(0, rr * 0.52); g.stroke();
       g.globalCompositeOperation = 'source-over';
@@ -311,11 +308,7 @@ function build(env) {
     g.fillRect(0, 0, LW, LH);
     g.restore();
   }
-  // hand the finished sheet over on a CPU-backed canvas, so the per-frame blit never triggers a GPU read-back
-  const out = L.makeCanvas(LW, LH);
-  out.getContext('2d', { willReadFrequently: true }).drawImage(sheet, 0, 0);
-  out._pad = PAD;
-  return { sheet: out };
+  return { sheet };
 }
 
 export default {
@@ -324,7 +317,7 @@ export default {
   init(env) { S = build(env); },
   draw(ctx, env, p) {
     // slow push-in centred on the crest + a hair of rotation about the plan's centre
-    const zoom = L.lerp(0.99, 1.016, p), rot = L.lerp(-0.003, 0.003, p);
+    const zoom = L.lerp(0.99, 1.016, p), rot = L.lerp(-0.002, 0.002, p);
     ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.sheet, { rot, zoom });
   },

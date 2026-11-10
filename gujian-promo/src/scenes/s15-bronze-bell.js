@@ -65,16 +65,20 @@ function buildGlyphSet(count) {
     poly(p, [[x0 + nx, y0 + ny], [x0 - nx, y0 - ny], [x1 - nx * 0.35, y1 - ny * 0.35], [x1 + nx * 0.35, y1 + ny * 0.35]]);
   };
   const part = (p, bx, by, bw, bh, nH, nV, legs) => {
+    // (one horizontal and one vertical always stop short, so strokes never close into a tidy box)
+    const shortH = r.int(0, nH - 1), shortV = r.int(0, nV - 1);
     for (let i = 0; i < nH; i++) {
       const y = by + bh * (0.08 + 0.84 * ((i + 0.5 + r.range(-0.2, 0.2)) / nH));
-      const x0 = bx + bw * r.pick([0, 0, 0.06, 0.28, 0.4]), x1 = bx + bw * r.pick([1, 1, 0.92, 0.7, 0.86]);
+      let x0 = bx + bw * r.pick([0, 0, 0.06, 0.28, 0.4]), x1 = bx + bw * r.pick([1, 1, 0.92, 0.7, 0.86]);
+      if (i === shortH) { if (r.chance(0.5)) x0 = bx + bw * r.range(0.26, 0.44); else x1 = bx + bw * r.range(0.56, 0.74); }
       heng(p, x0, x1, y);
     }
     const cols = [0.06, 0.5, 0.94, 0.3, 0.72];
     const used = new Set();
     for (let i = 0; i < nV; i++) {
       let k = r.int(0, cols.length - 1); while (used.has(k)) k = (k + 1) % cols.length; used.add(k);
-      const y0 = by + bh * r.pick([0, 0, 0.14, 0.34, 0.46]), y1 = by + bh * r.pick([1, 1, 0.9, 0.64, 0.8]);
+      let y0 = by + bh * r.pick([0, 0, 0.14, 0.34, 0.46]), y1 = by + bh * r.pick([1, 1, 0.9, 0.64, 0.8]);
+      if (i === shortV) { if (r.chance(0.5)) y0 = by + bh * r.range(0.26, 0.46); else y1 = by + bh * r.range(0.54, 0.74); }
       shu(p, bx + bw * (cols[k] + r.range(-0.04, 0.04)), y0, y1);
     }
     if (legs) {
@@ -218,7 +222,7 @@ function buildSurface(env) {
       const pc = pcA[i0];
       const chalk = sstep(0.4, 0.66, v) * (0.35 + 0.65 * pc);
       const lum = 0.84 + 0.32 * g2;
-      const PR = (24 + (56 - 24) * pc + (100 - 56) * chalk) * lum, PG = (68 + (128 - 68) * pc + (164 - 128) * chalk) * lum, PB = (62 + (117 - 62) * pc + (146 - 117) * chalk) * lum;
+      const PR = (22 + (52 - 22) * pc + (84 - 52) * chalk) * lum, PG = (62 + (118 - 62) * pc + (146 - 118) * chalk) * lum, PB = (57 + (108 - 57) * pc + (131 - 108) * chalk) * lum;
       const i = (Y * LW + X) * 4;
       gd[i] = PR; gd[i + 1] = PG; gd[i + 2] = PB; gd[i + 3] = 255 * aG * 0.94;
       const aC = sstep(0.39, 0.425, v);
@@ -381,12 +385,12 @@ function buildSpec(env) {
       g.globalCompositeOperation = 'lighter';
       g.drawImage(t, 0, TOP);
     };
-    band(232, 96, 0.6, '#fff0de', 780, 1300);      // key: a long soft box
-    band(330, 210, 0.26, '#ffeedd', 840, 1500);    // and the broad glow around it
-    band(152, 20, 0.3, '#fff0de', 700, 1100);      // its thinner echo higher up the shoulder
+    band(236, 66, 0.62, '#fff0de', 800, 1500);     // key: a long soft box, bent into a band by the curve of the bronze
+    band(320, 210, 0.24, '#ffeedd', 840, 1500);    // and the broad glow around it
+    band(154, 17, 0.42, '#fff0de', 760, 1300);     // its thinner echo higher up the shoulder
     band(112, 11, 0.3, '#c4c6ff', 980, 1500);      // the rim light catching the first raised band
     band(50, 13, 0.46, '#c4c6ff', 900, 1500);      // cold strip just inside the limb
-    band(470, 80, 0.24, '#ffe4c8', 1080, 1100);    // low fill
+    band(455, 95, 0.3, '#bfe2ee', 1400, 1000);     // cool fill low on the right, answering the cyan end of the rim light
     g.globalCompositeOperation = 'multiply';
     g.drawImage(L.noiseTex(W, H - TOP, { seed: 's15sheen', scale: 20, sx: 46, sy: 1, octaves: 3, res: 0.3, contrast: 1.5,
       polar: { cx: a.cx, cy: a.cy - TOP, R: a.R }, ramp: [[0, '#8a8a8a'], [0.5, '#c8c8c8'], [1, '#ffffff']] }), 0, TOP);
@@ -432,6 +436,7 @@ export default {
     const rot = L.lerp(-0.017, 0.017, p);      // the bell turns under fixed lights; a touch faster than usual so it slides
     ctx.fillStyle = '#040404'; ctx.fillRect(0, 0, W, H);
     L.cam(ctx, env, { rot }, () => ctx.drawImage(S.bell, -PAD, TOP));
+    ctx.save();
     ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(S.shade, 0, TOP);
     ctx.globalCompositeOperation = 'color-dodge'; ctx.drawImage(S.spec, 0, TOP);
     ctx.globalCompositeOperation = 'screen'; ctx.drawImage(S.rim, 0, S.rim._y0);
@@ -441,5 +446,6 @@ export default {
       ctx.fillStyle = L.radial(ctx, 0, 0, 0, 330, [[0, 'rgba(226,222,255,0.8)'], [0.25, 'rgba(160,150,255,0.35)'], [1, 'rgba(120,110,255,0)']]);
       ctx.fillRect(-330, -330, 660, 660);
     });
+    ctx.restore();
   },
 };

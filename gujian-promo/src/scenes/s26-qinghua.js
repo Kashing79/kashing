@@ -37,88 +37,121 @@ function buildGlaze(env) {
       [t(-4), 'rgba(150,186,202,0.3)'], [t(36), 'rgba(160,192,206,0.2)'], [t(130), 'rgba(190,208,222,0.05)'], [t(280), 'rgba(255,255,255,0)'],
       [t(440), 'rgba(255,255,255,0.45)'], [t(600), 'rgba(205,217,228,0.3)'], [t(800), 'rgba(160,180,200,0.7)']]);
     full();
-    // the far wall mirrors a dim room, upper left — the window panes in the sheen layer sit inside this
-    g.save(); g.filter = 'blur(80px)'; g.fillStyle = 'rgba(126,152,182,0.5)';
-    g.beginPath(); g.ellipse(262, 96, 450, 205, -0.1, 0, TAU); g.fill(); g.restore();
+    // the far wall mirrors a dim room, upper left — the window panes of the sheen sit inside this
+    g.save(); g.translate(215, 70); g.rotate(-0.1); g.scale(1, 0.5);
+    g.fillStyle = L.radial(g, 0, 0, 0, 610, [[0, 'rgba(126,152,182,0.46)'], [0.5, 'rgba(126,152,182,0.38)'], [0.8, 'rgba(126,152,182,0.12)'], [1, 'rgba(126,152,182,0)']]);
+    g.fillRect(-620, -620, 1240, 1240); g.restore();
     g.save();
     // slow drift in glaze thickness (kept very gentle: porcelain, not paper)
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.2;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's26mottle', scale: 620, octaves: 2, res: 0.1, warp: 0.4, contrast: 1.2 }), -PAD, -PAD);
     // orange-peel: the faintest pebbling of a fired glaze surface
     g.globalAlpha = 0.1;
-    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's26peel', scale: 13, octaves: 2, res: 0.5, contrast: 1.4 }), { strength: 2, res: 0.5 }), -PAD, -PAD);
+    g.drawImage(L.bumpLight(L.noiseTex(LW, LH, { seed: 's26peel', scale: 13, octaves: 2, res: 0.4, contrast: 1.4 }), { strength: 2, res: 0.4 }), -PAD, -PAD);
     g.restore();
   });
 }
 
-/** crazing (开片): an extremely faint network of hairlines */
-function buildCraze() {
-  const res = 0.7, cw = Math.round(LW * res), ch = Math.round(LH * res);
-  const nz = L.makeNoise('s26craze');
-  const img = new ImageData(cw, ch), d = img.data;
-  const sc = 250;
-  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-    let u = x / res / sc, v = y / res / sc;
-    u += 0.1 * Math.sin(v * 2.3 + 1.7); v += 0.1 * Math.sin(u * 2.1 + 4.2);
-    const c = nz.cell(u, v);
-    const wpx = c.edge * sc;
-    if (wpx < 1.9) { const i = (y * cw + x) * 4; d[i] = 70; d[i + 1] = 92; d[i + 2] = 120; d[i + 3] = (1 - wpx / 1.9) * 255 * (0.25 + 0.75 * c.id); }
+/**
+ * crazing (开片): an extremely faint network of hairlines. The cells are the Voronoi cells of a jittered grid of sites;
+ * each wall is found by walking the bisector between two neighbouring sites and keeping the stretch no third site is nearer to.
+ */
+function drawCraze(g) {
+  const r = L.rng('s26craze'), SZ = 250;
+  const nx = Math.ceil(LW / SZ) + 2, ny = Math.ceil(LH / SZ) + 2;
+  const sites = [];
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) sites.push([-PAD + (i - 0.5 + r.range(-0.44, 0.44)) * SZ, -PAD + (j - 0.5 + r.range(-0.44, 0.44)) * SZ, r()]);
+  g.save(); g.lineCap = 'round';
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const A = sites[j * nx + i];
+    const cand = [];
+    for (let b = Math.max(0, j - 2); b <= Math.min(ny - 1, j + 3); b++) for (let c = Math.max(0, i - 3); c <= Math.min(nx - 1, i + 3); c++) cand.push(sites[b * nx + c]);
+    for (const [di, dj] of [[1, 0], [0, 1], [1, 1], [-1, 1], [2, 0], [0, 2], [2, 1], [1, 2], [-1, 2], [-2, 1]]) {
+      const ii = i + di, jj = j + dj;
+      if (ii < 0 || ii >= nx || jj >= ny) continue;
+      const B = sites[jj * nx + ii];
+      const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
+      let tx = -(B[1] - A[1]), ty = B[0] - A[0]; const len = Math.hypot(tx, ty); tx /= len; ty /= len;
+      let t0 = null, t1 = null;
+      for (let t = -SZ * 1.6; t <= SZ * 1.6; t += 2.5) {
+        const x = mx + tx * t, y = my + ty * t, d = (x - A[0]) ** 2 + (y - A[1]) ** 2;
+        let ok = true;
+        for (const q of cand) if (q !== A && q !== B && (x - q[0]) ** 2 + (y - q[1]) ** 2 < d) { ok = false; break; }
+        if (ok) { if (t0 === null) t0 = t; t1 = t; }
+      }
+      if (t0 === null || t1 - t0 < 4) continue;
+      const bend = (A[2] - 0.5) * (t1 - t0) * 0.07, tm = (t0 + t1) / 2;
+      g.strokeStyle = `rgba(66,88,116,${(0.025 + 0.1 * ((A[2] + B[2]) / 2) ** 1.5).toFixed(3)})`;
+      g.lineWidth = 0.7 + 0.6 * B[2];
+      g.beginPath(); g.moveTo(mx + tx * t0, my + ty * t0);
+      g.quadraticCurveTo(mx + tx * tm - ty * bend, my + ty * tm + tx * bend, mx + tx * t1, my + ty * t1);
+      g.stroke();
+    }
   }
-  const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
-  const out = L.makeCanvas(LW, LH); const g = out.getContext('2d');
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  g.drawImage(small, 0, 0, LW, LH);
-  return out;
+  g.restore();
 }
 
 // ───────────────────────── the two 弦纹 (pigment density, per pixel) ─────────────────────────
-function bandAt(nz, s, dr) {
+/** everything about the two lines that depends only on the distance s along the arc, tabulated per pixel of arc length */
+function bandTables(nz) {
+  const S0 = -1500, N = 3001, F = () => new Float32Array(N);
+  const T = { S0, N, eT: F(), eB: F(), pres: [F(), F(), F()], load: [F(), F(), F()], c: F(), hw: F(), ta: F(), la: F(), tb: F() };
+  for (let i = 0; i < N; i++) {
+    const s = S0 + i;
+    // heavy line — its upper edge IS the arc. Turned on the wheel: the brush is set down (顿), the dish turns under it,
+    // and the tail of the turn overlaps the head. Load thins with distance from each fresh dip.
+    T.eT[i] = 0.3 + 0.75 * nz.n2(s / 180, 1.3) + 0.35 * nz.n2(s / 43, 4.4);
+    const head1 = Math.exp(-(((s + 540) / 46) ** 2)), head2 = Math.exp(-(((s - 720) / 42) ** 2));
+    T.eB[i] = -BAND + 2.6 * nz.n2(s / 240, 7.7) + 1.0 * nz.n2(s / 49, 2.2) - 4 * head1 - 3 * head2;
+    const wob = 0.09 * nz.n2(s / 230, 3.9);
+    T.pres[0][i] = 1 - sm(-500, -452, s); T.load[0][i] = 0.6 + 0.1 * nz.n2(s / 330, 12.5);                                         // tail of the turn (dry)
+    T.pres[1][i] = sm(-566, -548, s) * (1 - sm(716, 776, s)); T.load[1][i] = 1.05 - 0.36 * (1 - Math.exp(-(s + 560) / 700)) + wob;  // fresh dip
+    T.pres[2][i] = sm(690, 708, s); T.load[2][i] = 1.02 - 0.26 * (1 - Math.exp(-(s - 700) / 600)) + wob;                            // second dip
+    // fine line below it: runs dry toward its own joint, then a fresh start
+    T.c[i] = FINE + 1.6 * nz.n2(s / 270, 21.7) + 0.7 * nz.n2(s / 55, 8.8);
+    T.hw[i] = 3.8 + 0.7 * nz.n2(s / 130, 15.1) + 1.7 * Math.exp(-(((s - 352) / 26) ** 2));
+    const w2 = 0.06 * nz.n2(s / 200, 44.1);
+    T.ta[i] = 1 - sm(340, 380, s); T.la[i] = 0.98 - 0.44 * sm(-700, 340, s) + w2;
+    T.tb[i] = sm(330, 346, s) * L.clamp(1.0 - 0.2 * (1 - Math.exp(-(s - 338) / 600)) + w2);
+  }
+  return T;
+}
+function bandAt(T, nz, s, dr) {
+  const i = Math.round(s) - T.S0;
+  if (i < 0 || i >= T.N) return 0;
   let keep = 1;
-  // heavy line — its upper edge IS the arc. Turned on the wheel: the brush is set down (顿), the dish turns under it,
-  // and the tail of the turn overlaps the head. Load thins with distance from each fresh dip.
-  const eT = 0.3 + 0.75 * nz.n2(s / 180, 1.3) + 0.35 * nz.n2(s / 43, 4.4);
-  const head1 = Math.exp(-(((s + 540) / 46) ** 2)), head2 = Math.exp(-(((s - 720) / 42) ** 2));
-  const eB = -BAND + 2.6 * nz.n2(s / 240, 7.7) + 1.0 * nz.n2(s / 49, 2.2) - 4 * head1 - 3 * head2;
+  const eT = T.eT[i], eB = T.eB[i];
   if (dr < eT + 1.2 && dr > eB - 1.8) {
     const cover = sm(eT + 1.0, eT - 1.0, dr) * sm(eB - 1.6, eB + 1.6, dr);
     const u = (dr - eB) / (eT - eB);
     const pool = 0.82 + 0.32 * Math.pow(Math.abs(2 * u - 1), 2.6);       // pigment settles along both edges of a stroke
-    const hair = nz.n2(s / 300, dr / 1.8 + 31), hair2 = nz.n2(s / 520 + 9, dr / 1.3 - 17);
-    const wob = 0.09 * nz.n2(s / 230, 3.9);
-    const strokes = [
-      [1 - sm(-500, -452, s), 0.6 + 0.1 * nz.n2(s / 330, 12.5)],                                                 // tail of the turn (dry)
-      [sm(-566, -548, s) * (1 - sm(716, 776, s)), 1.05 - 0.36 * (1 - Math.exp(-(s + 560) / 700)) + wob],         // fresh dip
-      [sm(690, 708, s), 1.02 - 0.26 * (1 - Math.exp(-(s - 700) / 600)) + wob],                                   // second dip
-    ];
-    for (const [pres, load] of strokes) {
+    const hair = nz.n2(s / 300, dr / 1.8 + 31), hair2 = nz.n2(s / 520 + 9, dr / 1.3 - 17);   // bristle streaks
+    for (let k = 0; k < 3; k++) {
+      const pres = T.pres[k][i];
       if (pres <= 0) continue;
+      const load = T.load[k][i];
       const gap = Math.max(0, 0.78 - load) * 1.7 * sm(0.1, 0.6, hair2);  // 飞白 where the brush runs dry
       keep *= 1 - cover * pres * L.clamp(load * pool * (1 + 0.28 * hair * (1.55 - load)) - gap) * 0.93;
     }
   }
-  // fine line below it
-  const c = FINE + 1.6 * nz.n2(s / 270, 21.7) + 0.7 * nz.n2(s / 55, 8.8);
-  const hw = 3.8 + 0.7 * nz.n2(s / 130, 15.1) + 1.7 * Math.exp(-(((s - 352) / 26) ** 2));
-  const ad = Math.abs(dr - c);
+  const hw = T.hw[i], ad = Math.abs(dr - T.c[i]);
   if (ad < hw + 1.2) {
     const cover = sm(hw + 0.9, hw - 0.9, ad);
-    const wob = 0.06 * nz.n2(s / 200, 44.1);
-    const la = 0.98 - 0.44 * sm(-700, 340, s) + wob, lb = 1.0 - 0.2 * (1 - Math.exp(-(s - 338) / 600)) + wob;
-    keep *= 1 - cover * (1 - sm(340, 380, s)) * L.clamp(la * (1 + 0.2 * nz.n2(s / 240, dr / 1.4 + 3))) * 0.9;
-    keep *= 1 - cover * sm(330, 346, s) * L.clamp(lb) * 0.9;
+    if (T.ta[i] > 0) keep *= 1 - cover * T.ta[i] * L.clamp(T.la[i] * (1 + 0.2 * nz.n2(s / 240, dr / 1.4 + 3))) * 0.9;
+    keep *= 1 - cover * T.tb[i] * 0.9;
   }
   return 1 - keep;
 }
 
 /** add the string lines to a density array (one byte per pixel of the padded layer) */
 function addBands(al, a) {
-  const nz = L.makeNoise('s26band');
+  const nz = L.makeNoise('s26band'), T = bandTables(nz);
   for (let x = 0; x < LW; x++) {
     const fx = x - PAD, dx = fx - a.cx;
     const y0 = Math.max(0, Math.floor(a.yAt(fx, 4)) + PAD), y1 = Math.min(LH - 1, Math.ceil(a.yAt(fx, FINE - 9)) + PAD);
     for (let y = y0; y <= y1; y++) {
       const dy = a.cy - (y - PAD);
-      const v = bandAt(nz, Math.atan2(dx, dy) * a.R, Math.sqrt(dx * dx + dy * dy) - a.R);
+      const v = bandAt(T, nz, Math.atan2(dx, dy) * a.R, Math.sqrt(dx * dx + dy * dy) - a.R);
       if (v > 0.003) { const i = y * LW + x; al[i] = 255 * (1 - (1 - al[i] / 255) * (1 - v)); }
     }
   }
@@ -505,25 +538,33 @@ function paintScene(g, a) {
   cloud(P, 1626, 262, 1.08, -1, 0.2);
 }
 
-/** the hand is never ruler-straight: push the whole drawing around by a slow noise field plus a finer tremor */
+/**
+ * The hand is never ruler-straight: push the whole drawing around by a slow noise field plus a finer tremor.
+ * The displacement is evaluated on a coarse grid and interpolated; returns the warped density, one byte per pixel.
+ */
 function handWarp(src) {
-  const w = LW, h = LH;
-  const nx = read(L.noiseTex(w, h, { seed: 's26wx', scale: 110, octaves: 2, res: 0.08, contrast: 1.7 }));
-  const ny = read(L.noiseTex(w, h, { seed: 's26wy', scale: 110, octaves: 2, res: 0.08, contrast: 1.7 }));
-  const nt = read(L.noiseTex(w, h, { seed: 's26wt', scale: 64, octaves: 2, res: 0.12, contrast: 1.7 }));
+  const w = LW, h = LH, G = 8, gw = Math.ceil(w / G) + 2, gh = Math.ceil(h / G) + 2;
+  const nz = L.makeNoise('s26hand');
+  const fx = new Float32Array(gw * gh), fy = new Float32Array(gw * gh);
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    const x = i * G, y = j * G;
+    fx[j * gw + i] = 6.4 * nz.fbm(x / 135, y / 135, 2) + 1.3 * nz.fbm(x / 64 + 40.3, y / 64, 2);
+    fy[j * gw + i] = 6.4 * nz.fbm(x / 135 + 91.7, y / 135 - 33.1, 2) + 1.3 * nz.fbm(x / 64 - 17.9, y / 64 + 80.2, 2);
+  }
   const out = new Uint8ClampedArray(w * h);
-  const A1 = 5.5 / 128, A2 = 1.1 / 128;
   for (let y = 0; y < h; y++) {
-    const y2 = (y + 211) % h;
+    const gy = y / G, j0 = gy | 0, ty = gy - j0, r0 = j0 * gw, r1 = r0 + gw;
     for (let x = 0; x < w; x++) {
-      const k = (y * w + x) * 4, k2 = (y2 * w + (x + 613) % w) * 4;
-      const sx = x + (nx[k] - 128) * A1 + (nt[k] - 128) * A2, sy = y + (ny[k] - 128) * A1 + (nt[k2] - 128) * A2;
+      const gx = x / G, i0 = gx | 0, tx = gx - i0, p = r0 + i0, q = r1 + i0;
+      const sx = x + (fx[p] * (1 - tx) + fx[p + 1] * tx) * (1 - ty) + (fx[q] * (1 - tx) + fx[q + 1] * tx) * ty;
+      const sy = y + (fy[p] * (1 - tx) + fy[p + 1] * tx) * (1 - ty) + (fy[q] * (1 - tx) + fy[q + 1] * tx) * ty;
       const ix = Math.floor(sx), iy = Math.floor(sy);
       if (ix < 0 || iy < 0 || ix >= w - 1 || iy >= h - 1) continue;
-      const fx = sx - ix, fy = sy - iy, i0 = (iy * w + ix) * 4 + 3, i1 = i0 + w * 4;
-      const a0 = src[i0], a1 = src[i0 + 4], a2 = src[i1], a3 = src[i1 + 4];
+      const k0 = (iy * w + ix) * 4 + 3, k1 = k0 + w * 4;
+      const a0 = src[k0], a1 = src[k0 + 4], a2 = src[k1], a3 = src[k1 + 4];
       if ((a0 | a1 | a2 | a3) === 0) continue;
-      out[y * w + x] = (a0 * (1 - fx) + a1 * fx) * (1 - fy) + (a2 * (1 - fx) + a3 * fx) * fy;
+      const ux = sx - ix, uy = sy - iy;
+      out[y * w + x] = (a0 * (1 - ux) + a1 * ux) * (1 - uy) + (a2 * (1 - ux) + a3 * ux) * uy;
     }
   }
   return out;
@@ -531,15 +572,19 @@ function handWarp(src) {
 
 /** "fire" the density map: density → five-tone cobalt, with pooling, bristle streaks, granulation and iron-rust specks */
 function develop(al) {
-  const w = LW, h = LH;
-  // blurred copy of the density (for edge pooling)
+  const w = LW, h = LH, hw = w >> 1, hh = h >> 1;
+  // blurred copy of the density at half size (for edge pooling: a mark is darker where it stands above its surroundings)
   const dc = L.makeCanvas(w, h), dimg = new ImageData(w, h), dd = dimg.data;
   for (let i = 0, n = w * h; i < n; i++) dd[i * 4 + 3] = al[i];
   dc.getContext('2d').putImageData(dimg, 0, 0);
-  const bl = read(L.blurred(dc, 5));
-  const low = read(L.noiseTex(w, h, { seed: 's26low', scale: 150, octaves: 3, warp: 0.6, res: 0.2, contrast: 1.7 }));
-  const str = read(L.noiseTex(w, h, { seed: 's26str', scale: 22, sx: 8, sy: 0.5, octaves: 3, res: 0.5, contrast: 1.6 }));
-  const mid = read(L.noiseTex(w, h, { seed: 's26rust', scale: 8, octaves: 3, res: 0.5, contrast: 1.9 }));
+  const bc = L.makeCanvas(hw, hh), bg = bc.getContext('2d');
+  bg.filter = 'blur(2.5px)'; bg.drawImage(dc, 0, 0, hw, hh);
+  const bl = read(bc);
+  // modulation fields, generated small and looked up per pixel
+  const field = (q, opts) => { const fw = Math.ceil(w * q), fh = Math.ceil(h * q); return { q, fw, d: read(L.noiseTex(fw, fh, { ...opts, scale: opts.scale * q, res: 1 })) }; };
+  const low = field(0.2, { seed: 's26low', scale: 150, octaves: 3, warp: 0.6, contrast: 1.7 });            // uneven load of a wash
+  const str = field(0.5, { seed: 's26str', scale: 22, sx: 8, sy: 0.5, octaves: 3, contrast: 1.6 });        // bristle streaks
+  const mid = field(0.5, { seed: 's26rust', scale: 8, octaves: 2, contrast: 1.9 });                        // where the rust breaks out
   const ramp = L.makeRamp([
     [0, [150, 180, 228, 0]], [0.035 / 1.5, [150, 180, 228, 0.1]], [0.12 / 1.5, [140, 170, 224, 0.52]], [0.22 / 1.5, [124, 157, 216, 0.82]],
     [0.36 / 1.5, [84, 122, 202, 0.93]], [0.52 / 1.5, [46, 84, 178, 0.98]], [0.72 / 1.5, [29, 60, 152, 1]], [0.92 / 1.5, [20, 42, 116, 1]],
@@ -548,21 +593,25 @@ function develop(al) {
   for (let i = 0; i < 1024; i++) { const c = ramp(i / 1023); lut[i * 4] = c[0]; lut[i * 4 + 1] = c[1]; lut[i * 4 + 2] = c[2]; lut[i * 4 + 3] = c[3] * 255; }
   const out = new ImageData(w, h), o = out.data;
   const R = L.rng('s26grain');
-  for (let i = 0, n = w * h; i < n; i++) {
-    const D = al[i] / 255;
-    if (D < 0.004) continue;
-    const k = i * 4;
-    let e = D - bl[k + 3] / 255; e = e < 0 ? 0 : e > 0.3 ? 0.3 : e;
-    const v = (D + 0.8 * e) * (1 + 0.62 * (low[k] / 255 - 0.5)) * (1 + 0.4 * (str[k] / 255 - 0.5)) * (1 + 0.16 * (R() - 0.5));
-    const li = (v >= 1.5 ? 1023 : (v / 1.5 * 1023) | 0) * 4;
-    let cr = lut[li], cg = lut[li + 1], cb = lut[li + 2];
-    if (v > 0.98) {
-      // heaped cobalt: blue-black with rust-brown specks and a dull metallic fleck here and there
-      const m = mid[k] / 255, q = sm(0.55, 0.7, m) * sm(0.98, 1.22, v) * 0.92;
-      cr += (44 - cr) * q; cg += (28 - cg) * q; cb += (28 - cb) * q;
-      if (m > 0.84 && v > 1.1) { cr += 36; cg += 30; cb += 32; }
+  for (let y = 0; y < h; y++) {
+    const rb = Math.min(hh - 1, y >> 1) * hw, rl = ((y * low.q) | 0) * low.fw, rs = ((y * str.q) | 0) * str.fw, rm = ((y * mid.q) | 0) * mid.fw;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x, D = al[i] / 255;
+      if (D < 0.004) continue;
+      let e = D - bl[(rb + Math.min(hw - 1, x >> 1)) * 4 + 3] / 255; e = e < 0 ? 0 : e > 0.3 ? 0.3 : e;
+      const lo = low.d[(rl + ((x * low.q) | 0)) * 4] / 255 - 0.5, st = str.d[(rs + ((x * str.q) | 0)) * 4] / 255 - 0.5;
+      const v = (D + 0.8 * e) * (1 + 0.62 * lo) * (1 + 0.4 * st) * (1 + 0.16 * (R() - 0.5));
+      const li = (v >= 1.5 ? 1023 : (v / 1.5 * 1023) | 0) * 4;
+      let cr = lut[li], cg = lut[li + 1], cb = lut[li + 2];
+      if (v > 1.03) {
+        // heaped cobalt: blue-black with rust-brown specks and a dull metallic fleck here and there
+        const m = mid.d[(rm + ((x * mid.q) | 0)) * 4] / 255, q = sm(0.6, 0.76, m) * sm(1.03, 1.28, v) * 0.92;
+        cr += (44 - cr) * q; cg += (28 - cg) * q; cb += (28 - cb) * q;
+        if (m > 0.88 && v > 1.14) { cr += 36; cg += 30; cb += 32; }
+      }
+      const k = i * 4;
+      o[k] = cr; o[k + 1] = cg; o[k + 2] = cb; o[k + 3] = lut[li + 3];
     }
-    o[k] = cr; o[k + 1] = cg; o[k + 2] = cb; o[k + 3] = lut[li + 3];
   }
   const ink = L.makeCanvas(w, h);
   ink.getContext('2d').putImageData(out, 0, 0);
@@ -575,64 +624,71 @@ function buildPlate(env) {
   const al = handWarp(read(scene));
   addBands(al, a);
   const ink = develop(al);
-  const glaze = buildGlaze(env);
-  return L.makeLayer(PAD, (g) => {
-    g.drawImage(glaze, -PAD, -PAD);
-    // cobalt bleeding into the glaze around every mark, then the mark itself, slightly soft (it lies UNDER the glaze)
-    g.save(); g.globalAlpha = 0.5; g.filter = 'blur(6px)'; g.drawImage(ink, -PAD, -PAD); g.restore();
-    g.save(); g.filter = 'blur(0.8px)'; g.drawImage(ink, -PAD, -PAD); g.restore();
-    // ── the glaze on top ──
-    // bubbles in the glaze: pale pin-points, visible mostly over the blue
-    g.save(); g.globalCompositeOperation = 'screen';
-    L.speckle(g, { seed: 's26bub', count: 5200, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.5, rMax: 1.5, colors: ['#cfdcf0', '#e6eef8'], alpha: [0.08, 0.4] });
-    g.restore();
-    // pinholes and the odd iron speck
-    const calm = (x, y) => !(x > 600 && x < 1320 && y > a.crestY - 290 && y < a.crestY);
-    L.speckle(g, { seed: 's26pin', count: 300, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.5, rMax: 1.7, colors: ['#8fa3b6', '#6f8296', '#a9b9c8'], alpha: [0.15, 0.5] });
-    L.speckle(g, { seed: 's26iron', count: 34, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.7, rMax: 2.3, colors: ['#6b5238', '#4a3a2c'], alpha: [0.3, 0.7], test: calm });
-    // crazing, barely there
-    g.save(); g.globalAlpha = 0.14; g.drawImage(buildCraze(), -PAD, -PAD); g.restore();
-  });
+  // cobalt bleeds a little into the glaze around every mark: a soft halo, made at half size
+  const halo = L.makeCanvas(LW >> 1, LH >> 1), hg = halo.getContext('2d');
+  hg.filter = 'blur(3px)'; hg.drawImage(ink, 0, 0, LW >> 1, LH >> 1);
+  const plate = buildGlaze(env), g = plate.getContext('2d');     // (the layer's context keeps its PAD translation)
+  g.save(); g.globalAlpha = 0.5; g.imageSmoothingQuality = 'high'; g.drawImage(halo, -PAD, -PAD, LW, LH); g.restore();
+  // the mark itself, a touch soft because it lies UNDER the glaze: two half-pixel-shifted passes ≈ a 1 px tent blur
+  g.drawImage(ink, -PAD - 0.5, -PAD - 0.5);
+  g.save(); g.globalAlpha = 0.5; g.drawImage(ink, -PAD + 0.5, -PAD + 0.5); g.restore();
+  // ── the glaze on top ──
+  // bubbles in the glaze: pale pin-points, visible mostly over the blue
+  g.save(); g.globalCompositeOperation = 'screen';
+  L.speckle(g, { seed: 's26bub', count: 5200, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.5, rMax: 1.5, colors: ['#cfdcf0', '#e6eef8'], alpha: [0.08, 0.4] });
+  g.restore();
+  // pinholes and the odd iron speck (none of the larger ones inside the text zone)
+  const calm = (x, y) => !(x > 600 && x < 1320 && y > a.crestY - 290 && y < a.crestY);
+  L.speckle(g, { seed: 's26pin', count: 300, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.5, rMax: 1.7, colors: ['#8fa3b6', '#6f8296', '#a9b9c8'], alpha: [0.15, 0.5] });
+  L.speckle(g, { seed: 's26iron', count: 34, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.7, rMax: 2.3, colors: ['#6b5238', '#4a3a2c'], alpha: [0.3, 0.7], test: calm });
+  // crazing, barely there
+  drawCraze(g);
+  // reflections on the glaze, and a cool fall-off toward the corners. Both are baked into this one layer: over six
+  // frames of a ±0.003 rad drift they would not visibly part from the surface, and one blit per frame keeps draw() cheap.
+  g.save(); g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.9; sheen(g, a); g.restore();
+  const rad = Math.hypot(W / 2, H / 2);
+  g.fillStyle = L.radial(g, W / 2, H / 2, rad * 0.5, rad * 1.12, [[0, 'rgba(12,26,52,0)'], [1, 'rgba(12,26,52,0.15)']]);
+  g.fillRect(-PAD, -PAD, LW, LH);
+  return plate;
 }
 
-/** glaze reflections: composited with 'screen' and nudged against the dish's motion */
-function buildSheen(env) {
-  const a = env.arc;
-  return L.makeLayer(PAD, (g) => {
-    const rr = (x, y, w, h, rad) => { g.beginPath(); g.moveTo(x + rad, y); g.arcTo(x + w, y, x + w, y + h, rad); g.arcTo(x + w, y + h, x, y + h, rad); g.arcTo(x, y + h, x, y, rad); g.arcTo(x, y, x + w, y, rad); g.closePath(); };
-    // a window reflected in the glaze, upper left: four soft panes, skewed by the curve of the wall
-    // (the glaze layer darkens the wall a little around it, so the panes read as light ON the surface)
-    g.save(); g.filter = 'blur(11px)'; g.translate(258, 108); g.transform(1, -0.13, 0.24, 1, 0, 0);
-    g.fillStyle = 'rgba(255,255,255,0.9)';
-    for (const [px, py] of [[-176, -96], [8, -96], [-176, 6], [8, 6]]) { rr(px, py, 168, 90, 10); g.fill(); }
-    g.restore();
-    // a smaller glow, upper right
-    g.save(); g.filter = 'blur(30px)'; g.translate(1760, -10); g.rotate(0.2);
-    g.fillStyle = 'rgba(255,255,255,0.6)'; rr(-200, -90, 400, 150, 50); g.fill(); g.restore();
-    // the same window's bars slanting across the painted well
-    g.save(); g.filter = 'blur(16px)';
-    g.fillStyle = 'rgba(235,244,255,0.5)'; g.beginPath(); g.moveTo(1268, 540); g.lineTo(1400, 540); g.lineTo(1654, 1280); g.lineTo(1484, 1280); g.closePath(); g.fill();
-    g.fillStyle = 'rgba(235,244,255,0.32)'; g.beginPath(); g.moveTo(1446, 560); g.lineTo(1494, 560); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
-    g.restore();
-    // the fold above the lines catches a thin streak of light
-    g.save(); g.filter = 'blur(3px)'; g.lineCap = 'round';
-    const p0 = a.pt(-0.27, 10), p1 = a.pt(0.05, 10);
-    g.strokeStyle = L.linear(g, p0.x, 0, p1.x, 0, [[0, 'rgba(255,255,255,0)'], [0.4, 'rgba(255,255,255,0.85)'], [1, 'rgba(255,255,255,0)']]);
-    g.lineWidth = 5; a.stroke(g, 10, -0.27, 0.05);
-    g.restore();
-  });
+/** reflections of the room in the glaze (call with composite 'screen' already set) */
+function sheen(g, a) {
+  // a window, upper left: a tall casement running out of the corner, each pane bent a little as a curved surface bends it
+  // (buildGlaze darkens the wall around it, so the panes read as light ON the surface)
+  const wp = (u, v) => [150 + u * (1 + 0.0011 * v) + 0.26 * v, 52 + v * (1 - 0.0006 * u) - 0.12 * u];
+  g.save(); g.filter = 'blur(13px)'; g.fillStyle = 'rgba(255,255,255,0.8)';
+  for (const u0 of [-170, 12]) for (const v0 of [-200, -92, 16]) {
+    const q = [wp(u0, v0), wp(u0 + 160, v0), wp(u0 + 160, v0 + 92), wp(u0, v0 + 92)];
+    g.beginPath(); q.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill();
+  }
+  g.restore();
+  // a smaller glow, upper right
+  g.save(); g.translate(1760, -14); g.rotate(0.2); g.scale(1, 0.42);
+  g.fillStyle = L.radial(g, 0, 0, 0, 290, [[0, 'rgba(255,255,255,0.6)'], [0.45, 'rgba(255,255,255,0.4)'], [1, 'rgba(255,255,255,0)']]);
+  g.fillRect(-300, -300, 600, 600); g.restore();
+  // the same window's bars slanting across the painted well; they die away up the wall
+  g.save(); g.filter = 'blur(16px)';
+  const fade = (al) => L.linear(g, 0, 430, 0, 640, [[0, 'rgba(235,244,255,0)'], [1, `rgba(235,244,255,${al})`]]);
+  g.fillStyle = fade(0.5); g.beginPath(); g.moveTo(1230, 430); g.lineTo(1362, 430); g.lineTo(1654, 1280); g.lineTo(1484, 1280); g.closePath(); g.fill();
+  g.fillStyle = fade(0.32); g.beginPath(); g.moveTo(1398, 430); g.lineTo(1446, 430); g.lineTo(1764, 1280); g.lineTo(1700, 1280); g.closePath(); g.fill();
+  g.restore();
+  // the fold above the lines catches a thin streak of light
+  g.save(); g.filter = 'blur(3px)'; g.lineCap = 'round';
+  const p0 = a.pt(-0.27, 10), p1 = a.pt(0.05, 10);
+  g.strokeStyle = L.linear(g, p0.x, 0, p1.x, 0, [[0, 'rgba(255,255,255,0)'], [0.4, 'rgba(255,255,255,0.85)'], [1, 'rgba(255,255,255,0)']]);
+  g.lineWidth = 5; a.stroke(g, 10, -0.27, 0.05);
+  g.restore();
 }
 
 export default {
   name: '青花',
   tone: 'dark',
   init(env) {
-    S = { plate: buildPlate(env), sheen: buildSheen(env) };
+    S = { plate: buildPlate(env) };
   },
   draw(ctx, env, p) {
-    const rot = L.lerp(-0.003, 0.003, p), zoom = L.lerp(1.0, 1.012, p);
-    L.blit(ctx, env, S.plate, { rot, zoom });
-    L.blit(ctx, env, S.sheen, { rot: -rot * 2.5, dx: L.lerp(10, -10, p), blend: 'screen', alpha: 0.9 });
-    L.vignette(ctx, { strength: 0.13, color: '#0c1a34', inner: 0.5, outer: 1.08 });
+    // six frames: the dish slides a hair along the arc while the camera creeps in
+    L.blit(ctx, env, S.plate, { rot: L.lerp(-0.003, 0.003, p), zoom: L.lerp(1.0, 1.012, p) });
   },
 };

@@ -61,7 +61,7 @@ function buildGiltMask(env, X0, Y0, RW, RH) {
   const cloud = (U, d, s, flip, seed) => {
     a.at(g, U / a.R, -d, () => {
       const fx = flip ? -s : s;
-      const P = (pts, w, k, taper = [0.08, 0.2]) => L.inkStroke(g, pts.map(([x, y]) => [x * fx, y * s]), { width: w * 1.35, color: '#fff', seed: seed * 7 + k, taper, wobble: 0.22, smoothStep: 3 });
+      const P = (pts, w, k, taper = [0.08, 0.2]) => L.inkStroke(g, pts.map(([x, y]) => [x * fx, y * s]), { width: w * 1.5, color: '#fff', seed: seed * 7 + k, taper, wobble: 0.22, smoothStep: 3 });
       // ruyi head: a round crown between two scrolls that curl inward
       P([[-0.5, -0.5], [-0.56, -0.9], [-0.34, -1.2], [0, -1.3], [0.34, -1.2], [0.56, -0.9], [0.5, -0.5]], 7.5, 1, [0.12, 0.12]);
       P([[-0.42, -0.62], [-0.7, -0.66]].concat(spiral(-0.98, 0.02, 0.6, -Math.PI / 2, 1.45, -1)), 7.5, 2, [0.05, 0.3]);
@@ -104,9 +104,9 @@ function buildDrum(env) {
     if (d < HB + 30) { cMot[k] = nA.fbm(U / 230, d / 120, 4); cBuck[k] = nA.fbm(U / 64 + 9, d / 80 + 3, 3); }
     if (d > HB - 30) {
       cTone[k] = nB.fbm(U / 430 + 5, d / 260, 4);
-      cWear[k] = nB.fbm(U / 330 - 17, d / 150 + 31, 5, 2, 0.55);
+      cWear[k] = nB.fbm(U / 520 - 17, d / 84 + 31, 5, 2, 0.55);
       cCrk[k] = nB.fbm(U / 520 + 71, d / 300 - 9, 3);
-      cBrush[k] = nC.fbm(U / 300, d / 26, 3);
+      cBrush[k] = nC.fbm(U / 340, d / 38, 3);
       cWx[k] = nC.n2(U / 210 + 5, d / 210); cWy[k] = nC.n2(U / 210 - 31, d / 210 + 19);
       cGl[k] = nC.fbm(U / 58 + 13, d / 58 + 47, 3);
     }
@@ -142,14 +142,15 @@ function buildDrum(env) {
         Mat[k] = 1;
         const tight = 0.25 + 0.75 * Math.exp(-d / 60);
         const cr = (nA.n2(U / 11, d / 170 + 3) * 0.2 + nA.n2(U / 34 + 40, d / 260) * 0.38) * tight;   // tension creases run straight down from the rim
-        const pore = nB.n2(x / 2.7, y / 2.7) * 0.1 + nB.n2(x / 6.5 + 9, y / 6.5) * 0.08;
-        Hh[k] = cr + pore + bil(cBuck, i, j) * 1.2 + 2.6 * sstep(0, 3.2, de - d);
+        const pore = nB.n2(x / 2.7, y / 2.7) * 0.055 + nB.n2(x / 6.5 + 9, y / 6.5) * 0.06;
+        const bk = bil(cBuck, i, j);
+        Hh[k] = 2.6 + cr * (0.35 + 1.3 * Math.abs(bk)) + pore + bk * 1.2 + 1.5 * sstep(0, 3.2, de - d);   // the skin stands proud of the lacquer by its own thickness
         const m = bil(cMot, i, j) * 1.4;
-        let r = 228, g = 205, b = 158;
+        let r = 236, g = 211, b = 158;
         if (m > 0) { const t = m > 1 ? 1 : m; r += (244 - r) * t * 0.8; g += (229 - g) * t * 0.8; b += (194 - b) * t * 0.8; }   // thin, milky patches
         else { const t = m < -1 ? 1 : -m; r += (204 - r) * t; g += (160 - g) * t; b += (98 - b) * t; }                        // thick, honey-coloured ones
         const fol = nB.n2(x / 1.7 + 50, y / 1.7);                               // hair follicles
-        const dirt = 1 - 0.14 * Math.max(0, -cr) + pore * 0.18 - (fol > 0.5 ? (fol - 0.5) * 0.22 : 0);
+        const dirt = 1 - 0.14 * Math.max(0, -cr) + pore * 0.2 - (fol > 0.5 ? (fol - 0.5) * 0.14 : 0);
         const eg = 1 - sstep(0, 18, de - d);                                  // grime gathered along the cut edge
         r = (r + (128 - r) * eg * 0.42) * dirt; g = (g + (92 - g) * eg * 0.42) * dirt; b = (b + (56 - b) * eg * 0.42) * dirt;
         px[o] = r; px[o + 1] = g; px[o + 2] = b;
@@ -164,7 +165,7 @@ function buildDrum(env) {
         const cm = sstep(-0.3, 0.05, bil(cCrk, i, j));                        // where the lacquer has crazed at all
         const line = cm * (1 - sstep(0.5, 1.45, e));
         const fine = nC.n2(Ul / 5.5, d / 5.5) * 0.6 + nC.n2(Ul / 2.4 + 31, d / 2.4) * 0.4;
-        let h = 0.2 * bil(cBrush, i, j) + 0.05 * fine
+        let h = 0.15 * bil(cBrush, i, j) + 0.035 * fine
           + cm * (tD * (d - vPd) * 0.012 + tU * (U - vPu) * 0.005)             // every plate tips its own way
           + cm * 0.4 * Math.exp(-e / 4.5)                                      // plate edges curl up
           - line;                                                             // the crack itself
@@ -182,18 +183,18 @@ function buildDrum(env) {
         const wear = sstep(0.69, 0.76, wv);
         // flakes: whole plates gone, down to the grey ground
         let chip = 0;
-        if (tC < 0.045 && cm > 0.6 && wearN > 0 && q > 30) { chip = sstep(1.0, 2.6, e + 1.2 * fine) * sstep(-0.4, -0.15, nB.n2(U / 46 + 7, d / 34)); h -= 1.5 * chip; }
+        if (tC < 0.045 && cm > 0.6 && wearN > 0 && q > 30) { chip = sstep(1.0, 2.8, e + 1.5 * fine + 1.2 * nB.n2(U / 19 + 7, d / 15)); h -= 1.5 * chip; }
         let mg = gilt[k] / 255;
         if (mg > 0) {
-          const keep = sstep(-0.46, -0.12, bil(cGl, i, j) + 0.22 * fine) * (tC > 0.8 && cm > 0.5 ? 0.12 : 1) * (1 - wear) * (1 - chip);
+          const keep = sstep(-0.56, -0.2, bil(cGl, i, j) + 0.22 * fine) * (tC > 0.87 && cm > 0.5 ? 0.12 : 1) * (1 - wear) * (1 - chip);
           mg *= keep; h += 0.3 * mg;
         }
         Hh[k] = h;
         const tn = bil(cTone, i, j), tone = 1 + 0.16 * tn + 0.035 * tT * cm + 0.03 * fine;
-        let r = 192 * tone, g = (34 + 14 * tn) * tone, b = (24 - 4 * tn) * tone;
-        if (wear > 0) { const w = wear * 0.9; r += (62 - r) * w; g += (19 - g) * w; b += (12 - b) * w; }
-        if (chip > 0) { const cv = 0.8 + 0.35 * fine; r += (136 * cv - r) * chip; g += (112 * cv - g) * chip; b += (86 * cv - b) * chip; }
-        if (mg > 0) { r += (204 - r) * mg; g += (150 - g) * mg; b += (58 - b) * mg; }
+        let r = 188 * tone, g = (30 + 14 * tn) * tone, b = (22 - 4 * tn) * tone;
+        if (wear > 0) { const w = wear * 0.78; r += (70 - r) * w; g += (22 - g) * w; b += (14 - b) * w; }
+        if (chip > 0) { const cv = 0.78 + 0.3 * fine + 0.2 * nB.n2(U / 9, d / 60); r += (128 * cv - r) * chip; g += (104 * cv - g) * chip; b += (80 * cv - b) * chip; }
+        if (mg > 0) { const w = mg * (0.82 + 0.18 * fine), gv = 0.82 + 0.3 * tU * cm + 0.12 * tn; r += (204 * gv - r) * w; g += (146 * gv - g) * w; b += (52 * gv - b) * w; }
         px[o] = r; px[o + 1] = g; px[o + 2] = b;
         Ck[k] = 255 * Math.min(1, 0.8 * line + 0.62 * seam);
         Gl[k] = 255 * (1 - 0.8 * wear) * (1 - 0.95 * chip) * sstep(1, 4, q);
@@ -239,21 +240,23 @@ function buildDrum(env) {
       const ku = j > 0 && Mat[k - RW] ? Hh[k - RW] : h0, kd = j < RH - 1 && Mat[k + RW] ? Hh[k + RW] : h0;
       const hx = (kr - kl) * 0.5, hy = (kd - ku) * 0.5;
       const ddx = X0 + i - cx, rr = R - d, sn = ddx / rr, cs = ddy / rr;
-      const th = Ua[k] / R, sf = sstep(0.1, 0.54, Math.abs(th - KEY_T)), side = 1 - (mat === 1 ? 0.3 : 0.55) * sf;
+      const th = Ua[k] / R, sf = sstep(0.08, 0.52, Math.abs(th - KEY_T)), side = 1 - (mat === 1 ? 0.3 : 0.6) * sf;
       let rel = -(hx * lx + hy * ly);
       let r = px[o], g = px[o + 1], b = px[o + 2];
       if (mat === 1) {
         rel *= 1.25; rel = rel < -0.6 ? -0.6 : rel > 0.5 ? 0.5 : rel;
         // the hide rolls over the rim: it faces the light more and more toward the limb, with a bright bead on the very edge
         const roll = Math.exp(-d / 9), bead = Math.exp(-((d - 2.2) * (d - 2.2)) / 7);
-        const lit = (0.94 + rel + 0.16 * roll + 0.2 * bead - 0.1 * Math.exp(-((d - 17) * (d - 17)) / 60)) * side;
+        // … and scraped rawhide is waxy: a soft sheen where the skirt turns down off the rim
+        const sheen = 0.1 * Math.exp(-((d - 31) * (d - 31)) / 500) - 0.07 * sstep(70, 150, d);
+        const lit = (1.02 + rel + 0.14 * roll + 0.2 * bead - 0.1 * Math.exp(-((d - 15) * (d - 15)) / 40) + sheen) * side;
         r *= lit; g *= lit; b *= lit * (1 - 0.06 * roll);
       } else {
         rel *= 1.2; rel = rel < -0.55 ? -0.55 : rel > 0.55 ? 0.55 : rel;
         let hv = -hx * sn + hy * cs; hv = hv < -0.4 ? -0.4 : hv > 0.4 ? 0.4 : hv;
         E[k] = d - KS * hv;
         const q = Qe[k];
-        const lit = (1.12 - 0.74 * sstep(170, 680, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
+        const lit = (1.14 - 0.8 * sstep(165, 660, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
         // deep lacquer never goes fully flat: a broad soft sheen sits under the moving highlight
         const sh = 24 * Math.exp(-((d - 242) * (d - 242)) / 16000) * side * (Gl[k] / 255);
         r = r * lit + sh; g = g * lit + sh * 0.45; b = b * lit + sh * 0.32;
@@ -271,7 +274,7 @@ function buildDrum(env) {
     const dist = Math.sqrt(ox * ox + oy * oy);
     if (dist < nl.rad - 1.5) return;
     const sx = ox - SHX * nl.rad, sy = oy - SHY * nl.rad, ds = Math.sqrt(sx * sx + sy * sy);
-    const cast = 0.6 * (1 - sstep(nl.rad * 0.72, nl.rad * 1.32, ds)), ao = 0.5 * Math.exp(-Math.max(0, dist - nl.rad) / 4.5);
+    const cast = 0.68 * (1 - sstep(nl.rad * 0.7, nl.rad * 1.36, ds)), ao = 0.55 * Math.exp(-Math.max(0, dist - nl.rad) / 5);
     const m = 1 - Math.min(0.86, cast + ao), o = k * 4;
     px[o] *= m; px[o + 1] *= m * 0.94; px[o + 2] *= m * 0.88;
   });
@@ -287,13 +290,13 @@ function buildDrum(env) {
       nx += 0.03 * nC.n2(ox / 2.2 + nl.id * 11, oy / 2.2); ny += 0.03 * nC.n2(ox / 2.2, oy / 2.2 + nl.id * 13);
       const nz = Math.sqrt(Math.max(0.03, 1 - nx * nx - ny * ny));
       const ndh = nx * Hx + ny * Hy + nz * Hz, ndl = Math.max(0, nx * Lx + ny * Ly + nz * Lz);
-      const s1 = sstep(0.972, 0.992, ndh) + 0.3 * sstep(0.986, 0.996, nx * 0.36 - ny * 0.16 + nz * 0.919), s2 = Math.pow(Math.max(0, ndh), 12);
+      const s1 = sstep(0.968, 0.99, ndh) + 0.3 * sstep(0.986, 0.996, nx * 0.36 - ny * 0.16 + nz * 0.919), s2 = Math.pow(Math.max(0, ndh), 9);
       // gilding survives on the crown; dark tarnish creeps up from the skirt in soft clouds
       const gm = sstep(0, 0.5, (nz - 0.56) * 1.3 + 0.42 * nA.fbm(ox / 17 + nl.id * 9.1, oy / 17 - nl.id * 4.7, 2) + gAmt);
-      const di = 0.3 + 1.05 * ndl, dg = 0.2 + 0.98 * ndl;
-      let r = 54 * di + (214 * dg + 150 * s2 - 54 * di) * gm + 52 * s2 * (1 - gm);
-      let g = 40 * di + (160 * dg + 118 * s2 - 40 * di) * gm + 40 * s2 * (1 - gm);
-      let b = 28 * di + (62 * dg + 60 * s2 - 28 * di) * gm + 28 * s2 * (1 - gm);
+      const di = 0.25 + 0.9 * ndl, dg = 0.1 + 0.95 * Math.pow(ndl, 1.35);
+      let r = 50 * di + (204 * dg + 200 * s2 - 50 * di) * gm + 80 * s2 * (1 - gm);
+      let g = 36 * di + (148 * dg + 165 * s2 - 36 * di) * gm + 60 * s2 * (1 - gm);
+      let b = 26 * di + (52 * dg + 96 * s2 - 26 * di) * gm + 38 * s2 * (1 - gm);
       // the skirt of the dome mirrors the pale hide around it (lit side) and the red barrel below
       const skirt = sstep(0.76, 0.56, nz), lee = 0.5 - 0.5 * (nx * 0.58 + ny * 0.81) / Math.sqrt(1.001 - nz * nz);
       const up = skirt * (0.14 + 0.5 * lee) * (0.55 + 0.45 * gm);
@@ -308,13 +311,12 @@ function buildDrum(env) {
   }
 
   // everything lives in region-sized canvases (RW × RH, top-left at X0,Y0): nothing but black exists above the rim
-  const body = L.makeCanvas(RW, RH);
-  body.getContext('2d').putImageData(img, 0, 0);
+  const stage = (im) => { const t = L.makeCanvas(RW, RH); t.getContext('2d').putImageData(im, 0, 0); const c = L.makeCanvas(RW, RH); c.getContext('2d').drawImage(t, 0, 0); return c; };
+  const body = stage(img);
   // the cracks themselves go on their own layer, laid over the picture AFTER the moving highlight so they cut through it
   const cimg = new ImageData(RW, RH), cp = cimg.data;
   for (let k = 0; k < N; k++) { if (Ck[k]) { const o = k * 4; cp[o] = 26; cp[o + 1] = 6; cp[o + 2] = 4; cp[o + 3] = Ck[k]; } }
-  const cracks = L.makeCanvas(RW, RH);
-  cracks.getContext('2d').putImageData(cimg, 0, 0);
+  const cracks = stage(cimg);
   // macro lens: the barrel swells toward the camera at the bottom of frame and drops out of focus
   for (const layer of [body, cracks]) {
     const soft = L.blurred(layer, 3.2), sg = soft.getContext('2d'), lg = layer.getContext('2d');
@@ -343,7 +345,7 @@ function buildDrum(env) {
   const BL = new Float32Array(1024);   // band profile vs (E − E0), 0.5 px steps, centre at 512
   for (let n = 0; n < 1024; n++) {
     const e = (n - 512) * 0.5, ae = Math.abs(e);
-    BL[n] = 0.5 * (1 - sstep(10, 25, ae)) + 0.16 * Math.exp(-(e * e) / 60) + 0.17 * Math.exp(-(e * e) / 3800) + 0.12 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.04 * Math.exp(-((e - 128) * (e - 128)) / 1800);
+    BL[n] = 0.5 * (1 - sstep(14, 23, ae)) + 0.18 * Math.exp(-(e * e) / 50) + 0.15 * Math.exp(-(e * e) / 3400) + 0.12 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.04 * Math.exp(-((e - 128) * (e - 128)) / 1800);
   }
   const LL = new Float32Array(1024);   // lateral falloff vs |U − Uc|, 2 px steps
   for (let n = 0; n < 1024; n++) { const t = (n * 2) / 900; LL[n] = Math.exp(-t * t) * 0.92 + 0.08; }
@@ -359,7 +361,7 @@ function renderSpec(E0, Uc) {
     let ei = ((E2[k] - E0) * 2 + 512) | 0; ei = ei < 0 ? 0 : ei > 1023 ? 1023 : ei;
     let li = U2[k] - Uc; li = (li < 0 ? -li : li) * 0.5 | 0; if (li > 1023) li = 1023;
     const v = BL[ei] * LL[li] * g, m = M2[k] * (1 / 255), o = k * 4;
-    d[o] = v * (1 + 0.5 * m); d[o + 1] = v * (0.8 + 0.22 * m); d[o + 2] = v * (0.66 - 0.3 * m);
+    d[o] = v * (1 + 0.25 * m); d[o + 1] = v * (0.8 + 0.1 * m); d[o + 2] = v * (0.66 - 0.28 * m);
   }
   S.sctx.putImageData(spec, 0, 0);
 }

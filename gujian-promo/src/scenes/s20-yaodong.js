@@ -18,8 +18,8 @@ const RAIL = 22;                      // concentric rail that closes the fan
 const RIB = 16, RIB_PITCH = 96;       // radial ribs: width / spacing along the arc
 const P = 196, MUN = 18;              // square lattice below: pitch / muntin width
 const DIAG = 8;                       // thin bars of the diagonal (斜格) infill panes
-const WOOD = [[0, '#140805'], [0.45, '#2a120a'], [1, '#4d2614']];
-const RED = '#cf2014';
+const WOOD = [[0, '#0c0504'], [0.45, '#1e0c07'], [1, '#3a1b0d']];   // a shade under the brief's #2a120a: halation lifts it back
+const RED = '#c81e14';
 let S = null;
 
 // ───────────────────────── geometry ─────────────────────────
@@ -187,8 +187,13 @@ function buildPaper(env, G) {
   const layer = L.makeLayer(PAD, (g) => {
     g.save(); a.clipBelow(g, 1);
     // the lamp behind the paper: a hot core falling off to deep orange toward the springing of the arch
-    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 1000, [[0, '#fff8dc'], [0.05, '#ffeeb4'], [0.14, '#ffdc8c'], [0.28, '#ffc462'], [0.44, '#fba63e'], [0.6, '#e88426'], [0.8, '#c9641c'], [1, '#aa4e14']]);
+    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 1000, [[0, '#fff8dc'], [0.05, '#ffeeb4'], [0.14, '#ffdc8c'], [0.28, '#ffc462'], [0.44, '#fba63e'], [0.6, '#e88426'], [0.8, '#d06a1e'], [1, '#bb5a18']]);
     g.fillRect(-PAD, -PAD, FW, FH);
+    // the whitewashed vault inside throws the lamp back onto the top of the window: the fan band stays luminous right out to the springing
+    g.globalCompositeOperation = 'screen';
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 300, a.R, [[0, 'rgba(255,170,72,0)'], [0.5, 'rgba(255,170,72,0.14)'], [1, 'rgba(255,176,80,0.34)']]);
+    g.fillRect(-PAD, -PAD, FW, FH);
+    g.globalCompositeOperation = 'source-over';
     // each pane is its own little sheet: slightly different thickness
     const r = L.rng('s20pane');
     for (let i = 0; i < G.ribs.length - 1; i++) { g.fillStyle = `rgba(150,60,6,${r.range(0, 0.12).toFixed(3)})`; a.pathBand(g, 0, -BAND, G.ribs[i], G.ribs[i + 1]); g.fill(); }
@@ -199,13 +204,13 @@ function buildPaper(env, G) {
     }
     // cloudy fibre of hand-made paper seen by transmitted light
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.8;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20cloud', scale: 58, octaves: 4, gain: 0.55, warp: 0.9, res: 0.4, contrast: 1.4, ramp: [[0, '#d48e48'], [0.45, '#f7d9a6'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20cloud', scale: 58, octaves: 3, gain: 0.55, warp: 0.9, res: 0.28, contrast: 1.4, ramp: [[0, '#d48e48'], [0.45, '#f7d9a6'], [1, '#ffffff']] }), -PAD, -PAD);
     g.globalAlpha = 0.55;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20fine', scale: 9, octaves: 2, res: 0.5, contrast: 1.6, ramp: [[0, '#dfa868'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20fine', scale: 9, octaves: 2, res: 0.4, contrast: 1.6, ramp: [[0, '#dfa868'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // long fibres and a few creases
     g.lineCap = 'round';
-    for (let i = 0; i < 1700; i++) {
+    for (let i = 0; i < 1300; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(a.crestY - 10, H + PAD), len = r.range(14, 70), an = r.range(0, Math.PI);
       g.strokeStyle = r.chance(0.6) ? `rgba(136,58,8,${r.range(0.07, 0.24).toFixed(3)})` : `rgba(255,246,214,${r.range(0.08, 0.28).toFixed(3)})`;
       g.lineWidth = r.range(0.5, 1.5);
@@ -229,7 +234,7 @@ function buildPaper(env, G) {
       const pc = papercut(q.kind, q.r, q.kind + q.x);
       g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
       g.globalCompositeOperation = 'multiply'; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.5; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.6; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
       g.restore();
     }
     g.restore();
@@ -240,9 +245,9 @@ function buildPaper(env, G) {
 // ───────────────────────── the timber lattice ─────────────────────────
 function buildLattice(env, G) {
   const a = env.arc;
-  const tex = (seed, sx, sy) => L.polarNoiseLayer(env, PAD, { seed, scale: 7, sx, sy, octaves: 3, contrast: 1.5, res: 0.3, ramp: WOOD });
+  const tex = (seed, sx, sy) => L.polarNoiseLayer(env, PAD, { seed, scale: 7, sx, sy, octaves: 2, contrast: 1.5, res: 0.25, ramp: WOOD });
   const V = L.makeLayer(PAD, (g) => {
-    g.fillStyle = g.strokeStyle = '#2a120a';
+    g.fillStyle = g.strokeStyle = '#1e0c07';
     strokeDiagonals(g, a, G, DIAG); fillVerticals(g, a, G);
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.9; g.drawImage(tex('s20wv', 1, 18), -PAD, -PAD); g.globalAlpha = 1;
@@ -259,7 +264,7 @@ function buildLattice(env, G) {
     g.restore();
   });
   const Hz = L.makeLayer(PAD, (g) => {
-    g.fillStyle = '#2a120a'; fillHorizontals(g, a, G);
+    g.fillStyle = '#1e0c07'; fillHorizontals(g, a, G);
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.9; g.drawImage(tex('s20wh', 18, 1), -PAD, -PAD); g.globalAlpha = 1;
     g.lineWidth = 2.6; g.strokeStyle = 'rgba(176,96,52,0.36)'; a.stroke(g, FRAME + SOFFIT - 1.5); a.stroke(g, -BAND - 1.5);
@@ -294,11 +299,11 @@ function buildWall(env) {
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.34;
     g.drawImage(L.noiseTex(FW, FH, { seed: 's20stain', scale: 420, octaves: 3, warp: 0.6, res: 0.25, ramp: [[0, '#a8785c'], [0.5, '#ead2be'], [1, '#ffffff']] }), -PAD, -PAD);
     // fine trowelled grain, lit from below by the window
-    const hgt = L.noiseTex(FW, FH, { seed: 's20bump', scale: 30, octaves: 4, gain: 0.55, res: 0.4 });
+    const hgt = L.noiseTex(FW, FH, { seed: 's20bump', scale: 30, octaves: 3, gain: 0.55, res: 0.3 });
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.17;
-    g.drawImage(L.bumpLight(hgt, { angle: 270, strength: 4, res: 0.4 }), -PAD, -PAD);
+    g.drawImage(L.bumpLight(hgt, { angle: 270, strength: 4, res: 0.3 }), -PAD, -PAD);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.22;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20grit', scale: 12, octaves: 3, res: 0.4, contrast: 1.7 }), -PAD, -PAD);
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20grit', scale: 12, octaves: 2, res: 0.33, contrast: 1.7 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // chopped straw in the plaster, and pits where it has fallen out
     const r = L.rng('s20straw');
@@ -416,10 +421,21 @@ function buildStrings(env) {
     g.fillRect(-PAD, -PAD, FW, FH);
     g.fillStyle = 'rgba(214,64,10,0.12)'; g.fillRect(-PAD, -PAD, FW, FH);
   });
-  return L.makeLayer(PAD, (g) => {
+  const all = L.makeLayer(PAD, (g) => {
     g.save(); g.globalAlpha = 0.55; g.filter = 'blur(18px) brightness(0)'; g.drawImage(sharp, -PAD + 18, -PAD + 12); g.restore();
     g.filter = 'blur(4px)'; g.drawImage(sharp, -PAD, -PAD); g.filter = 'none';
+    g.globalCompositeOperation = 'source-atop'; vignette(g);
   });
+  // only the two side strips carry anything: keep them as small sprites so the per-frame parallax blit stays cheap
+  const strip = (x0) => { const c = L.makeCanvas(SIDE, FH - 240), cg = c.getContext('2d'); cg.drawImage(all, -(x0 + PAD), 0); return c; };
+  return { left: strip(-PAD), right: strip(W + PAD - SIDE) };
+}
+const SIDE = 680;                     // width of each harvest-string sprite (frame edge + PAD inward)
+/** the shot's own edge darkening, baked into the layers (the compositor adds only a very light one) */
+function vignette(g) {
+  const rad = Math.hypot(W / 2, H / 2);
+  g.fillStyle = L.radial(g, W / 2, H / 2, rad * 0.5, rad * 1.08, [[0, 'rgba(28,7,3,0)'], [1, 'rgba(28,7,3,0.3)']]);
+  g.fillRect(-PAD, -PAD, FW, FH);
 }
 
 export default {
@@ -448,20 +464,34 @@ export default {
       g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(win, -PAD, -PAD);
       g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.75; g.drawImage(halo, -PAD, -PAD);  // …the bars only get a breath of halation
     });
-    // soft focus: fold a blurred copy back in
-    const scene = L.makeLayer(PAD, (g) => { g.drawImage(base, -PAD, -PAD); g.globalAlpha = 0.36; g.drawImage(soft(base, 11, 2), -PAD, -PAD); });
-    S = { scene, fog, strings: buildStrings(env), lamp: G.lamp };
+    // shallow focus: sharpest on the middle pane, melting away toward the springing of the arch
+    const far = soft(base, 17, 3);
+    {
+      const fg = far.getContext('2d');
+      fg.globalCompositeOperation = 'destination-in';
+      fg.fillStyle = L.radial(fg, a.cx + PAD, a.crestY + 230 + PAD, 330, 1080, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0.42)'], [1, 'rgba(0,0,0,0.82)']]);
+      fg.fillRect(0, 0, far.width, far.height);
+    }
+    const scene = L.makeLayer(PAD, (g) => {
+      g.drawImage(base, -PAD, -PAD);
+      g.globalAlpha = 0.36; g.drawImage(soft(base, 11, 2), -PAD, -PAD);   // soft focus: fold a blurred copy back in
+      g.globalAlpha = 1; g.drawImage(far, -PAD, -PAD);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.06; g.drawImage(fog, -PAD, -PAD);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; vignette(g);
+    });
+    S = { scene, strings: buildStrings(env), lamp: G.lamp };
   },
   draw(ctx, env, p) {
-    const f = env.frame;
+    const a = env.arc, f = env.frame;
     // the push-in is centred on p = 0.5, so the arc is exact mid-shot and within ~3 px at the far edges throughout
-    const zoom = L.lerp(0.988, 1.012, p);
-    // oil-lamp flicker (deterministic)
-    const fl = 0.5 + 0.5 * (0.62 * Math.sin(f * 2.3 + 0.6) + 0.38 * Math.sin(f * 5.1 + 1.9));
+    const zoom = L.lerp(0.988, 1.012, p), zs = 1 + (zoom - 1) * 2.4;
     L.blit(ctx, env, S.scene, { zoom });
-    L.blit(ctx, env, S.strings, { zoom: 1 + (zoom - 1) * 2.4 });
-    L.blit(ctx, env, S.fog, { zoom, alpha: 0.03 + 0.07 * fl, blend: 'screen' });
-    L.glow(ctx, S.lamp.x, S.lamp.y, 300, '#ffdc9a', 0.09 + 0.08 * fl);
-    L.vignette(ctx, { strength: 0.36, color: '#1c0703', inner: 0.5, outer: 1.08 });
+    // the harvest strings hang nearer the lens: they swell a little faster than the wall behind them
+    L.cam(ctx, env, { zoom: zs }, () => { ctx.drawImage(S.strings.left, -PAD, -PAD); ctx.drawImage(S.strings.right, W + PAD - SIDE, -PAD); });
+    // oil-lamp flicker (deterministic): the flame's core and the fog of light around it breathe from frame to frame
+    const fl = 0.5 + 0.5 * (0.62 * Math.sin(f * 2.3 + 0.6) + 0.38 * Math.sin(f * 5.1 + 1.9));
+    const lx = a.cx + (S.lamp.x - a.cx) * zoom, ly = a.crestY + (S.lamp.y - a.crestY) * zoom;
+    L.glow(ctx, lx, ly, 300, '#ffdc9a', 0.09 + 0.08 * fl);
+    L.glow(ctx, lx, ly, 780, '#ff8a36', 0.03 + 0.06 * fl);
   },
 };

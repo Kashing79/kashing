@@ -337,28 +337,40 @@ function buildSoft(env, sheet) {
   return soft;
 }
 
+/** everything that is fixed for the whole shot, flattened into one layer so a frame costs a single blit */
+function buildShot(env) {
+  const a = env.arc;
+  const sheet = buildSheet(env);
+  const soft = buildSoft(env, sheet);
+  return L.makeLayer(PAD, (g) => {
+    g.drawImage(sheet, -PAD, -PAD);
+    g.drawImage(soft, -PAD, -PAD);
+    // copy-stand light: raking in from the upper left, falling off toward the lower right
+    g.globalCompositeOperation = 'soft-light';
+    g.fillStyle = L.linear(g, 0, a.crestY - 200, W, H, [[0, 'rgba(255,248,230,0.3)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,0,0.3)']]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+    g.globalCompositeOperation = 'source-over';
+    // lens vignette
+    const rad = Math.hypot(W / 2, H / 2);
+    g.fillStyle = L.radial(g, W / 2, H / 2, rad * 0.45, rad * 1.05, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.22)']]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+  });
+}
+
 export default {
   name: '圜丘·木刻版画',
   tone: 'light',
   init(env) {
-    const sheet = buildSheet(env);
-    S = { sheet, soft: buildSoft(env, sheet) };
+    S = { shot: buildShot(env) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     // slow push-in with a small drift along the arc; zoom passes through 1 at mid-shot so the handrail sits on the arc
     const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(0.986, 1.014, p);
     ctx.fillStyle = '#0c0b0a'; ctx.fillRect(0, 0, W, H);
-    L.blit(ctx, env, S.sheet, { rot, zoom });
-    L.blit(ctx, env, S.soft, { rot, zoom });
-    // copy-stand light: raking in from the upper left, falling off toward the lower right
-    ctx.save(); ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = L.linear(ctx, 0, a.crestY - 200, W, H, [[0, 'rgba(255,248,230,0.3)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,0,0.3)']]);
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+    L.blit(ctx, env, S.shot, { rot, zoom });
     // a soft sheen sliding along the upper balustrade
     const gl = a.pt(L.lerp(-0.2, 0.02, p), -60);
     L.glow(ctx, gl.x, gl.y, 420, '#fff8e8', 0.07);
-    L.vignette(ctx, { strength: 0.22 });
   },
 };

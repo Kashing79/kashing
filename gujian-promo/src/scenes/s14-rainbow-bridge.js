@@ -75,7 +75,7 @@ function makePen(seed0) {
   let n = 0;
   const trace = (g, pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); };
   const pen = {
-    wash, ink, gw, gi, k: 1,
+    wash, ink, gw, gi, k: 1, lw: 1,
     /** run fn inside a local transform; k = the transform's scale (keeps stroke sampling sensible) */
     scope(setup, k, fn) { gw.save(); gi.save(); const k0 = pen.k; setup(gw); setup(gi); pen.k = k0 * k; fn(); pen.k = k0; gw.restore(); gi.restore(); },
     clip(path, fn) { gw.save(); gi.save(); path(gw); gw.clip(); path(gi); gi.clip(); fn(); gw.restore(); gi.restore(); },
@@ -94,9 +94,13 @@ function makePen(seed0) {
     /** brush line */
     line(pts, w = 1, o = {}) {
       L.inkStroke(gi, pts, {
-        width: w, color: o.color || C.ink, seed: seed0 + (n++), taper: o.taper || [0.08, 0.14],
+        width: w * pen.lw, color: o.color || C.ink, seed: seed0 + (n++), taper: o.taper || [0.08, 0.14],
         wobble: o.wobble === undefined ? 0.3 : o.wobble, dry: o.dry || 0, alpha: o.alpha === undefined ? 0.94 : o.alpha, smoothStep: (o.step || 3) / pen.k,
       });
+    },
+    /** sharp-cornered outline: one stroke per side (inkStroke would round the corners of a closed polygon) */
+    poly(pts, w = 1, o = {}) {
+      for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; pen.line([[p[0] - (q[0] - p[0]) * 0.03, p[1] - (q[1] - p[1]) * 0.03], [q[0] + (q[0] - p[0]) * 0.03, q[1] + (q[1] - p[1]) * 0.03]], w, { taper: [0.03, 0.03], ...o }); }
     },
     /** tapered limb / pole: wash + an ink line down each side */
     tube(pts, widths, color, a = 0.8, lw = 1, o = {}) {
@@ -138,21 +142,23 @@ function paintBack(env, pen) {
     c.lineTo(W + PAD + 400, H + PAD + 60); c.lineTo(-PAD - 400, H + PAD + 60); c.closePath();
   };
   pen.fill(below(-90), null, 0, {
-    style: L.radial(gw, a.cx, a.cy, R - 560, R - 120, [[0, L.mix(C.base, C.blue, 0.2)], [0.5, L.mix(C.base, C.blue, 0.3)], [0.86, L.mix(C.base, L.mix(C.blue, C.ink, 0.35), 0.5)], [1, L.mix(C.base, L.mix(C.blue, C.ink, 0.5), 0.66)]]),
+    style: L.radial(gw, a.cx, a.cy, R - 560, R - 120, [[0, L.mix(C.base, C.blue, 0.17)], [0.6, L.mix(C.base, C.blue, 0.26)], [0.9, L.mix(C.base, L.mix(C.blue, C.ink, 0.2), 0.36)], [1, L.mix(C.base, L.mix(C.blue, C.ink, 0.3), 0.46)]]),
   });
   // ripples: long, level brush lines that swell and thin
-  const wcol = L.mix(C.ink, C.blue, 0.45);
+  const wcol = L.mix(C.ink, C.blue, 0.32);
   for (let y = a.crestY + 150; y < H + PAD; y += r.range(22, 31)) {
     let x = -PAD - r.range(0, 260);
     while (x < W + PAD) {
       const len = r.range(170, 520), amp = r.range(3, 7.5), wl = r.range(100, 180), ph = r.range(0, L.TAU), tilt = r.range(-7, 7);
       const pts = [];
       for (let u = 0; u <= len; u += 20) pts.push([x + u, y + amp * Math.sin(ph + (u / wl) * L.TAU) + (u / len - 0.5) * tilt]);
-      pen.line(pts, r.range(1.9, 3.2), { color: wcol, alpha: r.range(0.5, 0.85), taper: [0.25, 0.35], step: 6 });
+      pen.line(pts, r.range(2.3, 3.8), { color: wcol, alpha: r.range(0.66, 0.96), taper: [0.25, 0.35], step: 6 });
       x += len + r.range(30, 150);
     }
   }
   boat(env, pen, r);
+  willow(pen, L.rng('s14willowL'), 20, 860, { h: 640, lean: 46, w: 56, stubs: 4, shoots: 14 });
+  willow(pen, L.rng('s14willowR'), 1934, 860, { h: 600, lean: -52, w: 50, stubs: 4, shoots: 13 });
 
   // ── bridge silhouette: everything between the arc and the underside of the lowest logs (dark gaps between the timbers)
   const NS = 280;
@@ -162,7 +168,7 @@ function paintBack(env, pen) {
     for (let i = NS; i >= 0; i--) { const th = L.lerp(-sp, sp, i / NS); const p = Pt(th, G.lowDr(th) + 1); c.lineTo(p[0], p[1]); }
     c.closePath();
   };
-  pen.fill(silh, L.mix(C.ink, C.wood, 0.3), 0.8);
+  pen.fill(silh, L.mix(C.ink, C.wood, 0.22), 0.86);
   // a second row of logs glimpsed in the gaps
   for (const d of [-G.FAS - 12, -G.FAS - 27]) pen.line(L.arcPts(a, d, -sp, sp, 90), 1.6, { alpha: 0.5, taper: [0, 0] });
 
@@ -175,8 +181,8 @@ function paintBack(env, pen) {
     const len = Math.hypot(B[0] - A[0], B[1] - A[1]), ux = (B[0] - A[0]) / len, uy = (B[1] - A[1]) / len, nx = -uy, ny = ux;
     const q = (t, o) => [A[0] + ux * t + nx * o, A[1] + uy * t + ny * o];      // t along the log, o across (+ = toward the water)
     const run = (o, t0 = 8, t1 = len - 8, jit = 0.9) => { const pts = []; const n = Math.round((t1 - t0) / 70); for (let i = 0; i <= n; i++) pts.push(q(L.lerp(t0, t1, i / n), o + r.range(-jit, jit))); return pts; };
-    const col = front ? L.mix(C.wood, C.woodPale, 0.35) : C.woodInk;
-    pen.fill([q(8, -h), q(len - 8, -h), q(len - 8, h), q(8, h)], col, front ? 0.74 : 0.8);
+    const col = front ? L.mix(C.wood, C.woodPale, 0.5) : L.mix(C.woodInk, C.ink, 0.12);
+    pen.fill([q(8, -h), q(len - 8, -h), q(len - 8, h), q(8, h)], col, front ? 0.8 : 0.84);
     // roundness: a paler crown, a darker belly
     pen.tint([q(8, -h + 3), q(len - 8, -h + 3), q(len - 8, -h * 0.25), q(8, -h * 0.25)], L.rgba(C.base, front ? 0.2 : 0.13));
     pen.tint([q(8, h * 0.3), q(len - 8, h * 0.3), q(len - 8, h), q(8, h)], L.rgba(C.ink, 0.2));
@@ -194,8 +200,8 @@ function paintBack(env, pen) {
       const c = q(r.range(60, len - 60), r.range(-h * 0.4, h * 0.4));
       pen.line(loop(ell(c[0], c[1], r.range(5, 8), r.range(2.4, 3.6), 10, Math.atan2(uy, ux))), 1.3, { alpha: 0.55 });
     }
-    pen.line(run(-h), 3.4, { taper: [0.01, 0.01] });
-    pen.line(run(h), 4.0, { taper: [0.01, 0.01] });
+    pen.line(run(-h), 4.0, { taper: [0.01, 0.01] });
+    pen.line(run(h), 4.8, { taper: [0.01, 0.01] });
   };
   for (let j = -jmax; j <= jmax; j++) if (j % 2 !== 0) drawLog(j);
   for (let j = -jmax; j <= jmax; j++) if (j % 2 === 0) drawLog(j);
@@ -230,7 +236,7 @@ function paintBack(env, pen) {
   }
 
   // ── the deck seen from slightly above: a pale band of trodden earth behind the near edge
-  pen.fill((c) => a.pathBand(c, 92, 0, -sp, sp), null, 0, { style: L.radial(gw, a.cx, a.cy, R, R + 92, [[0, L.mix(C.base, C.earth, 0.62)], [0.55, L.mix(C.base, C.earth, 0.4)], [1, C.base]]) });
+  pen.fill((c) => a.pathBand(c, 92, 0, -sp, sp), null, 0, { style: L.radial(gw, a.cx, a.cy, R, R + 92, [[0, L.mix(C.base, C.white, 0.45)], [0.1, L.mix(C.base, C.earth, 0.3)], [0.5, L.mix(C.base, C.earth, 0.36)], [1, C.base]]) });
   for (let i = 0; i < 90; i++) {
     const th = r.range(-sp, sp), d = r.range(8, 66), l = r.range(40, 160) / R;
     pen.line([Pt(th, d), Pt(th + l / 2, d + r.range(-1.5, 1.5)), Pt(th + l, d)], r.range(1, 2), { alpha: r.range(0.14, 0.3), taper: [0.3, 0.4] });
@@ -251,7 +257,52 @@ function paintBack(env, pen) {
   pen.line(L.arcPts(a, -G.FAS, -sp, sp, 110), 4.6, { taper: [0, 0], wobble: 0.3 });
   pen.line(L.arcPts(a, -G.FAS * 0.52, -sp, sp, 110), 1.9, { taper: [0, 0], alpha: 0.6 });
   // THE ARC: one heavy brush line whose upper edge is the arc itself
-  pen.line(L.arcPts(a, -5, -sp, sp, 150), 10, { taper: [0, 0], wobble: 0.14 });
+  pen.line(L.arcPts(a, -6, -sp, sp, 150), 12, { taper: [0, 0], wobble: 0.12 });
+}
+
+/**
+ * a pollarded spring willow on the far bank, in pale ink: a gnarled leaning trunk, a fist of knobby stubs,
+ * and from every knob a spray of thin new shoots that spring upward, arch over and hang
+ */
+function willow(pen, r, x0, y0, o) {
+  const { h = 480, lean = 40, w = 46, stubs = 4, shoots = 14 } = o;
+  const col = L.mix(C.woodInk, C.ink, 0.25), leaf = L.mix(C.blue, '#8f9a4e', 0.5), sd = Math.sign(lean) || 1;
+  const tp = [[x0, y0], [x0 + lean * 0.15 + 14 * sd, y0 - h * 0.3], [x0 + lean * 0.7 - 12 * sd, y0 - h * 0.66], [x0 + lean, y0 - h]];
+  const trunk = pen.tube(tp, [w, w * 0.86, w * 0.74, w * 0.8], col, 0.46, 3, { alpha: 0.72 });
+  for (let i = 0; i < 34; i++) {       // bark: short broken strokes down the trunk
+    const k = Math.floor(r.range(0.05, 0.92) * trunk.A.length), t = r.range(0.12, 0.88);
+    const p = [L.lerp(trunk.A[k][0], trunk.B[k][0], t), L.lerp(trunk.A[k][1], trunk.B[k][1], t)];
+    pen.line([p, [p[0] + r.range(-4, 4), p[1] - r.range(12, 34)]], r.range(1.6, 3.2), { alpha: r.range(0.3, 0.6), taper: [0.2, 0.5] });
+  }
+  const top = tp[3], heads = [[top, -Math.PI / 2]];
+  for (let i = 0; i < stubs; i++) {
+    const ang = L.lerp(-2.62, -0.52, i / (stubs - 1)) + r.range(-0.12, 0.12), len = r.range(50, 96);
+    const tip = [top[0] + Math.cos(ang) * len, top[1] + Math.sin(ang) * len];
+    const mid = [(top[0] + tip[0]) / 2 + r.range(-8, 8), (top[1] + tip[1]) / 2 + r.range(-8, 8)];
+    pen.tube([top, mid, tip], [w * 0.62, w * 0.44, w * 0.36], col, 0.46, 2.6, { alpha: 0.72 });
+    heads.push([tip, ang]);
+  }
+  for (const [c] of heads) {
+    const knob = ell(c[0], c[1], w * 0.27, w * 0.23, 9, r.range(0, 3)).map((q) => [q[0] + r.range(-3.5, 3.5), q[1] + r.range(-3.5, 3.5)]);
+    pen.fill(knob, col, 0.5, { smooth: true });
+    pen.line(knob.slice(0, 6), 2.2, { alpha: 0.66 }); pen.line(knob.slice(5).concat([knob[0]]), 1.8, { alpha: 0.55 });
+    pen.line([[c[0] - 4, c[1] + 2], [c[0] + 1, c[1] - 3], [c[0] + 5, c[1] + 1]], 1.6, { alpha: 0.5 });
+  }
+  for (const [c, ang] of heads) for (let k = 0; k < shoots; k++) {
+    let th = ang + r.range(-1.05, 1.05), x = c[0] + r.range(-7, 7), y = c[1] + r.range(-7, 7);
+    const len = r.range(190, 400), bend = r.range(0.03, 0.065), pts = [[x, y]];
+    for (let d = 0; d < len; d += 14) {
+      let dv = Math.PI / 2 - th; while (dv > Math.PI) dv -= L.TAU; while (dv < -Math.PI) dv += L.TAU;   // turn toward "straight down", the short way round
+      th += dv * bend * (1 + d / 110);
+      x += Math.cos(th) * 14; y += Math.sin(th) * 14; pts.push([x, y]);
+    }
+    pen.line(pts, r.range(1.4, 2.3), { alpha: r.range(0.42, 0.66), taper: [0.02, 0.5], step: 7 });
+    for (let m = 3; m < pts.length; m++) {
+      if (!r.chance(0.85)) continue;
+      const q = pts[m], sg = r.sign(), big = m / pts.length;      // leaves thicken toward the hanging tips
+      pen.line([[q[0], q[1]], [q[0] + sg * r.range(4, 9), q[1] + r.range(7, 13)]], r.range(2.6, 4) + big * 1.6, { color: leaf, alpha: r.range(0.5, 0.82), taper: [0.1, 0.6] });
+    }
+  }
 }
 
 /** canal boat sliding under the arch: mat-roofed cabin, A-frame mast lowered onto its crutch, two boatmen */
@@ -264,9 +315,9 @@ function boat(env, pen, r) {
   pen.clip(path, () => {
     pen.tint((g) => { g.beginPath(); g.rect(100, 1000, 1500, 400); }, L.linear(pen.gw, 0, 960, 0, 1220, [[0, L.rgba(C.ink, 0)], [1, L.rgba(C.ink, 0.3)]]));
     // woven bamboo mat
-    for (let x = -60; x < 1700; x += 27) {
-      pen.line([[x, 900], [x + 215, 1260]], 1.5, { alpha: 0.5, taper: [0, 0] });
-      pen.line([[x + 215, 900], [x, 1260]], 1.5, { alpha: 0.5, taper: [0, 0] });
+    for (let x = -60; x < 1700; x += 19) {
+      pen.line([[x, 900], [x + 215, 1260]], 1.3, { alpha: 0.42, taper: [0, 0] });
+      pen.line([[x + 215, 900], [x, 1260]], 1.3, { alpha: 0.42, taper: [0, 0] });
     }
     // battens following the roof
     for (const off of [26, 74, 128]) pen.line(sp.filter((_, i) => i % 6 === 0).map((p) => [p[0], p[1] + off]), 3.2, { taper: [0, 0], alpha: 0.9 });
@@ -276,7 +327,8 @@ function boat(env, pen, r) {
 
   // mast crutch + the lowered A-frame mast
   const cr = [1068, roofY(1068)];
-  pen.tube([[cr[0], cr[1] + 2], [cr[0] + 2, cr[1] - 64]], [13, 11], C.wood, 0.78, 2.6, { taper: [0.02, 0.02] });
+  pen.tube([[cr[0], cr[1] + 2], [cr[0] + 2, cr[1] - 104]], [14, 11], C.wood, 0.78, 2.6, { taper: [0.02, 0.02] });
+  pen.line([[cr[0] - 12, cr[1] - 112], [cr[0] + 2, cr[1] - 98], [cr[0] + 17, cr[1] - 116]], 4.2, { taper: [0.05, 0.05] });
   const m0 = [610, roofY(610) - 6], m1 = [676, roofY(676) - 8], mt = [1262, 778];
   pen.tube([m0, [(m0[0] + mt[0]) / 2, (m0[1] + mt[1]) / 2 + 5], mt], [15, 13, 9], L.mix(C.wood, C.woodInk, 0.5), 0.8, 2.6, { taper: [0.02, 0.02] });
   pen.tube([m1, [(m1[0] + mt[0]) / 2 + 6, (m1[1] + mt[1]) / 2 - 4], [mt[0] + 8, mt[1] - 3]], [15, 13, 9], L.mix(C.wood, C.woodPale, 0.35), 0.8, 2.8, { taper: [0.02, 0.02] });
@@ -287,7 +339,7 @@ function boat(env, pen, r) {
   }
   // masthead block and stays
   pen.fill([[mt[0] - 6, mt[1] - 12], [mt[0] + 20, mt[1] - 18], [mt[0] + 24, mt[1] - 2], [mt[0] - 2, mt[1] + 6]], C.woodInk, 0.85);
-  pen.line(loop([[mt[0] - 6, mt[1] - 12], [mt[0] + 20, mt[1] - 18], [mt[0] + 24, mt[1] - 2], [mt[0] - 2, mt[1] + 6]]), 2.4, { taper: [0.02, 0.02] });
+  pen.poly([[mt[0] - 6, mt[1] - 12], [mt[0] + 20, mt[1] - 18], [mt[0] + 24, mt[1] - 2], [mt[0] - 2, mt[1] + 6]], 2.4);
   for (const e of [[1425, roofY(1425) + 8], [1560, 1130], [1730, 1210], [940, roofY(940)], [800, roofY(800)]]) {
     const mid = [(mt[0] + 14 + e[0]) / 2, (mt[1] - 6 + e[1]) / 2 + 12];
     pen.line([[mt[0] + 14, mt[1] - 6], mid, e], 1.9, { taper: [0.02, 0.02], alpha: 0.85, step: 6 });
@@ -489,8 +541,8 @@ function donkeyRider(pen) {
 }
 /** 抬轿: a roofed sedan chair on two poles, a bearer fore and aft */
 function sedan(pen) {
-  const bearer = (x, sash) => pen.scope((g) => g.translate(x, 0), 1, () => laborer(pen, { jacket: C.white, pants: C.grey, sash, hat: 'jin', lean: 5, st: 8,
-    armFar: [[-4, -77], [-9, -66], [-10, -55]], armNear: [[4, -77], [11, -74], [9.6, -82.5]] }));
+  const bearer = (x, sash) => pen.scope((g) => g.translate(x, 0), 1, () => laborer(pen, { jacket: C.white, pants: C.grey, sash, hat: 'jin', lean: 3, st: 8,
+    armFar: [[-4, -77], [-9, -66], [-10, -55]], armNear: [[4, -77], [11.5, -73], [10.4, -80.6]] }));
   bearer(-52, C.blue);
   // cabin
   const box = [[-21, -94], [21, -94], [21, -24], [-21, -24]];
@@ -500,12 +552,12 @@ function sedan(pen) {
   pen.fill([[-13.4, -75], [13.4, -75], [13.4, -50], [-13.4, -50]], C.blue, 0.8);
   for (const x of [-8.6, -3.4, 1.8, 7.4]) pen.line([[x, -74], [x + 0.8, -62], [x - 0.3, -51]], 0.6, { alpha: 0.7 });
   pen.line([[-13.4, -68.6], [13.4, -68.2]], 0.7, { alpha: 0.8 });
-  pen.line(loop([[-13.4, -75], [13.4, -75], [13.4, -50], [-13.4, -50]]), 1.0, { taper: [0.02, 0.02] });
-  pen.line(loop([[-14.4, -46], [14.4, -46], [14.4, -33.6], [-14.4, -33.6]]), 0.8, { taper: [0.02, 0.02], alpha: 0.85 });
+  pen.poly([[-13.4, -75], [13.4, -75], [13.4, -50], [-13.4, -50]], 1.0);
+  pen.poly([[-14.4, -46], [14.4, -46], [14.4, -33.6], [-14.4, -33.6]], 0.8, { alpha: 0.85 });
   pen.line([[-14.4, -46], [14.4, -33.6]], 0.55, { alpha: 0.6 }); pen.line([[14.4, -46], [-14.4, -33.6]], 0.55, { alpha: 0.6 });
   pen.line([[-21, -87.4], [21, -87.4]], 0.9); pen.line([[-21, -30], [21, -30]], 0.9);
   for (const x of [-18, 18]) pen.line([[x, -87], [x, -30.4]], 0.7, { alpha: 0.8 });
-  pen.line(loop(box), 1.3, { taper: [0.02, 0.02] });
+  pen.poly(box, 1.35);
   for (const x of [-14, -7, 0, 7, 14]) pen.line([[x, -93.6], [x + 0.4, -88]], 0.5, { alpha: 0.6 });
   // roof
   const roof = [[-27.5, -93.4], [-22, -98.6], [-11, -104.4], [0, -106.6], [11, -104.4], [22, -98.6], [27.5, -93.4]];
@@ -515,9 +567,9 @@ function sedan(pen) {
   for (const x of [-18, -9, 0, 9, 18]) pen.line([[x * 0.5, -106], [x * 1.25, -94]], 0.55, { alpha: 0.6 });
   pen.fill(ell(0, -108.6, 2.2, 2.4, 10), C.ink, 0.88);
   // near carrying pole, then the fore bearer whose shoulder it rides on
-  pen.tube([[-70, -80.4], [0, -81.4], [70, -80.4]], [2.4, 2.9, 2.4], C.wood, 0.88, 0.8, { taper: [0.02, 0.02] });
+  pen.tube([[-72, -78.6], [0, -79.8], [72, -78.6]], [2.5, 3.0, 2.5], C.wood, 0.88, 0.8, { taper: [0.02, 0.02] });
   bearer(52, C.red);
-  pen.tube([[40, -81], [70, -80.4]], [2.7, 2.4], C.wood, 0.88, 0.8, { taper: [0.02, 0.02] });
+  pen.tube([[42, -79.4], [72, -78.6]], [2.8, 2.5], C.wood, 0.88, 0.8, { taper: [0.02, 0.02] });
 }
 /** 摆摊: a stall under a big sunshade — trestle table, steamer baskets, the vendor */
 function stall(pen) {
@@ -528,9 +580,9 @@ function stall(pen) {
   for (const x of [11, 47]) { pen.tube([[x, -32], [x + (x < 30 ? -2 : 2), 0]], [2.6, 2.4], C.wood, 0.85, 0.75, { taper: [0.02, 0.02] }); }
   pen.line([[10, -13], [48, -13]], 1.0);
   pen.fill([[5, -35.4], [53, -35.4], [53, -31.6], [5, -31.6]], C.woodPale, 0.86);
-  pen.line(loop([[5, -35.4], [53, -35.4], [53, -31.6], [5, -31.6]]), 1.05, { taper: [0.02, 0.02] });
+  pen.poly([[5, -35.4], [53, -35.4], [53, -31.6], [5, -31.6]], 1.05);
   // steamer baskets + a heap of buns
-  for (let i = 0; i < 3; i++) { const y = -35.6 - i * 5.2; pen.fill([[26, y - 5], [42, y - 5], [42, y], [26, y]], C.straw, 0.86); pen.line(loop([[26, y - 5], [42, y - 5], [42, y], [26, y]]), 0.85, { taper: [0.02, 0.02] }); pen.line([[26.5, y - 2.5], [41.5, y - 2.5]], 0.45, { alpha: 0.6 }); }
+  for (let i = 0; i < 3; i++) { const y = -35.6 - i * 5.2; pen.fill([[26, y - 5], [42, y - 5], [42, y], [26, y]], C.straw, 0.86); pen.poly([[26, y - 5], [42, y - 5], [42, y], [26, y]], 0.85); pen.line([[26.5, y - 2.5], [41.5, y - 2.5]], 0.45, { alpha: 0.6 }); }
   for (const [bx, by] of [[10, -37.6], [15.4, -37.6], [20.6, -37.6], [12.8, -41.4], [18, -41.4], [15.4, -45]]) { pen.fill(ell(bx, by, 2.9, 2.5, 10), C.white, 0.92); pen.line(loop(ell(bx, by, 2.9, 2.5, 10)), 0.6, { alpha: 0.85 }); }
   // sunshade
   pen.tube([[31, 0], [30, -60], [29, -120]], [2.6, 2.4, 2.2], C.wood, 0.86, 0.8, { taper: [0.02, 0.02] });
@@ -544,16 +596,17 @@ function stall(pen) {
 }
 /** 背负: a man bent under a sack */
 function sackCarrier(pen) {
-  laborer(pen, { jacket: C.blue, pants: C.white, sash: C.ink, hat: 'jin', lean: 13, st: 8,
-    armFar: null, armNear: [[4, -77], [9, -84], [3, -91]],
+  laborer(pen, { jacket: C.blue, pants: C.white, sash: C.ink, hat: 'jin', lean: 14, st: 8,
+    armFar: null, armNear: [[4, -77], [8.5, -87], [2, -94.5]],
     mid: (X) => {
-      const c = X([-11, -76]);
-      const sack = ell(c[0], c[1], 13, 16.5, 16, -0.35);
-      pen.fill(sack, L.mix(C.straw, C.white, 0.4), 0.9, { smooth: true });
-      pen.line(loop(sack), 1.15, { taper: [0.03, 0.03] });
-      pen.line([[c[0] - 6, c[1] - 12], [c[0] - 2, c[1] - 2], [c[0] - 4, c[1] + 10]], 0.7, { alpha: 0.7 });
-      pen.line([[c[0] + 3, c[1] - 14], [c[0] + 6, c[1] - 3]], 0.6, { alpha: 0.6 });
-      pen.line([[c[0] + 7, c[1] - 14.5], [c[0] + 11, c[1] - 19], [c[0] + 9.5, c[1] - 14]], 1.2);
+      const sack = [[-25, -70], [-26.5, -84], [-18, -96.5], [-5, -100], [5, -94], [6.5, -82], [0.5, -70], [-10, -63.5], [-19.5, -64]].map(X);
+      pen.fill(sack, L.mix(C.white, C.grey, 0.22), 0.92, { smooth: true });
+      pen.line(spline(sack, 2, true).map((q) => [q[0], q[1]]).concat([sack[0]]), 1.2, { taper: [0.03, 0.03] });
+      pen.line([X([-20, -90]), X([-13, -80]), X([-15, -67])], 0.75, { alpha: 0.7 });
+      pen.line([X([-8, -96]), X([-3, -84]), X([-5, -72])], 0.7, { alpha: 0.65 });
+      pen.line([X([-23, -78]), X([-17, -72])], 0.6, { alpha: 0.6 });
+      pen.line([X([3.5, -94.5]), X([8.5, -99.5]), X([6.5, -93])], 1.3);   // the tied mouth of the sack
+      pen.line([X([4, -95.5]), X([9.5, -95])], 1.0);
     } });
 }
 /** 拄杖: an old man with a staff */
@@ -565,12 +618,14 @@ function staffWalker(pen) {
 
 function paintFigures(env, pen) {
   const a = env.arc;
-  const K = 2.5;
+  const K = 2.85;
+  pen.lw = 1.15;
+  // [distance along the arc from the crest (px), how far back on the deck (px), who, facing]
   const cast = [
-    [-918, 50, stall, 1], [-1150, 34, staffWalker, 1],
-    [-556, 30, porter, 1], [-306, 44, parasolWalker, 1],
-    [-52, 38, donkeyRider, 1], [474, 46, sedan, 1],
-    [776, 30, sackCarrier, 1], [924, 42, staffWalker, 1], [1090, 32, parasolWalker, 1],
+    [-800, 52, stall, -1], [-1130, 34, staffWalker, 1],
+    [-498, 30, porter, 1], [-262, 46, parasolWalker, -1],
+    [-15, 38, donkeyRider, 1], [522, 48, sedan, 1],
+    [852, 30, sackCarrier, 1], [992, 44, staffWalker, 1], [1140, 32, parasolWalker, 1],
   ];
   cast.sort((p, q) => q[1] - p[1]);   // far side of the deck first
   for (const [s, dr, fn, flip] of cast) {
@@ -609,13 +664,17 @@ function paintRail(env, pen) {
 
 // ───────────────────────── aging ─────────────────────────
 function makeCreases() {
-  const r = L.rng('s14crease'); const out = [];
-  let x = -PAD + r.range(10, 120);
+  // a handscroll cracks ACROSS its rolling direction: irregular vertical creases that fade in and out along their length
+  const r = L.rng('s14crease'), nz = L.makeNoise('s14crease'); const out = [];
+  let x = -PAD + r.range(30, 240), id = 0;
   while (x < W + PAD) {
-    const pts = [], drift = r.range(-12, 12);
-    for (let y = -PAD; y <= H + PAD; y += 60) pts.push([x + (drift * y) / H + r.range(-1.6, 1.6), y]);
-    out.push({ pts, k: r.range(0.3, 1) });
-    x += r.range(70, 320);
+    const pts = [], drift = r.range(-26, 26), k = r.range(0.35, 1);
+    for (let y = -PAD; y <= H + PAD; y += 40) {
+      const a = L.clamp(0.3 + 1.5 * nz.n2(y / 260, id * 7.3));          // strength of this stretch (0 = the crease vanishes)
+      pts.push([x + (drift * y) / H + 7 * nz.n2(y / 190, id * 3.1 + 50), y, a * k]);
+    }
+    out.push({ pts, k });
+    x += r.range(130, 520); id++;
   }
   return out;
 }
@@ -626,17 +685,17 @@ function buildTex(creases) {
   const grain = L.noiseTex(256, 256, { seed: 's14gr', scale: 3.4, octaves: 2, res: 1, contrast: 2.2,
     ramp: [[0, L.rgba(C.base, 0.5)], [0.38, L.rgba(C.base, 0)], [0.7, L.rgba(dark, 0)], [1, L.rgba(dark, 0.2)]] });
   const dry = L.noiseTex(256, 256, { seed: 's14dry', scale: 2.8, octaves: 2, res: 1, contrast: 2.4,
-    ramp: [[0, 'rgba(0,0,0,0.85)'], [0.3, 'rgba(0,0,0,0.12)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] });
+    ramp: [[0, 'rgba(0,0,0,0.7)'], [0.26, 'rgba(0,0,0,0.08)'], [0.42, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] });
   const fade = L.noiseTex(LW, LH, { seed: 's14fade', scale: 44, octaves: 3, res: 0.25, contrast: 1.6,
-    ramp: [[0, 'rgba(0,0,0,0.5)'], [0.4, 'rgba(0,0,0,0.1)'], [1, 'rgba(0,0,0,0)']] });
+    ramp: [[0, 'rgba(0,0,0,0.4)'], [0.36, 'rgba(0,0,0,0.06)'], [1, 'rgba(0,0,0,0)']] });
   // flaked paint: bare silk flecks strung along the roll creases, plus scattered pin-holes
   const flake = L.makeLayer(PAD, (g) => {
     const r = L.rng('s14flake');
-    for (const c of creases) for (const [x, y] of c.pts) for (let i = 0; i < 6; i++) {
-      if (!r.chance(0.55 * c.k)) continue;
-      const w = r.range(1.2, 4.2), hh = r.range(3, 18);
+    for (const c of creases) for (const [x, y, k] of c.pts) for (let i = 0; i < 5; i++) {
+      if (!r.chance(0.7 * k)) continue;
+      const w = r.range(1.2, 4.4), hh = r.range(3, 16);
       g.fillStyle = L.rgba(r.chance(0.5) ? C.base : '#efe2c0', r.range(0.5, 0.95));
-      g.fillRect(x - w / 2 + r.range(-1.8, 1.8), y + r.range(0, 60), w, hh);
+      g.fillRect(x - w / 2 + r.range(-2.2, 2.2), y + r.range(0, 40), w, hh);
     }
     L.speckle(g, { seed: 's14fl', count: 1700, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 0.8, rMax: 3.6, colors: [C.base, '#efe2c0'], alpha: [0.4, 0.95] });
   });
@@ -661,22 +720,29 @@ function flatten(target, pen, tex) {
   return target;
 }
 function weaveTile() {
-  const P = 5, N = 48, c = L.makeCanvas(P * N, P * N), g = c.getContext('2d');
+  // plain-weave silk at this magnification: threads ≈ 4 px apart, some thicker (slubs), the gaps between them a shade darker
+  const P = 4, N = 96, c = L.makeCanvas(P * N, P * N), g = c.getContext('2d');
   const r = L.rng('s14weave');
   g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   for (let i = 0; i < N; i++) {
-    g.fillStyle = `rgba(96,72,38,${r.range(0.1, 0.26).toFixed(3)})`; g.fillRect(i * P, 0, 1.7, c.height);
-    g.fillStyle = `rgba(96,72,38,${r.range(0.12, 0.3).toFixed(3)})`; g.fillRect(0, i * P, c.width, 1.7);
+    g.fillStyle = `rgba(96,72,38,${r.range(0.04, 0.1).toFixed(3)})`; g.fillRect(i * P, 0, 1.5, c.height);
+    g.fillStyle = `rgba(96,72,38,${r.range(0.05, 0.12).toFixed(3)})`; g.fillRect(0, i * P, c.width, 1.5);
   }
-  g.fillStyle = 'rgba(60,42,20,0.3)';
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if ((i + j) % 2 === 0) g.fillRect(i * P, j * P, 1.7, 1.7);
+  g.fillStyle = 'rgba(60,42,20,0.13)';
+  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) if ((i + j) % 2 === 0) g.fillRect(i * P, j * P, 1.5, 1.5);
+  // slubs: short stretches where a thread runs thick (never a ruled line right across the sheet)
+  for (let i = 0; i < 80; i++) {
+    const u = r.int(0, N - 1) * P, v = r.range(0, c.width), len = r.range(10, 56);
+    g.fillStyle = `rgba(86,64,32,${r.range(0.06, 0.15).toFixed(3)})`;
+    if (r.chance(0.6)) { g.fillRect(v, u, len, 1.8); g.fillRect(v - c.width, u, len, 1.8); } else { g.fillRect(u, v, 1.8, len); g.fillRect(u, v - c.height, 1.8, len); }
+  }
   return c;
 }
 /** the multiply sheet: uneven toning, tide lines, mildew, the weave of the silk, roll creases */
 function buildAging(creases) {
   const spots = L.makeLayer(PAD, (g) => {
     const nz = L.makeNoise('s14mold'), r = L.rng('s14mold');
-    L.speckle(g, { seed: 's14fox', count: 5200, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 7.5, colors: ['#8a6c3e', '#6f5530', '#9b7d4d'], alpha: [0.12, 0.6],
+    L.speckle(g, { seed: 's14fox', count: 3800, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 7, colors: ['#8a6c3e', '#6f5530', '#9b7d4d'], alpha: [0.12, 0.6],
       test: (x, y) => nz.fbm(x / 340, y / 340, 3) > 0.1 });
     for (let i = 0; i < 46; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), rad = r.range(14, 70);
@@ -688,21 +754,23 @@ function buildAging(creases) {
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#fff'; g.fillRect(-PAD, -PAD, LW, LH);
     g.globalCompositeOperation = 'multiply';
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's14tone', scale: 560, octaves: 4, res: 0.2, warp: 0.7, ramp: [[0, '#c7ac7c'], [0.45, '#eadcbd'], [1, '#fffaf0']] }), -PAD, -PAD);
-    g.globalAlpha = 0.85;
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's14tide', scale: 430, octaves: 3, res: 0.3, warp: 1.0,
-      ramp: [[0, '#fff'], [0.57, '#fff'], [0.6, '#e2cfa4'], [0.615, '#b99c66'], [0.635, '#ebdcba'], [1, '#f2e7cd']] }), -PAD, -PAD);
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14tone', scale: 620, octaves: 4, res: 0.2, warp: 0.6, ramp: [[0, '#c9af80'], [0.5, '#ecdfc1'], [1, '#fffaf0']] }), -PAD, -PAD);
+    // a couple of old water stains with their darker tide lines
+    g.globalAlpha = 0.6;
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14tideB', scale: 760, octaves: 3, res: 0.3, warp: 0.55,
+      ramp: [[0, '#fff'], [0.655, '#fff'], [0.685, '#eadbb8'], [0.7, '#c2a672'], [0.72, '#efe2c4'], [1, '#f3e9d0']] }), -PAD, -PAD);
     // slow vertical undulation of the mounted silk
-    g.globalAlpha = 0.7;
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's14roll', scale: 210, sx: 0.5, sy: 30, octaves: 2, res: 0.15, ramp: [[0, '#d9cbaa'], [0.5, '#f6efdf'], [1, '#fff']] }), -PAD, -PAD);
+    g.globalAlpha = 0.6;
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14roll', scale: 210, sx: 0.5, sy: 30, octaves: 2, res: 0.15, ramp: [[0, '#dccfb0'], [0.5, '#f6efdf'], [1, '#fff']] }), -PAD, -PAD);
     g.globalAlpha = 1;
     g.drawImage(L.blurred(spots, 1.3), -PAD, -PAD);
     g.fillStyle = g.createPattern(weaveTile(), 'repeat'); g.fillRect(-PAD, -PAD, LW, LH);
     g.lineCap = 'round';
-    for (const c of creases) {
-      const tr = (dx) => { g.beginPath(); c.pts.forEach((p, i) => (i ? g.lineTo(p[0] + dx, p[1]) : g.moveTo(p[0] + dx, p[1]))); };
-      g.strokeStyle = `rgba(92,68,36,${(0.1 * c.k).toFixed(3)})`; g.lineWidth = 11; tr(5); g.stroke();
-      g.strokeStyle = `rgba(80,58,30,${(0.55 * c.k).toFixed(3)})`; g.lineWidth = 1.5; tr(0); g.stroke();
+    for (const c of creases) for (let i = 1; i < c.pts.length; i++) {
+      const p = c.pts[i - 1], q = c.pts[i], k = (p[2] + q[2]) / 2;
+      if (k < 0.04) continue;
+      g.strokeStyle = `rgba(92,68,36,${(0.09 * k).toFixed(3)})`; g.lineWidth = 12; g.beginPath(); g.moveTo(p[0] + 5, p[1]); g.lineTo(q[0] + 5, q[1]); g.stroke();
+      g.strokeStyle = `rgba(80,58,30,${(0.5 * k).toFixed(3)})`; g.lineWidth = 1.4; g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.stroke();
     }
   });
 }

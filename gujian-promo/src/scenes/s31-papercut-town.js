@@ -11,8 +11,8 @@ const GW = W + PAD * 2, GH = H + PAD * 2;
 let S = null;
 
 const C = {
-  card: '#efe8d8', blue: '#24509a', white: '#faf7ee', black: '#1c1b1a', moon: '#f2e27a',
-  red: '#c8261c', green: '#3f9a54', brown: '#6a3a1e',
+  card: '#efe8d8', blue: '#1d4995', white: '#faf7ee', black: '#1c1b1a', moon: '#f2e27a',
+  red: '#c8261c', green: '#3f9a54', brown: '#623419',
 };
 
 // ───────────────────────── shared paper textures (grey, 128 = neutral) ─────────────────────────
@@ -162,7 +162,8 @@ function paper(g, polys, o) {
     // the sheet is never perfectly flat: light falls off across it
     const a = L.deg(48) + r.range(-0.6, 0.6), rad = Math.hypot(hw, hh);
     const dx = Math.cos(a) * rad, dy = Math.sin(a) * rad;
-    g.fillStyle = L.linear(g, cx - dx, cy - dy, cx + dx, cy + dy, [[0, `rgba(255,252,240,${(0.11 * curl).toFixed(3)})`], [0.45, 'rgba(255,252,240,0)'], [0.6, 'rgba(0,0,20,0)'], [1, `rgba(0,0,20,${(0.11 * curl).toFixed(3)})`]]);
+    const pc = L.parseColor(color); const lum = (0.299 * pc[0] + 0.587 * pc[1] + 0.114 * pc[2]) / 255;
+    g.fillStyle = L.linear(g, cx - dx, cy - dy, cx + dx, cy + dy, [[0, `rgba(255,252,240,${(0.11 * curl * (0.3 + 0.7 * lum)).toFixed(3)})`], [0.45, 'rgba(255,252,240,0)'], [0.6, 'rgba(0,0,20,0)'], [1, `rgba(0,0,20,${(0.11 * curl).toFixed(3)})`]]);
     g.fillRect(x0 - 8, y0 - 8, x1 - x0 + 16, y1 - y0 + 16);
   }
   // … and the lifted corner itself turns toward the light
@@ -400,7 +401,7 @@ function buildCollage(env) {
     sliver(872, 1044, 124, 11, 0.02, C.white, 'rw1'); sliver(1096, 1050, 150, 12, -0.02, C.white, 'rw2'); sliver(985, 1066, 96, 9, 0.01, '#5f8fd0', 'rw3');
     sliver(760, 1062, 84, 9, -0.02, '#5f8fd0', 'rw4');
 
-    // ── the willow: leaning trunk, four arching boughs, long thin strands weeping straight down from them ──
+    // ── the willow: leaning trunk, five arching boughs, long thin strands weeping straight down from them ──
     {
       const rw = L.rng('s31willow');
       const boughs = [
@@ -433,7 +434,7 @@ function buildCollage(env) {
     // ── one light over the whole sheet: warm from the upper left, falling away to the lower right ──
     g.save(); sheet(eW); g.clip();
     g.globalCompositeOperation = 'overlay';
-    g.fillStyle = L.radial(g, 380, 420, 100, 1500, [[0, 'rgba(255,244,220,0.20)'], [1, 'rgba(255,244,220,0)']]);
+    g.fillStyle = L.radial(g, 380, 420, 100, 1500, [[0, 'rgba(255,244,220,0.14)'], [1, 'rgba(255,244,220,0)']]);
     g.fillRect(-PAD, -PAD, GW, GH);
     g.globalCompositeOperation = 'multiply';
     g.fillStyle = L.radial(g, 380, 420, 900, 2100, [[0, 'rgb(255,255,255)'], [1, 'rgb(196,198,222)']]);
@@ -442,16 +443,16 @@ function buildCollage(env) {
   });
 }
 
-/** the cream card everything is mounted on */
+/** the cream card everything is mounted on (static, so no padding; only the part above the sheet is ever seen) */
+const CARD_H = 830;
 function buildCard() {
-  const c = L.paperTex(GW, GH, { base: C.card, seed: 's31card', tone: '#ab9d7c', fiber: 0.5, stain: 0.08, grain: 0.1 });
+  const c = L.paperTex(W, CARD_H, { base: C.card, seed: 's31card', tone: '#ab9d7c', fiber: 0.5, stain: 0.08, grain: 0.1 });
   const g = c.getContext('2d');
   g.globalCompositeOperation = 'hard-light'; g.globalAlpha = 0.2;
-  g.save(); g.translate(GW, GH); g.rotate(Math.PI); g.drawImage(T.grain, 0, 0); g.restore();
+  g.save(); g.translate(GW - 40, GH - 60); g.rotate(Math.PI); g.drawImage(T.grain, 0, 0); g.restore();
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-  g.fillStyle = L.radial(g, PAD + 500, PAD + 120, 100, 2100, [[0, 'rgba(255,253,244,0.20)'], [0.5, 'rgba(255,253,244,0)'], [1, 'rgba(96,78,48,0.16)']]);
-  g.fillRect(0, 0, GW, GH);
-  c._pad = PAD;
+  g.fillStyle = L.radial(g, 500, 120, 100, 2100, [[0, 'rgba(255,253,244,0.20)'], [0.5, 'rgba(255,253,244,0)'], [1, 'rgba(96,78,48,0.16)']]);
+  g.fillRect(0, 0, W, CARD_H);
   return c;
 }
 
@@ -464,9 +465,13 @@ export default {
     T = null;
   },
   draw(ctx, env, p) {
-    // 6 frames: the collage slips a few pixels along the arc under a locked-off camera
+    // 6 frames: the collage slips a few pixels along the arc over a locked-off card
+    const a = env.arc;
     const rot = L.lerp(-0.003, 0.003, p), zoom = L.lerp(1.0, 1.007, p);
-    L.blit(ctx, env, S.card, { rot: rot * 0.35 });
+    ctx.drawImage(S.card, 0, 0);
+    // the collage layer is empty above the tear, so only the lower part of the frame needs the (resampled) blit
+    ctx.save(); ctx.beginPath(); ctx.rect(0, a.crestY - 26, W, H - a.crestY + 26); ctx.clip();
     L.blit(ctx, env, S.collage, { rot, zoom });
+    ctx.restore();
   },
 };

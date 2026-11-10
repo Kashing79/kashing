@@ -744,10 +744,11 @@ export const FONTS = {
 };
 /**
  * Draw text. opts: font ('serif'|'brush'|'xiaowei'|'cao'|'latin'), size, weight, color, align, baseline,
- *   spacing (extra px between chars), vertical (stack chars top→bottom), alpha, rotate (rad), stroke {color,width}
+ *   spacing (extra px between chars), kern ([px after char 0, px after char 1, …]), vertical (stack chars top→bottom),
+ *   alpha, rotate (rad), stroke {color,width}
  */
 export function text(ctx, str, x, y, opts = {}) {
-  const { font = 'serif', size = 48, weight = 600, color = '#fff', align = 'center', baseline = 'middle', spacing = 0, vertical = false, alpha = 1, rotate = 0, stroke = null, italic = false } = opts;
+  const { font = 'serif', size = 48, weight = 600, color = '#fff', align = 'center', baseline = 'middle', spacing = 0, vertical = false, alpha = 1, rotate = 0, stroke = null, italic = false, kern = null } = opts;
   ctx.save();
   ctx.translate(x, y); if (rotate) ctx.rotate(rotate);
   ctx.globalAlpha *= alpha;
@@ -760,12 +761,14 @@ export function text(ctx, str, x, y, opts = {}) {
     const step = size + spacing; const total = step * (chars.length - 1);
     const y0 = baseline === 'top' ? 0 : baseline === 'bottom' ? -total : -total / 2;
     chars.forEach((ch, i) => put(ch, 0, y0 + i * step));
-  } else if (spacing) {
+  } else if (spacing || kern) {
+    // kern: optional array of extra px after each character (e.g. [-8] pulls the 2nd character toward the 1st)
     const widths = chars.map((ch) => ctx.measureText(ch).width);
-    const total = widths.reduce((a, b) => a + b, 0) + spacing * (chars.length - 1);
+    const gaps = chars.map((_, i) => (i < chars.length - 1 ? spacing + ((kern && kern[i]) || 0) : 0));
+    const total = widths.reduce((a, b) => a + b, 0) + gaps.reduce((a, b) => a + b, 0);
     let px = align === 'center' ? -total / 2 : align === 'right' ? -total : 0;
     ctx.textAlign = 'left';
-    chars.forEach((ch, i) => { put(ch, px, 0); px += widths[i] + spacing; });
+    chars.forEach((ch, i) => { put(ch, px, 0); px += widths[i] + gaps[i]; });
   } else { ctx.textAlign = align; put(str, 0, 0); }
   ctx.restore();
 }

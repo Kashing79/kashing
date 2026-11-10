@@ -6,15 +6,18 @@ export const FPS = 25;
 
 // Tagline beats (the reference's "There's / more to / discover" structure)
 export const BEATS = {
-  1: { text: '一道弧线', size: 74, gap: 30, weight: 600, spacing: 10 },
-  2: { text: '藏着', size: 96, gap: 32, weight: 600, spacing: 12 },
-  3: { text: '千年', size: 150, sizeEnd: 196, gap: 36, weight: 700, spacing: 14 },
+  // weights are graded by stroke density (dense glyphs lighter, sparse glyphs heavier); `stroke` thickens the hairlines of the Song face;
+  // `kern` pulls 道 toward the stroke-poor 一 so the line does not open with what looks like a dash
+  1: { text: '一道弧线', size: 80, gap: 30, weight: 700, spacing: 9, stroke: 1.0, kern: [-6] },
+  2: { text: '藏着', size: 112, gap: 30, weight: 600, spacing: 12, stroke: 1.0 },
+  3: { text: '千年', size: 160, sizeEnd: 200, gap: 32, weight: 700, spacing: 14, stroke: 0.8 },
 };
 
-// Typography. `font` is the tagline face (see FONTS in lib/core.js); `title` styles the closing card.
+// Typography — 思源宋体 throughout (chosen by a three-judge panel over eight other open-licensed faces).
+// `font` is the tagline face (see FONTS in lib/core.js); `title` styles the closing card (defaults in lib/titlecard.js).
 export const STYLE = {
   font: 'serif',
-  title: { font: 'serif', titleWeight: 600, ctaWeights: [600, 300] },
+  title: { font: 'serif' },
 };
 
 // arc presets — every shot's dominant curve is a circle arc cresting at frame centre.

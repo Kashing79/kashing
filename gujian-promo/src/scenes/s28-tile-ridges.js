@@ -130,37 +130,12 @@ function buildRoof(env) {
     const ff = fl > 0.5 ? fl - 1 : fl;
     lump((k + 0.5 + fl - jit[k + N]) * dTh, w + AMP * (1 - prof(ff)), false);
   }
-  // 4) 瓦松: a few clumps of the little succulent that colonises old tile roofs — scaly spires over a rosette, rooted at
-  //    the foot of a tube. They live in the height field, so the moon lights one side and they throw real shadows.
-  const spindle = (bx, by, ax, ay, len, wid, h0, h1) => {      // base, unit axis, length, half-width, height at base → tip
-    const ext = len + wid + 2;
-    const i0 = Math.max(0, Math.floor(bx - ext)), i1 = Math.min(cw - 1, Math.ceil(bx + ext));
-    const j0 = Math.max(0, Math.floor(by - ext)), j1 = Math.min(ch - 1, Math.ceil(by + ext));
-    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const dx = i - bx, dy = j - by, u = (dx * ax + dy * ay) / len;
-      if (u < 0 || u > 1) continue;
-      const sLat = Math.abs(-dx * ay + dy * ax);
-      // widest low down, tapering to a point; whorls of leaves give the outline its saw-teeth
-      const w = wid * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.8 + 0.2)), 0.7) * (1 - 0.8 * u * u) * (1 + 0.24 * Math.sin(u * len * 1.7));
-      if (sLat >= w) continue;
-      const idx = j * cw + i, hh = (1 - sLat / w) * L.lerp(h0, h1, u) * Math.min(1, w / (wid * 0.5));
-      if (hh > mossH[idx]) mossH[idx] = hh;
-      if (mossA[idx] < 0.55) mossA[idx] = 0.55;
-    }
-  };
-  for (const [k, side, w0, sc] of WASONG) {
-    const fl = side * (WN + 0.05), th0 = (k + 0.5 + fl - jit[k + N]) * dTh, v0 = w0 + AMP * (1 - prof(fl));
-    const [bx, by] = toMap(th0, v0);
-    const up = -Math.PI / 2 + th0;                               // "up the roof" at this spot, as a screen angle
-    const n = rm.int(3, 4);
-    for (let q = 0; q < n; q++) {
-      const off = (q - (n - 1) / 2) * rm.range(9, 13) * sc * RES, ang = up + rm.range(-0.28, 0.28) + (q - (n - 1) / 2) * 0.12;
-      const len = rm.range(20, 34) * sc * (q === 1 ? 1.45 : 1) * RES;
-      const ox = bx + Math.cos(up + Math.PI / 2) * off, oy = by + Math.sin(up + Math.PI / 2) * off + rm.range(-3, 4);
-      // rosette of fleshy pointed leaves splayed around the foot of each spire
-      for (let e = 0; e < 6; e++) spindle(ox, oy, Math.cos(ang + L.lerp(-2, 2, e / 5)), Math.sin(ang + L.lerp(-2, 2, e / 5)), rm.range(8, 12) * sc * RES, 2.6 * sc * RES, 5, 2);
-      spindle(ox, oy, Math.cos(ang), Math.sin(ang), len, rm.range(4.6, 6.2) * sc * RES, 9, 9 + len * 0.55 / RES);
-    }
+  // 4) 瓦松: a few clumps of the little succulent that colonises old tile roofs. Each one roots in a cushion of moss and
+  //    dust at the foot of a tube — the cushion lives in the height field (real shading, real shadow); the plant itself is
+  //    too fine for the height field to resolve, so it is painted over the lit roof afterwards (paintWasong below).
+  for (const [k, side, w0] of WASONG) {
+    const fl = side * (WN + 0.05);
+    lump((k + 0.5 + fl - jit[k + N]) * dTh, w0 + 5 + AMP * (1 - prof(fl)), true);
   }
   // pale crustose lichen: irregular rosettes, thicker on the weather side
   const rl = L.rng('s28lichen');
@@ -179,15 +154,18 @@ function buildRoof(env) {
     const [mx, my] = toMap((k + 0.5 + fl - jit[k + N]) * dTh, w + AMP * (1 - prof(fl)));
     for (let q = 0; q < 3; q++) stamp(pitH, null, mx + rp.range(-4, 4) * RES, my + rp.range(-2, 2) * RES, rp.range(2.5, 6) * RES, -rp.range(2, 4.5));
   }
+  // a coarser grit of spalled craters, so the surface is not all one fine grain
+  for (let m = 0; m < 320; m++) stamp(pitH, null, rp() * cw, rp() * ch, rp.range(2.4, 5) * RES, -rp.range(1.5, 3.2));
 
   // ── height field + albedo ──
   // the two broad, slow noises (blotches / roughness) are sampled on a coarse grid and interpolated: same look, half the work
   const GS = 8, gw2 = Math.ceil(cw / GS) + 2, gh2 = Math.ceil(ch / GS) + 2;
-  const gA = new Float32Array(gw2 * gh2), gR = new Float32Array(gw2 * gh2);
+  const gA = new Float32Array(gw2 * gh2), gR = new Float32Array(gw2 * gh2), gK = new Float32Array(gw2 * gh2);
   for (let j = 0; j < gh2; j++) for (let i = 0; i < gw2; i++) {
     const X = x0 + (i * GS) / RES, Y = y0 + (j * GS) / RES;
     gA[j * gw2 + i] = nz.fbm(X * 0.011, Y * 0.011, 3);
     gR[j * gw2 + i] = nz.fbm(X * 0.02 + 70, Y * 0.02 - 30, 2);
+    gK[j * gw2 + i] = nz.fbm(X * 0.026 + 211, Y * 0.026 + 87, 3);   // where the soot-dark patina has taken hold
   }
   const loc = { ki: 0, f: 0 };
   for (let j = 0; j < ch; j++) {
@@ -234,6 +212,11 @@ function buildRoof(env) {
       const ro = L.smooth(0.5 + 1.6 * nR);                                            // where the surface has gone rough
       h += nA * 1.5 + nB * (0.45 + 0.9 * ro) + nC * (0.2 + 0.25 * ro) + pitH[idx];
       al *= (0.86 + 0.2 * nA) * (0.88 + 0.22 * st) * (1.04 - 0.1 * ro);
+      // old grey tile is never one tone: a dark patina (soot, black lichen) sits on it in ragged blotches, thicker low on the
+      // flanks of the tubes. On the moonlit tile it prints as the mid-grey of the palette and breaks up the clean white.
+      const nK = (gK[g0] * (1 - tx) + gK[g0 + 1] * tx) * (1 - ty) + (gK[g0 + gw2] * (1 - tx) + gK[g0 + gw2 + 1] * tx) * ty;
+      const pat = L.smooth((nK + 0.34 * nB + 0.22 * nC - 0.28 - 0.14 * (p > 0 ? p : 0)) / 0.15);
+      if (pat > 0) { al *= 1 - 0.56 * pat; h += pat * 0.6 * nC; }
       const lc = lichA[idx];
       if (lc > 0) {
         const e = L.smooth((lc + nB * 0.35 - 0.3) / 0.3);
@@ -303,6 +286,7 @@ function buildRoof(env) {
     G.edgePath(g); g.clip();
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, x0, y0, cw / RES, ch / RES);
+    paintWasong(g, G);
     const gw = x1 - x0, gh = y1 - y0;
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
     g.drawImage(L.grainTex(gw, gh, { seed: 's28g', amount: 0.55 }), x0, y0);
@@ -325,6 +309,71 @@ function buildRoof(env) {
 // 瓦松 clumps: [ridge index k, side of that tube (−1 = its moonlit foot, +1 = its shadowed foot), distance down the slope, scale]
 const WASONG = [[-6, -1, 150, 1.0], [-4, -1, 372, 0.9], [-2, -1, 112, 0.9], [1, -1, 262, 1.05], [3, -1, 150, 0.9], [5, -1, 330, 1.0]];
 
+/** 瓦松, painted in the same light as the roof: a few stout, scaly, pagoda-shaped spires over a rosette of fleshy leaves —
+ *  moonlit on the left, black on the right, each throwing a short shadow down-light. Drawn before the grain so it sits in the print. */
+function paintWasong(g, G) {
+  const { a, dTh, N, jit } = G;
+  const r = L.rng('s28wasong');
+  const INK = '#040506';
+  for (const [k, side, w0, sc] of WASONG) {
+    const fl = side * (WN + 0.05), th0 = (k + 0.5 + fl - jit[k + N]) * dTh, v0 = w0 + AMP * (1 - prof(fl));
+    const base = a.pt(th0, TOP - v0);
+    const dim = 0.5 * L.smooth((base.x + 160) / (W + 320));               // the right of the roof sits further from the moon
+    const lit = (c) => L.mix(c, INK, dim);
+    const sa = PHI - th0, sdx = Math.cos(sa), sdy = Math.sin(sa);          // the way the light travels, in the plant's local frame
+    const n = r.int(3, 4);
+    const stems = [];
+    for (let q = 0; q < n; q++) {
+      stems.push({ off: (q - (n - 1) / 2) * r.range(8.5, 11.5) * sc, dy: r.range(-2, 4), hgt: r.range(21, 30) * sc * (q === 1 ? 1.35 : 1),
+        wid: r.range(4.4, 5.8) * sc, lean: r.range(-0.2, 0.2) + (q - (n - 1) / 2) * 0.13, ph: r() });
+    }
+    g.save(); g.translate(base.x, base.y); g.rotate(th0);
+    // shadows first, so no plant is darkened by its neighbour's shadow polygon
+    g.fillStyle = INK; g.globalAlpha = 0.9;
+    for (const s of stems) {
+      const len = s.hgt * 0.95, hw = s.wid * 1.1;
+      g.beginPath();
+      g.moveTo(s.off - sdy * hw, s.dy + sdx * hw);
+      g.quadraticCurveTo(s.off + sdx * len * 0.6 - sdy * hw * 0.8, s.dy + sdy * len * 0.6 + sdx * hw * 0.8, s.off + sdx * len, s.dy + sdy * len);
+      g.quadraticCurveTo(s.off + sdx * len * 0.5 + sdy * hw * 0.7, s.dy + sdy * len * 0.5 - sdx * hw * 0.7, s.off + sdy * hw, s.dy - sdx * hw);
+      g.closePath(); g.fill();
+    }
+    g.globalAlpha = 1;
+    for (const s of stems) {
+      g.save(); g.translate(s.off, s.dy); g.rotate(s.lean);
+      // rosette: short pointed leaves fanned around the foot; those facing the moon are pale, the others nearly lost
+      for (let e = 0; e < 7; e++) {
+        const ang = L.lerp(-Math.PI * 0.97, -Math.PI * 0.03, e / 6) + r.range(-0.12, 0.12);
+        const ll = r.range(7, 10.5) * sc, lw = r.range(1.9, 2.6) * sc;
+        const facing = L.clamp(0.5 - 0.5 * Math.cos(ang) + 0.25 * -Math.sin(ang) - 0.15);   // 1 = turned toward the upper left
+        g.save(); g.rotate(ang);
+        g.fillStyle = lit(L.mix('#16181b', '#e8ecf0', facing));
+        g.beginPath(); g.moveTo(0, -lw * 0.6); g.quadraticCurveTo(ll * 0.55, -lw * 1.25, ll, 0); g.quadraticCurveTo(ll * 0.55, lw * 1.25, 0, lw * 0.6); g.closePath(); g.fill();
+        g.restore();
+      }
+      // spire: widest a quarter of the way up, tapering to a point; whorls of bracts give the outline upward-pointing teeth
+      const WH = 6.5, wAt = (u) => s.wid * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.8 + 0.2)), 0.75) * (1 - 0.7 * u * u);
+      const tooth = (u, ph) => 1 + 0.3 * (((u * WH + ph) % 1) - 0.35);
+      const M = 44;
+      g.beginPath(); g.moveTo(0, 1.5);
+      for (let i = 0; i <= M; i++) { const u = i / M; g.lineTo(-wAt(u) * tooth(u, s.ph), -u * s.hgt); }
+      for (let i = M; i >= 0; i--) { const u = i / M; g.lineTo(wAt(u) * tooth(u, s.ph + 0.45), -u * s.hgt); }
+      g.closePath();
+      g.fillStyle = L.linear(g, -s.wid * 1.15, 0, s.wid * 1.15, 0, [[0, lit('#f3f5f8')], [0.36, lit('#c9cfd6')], [0.5, lit('#6e747b')], [0.6, '#0e1012'], [1, INK]]);
+      g.fill();
+      // the shadow under each whorl
+      g.strokeStyle = L.rgba(INK, 0.5); g.lineWidth = 0.9;
+      for (let j = 1; j < WH; j++) {
+        const u = (j - s.ph + 0.35) / WH; if (u <= 0.05 || u >= 0.92) continue;
+        const w = wAt(u);
+        g.beginPath(); g.moveTo(-w * 1.05, -u * s.hgt); g.quadraticCurveTo(-w * 0.3, -u * s.hgt + 1.6, w * 0.25, -u * s.hgt + 0.4); g.stroke();
+      }
+      g.restore();
+    }
+    g.restore();
+  }
+}
+
 export default {
   name: '月下瓦垄',
   tone: 'light',
@@ -340,7 +389,7 @@ export default {
     const q = a.pt(L.lerp(-0.2, -0.06, p), -40);
     ctx.save(); a.clipBelow(ctx, TOP + 2); ctx.globalCompositeOperation = 'color-dodge';
     ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, 640, [[0, '#4a4e55'], [0.45, '#1c1e21'], [1, '#000000']]);
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(q.x - 640, q.y - 640, 1280, 1280);   // dodging with black changes nothing, so only the patch itself needs painting
     ctx.restore();
   },
 };

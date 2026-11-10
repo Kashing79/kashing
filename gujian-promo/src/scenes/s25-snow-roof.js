@@ -1,8 +1,9 @@
 // s25 — 雪后金瓦. A round yellow-glazed roof after snowfall, at dusk.
 // Above the arc: one flat sheet of magenta dusk sky (the tagline sits here).
 // The arc = the top of a fat, rounded snow cornice (雪檐) catching a thread of gold sunset light.
-// Below: the snow has slid off the tube-tile ridges (筒瓦垄) in radial strips of every length, baring wet golden glaze;
-// drip-shaped lobes and small icicles hang where snow meets tile.
+// Below: the snow has slid off the tube-tile ridges (筒瓦垄) in radial strips of every length, baring wet golden glaze
+// (ridges, lapped pan tiles in the troughs, the row of nail caps under the snow lip); drip-shaped lobes and small icicles
+// hang where snow meets tile.
 // Recipe: the tiles are drawn as vector half-cylinders; the snow is a real height field (computed per pixel in polar
 // coordinates at reduced resolution, in init) that is lit, tinted and composited over them, then everything is blit with a small rot.
 import * as L from '../lib/core.js';
@@ -17,7 +18,7 @@ const HS = 13;            // thickness of the snow sheet lying on the roof (heig
 const CAP_D = 112;        // depth of the row of nail caps (钉帽) below the arc
 const CAP_R = 17;
 const KN = 700;           // depth samples (2 px apart) of the per-ridge melt profile
-const C = { sky: '#8a2f7f', snow: '#f4f1f6', shade: '#b9b3d6', gold: '#e0a81f', goldDark: '#8a5a0c', sun: '#ffcf7a' };
+const C = { sky: '#8a2f7f', snow: '#f4f1f6', shade: '#b9b3d6', gold: '#e0a81f', sun: '#ffcf7a' };   // the brief's palette
 let S = null;
 
 const sm = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -67,7 +68,7 @@ function makePlan(env) {
       i, theta, c,
       bridged: r.chance(0.05),                      // snow never slid off this ridge near the cornice
       band: r.range(30, 95), tr: r.range(50, 100),    // fully bare band right under the cornice, then the troughs fill with snow
-      k: r.range(-0.5, 0.2),                       // width bias of the bare strip (negative = wider)
+      k: r.range(-0.7, 0.15),                       // width bias of the bare strip (negative = wider)
       len: u < 0.24 ? r.range(160, 240) : u < 0.58 ? r.range(240, 360) : u < 0.83 ? r.range(360, 480) : 5000,
       tip: r.range(16, 44),
       hole: null,
@@ -267,7 +268,7 @@ function buildSnow(env, P) {
   }
   // light: low sun from the upper left; shadows take the violet of the sky
   const lx = -0.22, ly = -0.74, lz = 0.635;
-  const ramp = L.makeRamp([[0, '#7a71b4'], [0.24, '#9a92cb'], [0.44, C.shade], [0.6, '#dedaee'], [0.7, '#f7f5f9'], [0.82, '#fffefb'], [1, '#fff4e0']]);
+  const ramp = L.makeRamp([[0, '#7a71b4'], [0.24, '#9a92cb'], [0.44, C.shade], [0.6, '#e4e0f1'], [0.7, '#fbfafd'], [0.82, '#fffefb'], [1, '#fff4e0']]);
   const lutN = 512, lutC = new Uint8ClampedArray(lutN * 3);
   for (let k = 0; k < lutN; k++) { const c = ramp(k / (lutN - 1)); lutC[k * 3] = c[0]; lutC[k * 3 + 1] = c[1]; lutC[k * 3 + 2] = c[2]; }
   const rj = L.rng('s25grain');
@@ -287,7 +288,7 @@ function buildSnow(env, P) {
         let cr = lutC[q], cg = lutC[q + 1], cb = lutC[q + 2];
         // broad, soft violet shadow patches and a slow fall into shade down the roof
         const X = (x + 0.5) * inv - PAD, d = dD[i];
-        let cool = isCornice ? 0 : 0.1 * sm((d - 220) / 650) + 0.17 * sm(0.1 + 1.1 * nz.n2(X / 300 + 3.7, Y / 210 - 1.9)) * sm((d - 90) / 120);
+        let cool = isCornice ? 0 : 0.08 * sm((d - 220) / 650) + 0.15 * sm(0.1 + 1.1 * nz.n2(X / 300 + 3.7, Y / 210 - 1.9)) * sm((d - 90) / 120);
         if (cool > 0) { cr += (shadeRGB[0] - cr) * cool; cg += (shadeRGB[1] - cg) * cool; cb += (shadeRGB[2] - cb) * cool; }
         // crystalline grain, the odd sparkle on lit snow
         const rv = rj();
@@ -407,7 +408,7 @@ function buildRoof(env, P, snow) {
   g.restore();
   // the low sun rakes in from the left: a warm breath there, the far side sinking into violet
   g.save(); g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,196,120,0.2)'], [0.4, 'rgba(255,196,120,0)'], [0.6, 'rgba(96,70,170,0)'], [1, 'rgba(96,70,170,0.26)']]);
+  g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,230,190,0.24)'], [0.4, 'rgba(255,230,190,0)'], [0.6, 'rgba(96,70,170,0)'], [1, 'rgba(96,70,170,0.24)']]);
   g.fillRect(-PAD, -PAD, LW, LH);
   g.fillStyle = L.radial(g, a.cx, a.cy, R - 760, R - 260, [[0, 'rgba(70,48,130,0.3)'], [1, 'rgba(70,48,130,0)']]);
   g.fillRect(-PAD, -PAD, LW, LH);
@@ -428,11 +429,12 @@ function buildRoof(env, P, snow) {
     rg.drawImage(L.noiseTex(480, 4, { seed: 's25rim', scale: 22, octaves: 2, res: 1, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.5, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), -PAD, -PAD, LW, LH);
   });
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop'; g.drawImage(rim, 0, 0); g.restore();
-  const bloom = L.blurred(rim, 9);
+  // … and its halo against the dusk, tucked behind the roof in the same layer (one blit per frame instead of two)
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-over'; g.globalAlpha = 0.8; g.drawImage(L.blurred(rim, 9), 0, 0); g.restore();
   // glint sites: on the wet highlight of bare, sunlit tube tiles
   const rg2 = L.rng('s25glint');
   const glints = [];
-  for (let k = 0; k < 400 && glints.length < 16; k++) {
+  for (let k = 0; k < 400 && glints.length < 12; k++) {
     const rd = P.ridges[rg2.int(0, P.ridges.length - 1)], d = rg2.range(rd.c + 80, 500);
     const hw = (HALF * (R - d)) / R, theta = rd.theta - (0.46 * hw) / (R - d);
     const pt = a.pt(theta, -d);
@@ -442,7 +444,11 @@ function buildRoof(env, P, snow) {
     if (glints.some((o) => Math.hypot(o.x - pt.x, o.y - pt.y) < 150)) continue;
     glints.push({ x: pt.x, y: pt.y, theta, dr: -d, size: rg2.range(0.7, 1.25), ph: rg2.int(0, 2) });
   }
-  return { roof, bloom, glints };
+  // keep only the rows that can hold anything (the top of the layer is empty sky): cheaper to blit every frame
+  const y0 = Math.floor(a.crestY - 64);
+  const crop = L.makeCanvas(LW, LH - (y0 + PAD));
+  crop.getContext('2d').drawImage(roof, 0, -(y0 + PAD));
+  return { roof: crop, roofY: y0, glints };
 }
 
 // ───────────────────────── sky ─────────────────────────
@@ -478,22 +484,17 @@ export default {
   name: '雪后金瓦',
   tone: 'light',
   init(env) {
-    const t0 = performance.now();
     const P = makePlan(env);
     const snow = buildSnow(env, P);
-    const t1 = performance.now();
-    const { roof, bloom, glints } = buildRoof(env, P, snow);
-    const t2 = performance.now();
-    S = { sky: buildSky(env), roof, bloom, sparks: snow.sparks, glints };
-    console.warn('TIMING snow', (t1 - t0) | 0, 'roof', (t2 - t1) | 0, 'sky', (performance.now() - t2) | 0);
+    const { roof, roofY, glints } = buildRoof(env, P, snow);
+    S = { sky: buildSky(env), roof, roofY, sparks: snow.sparks, glints };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.0038, 0.0038, p);
     ctx.drawImage(S.sky, 0, 0);
-    // halo of the lit snow edge against the dusk
-    L.blit(ctx, env, S.bloom, { rot, blend: 'screen', alpha: 0.75 });
-    L.blit(ctx, env, S.roof, { rot });
+    // the roof slides a few px along the arc (rotation about the arc's centre), the sky holds still
+    L.cam(ctx, env, { rot }, () => ctx.drawImage(S.roof, -PAD, S.roofY));
     // a sheen of low sun sliding along the cornice (kept on the roof so the sky stays flat)
     ctx.save(); a.clipBelow(ctx, 5);
     const gl = a.pt(L.lerp(-0.2, -0.1, p), -24);

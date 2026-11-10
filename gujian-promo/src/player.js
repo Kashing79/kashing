@@ -23,7 +23,7 @@ function setStyle(patch = {}) {
 const { W, H } = L;
 const canvas = document.getElementById('c');
 canvas.width = W; canvas.height = H;
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
 const errors = [];
 const missingFonts = [];
@@ -66,22 +66,41 @@ function ensureGrain() {
 const beatShots = { 1: SHOTS.filter((s) => s.beat === 1), 2: SHOTS.filter((s) => s.beat === 2), 3: SHOTS.filter((s) => s.beat === 3) };
 
 /** tagline text sits just above the arc crest, hard-cutting with every shot like the reference */
-function drawBeatText(shot, rec) {
-  const b = BEATS[shot.beat]; if (!b) return;
+const textCache = new Map(); // shot.id + style signature → canvas (the text never moves within a shot)
+function beatTextLayer(shot, rec) {
+  const b = BEATS[shot.beat]; if (!b) return null;
   const list = beatShots[shot.beat]; const k = list.indexOf(shot); const u = list.length > 1 ? k / (list.length - 1) : 0;
   const size = b.sizeEnd ? L.lerp(b.size, b.sizeEnd, u) : b.size * (1 + 0.05 * u);
-  const r = L.rng('txt' + shot.id);
   const tone = (rec.mod && rec.mod.tone) || 'light';
+  const sig = JSON.stringify([shot.id, b, STYLE.font, STYLE.light, STYLE.dark, STYLE.blur, STYLE.halo, tone, rec.env.arc.crestY]);
+  if (textCache.has(sig)) return textCache.get(sig);
+  const r = L.rng('txt' + shot.id);
   const color = tone === 'dark' ? STYLE.dark : STYLE.light;
   const x = W / 2 + r.range(-5, 5);
   const y = rec.env.arc.crestY - b.gap - size * 0.5 + r.range(-4, 4);
-  ctx.save();
-  // soft halo for legibility over busy textures
-  ctx.shadowColor = tone === 'dark' ? 'rgba(255,250,240,0.45)' : 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = size * 0.28;
-  if (STYLE.blur) ctx.filter = `blur(${STYLE.blur}px)`;
-  L.text(ctx, b.text, x, y, { font: b.font || STYLE.font, size, weight: b.weight, color, spacing: b.spacing * (size / b.size), rotate: r.range(-0.006, 0.006), alpha: 0.97 });
-  ctx.restore();
+  const c = L.makeCanvas(W, H); const g = c.getContext('2d');
+  const k2 = size / b.size;
+  const opts = { font: b.font || STYLE.font, size, weight: b.weight, color, spacing: b.spacing * k2, kern: b.kern ? b.kern.map((v) => v * k2) : null,
+    rotate: r.range(-0.006, 0.006), alpha: 0.97, stroke: b.stroke ? { color, width: b.stroke } : null };
+  // 1) a soft, shapeless local dimming (or lift, under dark text) so the words hold on busy textures without a visible halo
+  const halo = STYLE.halo === undefined ? 0.24 : STYLE.halo;
+  if (halo > 0) {
+    g.save(); g.filter = `blur(${Math.round(size * 0.22)}px)`; g.globalAlpha = halo;
+    L.text(g, b.text, x, y, { ...opts, color: tone === 'dark' ? '#fffaf0' : '#000000', alpha: 1, stroke: { color: tone === 'dark' ? '#fffaf0' : '#000000', width: size * 0.16 } });
+    g.restore();
+  }
+  // 2) the words, with an optical softness that scales with size (≈0.4 % of the font size)
+  g.save();
+  const blur = STYLE.blur === 0 ? 0 : Math.max(0.3, size * 0.004 * ((STYLE.blur || 0.6) / 0.6));
+  if (blur) g.filter = `blur(${blur.toFixed(2)}px)`;
+  L.text(g, b.text, x, y, opts);
+  g.restore();
+  textCache.set(sig, c);
+  return c;
+}
+function drawBeatText(shot, rec) {
+  const layer = beatTextLayer(shot, rec);
+  if (layer) ctx.drawImage(layer, 0, 0);
 }
 
 function drawGuide(env) {
