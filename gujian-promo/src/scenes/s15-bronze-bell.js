@@ -35,7 +35,7 @@ function buildGlyphSet(count) {
     for (let i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]);
     p.closePath();
   };
-  const TH = 0.1, TV = 0.125;
+  const TH = 0.088, TV = 0.108;
   const heng = (p, x0, x1, y) => { const tilt = (x1 - x0) * 0.07; poly(p, [[x0, y + TH / 2], [x0, y - TH / 2], [x1, y - TH / 2 - tilt], [x1 + TH * 0.35, y + TH * 0.6 - tilt]]); };
   const shu = (p, x, y0, y1) => poly(p, [[x - TV / 2, y0], [x + TV / 2, y0], [x + TV / 2, y1], [x - TV * 0.3, y1 + TV * 0.3]]);
   const slash = (p, x0, y0, x1, y1, t) => {
@@ -93,7 +93,7 @@ function buildGlyphMask(env) {
     for (const [z0, z1] of ZONES) {
       const nRows = Math.floor((z1 - z0) / CH), pitch = (z1 - z0) / nRows;
       for (let k = 0; k < nRows; k++) {
-        const sTop = z0 + k * pitch + pitch * 0.07, sBot = sTop + pitch * 0.86;
+        const sTop = z0 + k * pitch + pitch * 0.05, sBot = sTop + pitch * 0.9;
         const dTop = dOf(sTop), hpx = dOf(sBot) - dTop;
         if (hpx < 1.1) continue;
         if (a.crestY + dTop > H + PAD + 20) break;
@@ -105,7 +105,7 @@ function buildGlyphMask(env) {
           if (skip || p.x < -PAD - 40 || p.x > W + PAD + 40 || p.y > H + PAD + 30) continue;
           g.save();
           g.translate(p.x, p.y); g.rotate(th);
-          g.scale(CW * 0.8 * wScale * sc, hpx);
+          g.scale(CW * 0.73 * wScale * sc, hpx);
           g.translate(-0.5 + jx, 0);
           g.fill(glyphs[gi]);
           g.restore();
@@ -124,21 +124,25 @@ function tint(mask, style) {
 }
 
 // ───────────────────────── bronze + verdigris (per-pixel, in surface coordinates) ─────────────────────────
+const hash2 = (x, y) => { let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+
 function buildSurface(env) {
   const a = env.arc, res = 0.5;
   const fw = W + PAD * 2, fh = H + PAD * 2;
   const cw = Math.round(fw * res), ch = Math.round(fh * res);
-  const base = new ImageData(cw, ch), crust = new ImageData(cw, ch);
-  const b = base.data, c = crust.data;
+  const base = new ImageData(cw, ch);
+  const b = base.data;
+  const pfA = new Float32Array(cw * ch).fill(-9);   // verdigris field, thresholded later at full resolution
+  const pcA = new Float32Array(cw * ch);            // its colour variation
   const n1 = L.makeNoise('s15mottle'), n2 = L.makeNoise('s15patina'), n3 = L.makeNoise('s15streak');
   const bandEdges = [BAND_A[0], BAND_A[1], BAND_B[0], BAND_B[1]];
-  const yStart = Math.max(0, Math.floor((a.crestY - 6 + PAD) * res));
+  const yStart = Math.max(0, Math.floor((a.crestY - 8 + PAD) * res));
   for (let y = yStart; y < ch; y++) {
     const dy = a.cy - (y / res - PAD);
     for (let x = 0; x < cw; x++) {
       const dx = x / res - PAD - a.cx;
       const d = a.R - Math.sqrt(dx * dx + dy * dy);
-      if (d < -4) continue;
+      if (d < -5) continue;
       const u = Math.atan2(dx, dy) * a.R;
       const s = sOf(d);
       // bronze tone: big cast blotches + long streaks that run round the bell + fine tooth
@@ -149,63 +153,96 @@ function buildSurface(env) {
       let R0, G0, B0;
       if (t < 0.5) { const k = t / 0.5; R0 = 26 + (88 - 26) * k; G0 = 16 + (59 - 16) * k; B0 = 9 + (35 - 9) * k; }
       else { const k = (t - 0.5) / 0.5; R0 = 88 + (150 - 88) * k; G0 = 59 + (103 - 59) * k; B0 = 35 + (60 - 35) * k; }
-      // verdigris. 1) a thin dull wash that lives in the ground between the strokes
+      // cuprite: dull red-brown oxide blooming here and there under the green
+      const cup = sstep(0.18, 0.5, n3.fbm(u / 210 - 8, s / 210 + 5, 3) + 0.2 * fine) * 0.5;
+      R0 += (116 - R0) * cup; G0 += (50 - G0) * cup; B0 += (28 - B0) * cup;
+      // verdigris field: clusters of spots, more where damp sits against the raised bands
       const wx = n2.n2(u / 430 + 9.1, s / 430 - 3.3), wy = n2.n2(u / 430 - 5.2, s / 430 + 7.7);
-      const blob = n2.fbm(u / 150 + wx * 0.9, s / 150 + wy * 0.9, 4);
+      const blob = n2.fbm(u / 170 + wx * 0.45, s / 170 + wy * 0.45, 4);
       const region = n2.n2(u / 900 + 1.7, s / 600 - 2.2);
       const hf = n2.fbm(u / 10 + 77, s / 10, 2);
-      const wash = sstep(-0.3, 0.3, 0.8 * blob + 0.5 * region + 0.2 * hf) * 0.5;
-      // 2) crusty patches with ragged, granular edges; more where water sits against the raised bands
-      let near = 0, below = 0;
-      for (let i = 0; i < 4; i++) {
-        const e = s - bandEdges[i];
-        if (Math.abs(e) < 26) near = Math.max(near, 1 - Math.abs(e) / 26);
-        if ((i & 1) && e > 0 && e < 300) below = Math.max(below, 1 - e / 300);
-      }
-      const pf = 0.72 * blob + 0.45 * region + 0.24 * near + 0.3 * hf - 0.2 * str;
-      // 3) runs that trickled down from the bands
-      const drip = sstep(0.42, 0.7, n3.n2(u / 12 + 40, s / 330 + 3) + 0.25 * hf) * below * (0.65 + 0.35 * region);
-      const pa = Math.max(sstep(0.2, 0.3, pf), drip * 0.9);
-      const pc = 0.5 + 0.5 * n2.n2(u / 40 + 20, s / 40);
-      const chalk = sstep(0.4, 0.66, pf) * (0.4 + 0.6 * pc);
-      const PR = 30 + (66 - 30) * pc + (128 - 66) * chalk, PG = 80 + (146 - 80) * pc + (186 - 146) * chalk, PB = 74 + (134 - 74) * pc + (166 - 134) * chalk;
-      const i = (y * cw + x) * 4;
-      // wash first (dull, dark), then the crust
-      R0 += (24 - R0) * wash; G0 += (62 - G0) * wash; B0 += (57 - B0) * wash;
-      const k = pa * 0.92;
-      b[i] = R0 + (PR - R0) * k; b[i + 1] = G0 + (PG - G0) * k; b[i + 2] = B0 + (PB - B0) * k; b[i + 3] = 255;
-      // the thickest crust also buries the raised strokes
-      const ca = sstep(0.36, 0.44, pf);
-      c[i] = PR; c[i + 1] = PG; c[i + 2] = PB; c[i + 3] = 255 * ca * 0.92;
+      const spots = n2.fbm(u / 24 - 31, s / 24 + 13, 2);
+      let near = 0;
+      for (let i = 0; i < 4; i++) { const e = Math.abs(s - bandEdges[i]); if (e < 26) near = Math.max(near, 1 - e / 26); }
+      const pf = 0.58 * blob + 0.34 * region + 0.22 * near + 0.22 * hf + 0.36 * spots - 0.2 * str;
+      // a thin dull wash of it stains the ground around the heavier growth
+      const wash = sstep(0.02, 0.3, pf) * 0.24;
+      R0 += (22 - R0) * wash; G0 += (44 - G0) * wash; B0 += (40 - B0) * wash;
+      const i = y * cw + x;
+      b[i * 4] = R0; b[i * 4 + 1] = G0; b[i * 4 + 2] = B0; b[i * 4 + 3] = 255;
+      pfA[i] = pf; pcA[i] = 0.5 + 0.5 * n2.n2(u / 40 + 20, s / 40);
     }
   }
-  const up = (img) => {
-    const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
-    const out = L.makeCanvas(fw, fh); const g = out.getContext('2d');
+  const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(base, 0, 0);
+  const baseC = L.makeCanvas(fw, fh);
+  {
+    const g = baseC.getContext('2d');
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, 0, 0, fw, fh);
-    out._pad = PAD;
-    return out;
-  };
-  return { base: up(base), crust: up(crust) };
+    baseC._pad = PAD;
+  }
+  // full-resolution pass: threshold the field through per-pixel grain so the crust has a hard, crumbly edge
+  const ground = new ImageData(fw, fh), crust = new ImageData(fw, fh);
+  const gd = ground.data, cd = crust.data;
+  for (let Y = Math.floor(a.crestY - 6 + PAD); Y < fh; Y++) {
+    const hy = L.clamp((Y + 0.5) * res - 0.5, 0, ch - 1.001), y0 = hy | 0, fy = hy - y0;
+    for (let X = 0; X < fw; X++) {
+      const hx = L.clamp((X + 0.5) * res - 0.5, 0, cw - 1.001), x0 = hx | 0, fx = hx - x0;
+      const i0 = y0 * cw + x0;
+      const p00 = pfA[i0], p10 = pfA[i0 + 1], p01 = pfA[i0 + cw], p11 = pfA[i0 + cw + 1];
+      if (p00 < -5 || p10 < -5 || p01 < -5 || p11 < -5) continue;
+      const pf = (p00 * (1 - fx) + p10 * fx) * (1 - fy) + (p01 * (1 - fx) + p11 * fx) * fy;
+      if (pf < 0.14) continue;
+      const g1 = hash2(X, Y), g2 = hash2(X >> 1, (Y >> 1) + 7919), g3 = hash2((X + 1) >> 2, (Y >> 2) + 104729);
+      const v = pf + 0.2 * (0.4 * g1 + 0.35 * g2 + 0.25 * g3 - 0.5);
+      const aG = sstep(0.25, 0.285, v);
+      if (aG <= 0) continue;
+      const pc = pcA[i0];
+      const chalk = sstep(0.4, 0.66, v) * (0.35 + 0.65 * pc);
+      const lum = 0.84 + 0.32 * g2;
+      const PR = (24 + (56 - 24) * pc + (100 - 56) * chalk) * lum, PG = (68 + (128 - 68) * pc + (164 - 128) * chalk) * lum, PB = (62 + (117 - 62) * pc + (146 - 117) * chalk) * lum;
+      const i = (Y * fw + X) * 4;
+      gd[i] = PR; gd[i + 1] = PG; gd[i + 2] = PB; gd[i + 3] = 255 * aG * 0.94;
+      const aC = sstep(0.39, 0.425, v);
+      if (aC > 0) { cd[i] = PR; cd[i + 1] = PG; cd[i + 2] = PB; cd[i + 3] = 255 * aC * 0.95; }
+    }
+  }
+  const full = (img) => { const c = L.makeCanvas(fw, fh); c.getContext('2d').putImageData(img, 0, 0); c._pad = PAD; return c; };
+  return { base: baseC, ground: full(ground), crust: full(crust) };
 }
 
 // ───────────────────────── raised string-course bands ─────────────────────────
+const RIDGES = [];
+for (const [s0, s1] of [BAND_A, BAND_B]) { const w = s1 - s0; RIDGES.push([s0 + w * 0.09, w * 0.13], [s0 + w * 0.5, w * 0.44], [s0 + w * 0.91, w * 0.13]); }
+
 function ridge(g, a, sc, sw) {
   const dT = dOf(sc - sw / 2), dB = dOf(sc + sw / 2), wp = dB - dT, dm = (dT + dB) / 2;
   g.lineCap = 'butt';
   g.strokeStyle = 'rgba(4,2,1,0.6)'; g.lineWidth = wp * 0.8 + 3; a.stroke(g, -(dB + wp * 0.25 + 1.5));   // cast shadow below
   // half-round moulding lit from above: shade across its width
-  g.strokeStyle = L.radial(g, a.cx, a.cy, a.R - dB - 0.5, a.R - dT + 0.5, [[0, '#1c1008'], [0.22, '#4a321c'], [0.52, '#8d6540'], [0.74, '#d2a674'], [0.86, '#b98a58'], [1, '#5e4126']]);
+  g.strokeStyle = L.radial(g, a.cx, a.cy, a.R - dB - 0.5, a.R - dT + 0.5, [[0, '#140b05'], [0.2, '#38250f'], [0.5, '#6d4a2b'], [0.72, '#9a7045'], [0.88, '#7d5936'], [1, '#462f1a']]);
   g.lineWidth = wp + 1; a.stroke(g, -dm);
 }
 function stringBand(g, a, [s0, s1]) {
-  const w = s1 - s0;
   // the plain sunk ground the ridges stand on
   g.strokeStyle = 'rgba(12,7,3,0.5)'; g.lineWidth = dOf(s1 + 4) - dOf(s0 - 4); a.stroke(g, -(dOf(s0 - 4) + dOf(s1 + 4)) / 2);
-  ridge(g, a, s0 + w * 0.09, w * 0.13);
-  ridge(g, a, s0 + w * 0.5, w * 0.44);
-  ridge(g, a, s0 + w * 0.91, w * 0.13);
+}
+/** where hands and ropes have rubbed the ridges bright: a broken line of polish along each crest */
+function ridgeSheen(env) {
+  const a = env.arc;
+  const lay = L.makeLayer(PAD, (g) => {
+    for (const [sc, sw] of RIDGES) {
+      const dT = dOf(sc - sw / 2), dB = dOf(sc + sw / 2), wp = dB - dT;
+      g.strokeStyle = 'rgba(232,186,128,0.5)'; g.lineWidth = Math.max(1.2, wp * 0.34); a.stroke(g, -(dT + wp * 0.3));
+      g.strokeStyle = 'rgba(255,232,190,0.95)'; g.lineWidth = Math.max(0.9, wp * 0.12); a.stroke(g, -(dT + wp * 0.25));
+    }
+  });
+  const g = lay.getContext('2d');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15rub', scale: 50, sx: 5, sy: 1, octaves: 4, res: 0.33, contrast: 1.8,
+    ramp: [[0, 'rgba(0,0,0,0.05)'], [0.36, 'rgba(0,0,0,0.16)'], [0.62, 'rgba(0,0,0,0.85)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
+  return L.blurred(lay, 0.6);
 }
 /** verdigris packed into the grooves of the bands, broken up along the arc */
 function bandDeposits(env) {
@@ -222,14 +259,14 @@ function bandDeposits(env) {
   const g = lay.getContext('2d');
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'destination-in';
-  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15groove', scale: 46, sx: 3.2, sy: 1, octaves: 4, res: 0.33, contrast: 1.7,
-    ramp: [[0, 'rgba(0,0,0,0)'], [0.4, 'rgba(0,0,0,0)'], [0.56, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
-  return lay;
+  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15groove', scale: 60, sx: 2.2, sy: 1, warp: 0.5, octaves: 4, res: 0.33, contrast: 1.7,
+    ramp: [[0, 'rgba(0,0,0,0)'], [0.36, 'rgba(0,0,0,0)'], [0.62, 'rgba(0,0,0,0.75)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
+  return L.blurred(lay, 0.7);
 }
 
 function buildBell(env) {
   const a = env.arc;
-  const { base, crust } = buildSurface(env);
+  const { base, ground, crust } = buildSurface(env);
   const mask = buildGlyphMask(env);
   // corrosion has eaten some of the casting away
   {
@@ -242,26 +279,30 @@ function buildBell(env) {
   const blot = L.polarNoiseLayer(env, PAD, { seed: 's15blot', scale: 230, octaves: 4, warp: 0.6, res: 0.25, contrast: 1.4, ramp: [[0, '#4a3a2c'], [0.55, '#ffffff'], [1, '#ffffff']] });
   const occl = L.blurred(tint(mask, '#060402'), 3);
   const shadow = tint(mask, '#050301');
-  const hi = tint(mask, '#ffe6bc');
+  const hi = tint(mask, '#efbb86');
   // stroke faces: rubbed bronze, a little uneven from stroke to stroke
-  const face = tint(mask, '#a37548');
+  const face = tint(mask, '#8a5d35');
   {
     const g = face.getContext('2d');
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.8;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15face', scale: 70, octaves: 3, res: 0.25, contrast: 1.6, ramp: [[0, 'rgba(60,36,18,0.75)'], [0.5, 'rgba(120,84,50,0.1)'], [1, 'rgba(214,170,116,0.5)']] }), 0, 0);
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15face', scale: 70, octaves: 3, res: 0.25, contrast: 1.6, ramp: [[0, 'rgba(52,31,16,0.8)'], [0.5, 'rgba(110,76,44,0.1)'], [1, 'rgba(196,148,96,0.5)']] }), 0, 0);
   }
   const deposits = bandDeposits(env);
+  const sheen = ridgeSheen(env);
   return L.makeLayer(PAD, (g) => {
     g.drawImage(base, -PAD, -PAD);
+    g.drawImage(ground, -PAD, -PAD);          // verdigris lying in the ground, between the strokes
     // inscription in relief: soft occlusion, hard shadow down-right, sharp light up-left, then the face
     g.globalAlpha = 0.85; g.drawImage(occl, -PAD + 1, -PAD + 1.6);
     g.globalAlpha = 0.9; g.drawImage(shadow, -PAD + 1.5, -PAD + 2.1);
-    g.globalAlpha = 0.7; g.drawImage(hi, -PAD - 1, -PAD - 1.3);
+    g.globalAlpha = 0.55; g.drawImage(hi, -PAD - 1, -PAD - 1.3);
     g.globalAlpha = 1; g.drawImage(face, -PAD, -PAD);
     // string-course bands
     stringBand(g, a, BAND_A);
     stringBand(g, a, BAND_B);
+    for (const [sc, sw] of RIDGES) ridge(g, a, sc, sw);
+    g.drawImage(sheen, -PAD, -PAD);
     g.globalAlpha = 0.9; g.drawImage(deposits, -PAD, -PAD);
     // the thickest verdigris buries the strokes too
     g.globalAlpha = 1; g.drawImage(crust, -PAD, -PAD);
@@ -284,24 +325,28 @@ function buildShade(env) {
   const a = env.arc;
   const c = L.makeCanvas(W, H); const g = c.getContext('2d');
   const DEEP = 900, COLD = [0.8, 0.88, 1.3];
-  const stops = [[0, 0.2, COLD], [8, 0.26, COLD], [30, 0.46, [0.93, 0.96, 1.1]], [80, 0.8], [170, 1], [340, 0.94], [520, 0.74], [900, 0.45]];
+  const stops = [[0, 0.16, COLD], [8, 0.22, COLD], [30, 0.4, [0.93, 0.96, 1.1]], [80, 0.72], [170, 0.97], [260, 1], [400, 0.9], [520, 0.74], [900, 0.42]];
   g.fillStyle = L.radial(g, a.cx, a.cy, a.R - DEEP, a.R, stops.map(([d, v, t]) => [1 - d / DEEP, grey(v, t)]));
   g.fillRect(0, 0, W, H);
   // one pool of warm light, left of centre; the bell falls away into the dark on both sides
   g.globalCompositeOperation = 'multiply';
   g.save();
-  g.translate(800, a.crestY + 240); g.scale(1, 0.62);
-  g.fillStyle = L.radial(g, 0, 0, 120, 1380, [[0, grey(1)], [0.3, grey(0.93)], [0.6, grey(0.66)], [0.85, grey(0.4)], [1, grey(0.28)]]);
+  g.translate(820, a.crestY + 250); g.scale(1, 0.62);
+  g.fillStyle = L.radial(g, 0, 0, 120, 1380, [[0, grey(1)], [0.25, grey(0.96)], [0.5, grey(0.7)], [0.75, grey(0.42)], [1, grey(0.24)]]);
   g.fillRect(-3000, -3000, 6000, 6000);
   g.restore();
   return c;
 }
 
-/** soft reflections of the light sources: concentric bands, streaky along the arc. Padded so it can drift. */
+/**
+ * Soft reflections of the light sources: concentric bands, streaky along the arc, on opaque black
+ * (so 'color-dodge' / 'screen' read it as light amount). Padded so it can drift against the bronze.
+ */
 function buildSpec(env) {
   const a = env.arc;
   const FW = W + PAD * 2, FH = H + PAD * 2;
-  const lay = L.makeLayer(PAD, (g) => {
+  return L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#000'; g.fillRect(-PAD, -PAD, FW, FH);
     const band = (dC, hw, alpha, col, xC, reach) => {
       const t = L.makeLayer(PAD, (tg) => {
         const r0 = a.R - dC - hw, r1 = a.R - dC + hw;
@@ -315,17 +360,16 @@ function buildSpec(env) {
       g.globalCompositeOperation = 'lighter';
       g.drawImage(t, -PAD, -PAD);
     };
-    band(236, 72, 0.5, '#ffd2ac', 760, 1250);     // key: a long soft box
-    band(150, 22, 0.28, '#ffe0c4', 660, 900);      // its thinner echo higher up the shoulder
-    band(50, 13, 0.5, '#dcdcff', 900, 1500);       // cold strip just inside the limb
-    band(470, 80, 0.26, '#ffc898', 1080, 1100);    // low fill
+    band(232, 96, 0.6, '#fff0de', 780, 1300);      // key: a long soft box
+    band(330, 210, 0.26, '#ffeedd', 840, 1500);    // and the broad glow around it
+    band(152, 20, 0.3, '#fff0de', 700, 1100);      // its thinner echo higher up the shoulder
+    band(112, 11, 0.3, '#c4c6ff', 980, 1500);      // the rim light catching the first raised band
+    band(50, 13, 0.46, '#c4c6ff', 900, 1500);      // cold strip just inside the limb
+    band(470, 80, 0.24, '#ffe4c8', 1080, 1100);    // low fill
+    g.globalCompositeOperation = 'multiply';
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15sheen', scale: 20, sx: 46, sy: 1, octaves: 3, res: 0.33, contrast: 1.5,
+      ramp: [[0, '#8a8a8a'], [0.5, '#c8c8c8'], [1, '#ffffff']] }), -PAD, -PAD);
   });
-  const g = lay.getContext('2d');
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalCompositeOperation = 'destination-in';
-  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's15sheen', scale: 20, sx: 46, sy: 1, octaves: 3, res: 0.33, contrast: 1.5,
-    ramp: [[0, 'rgba(0,0,0,0.25)'], [0.5, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
-  return lay;
 }
 
 function buildRim(env) {
@@ -353,7 +397,7 @@ export default {
   name: '铜钟',
   tone: 'light',
   init(env) {
-    S = { bell: buildBell(env), shade: buildShade(env), spec: buildSpec(env), rim: buildRim(env) };
+    S = { bell: L.filtered(buildBell(env), 'brightness(1.14) contrast(1.06) saturate(1.04)'), shade: buildShade(env), spec: buildSpec(env), rim: buildRim(env) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -364,7 +408,7 @@ export default {
     L.blit(ctx, env, S.bell, { rot });
     ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(S.shade, 0, 0);
     L.blit(ctx, env, S.spec, { rot: -rot * 0.45, blend: 'color-dodge' });
-    L.blit(ctx, env, S.spec, { rot: -rot * 0.45, blend: 'screen', alpha: 0.16 });
+    L.blit(ctx, env, S.spec, { rot: -rot * 0.45, blend: 'screen', alpha: 0.14 });
     ctx.restore();
     ctx.save();
     ctx.globalCompositeOperation = 'screen'; ctx.drawImage(S.rim, 0, 0);

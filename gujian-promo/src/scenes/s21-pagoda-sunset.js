@@ -7,16 +7,16 @@ import * as L from '../lib/core.js';
 const { W, H } = L;
 const PAD = 240;
 const INK = '#0a0506';
-const TOWER_X = 480;      // pagoda axis at mid-shot — well clear of the tagline zone (x ≥ 630)
+const TOWER_X = 484;      // pagoda axis at mid-shot — well clear of the tagline zone (x ≥ 630)
 const PAV_X = 1574;       // the little pavilion, far along the ridge on the other side
 let S = null;
 
-const sunOf = (a) => ({ x: 446, y: a.yAt(446) - 50, r: 94 });
+const sunOf = (a) => ({ x: 460, y: a.yAt(460) - 76, r: 120 });
 
 // "heat" → colour. 0 = cold plum at the top of the sky, ~0.88 = the ember band on the ridge, >1 = glare round the sun
 const HEAT = [
   [0.0, '#10040a'], [0.1, '#1e060e'], [0.2, '#3a0a14'], [0.34, '#621018'], [0.48, '#8a171a'], [0.6, '#b0201a'],
-  [0.7, '#d0351a'], [0.8, '#ee511c'], [0.88, '#ff6a1f'], [0.98, '#ff8a32'], [1.1, '#ffb25a'],
+  [0.7, '#d0351a'], [0.8, '#ee511c'], [0.88, '#ff6a1f'], [0.98, '#ff8530'], [1.1, '#ffa548'],
 ];
 
 // ───────────────────────── sky ─────────────────────────
@@ -41,13 +41,13 @@ function buildSky(env) {
       // the sun's haze: wide along the horizon, and leaning into the upper-left sky
       const ds = Math.hypot((x - sun.x) / 1.55, y - sun.y);
       const lean = 0.35 + 0.65 * L.smooth((sun.x + 700 - x) / 700);
-      t += 0.34 * Math.exp(-ds / 230) + 0.1 * Math.exp(-ds / 80) + 0.28 * lean * Math.exp(-ds / 650);
+      t += 0.27 * Math.exp(-ds / 240) + 0.26 * lean * Math.exp(-ds / 650);
       // the far side of the sky sinks toward plum
       t -= 0.1 * L.smooth((x - 1050) / 1000) * (0.4 + 0.6 * L.clamp(dr / 300));
       // slow breathing so it is not a mathematically clean gradient
       t += 0.028 * nz.fbm(x / 900, y / 240, 3);
       // soft shoulder so the glare never burns out flat
-      if (t > 0.8) t = 0.8 + 0.3 * (1 - Math.exp(-(t - 0.8) / 0.3));
+      if (t > 0.8) t = 0.8 + 0.22 * (1 - Math.exp(-(t - 0.8) / 0.3));
       const li = Math.min(NL - 1, Math.max(0, ((t / TMAX) * (NL - 1)) | 0)) * 3;
       d[k++] = lut[li]; d[k++] = lut[li + 1]; d[k++] = lut[li + 2]; d[k++] = 255;
     }
@@ -58,22 +58,27 @@ function buildSky(env) {
     g.drawImage(small, -PAD, -PAD, LW, LH);
     // halo
     g.save(); g.globalCompositeOperation = 'lighter';
-    g.fillStyle = L.radial(g, sun.x, sun.y, sun.r * 0.8, sun.r * 2.7, [[0, 'rgba(255,170,90,0.5)'], [0.3, 'rgba(255,130,50,0.2)'], [1, 'rgba(255,90,20,0)']]);
+    g.fillStyle = L.radial(g, sun.x, sun.y, sun.r * 0.9, sun.r * 2.5, [[0, 'rgba(255,150,70,0.34)'], [0.3, 'rgba(255,120,44,0.13)'], [1, 'rgba(255,90,20,0)']]);
     g.fillRect(sun.x - 320, sun.y - 320, 640, 640);
     g.restore();
-    // the disc: soft-edged, a little flattened by the thick air
-    g.save();
-    g.filter = 'blur(2.4px)';
-    g.translate(sun.x, sun.y); g.scale(1, 0.95);
-    g.fillStyle = L.radial(g, 0, -sun.r * 0.12, 0, sun.r, [[0, '#fff6d2'], [0.5, '#ffe7a6'], [0.84, '#ffcd72'], [1, '#ffb04a']]);
-    g.beginPath(); g.arc(0, 0, sun.r, 0, L.TAU); g.fill();
-    g.restore();
+    // the disc: soft-edged, a little flattened and reddened toward its foot by the thick air
+    const DS = sun.r * 2 + 48, disc = L.makeCanvas(DS, DS), dg = disc.getContext('2d');
+    dg.save();
+    dg.filter = 'blur(2.4px)';
+    dg.translate(DS / 2, DS / 2); dg.scale(1, 0.955);
+    dg.fillStyle = L.linear(dg, 0, -sun.r, 0, sun.r * 0.75, [[0, '#fff3c6'], [0.45, '#ffe19a'], [0.8, '#ffc56a'], [1, '#ffa646']]);
+    dg.beginPath(); dg.arc(0, 0, sun.r, 0, L.TAU); dg.fill();
+    dg.restore();
+    dg.globalCompositeOperation = 'source-atop';                                   // limb darkening, inside the disc only
+    dg.fillStyle = L.radial(dg, DS / 2, DS / 2, sun.r * 0.5, sun.r * 1.03, [[0, 'rgba(255,150,60,0)'], [1, 'rgba(255,136,52,0.6)']]);
+    dg.fillRect(0, 0, DS, DS);
+    g.drawImage(disc, sun.x - DS / 2, sun.y - DS / 2);
     // bars of cloud lying across it
-    g.save(); g.filter = 'blur(3px)';
-    const bars = [[-64, 2.2, 120, 0.5, 30], [-33, 4.6, 200, 0.72, -24], [-22, 2, 150, 0.5, 60], [6, 7, 260, 0.78, 20], [21, 2.4, 170, 0.55, -50]];
+    g.save(); g.filter = 'blur(2.6px)';
+    const bars = [[-70, 2.6, 170, 0.6, 40], [-58, 1.3, 120, 0.4, -60], [-12, 1.5, 150, 0.36, 70], [22, 6, 250, 0.72, -10], [36, 1.8, 180, 0.5, 60]];
     for (const [dy, ry, rx, al, ox] of bars) {
-      g.fillStyle = L.rgba('#c2301a', al);
-      g.beginPath(); g.ellipse(sun.x + ox, sun.y + dy, rx, ry, -0.012, 0, L.TAU); g.fill();
+      g.fillStyle = L.rgba('#c9361b', al);
+      g.beginPath(); g.ellipse(sun.x + ox, sun.y + dy, rx, ry, -0.01, 0, L.TAU); g.fill();
     }
     g.restore();
   });
@@ -83,40 +88,43 @@ function buildSky(env) {
 function buildClouds(env) {
   const a = env.arc, sun = sunOf(a);
   const LW = W + PAD * 2, LH = 860 + PAD;            // only the part above the ridge is ever seen
-  const mask = (seed, scale, sx, sy, lo, hi) => L.noiseTex(LW, LH, {
-    seed, scale, sx, sy, octaves: 4, gain: 0.55, warp: 0.55, warpScale: 3, contrast: 1.55, res: 0.5,
+  // long horizontal fibres…
+  const fibres = (seed, scale, sx, sy, lo, hi) => L.noiseTex(LW, LH, {
+    seed, scale, sx, sy, octaves: 4, gain: 0.55, warp: 0.6, warpScale: 3, contrast: 1.5, res: 0.5,
     ramp: [[0, 'rgba(255,255,255,0)'], [lo, 'rgba(255,255,255,0)'], [hi, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,1)']],
   });
-  // the tagline's pocket stays quiet
-  const pocket = (g, strength) => {
-    g.save(); g.globalCompositeOperation = 'destination-out';
-    g.translate(a.cx + PAD, a.crestY - 135 + PAD); g.scale(1, 0.5);
-    g.fillStyle = L.radial(g, 0, 0, 170, 560, [[0, `rgba(0,0,0,${strength})`], [1, 'rgba(0,0,0,0)']]);
-    g.fillRect(-620, -620, 1240, 1240);
+  // …gathered into a few banks [x, y, rx, ry, strength] (frame coords), with clear sky between them
+  const gather = (g, banks) => {
+    const m = L.makeCanvas(LW, LH); const mg = m.getContext('2d');
+    for (const [x, y, rx, ry, al] of banks) {
+      mg.save(); mg.translate(x + PAD, y + PAD); mg.scale(rx, ry);
+      mg.fillStyle = L.radial(mg, 0, 0, 0, 1, [[0, `rgba(0,0,0,${al})`], [0.5, `rgba(0,0,0,${al * 0.62})`], [1, 'rgba(0,0,0,0)']]);
+      mg.fillRect(-1, -1, 2, 2); mg.restore();
+    }
+    g.globalCompositeOperation = 'destination-in'; g.drawImage(m, 0, 0);
+    // the tagline's pocket stays quiet
+    g.globalCompositeOperation = 'destination-out';
+    g.save(); g.translate(a.cx + PAD, a.crestY - 135 + PAD); g.scale(1, 0.5);
+    g.fillStyle = L.radial(g, 0, 0, 200, 600, [[0, 'rgba(0,0,0,0.95)'], [1, 'rgba(0,0,0,0)']]);
+    g.fillRect(-640, -640, 1280, 1280);
     g.restore();
   };
   // 1) high cirrus, lit from below: brighter than the sky behind it
-  const lit = mask('s21cirrus', 44, 30, 0.75, 0.5, 0.86);
+  const lit = fibres('s21cirrus', 46, 30, 0.75, 0.4, 0.82);
   let g = lit.getContext('2d');
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = L.radial(g, sun.x + PAD, sun.y + PAD, 0, 1700, [[0, '#ffc27a'], [0.16, '#ff8a40'], [0.38, '#e2502c'], [0.7, '#a02c24'], [1, '#5e1a20']]);
+  g.fillStyle = L.radial(g, sun.x + PAD, sun.y + PAD, 0, 1700, [[0, '#ffc27a'], [0.16, '#ff8a40'], [0.36, '#e4522c'], [0.66, '#a82e24'], [1, '#641c22']]);
   g.fillRect(0, 0, LW, LH);
-  g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R, a.R + 900, [[0, 'rgba(0,0,0,0)'], [0.09, 'rgba(0,0,0,0.2)'], [0.24, 'rgba(0,0,0,1)'], [0.7, 'rgba(0,0,0,0.85)'], [1, 'rgba(0,0,0,0.45)']]);
-  g.fillRect(0, 0, LW, LH);
-  pocket(g, 0.85);
+  gather(g, [[430, 96, 760, 78, 1], [1500, 176, 640, 62, 0.95], [70, 292, 430, 44, 0.8], [1790, 20, 520, 56, 0.8], [1010, -8, 520, 46, 0.7], [1860, 372, 300, 30, 0.6]]);
   lit._pad = PAD;
   // 2) low streaks across the ember band: darker than the sky behind them
-  const dark = mask('s21streak', 58, 24, 0.8, 0.52, 0.8);
+  const dark = fibres('s21streak', 58, 26, 0.8, 0.4, 0.78);
   g = dark.getContext('2d');
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = '#4a0d12'; g.fillRect(0, 0, LW, LH);
-  g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R, a.R + 240, [[0, 'rgba(0,0,0,0)'], [0.06, 'rgba(0,0,0,0.55)'], [0.3, 'rgba(0,0,0,0.8)'], [0.62, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]);
-  g.fillRect(0, 0, LW, LH);
-  pocket(g, 0.8);
+  g.fillStyle = '#560f12'; g.fillRect(0, 0, LW, LH);
+  gather(g, [[1640, 512, 400, 30, 0.85], [40, 552, 400, 30, 0.62], [330, 432, 330, 20, 0.7], [1900, 650, 330, 26, 0.8], [-80, 690, 300, 26, 0.7], [1380, 468, 190, 12, 0.5]]);
   dark._pad = PAD;
-  return { lit: L.blurred(lit, 0.8), dark: L.blurred(dark, 1.2) };
+  return { lit: L.blurred(lit, 0.8), dark: L.blurred(dark, 1.1) };
 }
 
 // ───────────────────────── buildings ─────────────────────────
@@ -130,7 +138,7 @@ function drawPagoda(g, cx, by, k) {
   const N = 7;
   const doors = [], glints = [];
   g.fillStyle = INK;
-  rect(-72, 0, 144, 6); rect(-63, 6, 126, 6);                      // 台基
+  rect(-72, -46, 144, 52); rect(-63, 6, 126, 6);                   // 台基 (its foot runs down into the slope)
   let y = 12, bw = 44, h = 58, e = 30;
   for (let i = 0; i < N; i++) {
     const T = y + h, rH = h * 0.26, last = i === N - 1;
@@ -226,24 +234,27 @@ function drawPavilion(g, cx, by, k) {
   g.restore();
 }
 
-/** a ridge pine: leaning trunk, flat pads of needles */
+/** a ridge pine: leaning trunk, flat-bottomed pads of needles */
 function drawPine(g, x, by, hgt, lean, seed) {
   const r = L.rng(seed);
   const tx = (u) => x + lean * hgt * u * u + Math.sin(u * 5 + hgt) * hgt * 0.022;
   const pts = [];
-  for (let i = 0; i <= 6; i++) { const u = i / 6; pts.push([tx(u), by + 5 - (hgt + 5) * u]); }
-  L.inkStroke(g, pts, { width: Math.max(2.6, hgt * 0.075), color: INK, taper: [0, 0.6], wobble: 0.25, seed: 5 });
+  for (let i = 0; i <= 6; i++) { const u = i / 6; pts.push([tx(u), by + 6 - (hgt + 6) * u]); }
+  L.inkStroke(g, pts, { width: Math.max(2.8, hgt * 0.085), color: INK, taper: [0, 0.6], wobble: 0.25, seed: 5 });
   g.fillStyle = INK; g.strokeStyle = INK;
-  const n = 5;
+  const n = 6;
   for (let i = 0; i < n; i++) {
-    const f = i / (n - 1), u = 0.46 + 0.54 * f;
+    const f = i / (n - 1), u = 0.42 + 0.58 * f;
     const side = i === n - 1 ? 0 : (i % 2 ? 1 : -1) * (lean >= 0 ? 1 : -1);
-    const px = tx(u) + side * hgt * L.lerp(0.33, 0.1, f), py = by - hgt * u;
-    g.lineWidth = Math.max(1, hgt * 0.022);
-    g.beginPath(); g.moveTo(tx(u - 0.07), by - hgt * (u - 0.07)); g.lineTo(px, py + 1); g.stroke();
-    const rx = hgt * L.lerp(0.3, 0.16, f), ry = Math.max(2.2, rx * 0.2);
-    for (let j = 0; j < 6; j++) {
-      g.beginPath(); g.ellipse(px + r.range(-0.6, 0.6) * rx, py + r.range(-0.6, 0.25) * ry, rx * r.range(0.35, 0.62), ry * r.range(0.7, 1.15), r.range(-0.12, 0.12), 0, L.TAU); g.fill();
+    const px = tx(u) + side * hgt * L.lerp(0.36, 0.08, f) * r.range(0.8, 1.15), py = by - hgt * u - Math.abs(side) * hgt * 0.03;
+    g.lineWidth = Math.max(1.1, hgt * 0.026);
+    g.beginPath(); g.moveTo(tx(u - 0.09), by - hgt * (u - 0.09)); g.lineTo(px, py); g.stroke();
+    const rx = hgt * L.lerp(0.3, 0.17, f) * r.range(0.85, 1.15);
+    const m = Math.max(5, Math.round(rx / 2.2));
+    for (let j = 0; j <= m; j++) {
+      const v = (j / m) * 2 - 1;
+      const rr = Math.max(1.5, rx * 0.21 * (1 - v * v * 0.78) * r.range(0.8, 1.25));
+      g.beginPath(); g.ellipse(px + v * rx, py - rr * 0.45 + r.range(-0.6, 0.6), rr * 1.55, rr, 0, 0, L.TAU); g.fill();
     }
   }
 }
@@ -251,75 +262,127 @@ function drawPine(g, x, by, hgt, lean, seed) {
 // ───────────────────────── the hill ─────────────────────────
 function buildHill(env) {
   const a = env.arc, sun = sunOf(a);
-  return L.makeLayer(PAD, (g) => {
+  return L.makeLayer(PAD, (g, layer) => {
     const s = a.span(PAD + 160);
     // 1) things standing on the ridge (drawn first; the tree line then buries their feet)
     drawPagoda(g, TOWER_X, a.yAt(TOWER_X) + 3, 1);
     drawPavilion(g, PAV_X, a.yAt(PAV_X) + 2, 0.8);
-    drawPine(g, PAV_X + 78, a.yAt(PAV_X + 78), 62, 0.2, 's21pineA');
-    drawPine(g, PAV_X + 112, a.yAt(PAV_X + 112), 40, -0.16, 's21pineB');
-    drawPine(g, 236, a.yAt(236), 54, -0.2, 's21pineC');
+    drawPine(g, PAV_X + 80, a.yAt(PAV_X + 80), 64, 0.2, 's21pineA');
+    drawPine(g, PAV_X + 116, a.yAt(PAV_X + 116), 40, -0.16, 's21pineB');
+    drawPine(g, 214, a.yAt(214), 52, -0.2, 's21pineC');
 
     // 2) the hill mass
     g.fillStyle = INK; a.pathBelow(g, -2); g.fill();
 
-    // 3) tree crowns: the first row is the fuzzy skyline (it pokes 1–6 px above the arc); the rows below it
-    //    overlap like scales down the slope, each catching a fading rim of the sky's colour on its upper edge
+    // 3) tree crowns. The first row is the fuzzy skyline (its tops ride 0–6 px above the arc, in slow swells);
+    //    the rows below overlap like scales down the slope, each catching a fading rim of sky colour on its upper edge.
     const r = L.rng('s21canopy');
-    const crown = (cx, cy, rad, lobesN, depth) => {
-      const prox = Math.exp(-Math.abs(cx - sun.x) / 420);
-      const col = L.mix('#8e2414', '#ff8c3c', prox);
-      const al = (0.3 + 0.55 * prox) * Math.exp(-depth / 30);
+    const nz = L.makeNoise('s21canopy');
+    const hl = L.makeCanvas(layer.width, layer.height), hg = hl.getContext('2d');   // the lit rims, kept apart so they can bloom
+    hg.translate(PAD, PAD); hg.lineCap = 'round';
+    const blot = (x, y, rr) => {            // a dark disc on the hill; it also hides whatever rim light lay behind it
+      g.beginPath(); g.arc(x, y, rr, 0, L.TAU); g.fill();
+      hg.globalCompositeOperation = 'destination-out'; hg.beginPath(); hg.arc(x, y, rr, 0, L.TAU); hg.fill(); hg.globalCompositeOperation = 'source-over';
+    };
+    const crown = (cx, cy, rad, lobesN, depth, skyline) => {
+      const prox = Math.exp(-Math.abs(cx - sun.x) / 480);
+      // rim light on the upper edge
+      const col = L.mix('#93261a', '#ff8c3c', prox);
+      const al = (0.38 + 0.55 * prox) * Math.exp(-depth / 19) * (r.chance(0.3) ? 0.3 : 1);
+      // body tone: each crown is a dim red-brown dome, in drifting patches of lit and shadowed forest, dying away down the slope
+      const patch = L.clamp(0.5 + 0.95 * nz.fbm(cx / 120, cy / 64, 3));
+      const k = 0.5 * (0.15 + 0.85 * patch) * Math.exp(-depth / 58) * (skyline ? 0.5 : 1) * (0.5 + 0.5 * prox);
+      const lit = L.mix('#5c1a10', '#b5461c', prox);
+      const c0 = L.mix(INK, lit, k), c1 = L.mix(INK, lit, k * 0.38), c2 = L.mix(INK, lit, k * 0.2);
       const lobes = [[0, 0, rad]];
       for (let i = 0; i < lobesN; i++) {
-        const ang = (i % 2 ? 1 : -1) * r.range(0.45, 1.15), rr = rad * r.range(0.42, 0.62), dd = rad - rr * r.range(0.6, 0.92);
+        const ang = (i % 2 ? 1 : -1) * r.range(0.45, 1.2), rr = rad * r.range(0.4, 0.62), dd = rad - rr * r.range(0.6, 0.92);
         lobes.push([Math.sin(ang) * dd, -Math.cos(ang) * dd, rr]);
       }
       for (const [ox, oy, rr] of lobes) {
-        g.fillStyle = INK; g.beginPath(); g.arc(cx + ox, cy + oy, rr, 0, L.TAU); g.fill();
+        const x = cx + ox, y = cy + oy;
+        const gr = g.createRadialGradient(x - rr * 0.25, y - rr * 0.5, 0, x - rr * 0.25, y - rr * 0.5, rr * 1.4);
+        gr.addColorStop(0, c0); gr.addColorStop(0.55, c1); gr.addColorStop(1, INK);
+        g.fillStyle = gr;
+        blot(x, y, rr);
         if (al > 0.02) {
-          g.strokeStyle = L.rgba(col, al); g.lineWidth = r.range(0.9, 1.6);
-          g.setLineDash([r.range(2, 7), r.range(1, 3.5)]);
-          g.beginPath(); g.arc(cx + ox, cy + oy, rr - 0.9, -Math.PI * r.range(0.8, 0.95), -Math.PI * r.range(0.08, 0.25)); g.stroke();
+          hg.strokeStyle = L.rgba(col, al); hg.lineWidth = r.range(0.9, 1.7);
+          hg.setLineDash([r.range(3, 10), r.range(1.5, 4)]);
+          hg.beginPath(); hg.arc(x, y, rr - 1, -Math.PI * r.range(0.78, 0.95), -Math.PI * r.range(0.08, 0.3)); hg.stroke();
+          hg.setLineDash([]);
+        }
+        // sprigs of leaves break up the round outline
+        if (depth > 60) continue;
+        g.fillStyle = c2;
+        const sprigs = 2 + Math.round(rr / 3);
+        for (let q = 0; q < sprigs; q++) {
+          const ang = r.range(-1.45, 1.45), lr = r.range(1.1, 2.6);
+          blot(x + Math.sin(ang) * (rr - lr * 0.35), y - Math.cos(ang) * (rr - lr * 0.35), lr);
         }
       }
-      g.setLineDash([]);
     };
     // taller trees gathered at the feet of the buildings: [x, radius, how far the crown tops out above the arc]
     const big = [
-      [TOWER_X - 118, 13, 9], [TOWER_X - 92, 18, 18], [TOWER_X - 66, 13, 12], [TOWER_X + 68, 14, 13], [TOWER_X + 93, 19, 19], [TOWER_X + 121, 13, 10], [TOWER_X + 146, 10, 7],
-      [PAV_X - 52, 12, 10], [PAV_X - 36, 9, 7], [PAV_X + 44, 13, 11], [208, 11, 8], [262, 12, 9],
+      [TOWER_X - 132, 12, 9], [TOWER_X - 108, 17, 21], [TOWER_X - 80, 19, 31], [TOWER_X - 58, 12, 22],
+      [TOWER_X + 66, 13, 10], [TOWER_X + 90, 18, 17], [TOWER_X + 116, 13, 10], [TOWER_X + 142, 10, 7],
+      [PAV_X - 54, 12, 10], [PAV_X - 38, 9, 7], [PAV_X + 44, 13, 11], [190, 11, 8], [240, 12, 9],
     ];
-    for (const [x, rad, lift] of big) crown(x, a.yAt(x) + rad - lift, rad, 4, 0);
-    const depths = [0, 6, 13, 21, 30, 40, 52, 66, 82, 100];
+    for (const [x, rad, lift] of big) crown(x, a.yAt(x) + rad - lift, rad, 4, 0, true);
+    const depths = [0, 6, 13, 21, 30, 40, 52, 66, 82, 100, 120, 143, 168, 196];
     depths.forEach((depth, row) => {
       let u = -s * a.R + r.range(0, 12);
       while (u < s * a.R) {
-        const rad = r.range(5.5, 11.5) * (1 + row * 0.07);
-        const lift = row === 0 ? r.range(1.5, 6.2) : r.range(-2.5, 2.5);
+        const clump = 0.5 + 0.5 * nz.n2(u / 230, row * 3.7 + 1.3);                       // stretches of big / small trees
+        const rad = (4 + 9.5 * Math.pow(r(), 1.7) * (0.45 + 0.9 * clump)) * (1 + row * 0.07);
+        const swell = 3.1 + 2.3 * nz.fbm(u / 170, 7.7, 2);                                // the skyline's slow undulation
+        const lift = row === 0 ? L.clamp(swell + r.range(-1.3, 1.3), 0.4, 6.4) : r.range(-2.5, 2.5);
         const c = a.pt(u / a.R, lift - rad - depth);
-        crown(c.x, c.y, rad, 2, depth);
-        u += rad * r.range(1.05, 1.85);
+        crown(c.x, c.y, rad, rad > 7 ? 3 : 2, depth, row === 0);
+        u += rad * r.range(0.95, 1.7);
       }
     });
 
-    // 4) nearer slopes stepping toward the camera, a breath of warm haze caught behind each
+    // rim light: the crisp threads plus a soft bloom of them, kept inside the silhouette
+    const bloom = L.blurred(hl, 3.2), bg = bloom.getContext('2d');
+    bg.globalCompositeOperation = 'destination-in'; bg.drawImage(layer, 0, 0);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter';
+    g.drawImage(bloom, 0, 0); g.drawImage(bloom, 0, 0); g.drawImage(hl, 0, 0);
+    g.restore();
+
+    // 4) forest sheen: lumps of canopy catching the red of the sky — strongest along the tree line and toward the sun,
+    //    gone a couple of hundred px down the slope (the hill stays near-black)
+    const mottle = L.polarNoiseLayer(env, PAD, { seed: 's21mottle', scale: 30, sx: 1.9, sy: 0.9, octaves: 5, gain: 0.6, contrast: 1.5, res: 0.4,
+      ramp: [[0, 'rgba(120,34,18,0)'], [0.48, 'rgba(120,34,18,0)'], [1, 'rgba(150,44,20,0.2)']] });
+    const sheen = L.makeCanvas(layer.width, layer.height), sg = sheen.getContext('2d');
+    sg.drawImage(mottle, 0, 0);
+    sg.globalCompositeOperation = 'destination-in';
+    sg.drawImage(layer, 0, 0);
+    sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 290, a.R + 10, [[0, 'rgba(0,0,0,0)'], [0.4, 'rgba(0,0,0,0.16)'], [0.8, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,1)']]);
+    sg.fillRect(0, 0, sheen.width, sheen.height);
+    sg.fillStyle = L.radial(sg, sun.x + PAD, sun.y + PAD, 0, 1500, [[0, 'rgba(0,0,0,1)'], [0.3, 'rgba(0,0,0,0.78)'], [1, 'rgba(0,0,0,0.42)']]);
+    sg.fillRect(0, 0, sheen.width, sheen.height);
+    sg.globalCompositeOperation = 'destination-out';
+    sg.translate(PAD, PAD); a.pathAbove(sg, 7); sg.fill();                       // never on the buildings
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter';
+    g.drawImage(sheen, 0, 0);
+    g.restore();
+
+    // 5) nearer slopes stepping toward the camera, a breath of warm haze caught behind each
     g.save(); a.clipBelow(g, -14);
-    const nz = L.makeNoise('s21ridge');
-    const ridges = [[165, 34, 1.3, '#080405', 0.2], [315, 46, 1.9, '#060304', 0.16], [480, 60, 2.6, '#040203', 0.12]];
+    const ridges = [[196, 34, 1.3, '#070304', 0.036], [336, 46, 1.9, '#050203', 0.04], [492, 60, 2.6, '#030102', 0.036]];
     ridges.forEach(([drop, amp, freq, col, haze], k) => {
       const pts = [];
-      for (let i = 0; i <= 260; i++) {
-        const x = L.lerp(-PAD - 30, W + PAD + 30, i / 260);
-        const y = a.yAt(L.clamp(x, a.cx - a.R * 0.7, a.cx + a.R * 0.7)) + drop + amp * nz.fbm((i / 260) * freq * 3 + k * 7.3, k * 3.1, 4)
-          + 2.5 * nz.n2(i * 0.83, k + 0.5) + (k % 2 ? 1 : -1) * (x - a.cx) * 0.045;
+      for (let i = 0; i <= 420; i++) {
+        const x = L.lerp(-PAD - 30, W + PAD + 30, i / 420);
+        const y = a.yAt(L.clamp(x, a.cx - a.R * 0.7, a.cx + a.R * 0.7)) + drop + amp * nz.fbm((i / 420) * freq * 3 + k * 7.3, k * 3.1, 4)
+          - 3.2 * Math.abs(nz.n2(i * 0.47, k + 0.5)) - 2 * Math.abs(nz.n2(i * 1.3, k + 4.5)) + (k % 2 ? 1 : -1) * (x - a.cx) * 0.045;
         pts.push([x, y]);
       }
       g.save(); g.globalCompositeOperation = 'screen';
-      for (let i = 0; i < pts.length; i += 7) {
+      for (let i = 0; i < pts.length; i += 11) {
         const p = pts[i], prox = Math.exp(-Math.abs(p[0] - sun.x) / 900);
-        g.fillStyle = L.radial(g, p[0], p[1] - 6, 0, 170, [[0, `rgba(128,36,18,${haze * (0.45 + 0.55 * prox)})`], [1, 'rgba(128,36,18,0)']]);
-        g.fillRect(p[0] - 170, p[1] - 176, 340, 340);
+        g.fillStyle = L.radial(g, p[0], p[1] - 4, 0, 140, [[0, `rgba(120,30,16,${haze * (0.4 + 0.6 * prox)})`], [1, 'rgba(120,30,16,0)']]);
+        g.fillRect(p[0] - 140, p[1] - 144, 280, 280);
       }
       g.restore();
       g.fillStyle = col;
@@ -327,9 +390,10 @@ function buildHill(env) {
       for (const p of pts) g.lineTo(p[0], p[1]);
       g.lineTo(W + PAD + 30, H + PAD * 2); g.lineTo(-PAD - 30, H + PAD * 2); g.closePath(); g.fill();
     });
-    // the last light spilling over the ridge near the sun
+    // a whisper of the same mottling on the near slopes, and the last light spilling over the ridge by the sun
     g.globalCompositeOperation = 'screen';
-    g.fillStyle = L.radial(g, sun.x, a.yAt(sun.x), 0, 620, [[0, 'rgba(150,40,16,0.34)'], [0.35, 'rgba(110,26,14,0.14)'], [1, 'rgba(90,20,12,0)']]);
+    g.globalAlpha = 0.16; g.drawImage(mottle, -PAD, -PAD + 9); g.globalAlpha = 1;
+    g.fillStyle = L.radial(g, sun.x, a.yAt(sun.x), 0, 520, [[0, 'rgba(120,30,14,0.2)'], [0.4, 'rgba(90,22,12,0.07)'], [1, 'rgba(80,18,10,0)']]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.restore();
   });
@@ -364,16 +428,16 @@ export default {
     const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(1.0, 1.02, p);
     L.blit(ctx, env, S.sky, { rot: rot * 0.15, zoom: 1 + (zoom - 1) * 0.3 });
     // cloud parallax: the high cirrus barely moves, the low streaks slide the other way
-    L.blit(ctx, env, S.lit, { dx: L.lerp(6, -6, p), zoom: 1 + (zoom - 1) * 0.4, blend: 'screen', alpha: 0.62 });
-    L.blit(ctx, env, S.dark, { dx: L.lerp(-13, 13, p), zoom: 1 + (zoom - 1) * 0.6, alpha: 0.8 });
+    L.blit(ctx, env, S.lit, { dx: L.lerp(6, -6, p), zoom: 1 + (zoom - 1) * 0.4, blend: 'screen', alpha: 0.7 });
+    L.blit(ctx, env, S.dark, { dx: L.lerp(-13, 13, p), zoom: 1 + (zoom - 1) * 0.6, alpha: 0.85 });
     // birds heading home toward the pagoda
     ctx.save(); ctx.fillStyle = INK; ctx.globalAlpha = 0.92;
-    for (const [x, y, s, ph] of BIRDS) drawBird(ctx, x - 16 * p * (0.6 + s * 0.5), y - 3 * p + Math.sin(ph + p * 4) * 1.5, s, Math.sin(ph + p * 9));
+    for (const [x, y, s, ph] of BIRDS) drawBird(ctx, x - 16 * p * (0.6 + s * 0.5), y - 3 * p + Math.sin(ph + p * 4) * 1.5, s * 1.25, Math.sin(ph + p * 9));
     ctx.restore();
     // hill, trees, pagoda: slide along the ridge
     L.blit(ctx, env, S.hill, { rot, zoom });
     // glare wrapping over the silhouette near the sun
-    L.glow(ctx, sun.x, sun.y + 10, 340, '#ff7a2a', 0.2);
+    L.glow(ctx, sun.x, sun.y + 20, 330, '#ff7a2a', 0.13);
     L.vignette(ctx, { strength: 0.3 });
   },
 };

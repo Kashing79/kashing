@@ -13,13 +13,14 @@ const WN = HALF / PITCH;
 const HT = 36;          // how far a 筒瓦 stands above the pan tiles (height units = px)
 const PAN = 0.26;       // depth of the 板瓦 trough as a fraction of HT
 const AMP = 20;         // oblique view: a full tube height shifts this many px up-screen → the scallop height at the ridge
-const TOP = 3;          // dr of the scallop crests (the bright rim then sits right on the arc)
+const TOP = 2;          // dr of the scallop crests (the bright rim then sits right on the arc)
 const LT = 158;         // visible length of one 筒瓦 (foreshortened by the oblique view)
 const LP = 50;          // exposed length of one 板瓦 (they overlap heavily: 压七露三)
-const RES = 0.75;       // resolution of the height / lighting pass
+const RES = 1;          // resolution of the height / lighting pass
 const W0 = 36, KR = 15; // the roof rolls away over the ridge: width and drop of that roll-off
 const PHI = L.deg(40);  // direction the light TRAVELS on screen (0 = → , 90 = ↓): from the upper left
 const EL = L.deg(23);   // light elevation above the roof surface: low → long shadows fill the troughs
+const HALO = 0.12;      // strength of the film-like bloom around the moonlit tile
 let S = null;
 
 const hash2 = (a, b) => {
@@ -59,7 +60,7 @@ function makeGeom(env) {
     out.ki = ki;
     out.f = q - k + jit[ki] + nz.n2(ki * 3.7, v * 0.0042 + wph[ki]) * WOB;
   };
-  const dcap = (th) => (nz.n2((th / dTh) * 0.83, 11.3) * 0.5 + 0.5) * 2.4;      // crowns are not all exactly level
+  const dcap = (th) => (nz.n2((th / dTh) * 0.83, 11.3) * 0.5 + 0.5) * 2.0;      // crowns are not all exactly level
   /** the scalloped ridge silhouette: dr of the roof's upper edge at angle th */
   const tmp = { ki: 0, f: 0 };
   const edgeDr = (th) => { locate(th, 10, tmp); return TOP - AMP * (1 - prof(tmp.f)) - dcap(th); };
@@ -128,6 +129,38 @@ function buildRoof(env) {
     const ff = fl > 0.5 ? fl - 1 : fl;
     lump((k + 0.5 + fl - jit[k + N]) * dTh, w + AMP * (1 - prof(ff)), false);
   }
+  // 4) 瓦松: a few clumps of the little succulent that colonises old tile roofs — scaly spires over a rosette, rooted at
+  //    the foot of a tube. They live in the height field, so the moon lights one side and they throw real shadows.
+  const spindle = (bx, by, ax, ay, len, wid, h0, h1) => {      // base, unit axis, length, half-width, height at base → tip
+    const ext = len + wid + 2;
+    const i0 = Math.max(0, Math.floor(bx - ext)), i1 = Math.min(cw - 1, Math.ceil(bx + ext));
+    const j0 = Math.max(0, Math.floor(by - ext)), j1 = Math.min(ch - 1, Math.ceil(by + ext));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const dx = i - bx, dy = j - by, u = (dx * ax + dy * ay) / len;
+      if (u < 0 || u > 1) continue;
+      const sLat = Math.abs(-dx * ay + dy * ax);
+      // widest low down, tapering to a point; whorls of leaves give the outline its saw-teeth
+      const w = wid * Math.pow(Math.sin(Math.PI * Math.min(1, u * 0.8 + 0.2)), 0.7) * (1 - 0.8 * u * u) * (1 + 0.24 * Math.sin(u * len * 1.7));
+      if (sLat >= w) continue;
+      const idx = j * cw + i, hh = (1 - sLat / w) * L.lerp(h0, h1, u) * Math.min(1, w / (wid * 0.5));
+      if (hh > mossH[idx]) mossH[idx] = hh;
+      if (mossA[idx] < 0.55) mossA[idx] = 0.55;
+    }
+  };
+  for (const [k, side, w0, sc] of WASONG) {
+    const fl = side * (WN + 0.05), th0 = (k + 0.5 + fl - jit[k + N]) * dTh, v0 = w0 + AMP * (1 - prof(fl));
+    const [bx, by] = toMap(th0, v0);
+    const up = -Math.PI / 2 + th0;                               // "up the roof" at this spot, as a screen angle
+    const n = rm.int(3, 4);
+    for (let q = 0; q < n; q++) {
+      const off = (q - (n - 1) / 2) * rm.range(9, 13) * sc * RES, ang = up + rm.range(-0.28, 0.28) + (q - (n - 1) / 2) * 0.12;
+      const len = rm.range(20, 34) * sc * (q === 1 ? 1.45 : 1) * RES;
+      const ox = bx + Math.cos(up + Math.PI / 2) * off, oy = by + Math.sin(up + Math.PI / 2) * off + rm.range(-3, 4);
+      // rosette of fleshy pointed leaves splayed around the foot of each spire
+      for (let e = 0; e < 6; e++) spindle(ox, oy, Math.cos(ang + L.lerp(-2, 2, e / 5)), Math.sin(ang + L.lerp(-2, 2, e / 5)), rm.range(8, 12) * sc * RES, 2.6 * sc * RES, 5, 2);
+      spindle(ox, oy, Math.cos(ang), Math.sin(ang), len, rm.range(4.6, 6.2) * sc * RES, 9, 9 + len * 0.55 / RES);
+    }
+  }
   // pale crustose lichen: irregular rosettes, thicker on the weather side
   const rl = L.rng('s28lichen');
   for (let m = 0; m < 95; m++) {
@@ -172,7 +205,7 @@ function buildRoof(env) {
         const tv = w + jo[ki] - jt * LT;
         const dj = Math.min(Math.abs(tv), Math.abs(LT - tv));
         h = HT * p + (r3 - 0.5) * 2.0 + 3.0 * (tv / LT - 0.5) - 3.4 * Math.exp(-(dj * dj) / 5);
-        al = 0.78 + 0.28 * r2 + 0.2 * Math.exp(-(dj * dj) / 40);
+        al = 0.66 + 0.4 * r2 * r2 + (r1 > 0.86 ? -0.16 : 0) + 0.2 * Math.exp(-(dj * dj) / 40);
       } else {
         // 板瓦: concave tiles lapped like scales, each lower edge standing proud of the tile below
         const kt = f > 0 ? ki : ki - 1;
@@ -193,7 +226,7 @@ function buildRoof(env) {
       const lc = lichA[idx];
       if (lc > 0) {
         const e = L.smooth((lc + nB * 0.35 - 0.3) / 0.3);
-        al *= 1 + 0.42 * e; h += e * (0.7 + nB * 0.8 + nC * 0.5);
+        al *= 1 + 0.42 * e; h += e * (lichH[idx] * 0.8 + nB * 0.8 + nC * 0.5);
       }
       const mh = mossH[idx];
       if (mh > 0) { h += mh * (0.85 + 0.3 * nC); al *= 1 - 0.66 * mossA[idx]; }
@@ -206,7 +239,7 @@ function buildRoof(env) {
   const cE = Math.cos(EL), sE = Math.sin(EL), tE = Math.tan(EL);
   const Lx = -lx * cE, Ly = -ly * cE, Lz = sE;                    // unit vector toward the moon
   let Hx = Lx, Hy = Ly, Hz = Lz + 1; { const m = Math.hypot(Hx, Hy, Hz); Hx /= m; Hy /= m; Hz /= m; }
-  const inv = RES / 2, HMAX = HT + 9, AMB = 0.03, SUN = 1.9;
+  const inv = RES / 2, HMAX = HT + 9, AMB = 0.12, SUN = 2.45;
   const ramp = L.makeRamp([[0, '#040506'], [0.5, '#7d838a'], [1, '#e8ecf0']]);
   const lut = new Uint8ClampedArray(1024 * 3);
   for (let i = 0; i < 1024; i++) { const c = ramp(i / 1023); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
@@ -237,12 +270,15 @@ function buildRoof(env) {
       const ao = 0.3 + 0.7 * L.clamp((Pm[idx] + PAN) / (1 + PAN));
       const ndh = (-hx * Hx - hy * Hy + Hz) * nl;
       const spec = ndh > 0 ? Math.pow(ndh, 14) * 0.3 * sh : 0;
-      let c = Al[idx] * (AMB * ao + SUN * dif * sh) + spec;
+      // faint skylight from above: just enough for the shadowed flanks and the 板瓦 laps to keep a ghost of their form
+      const sky = L.clamp((-hy * -0.6 + 0.8) * nl);
+      let c = Al[idx] * (AMB * ao * (0.3 + 0.7 * sky) + SUN * dif * sh) + spec;
       // the moon is at the upper left: the left of the roof is brighter, the far right sinks into the night
       const fx = L.smooth((X + 160) / (W + 320));
       c *= L.lerp(1.12, 0.74, fx);
       c *= L.lerp(1, 0.84, L.smooth((Y - a.crestY - 150) / 600));   // …and it dims a little toward the eaves
       c = 1.06 * (1 - Math.exp(-2.1 * c)); if (c > 1) c = 1;        // soft shoulder: flanks reach white without clipping flat
+      c = L.lerp(c, c * c * (3 - 2 * c), 0.5);                     // …then a lith-print S-curve: crisp blacks, clean whites
       const li = ((c * 1023) | 0) * 3;
       d[o] = lut[li]; d[o + 1] = lut[li + 1]; d[o + 2] = lut[li + 2];
     }
@@ -251,7 +287,7 @@ function buildRoof(env) {
   small.getContext('2d').putImageData(img, 0, 0);
 
   // ── compose the layer: crisp scalloped silhouette, grain and grit at full resolution ──
-  return L.makeLayer(PAD, (g) => {
+  const roof = L.makeLayer(PAD, (g) => {
     g.save();
     G.edgePath(g); g.clip();
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
@@ -264,59 +300,19 @@ function buildRoof(env) {
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     L.speckle(g, { seed: 's28dk', count: 2600, x: x0, y: y0, w: gw, h: gh, rMin: 0.4, rMax: 1.9, squash: 0.6, colors: ['#040506', '#15181c'], alpha: [0.2, 0.7] });
     L.speckle(g, { seed: 's28lt', count: 1500, x: x0, y: y0, w: gw, h: gh, rMin: 0.4, rMax: 1.5, colors: ['#e8ecf0', '#aab1b9'], alpha: [0.1, 0.5] });
-    // 瓦松: a few clumps of the little succulent that colonises old tile roofs, rooted at the foot of a tube
-    WASONG.forEach(([k, side, w, sc], i) => {
-      const fl = side * (WN + 0.045);
-      wasong(g, a, (k + 0.5 + fl - jit[k + N]) * dTh, w + AMP * (1 - prof(fl)), sc, i);
-    });
     g.restore();
   });
+  // halation: the moonlit tile blooms a little into the dark around it, as it would on film
+  const g2 = roof.getContext('2d');
+  g2.save(); g2.setTransform(1, 0, 0, 1, 0, 0);
+  g2.globalCompositeOperation = 'screen'; g2.globalAlpha = HALO;
+  g2.drawImage(L.blurred(roof, 6), 0, 0);
+  g2.restore();
+  return roof;
 }
 
-// [ridge index k, side of that tube (−1 left / +1 right), distance down the slope, scale]
-const WASONG = [[-6, 1, 150, 1.0], [-4, -1, 372, 0.85], [-2, 1, 96, 0.9], [1, -1, 250, 1.05], [3, 1, 128, 0.8], [5, -1, 205, 0.9]];
-
-/** one clump of 瓦松 standing on the roof at (theta, v): short scaly spikes, moonlit on the left, each throwing a long thin shadow */
-function wasong(g, a, th, v, sc, seed) {
-  const r = L.rng('s28ws' + seed);
-  a.at(g, th, TOP - v, () => {
-    const n = r.int(2, 4);
-    const spikes = [];
-    for (let i = 0; i < n; i++) spikes.push({ x: r.range(-10, 10) * sc, y: r.range(-3, 4) * sc, h: r.range(15, 34) * sc * (i === 0 ? 1.25 : 1), w: r.range(4.2, 6.2) * sc, lean: r.range(-0.2, 0.2) });
-    spikes.sort((p, q) => p.y - q.y);
-    // shadows fall away from the moon (PHI is a screen direction → turn it into this local frame)
-    const sa = PHI - th;
-    g.save(); g.filter = 'blur(1.6px)'; g.fillStyle = 'rgba(4,5,6,0.62)';
-    for (const s of spikes) {
-      const len = s.h * 2.3, ux = Math.cos(sa), uy = Math.sin(sa);
-      g.beginPath(); g.moveTo(s.x - uy * s.w * 0.8, s.y + ux * s.w * 0.8); g.lineTo(s.x + ux * len, s.y + uy * len); g.lineTo(s.x + uy * s.w * 0.8, s.y - ux * s.w * 0.8); g.closePath(); g.fill();
-    }
-    g.restore();
-    for (const s of spikes) {
-      g.save(); g.translate(s.x, s.y); g.rotate(s.lean);
-      // rosette of fleshy pointed leaves at the base
-      for (let q = 0; q < 7; q++) {
-        const u = q / 6, ang = Math.PI * (1.08 - 1.16 * u), ll = s.w * r.range(1.3, 1.9);
-        g.save(); g.rotate(-ang + Math.PI / 2 - Math.PI / 2);
-        g.fillStyle = u < 0.55 ? L.mix('#aab1b9', '#e8ecf0', r()) : '#0c0e11';
-        g.beginPath(); g.moveTo(0, -s.w * 0.28); g.quadraticCurveTo(ll * 0.6, -s.w * 0.4, ll, 0); g.quadraticCurveTo(ll * 0.6, s.w * 0.4, 0, s.w * 0.28); g.closePath(); g.fill();
-        g.restore();
-      }
-      // the spike: overlapping scales, widest a third of the way up, tapering to a point
-      const rows = Math.max(5, Math.round(s.h / (2.5 * sc)));
-      for (let q = 0; q < rows; q++) {
-        const u = q / (rows - 1), y = -u * s.h;
-        const wd = s.w * (0.55 + 0.6 * Math.sin(Math.PI * Math.min(1, u * 0.9 + 0.22))) * (1 - 0.62 * u * u);
-        const st = s.h / rows;
-        g.fillStyle = L.mix('#b4bbc3', '#eef1f4', 0.3 + 0.7 * r());
-        g.beginPath(); g.moveTo(0.4, y + st * 0.7); g.lineTo(-wd, y - st * 0.1); g.lineTo(0.4, y - st * 1.25); g.closePath(); g.fill();
-        g.fillStyle = '#07090b';
-        g.beginPath(); g.moveTo(0.4, y + st * 0.7); g.lineTo(wd, y - st * 0.1); g.lineTo(0.4, y - st * 1.25); g.closePath(); g.fill();
-      }
-      g.restore();
-    }
-  });
-}
+// 瓦松 clumps: [ridge index k, side of that tube (−1 = its moonlit foot, +1 = its shadowed foot), distance down the slope, scale]
+const WASONG = [[-6, -1, 150, 1.0], [-4, -1, 372, 0.9], [-2, -1, 112, 0.9], [1, -1, 262, 1.05], [3, -1, 150, 0.9], [5, -1, 330, 1.0]];
 
 export default {
   name: '月下瓦垄',
@@ -327,12 +323,12 @@ export default {
   draw(ctx, env, p) {
     ctx.fillStyle = '#040506'; ctx.fillRect(0, 0, W, H);
     const a = env.arc;
-    const rot = L.lerp(-0.007, 0.007, p), zoom = L.lerp(1.0, 1.015, p);
+    const rot = L.lerp(-0.007, 0.007, p), zoom = L.lerp(1.0, 1.01, p);
     L.blit(ctx, env, S.roof, { rot, zoom });
     // a breath of brighter moonlight drifting along the ridge: colour-dodge lifts the lit tile and leaves the blacks black
     const q = a.pt(L.lerp(-0.2, -0.06, p), -40);
-    ctx.save(); ctx.globalCompositeOperation = 'color-dodge';
-    ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, 620, [[0, 'rgba(200,210,225,0.3)'], [0.5, 'rgba(200,210,225,0.1)'], [1, 'rgba(200,210,225,0)']]);
+    ctx.save(); a.clipBelow(ctx, TOP + 2); ctx.globalCompositeOperation = 'color-dodge';
+    ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, 640, [[0, '#4a4e55'], [0.45, '#1c1e21'], [1, '#000000']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
   },

@@ -16,21 +16,33 @@ let S = null;
 const TILT = L.deg(40), CA = Math.cos(TILT), SA = Math.sin(TILT);
 // raised hoops (凸箍): latitude, half-width, relative height
 const HOOPS = [
-  { lat: L.deg(27.0), hw: L.deg(0.5), amp: 1.0 },
-  { lat: L.deg(24.3), hw: L.deg(0.3), amp: 0.6 },
+  { lat: L.deg(25.8), hw: L.deg(0.38), amp: 1.0 },
+  { lat: L.deg(23.9), hw: L.deg(0.24), amp: 0.55 },
 ];
 
 // ── brightness model: lit from above/behind → the limb glows, the face turned to us sinks into ochre shadow ──
 const IMAX = 1.25;
-const BASE = [[0, 1.05], [0.05, 1.0], [0.14, 0.92], [0.26, 0.82], [0.4, 0.68], [0.54, 0.52], [0.68, 0.39], [0.8, 0.28], [1, 0.14]];
-function baseI(Z) {
-  for (let i = 1; i < BASE.length; i++) {
-    if (Z <= BASE[i][0]) { const k = (Z - BASE[i - 1][0]) / (BASE[i][0] - BASE[i - 1][0]); return L.lerp(BASE[i - 1][1], BASE[i][1], k * k * (3 - 2 * k)); }
+const BASE = [[0, 0.9], [0.05, 0.86], [0.14, 0.8], [0.26, 0.7], [0.4, 0.55], [0.54, 0.39], [0.68, 0.25], [0.8, 0.16], [1, 0.09]];
+// falloff curve as a smoothed lookup table (piecewise-linear stops, then relaxed so no band shows at the knots)
+const BASE_LUT = (() => {
+  const n = 513; let t = new Float32Array(n);
+  for (let q = 0; q < n; q++) {
+    const Z = q / (n - 1); let v = BASE[BASE.length - 1][1];
+    for (let i = 1; i < BASE.length; i++) if (Z <= BASE[i][0]) { v = L.lerp(BASE[i - 1][1], BASE[i][1], (Z - BASE[i - 1][0]) / (BASE[i][0] - BASE[i - 1][0])); break; }
+    t[q] = v;
   }
-  return BASE[BASE.length - 1][1];
-}
-// along the limb: a broad key-light zone left of the crest + a hot spot hugging the limb
-const azI = (th, Z) => 0.8 + 0.2 * Math.exp(-Math.pow((th + 0.12) / 0.36, 2)) + 0.2 * Math.exp(-Math.pow((th + 0.13) / 0.17, 2)) * Math.exp(-Z / 0.22);
+  for (let pass = 0; pass < 3; pass++) {
+    const o = new Float32Array(n);
+    for (let q = 0; q < n; q++) { let s = 0, c = 0; for (let d = -14; d <= 14; d++) { const k = Math.min(n - 1, Math.max(0, q + d)); s += t[k]; c++; } o[q] = s / c; }
+    t = o;
+  }
+  return t;
+})();
+function baseI(Z) { const f = L.clamp(Z) * 512, i = f | 0; return i >= 512 ? BASE_LUT[512] : BASE_LUT[i] + (BASE_LUT[i + 1] - BASE_LUT[i]) * (f - i); }
+// along the limb: a broad key-light zone left of the crest + a specular hot spot where the key glances off the limb
+const KEY = -0.2;   // where the key light lands (radians from the crest; left of the caption)
+const hotAt = (th, Z) => Math.exp(-Math.pow((th - KEY) / 0.17, 2)) * Math.exp(-Z / 0.22);
+const azI = (th, Z) => 0.72 + 0.28 * Math.exp(-Math.pow((th - KEY) / 0.42, 2)) + 0.42 * hotAt(th, Z);
 // hoop shading at a latitude: hl = ± light on the upper / lower flank, sh = the thin shadow it throws below, hb = height
 let hl = 0, sh = 0, hb = 0;
 function hoopAt(lat) {
@@ -40,7 +52,7 @@ function hoopAt(lat) {
     if (d > -5 && d < 4) {
       const e = Math.exp(-d * d);
       hb += hp.amp * e; hl += hp.amp * d * e;
-      const ds = d + 1.9; sh += hp.amp * 0.3 * Math.exp(-ds * ds * 0.8);
+      const ds = d + 1.9; sh += hp.amp * 0.16 * Math.exp(-ds * ds * 0.8);
     }
   }
 }
@@ -48,11 +60,11 @@ function hoopAt(lat) {
 function surfI(Z, th) {
   const Y = Math.sqrt(1 - Z * Z) * Math.cos(th);
   hoopAt(Math.asin(Y * CA - Z * SA));
-  return baseI(Z) * azI(th, Z) * (1 - sh) * (1 + 0.9 * hl);
+  return baseI(Z) * azI(th, Z) * (1 - sh) * (1 + 0.6 * hl);
 }
 
-const GOLD_STOPS = [[0, '#060301'], [0.09, '#1d1003'], [0.2, '#452a08'], [0.31, '#6a4410'], [0.44, '#98671a'], [0.57, '#c48e2b'],
-  [0.68, '#e9b949'], [0.79, '#f6d577'], [0.89, '#fff3c0'], [1, '#fffdf0']];
+const GOLD_STOPS = [[0, '#050301'], [0.08, '#1a0d03'], [0.18, '#402207'], [0.28, '#6a4410'], [0.4, '#a2620f'], [0.52, '#cc8a1c'],
+  [0.64, '#e9b949'], [0.76, '#f5d06c'], [0.88, '#fff3c0'], [1, '#fffdf0']];
 
 /** the smooth gilded ball under the glitter: satin gold, burnishing streaks along the latitudes, mottling, fine grain, hoops */
 function buildBase(env) {
@@ -77,8 +89,8 @@ function buildBase(env) {
       const mott = nz.fbm(u / 340 + 9.7, v / 220 - 4.2, 3);
       const grain = nz.fbm(u / 6, v / 6, 2);
       hoopAt(lat);
-      hgt[k] = hb * 5 + (grain * 1.1 + streak * 0.9) * fade;
-      lum[k] = baseI(Z) * azI(Math.atan2(X, Y), Z) * (1 + 0.2 * mott + 0.13 * streak * fade) * (1 - sh);
+      hgt[k] = hb * 3.4 + (grain * 1.1 + streak * 0.5) * fade;
+      lum[k] = baseI(Z) * azI(Math.atan2(X, Y), Z) * (1 + 0.12 * mott + 0.08 * streak * fade) * (1 - sh);
     }
   }
   const ramp = L.makeRamp(GOLD_STOPS);
@@ -101,6 +113,7 @@ function buildBase(env) {
 }
 
 /** colour buckets so tens of thousands of flakes need only a handful of fillStyle changes */
+const HERO = [0.6, 0.9, 1, 0.72, 0.5, 0.82, 1, 0.78];
 const NB = 30;
 function bucketColours() {
   const ramp = L.makeRamp(GOLD_STOPS); const out = [];
@@ -111,18 +124,20 @@ const bucketOf = (I) => Math.round(L.clamp(I / IMAX) * (NB - 1));
 
 /** baked glitter: flakes spread evenly over the SPHERE (uniform in Z and theta), so they crowd and flatten toward the limb */
 function paintFlakes(g, env, cols) {
-  const a = env.arc, R = a.R, r = L.rng('s27flakes');
+  const a = env.arc, R = a.R, r = L.rng('s27flakes'), nz = L.makeNoise('s27patch');
   const buckets = cols.map(() => []);
-  for (let i = 0; i < 100000; i++) {
+  for (let i = 0; i < 150000; i++) {
     const Z = r() * 0.78, th = r.range(-0.8, 0.8);
     const rad = R * Math.sqrt(1 - Z * Z), sn = Math.sin(th), cs = Math.cos(th);
     const x = a.cx + rad * sn, y = a.cy - rad * cs;
     if (x < -PAD - 4 || x > W + PAD + 4 || y > H + PAD + 4) continue;
-    const I0 = surfI(Z, th);
-    const s = 1.1 + 3.4 * Math.pow(r(), 3.2);
+    const patch = nz.fbm(th * R / 120, Z * R / 120, 3);       // glitter lies in drifts, not an even coat
+    if (r() > 0.62 + 0.6 * patch) continue;
+    const I0 = surfI(Z, th) * (1 + 0.25 * patch);
+    const s = 1.1 + 3.6 * Math.pow(r(), 3.0);
     let If, al;
-    if (r() < 0.27) { If = I0 * r.range(0.28, 0.6); al = r.range(0.35, 0.7); }                 // pits between the grains
-    else { const k = Math.pow(r(), 2.6); If = L.lerp(I0 * 0.95, 1.2, k * (0.3 + 0.7 * Math.min(1, I0))); al = r.range(0.5, 0.95); }
+    if (r() < 0.25) { If = I0 * r.range(0.28, 0.6); al = r.range(0.35, 0.7); }                 // pits between the grains
+    else { const k = Math.pow(r(), 2.4); If = L.lerp(I0 * 0.95, 1.22, k * (0.45 + 0.55 * Math.min(1, I0))); al = r.range(0.5, 0.95); }
     buckets[bucketOf(If)].push(x, y, s, Math.max(0.9, s * (0.22 + 0.95 * Z)), sn, cs, al);
   }
   for (let b = 0; b < NB; b++) {
@@ -157,26 +172,42 @@ function buildBody(env, cols) {
     // the hoops catch a thin line of light on their upper shoulder, a hairline of shadow underneath
     for (const hp of HOOPS) {
       g.globalCompositeOperation = 'screen';
-      g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.1)'], [0.4, `rgba(255,244,200,${0.5 * hp.amp})`], [0.62, `rgba(255,236,170,${0.3 * hp.amp})`], [1, 'rgba(255,226,150,0.08)']]);
-      g.lineWidth = 1.4; hoopPath(g, a, hp.lat + hp.hw * 0.75); g.stroke();
+      g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.08)'], [0.34, `rgba(255,244,200,${0.44 * hp.amp})`], [0.6, `rgba(255,236,170,${0.24 * hp.amp})`], [1, 'rgba(255,226,150,0.05)']]);
+      g.lineWidth = 1.3; hoopPath(g, a, hp.lat + hp.hw * 0.75); g.stroke();
       g.globalCompositeOperation = 'multiply';
-      g.strokeStyle = `rgba(60,32,4,${0.5 * hp.amp})`; g.lineWidth = 2; hoopPath(g, a, hp.lat - hp.hw * 1.5); g.stroke();
+      g.strokeStyle = `rgba(60,32,4,${0.35 * hp.amp})`; g.lineWidth = 2; hoopPath(g, a, hp.lat - hp.hw * 1.5); g.stroke();
     }
     g.globalCompositeOperation = 'source-over';
     g.restore();
     // the limb itself: a hairline of white-gold exactly on the arc
     g.save(); a.clipBelow(g, 0);
     g.globalCompositeOperation = 'screen'; g.lineWidth = 3.2;
-    g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.45)'], [0.38, 'rgba(255,250,228,0.95)'], [0.6, 'rgba(255,240,190,0.8)'], [1, 'rgba(255,226,150,0.4)']]);
+    g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.5)'], [0.33, 'rgba(255,250,228,0.95)'], [0.6, 'rgba(255,240,190,0.75)'], [1, 'rgba(255,226,150,0.4)']]);
     a.stroke(g, -1.2);
     g.restore();
   });
 }
 
+/** the part of the ball that bulges toward the lens (bottom of frame) drops out of focus */
+const defocusAt = (Z) => L.smooth((Z - 0.5) / 0.22);
+function defocus(env, body) {
+  const a = env.arc;
+  const soft = L.blurred(body, 4);
+  const g = soft.getContext('2d');
+  g.globalCompositeOperation = 'destination-in';
+  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R - 620, a.R - 290, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+  g.fillRect(0, 0, LW, LH);
+  const bg = body.getContext('2d');
+  bg.save(); bg.setTransform(1, 0, 0, 1, 0, 0); bg.globalAlpha = 1; bg.globalCompositeOperation = 'source-over';
+  bg.drawImage(soft, 0, 0);
+  bg.restore();
+  return body;
+}
+
 // ── sprites ──
 function dotSprite(size, core, halo) {
   const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
-  g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(core, 1)], [0.16, L.rgba(core, 0.92)], [0.34, L.rgba(halo, 0.42)], [0.62, L.rgba(halo, 0.12)], [1, L.rgba(halo, 0)]]);
+  g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(core, 1)], [0.2, L.rgba(core, 0.95)], [0.38, L.rgba(halo, 0.5)], [0.68, L.rgba(halo, 0.13)], [1, L.rgba(halo, 0)]]);
   g.fillRect(0, 0, size, size);
   return c;
 }
@@ -207,6 +238,7 @@ function genLiveFlakes(env, cols) {
     if (x < -70 || x > W + 70 || y > H + 70) continue;
     const I0 = surfI(Z, th);
     if (r() > 0.22 + 0.85 * I0) continue;                 // sparkle where the light is
+    if (r() < 0.9 * defocusAt(Z)) continue;               // out of focus down there: the bokeh takes over
     const s = 1.2 + 2.2 * Math.pow(r(), 2.4);
     const If = L.lerp(I0, 1.25, r.range(0.45, 0.95));
     buckets[bucketOf(If)].push(x, y, s, Math.max(1, s * (0.3 + 0.9 * Z)), r() * L.TAU, r.range(1.0, 2.6), r.range(0.55, 1));
@@ -218,24 +250,31 @@ function genLiveFlakes(env, cols) {
 function genGlints(env, spr) {
   const a = env.arc, R = a.R, r = L.rng('s27glint');
   const dots = [], stars = [];
-  for (let i = 0; i < 5200; i++) {
+  for (let i = 0; i < 9500; i++) {
     const Z = r() * 0.75, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
     if (x < -60 || x > W + 60 || y > H + 60) continue;
-    const I0 = surfI(Z, th);
-    if (r() > 0.18 + 0.8 * I0) continue;
+    const I0 = surfI(Z, th), hot = hotAt(th, Z * 0.6);
+    if (r() > 0.13 + 0.7 * I0 + 0.4 * hot) continue;
     const warm = r() > 0.25 + 0.7 * I0;                   // deeper, dimmer gold → amber glints
-    dots.push({ x, y, s: 5 + 26 * Math.pow(r(), 3.2) * (0.55 + 0.45 * Z / 0.75), img: warm ? spr.dotAmber : spr.dotGold,
-      ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.55, 1) * (0.55 + 0.45 * Math.min(1, I0)) });
+    const df = defocusAt(Z);
+    if (df > 0.25 && r() < df * 0.8) {
+      // out-of-focus glints swell into soft discs
+      if (r() < 0.55) dots.push({ x, y, s: (12 + 34 * Math.pow(r(), 1.8)) * (0.6 + 0.6 * df), img: spr.bokeh, ph: r() * L.TAU, sp: r.range(0.6, 1.6), k: 2, al: r.range(0.2, 0.7) });
+      continue;
+    }
+    dots.push({ x, y, s: (6 + 26 * Math.pow(r(), 2.6)) * (0.6 + 0.5 * Z / 0.75) * (1 + 1.2 * df) * (1 + 0.4 * hot), img: warm ? spr.dotAmber : spr.dotGold,
+      ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.55, 1) * (0.55 + 0.45 * Math.min(1, I0)) * (1 - 0.3 * df) });
   }
-  for (let i = 0; i < 520; i++) {
+  for (let i = 0; i < 820; i++) {
     const Z = Math.pow(r(), 1.5) * 0.74, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
     if (x < -60 || x > W + 60 || y > H + 60) continue;
-    const I0 = surfI(Z, th);
-    const s = 46 + 150 * Math.pow(r(), 2.6);
+    const I0 = surfI(Z, th), hot = hotAt(th, Z * 0.6);
+    if (r() > 0.4 + 0.35 * I0 + 0.5 * hot) continue;
+    const s = (46 + 150 * Math.pow(r(), 2.6)) * (1 + 0.3 * hot);
     // keep flare spikes out of the caption zone above the crest
     if (Math.abs(x - a.cx) < 390 && y - s * 0.5 < a.crestY - 6) continue;
     const warm = r() > 0.35 + 0.6 * I0;
@@ -273,8 +312,7 @@ function genDust(env, spr) {
     const kind = r();
     const th = a.thetaAtX(x);
     const base = { x, y, ph: r() * L.TAU, sp: r.range(0.7, 1.9), vx: Math.sin(th) * r.range(3, 12) + r.range(-5, 5), vy: -r.range(3, 14) };
-    if (kind < 0.05) out.push({ ...base, s: r.range(16, 30), img: spr.bokeh, col: null, al: r.range(0.16, 0.3) * (0.4 + 0.6 * far) });
-    else if (kind < 0.3) out.push({ ...base, s: r.range(5, 11), img: spr.dotGold, col: null, al: r.range(0.4, 0.9) * (0.35 + 0.65 * far) });
+    if (kind < 0.3) out.push({ ...base, s: r.range(5, 11), img: spr.dotGold, col: null, al: r.range(0.4, 0.9) * (0.35 + 0.65 * far) });
     else out.push({ ...base, s: 0.9 + 1.6 * Math.pow(r(), 1.6), img: null, col: r.pick(['#fff3c0', '#f6d577', '#e9b949', '#c48e2b']), al: r.range(0.4, 1) * (0.3 + 0.7 * far) });
   }
   return out;
@@ -292,27 +330,28 @@ export default {
       starAmber: starSprite(192, '#fff0c4', '#f0a23a'),
       bokeh: (() => {
         const c = L.makeCanvas(64, 64), g = c.getContext('2d');
-        g.fillStyle = L.radial(g, 32, 32, 0, 32, [[0, 'rgba(233,185,73,0.55)'], [0.7, 'rgba(233,185,73,0.6)'], [0.86, 'rgba(255,220,130,0.8)'], [1, 'rgba(233,185,73,0)']]);
+        g.fillStyle = L.radial(g, 32, 32, 0, 32, [[0, 'rgba(232,150,40,0.5)'], [0.6, 'rgba(236,160,46,0.56)'], [0.8, 'rgba(250,190,84,0.62)'], [0.9, 'rgba(240,170,60,0.3)'], [1, 'rgba(233,160,50,0)']]);
         g.fillRect(0, 0, 64, 64); return c;
       })(),
     };
-    const body = buildBody(env, cols);
+    const body = defocus(env, L.filtered(buildBody(env, cols), 'saturate(1.1) contrast(1.05)'));
     // photographic bloom: only the brightest gold bleeds, a few px past the limb
     const bw = Math.ceil(LW / 2), bh = Math.ceil(LH / 2);
     const bloom = L.makeCanvas(bw, bh); const bg = bloom.getContext('2d');
-    bg.filter = 'brightness(0.9) contrast(1.8) blur(8px)';
+    bg.filter = 'brightness(0.8) contrast(2.2) blur(8px)';
     bg.drawImage(body, 0, 0, bw, bh);
     const gl = genGlints(env, spr);
-    S = { body, bloom, live: genLiveFlakes(env, cols), dots: gl.dots, stars: gl.stars, dust: genDust(env, spr) };
+    S = { body, bloom, star: spr.starGold, live: genLiveFlakes(env, cols), dots: gl.dots, stars: gl.stars, dust: genDust(env, spr) };
   },
   draw(ctx, env, p) {
     const a = env.arc, f = env.frame;
-    const rot = L.lerp(-0.009, 0.009, p), zoom = L.lerp(1.0, 1.012, p);
+    // rot slides the glitter along the limb; the push-in is kept tiny so the limb stays on the shared arc at the frame edges
+    const rot = L.lerp(-0.009, 0.009, p), zoom = L.lerp(0.997, 1.005, p);
     ctx.fillStyle = '#030303'; ctx.fillRect(0, 0, W, H);
 
     L.blit(ctx, env, S.body, { rot, zoom });
     L.cam(ctx, env, { rot, zoom }, () => {
-      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.5;
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.45;
       ctx.drawImage(S.bloom, -PAD, -PAD, LW, LH);
       // the flakes that flash this frame
       ctx.globalCompositeOperation = 'lighter';
@@ -332,17 +371,23 @@ export default {
           if (t < 0.12) continue;
           t = Math.pow(t, q.k);
           const s = q.s * (0.7 + 0.3 * t);
-          ctx.globalAlpha = Math.min(1, t * q.al);
+          ctx.globalAlpha = Math.min(1, t * q.al * 1.35);
           ctx.drawImage(q.img, q.x - s / 2, q.y - s / 2, s, s);
         }
       };
       sprites(S.dots);
       sprites(S.stars);
+      // one hero glint where the key light glances off the limb (left of the caption), pulsing frame by frame
+      const hk = HERO[f % HERO.length], hp = a.pt(KEY - 0.03, -3), hs = 290 * (0.78 + 0.22 * hk);
+      ctx.globalAlpha = hk;
+      ctx.drawImage(S.star, hp.x - hs / 2, hp.y - hs / 2, hs, hs);
+      ctx.globalAlpha = 1;
+      L.glow(ctx, hp.x, hp.y, 70, '#ffe7a8', 0.5 * hk, 'lighter');
     });
     // key light sweeping along the limb
     ctx.save(); a.clipBelow(ctx, 0);
-    const gl = a.pt(L.lerp(-0.2, -0.05, p), -36);
-    L.glow(ctx, gl.x, gl.y, 430, '#ffdf9a', 0.2);
+    const gl = a.pt(KEY + L.lerp(-0.07, 0.07, p), -34);
+    L.glow(ctx, gl.x, gl.y, 440, '#ffdc92', 0.3);
     ctx.restore();
     // gold dust lifting off the limb
     L.cam(ctx, env, { rot: rot * 0.8, zoom }, () => {

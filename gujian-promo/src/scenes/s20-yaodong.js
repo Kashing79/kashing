@@ -10,13 +10,16 @@ const PAD = 120;                      // the move is a ±1 % push-in, so a modes
 const FW = W + PAD * 2, FH = H + PAD * 2;
 
 // lattice dimensions (px)
-const FRAME = 16;                     // bowed head of the window frame — sits just OUTSIDE the arc, so lit paper starts exactly on it
+const FRAME = 13;                     // bowed head of the window frame — sits just OUTSIDE the arc, so lit paper starts exactly on it
+const SOFFIT = 5;                     // we look up at the window: every horizontal member shows this much of its lit underside
+const FLANK = 0.011;                  // …and every upright shows the flank that faces the middle of the frame (px per px off-centre)
 const BAND = 132;                     // depth of the fan of radial ribs under the arch
 const RAIL = 22;                      // concentric rail that closes the fan
 const RIB = 16, RIB_PITCH = 96;       // radial ribs: width / spacing along the arc
 const P = 196, MUN = 18;              // square lattice below: pitch / muntin width
+const DIAG = 8;                       // thin bars of the diagonal (斜格) infill panes
 const WOOD = [[0, '#140805'], [0.45, '#2a120a'], [1, '#4d2614']];
-const RED = '#d92a1a';
+const RED = '#cf2014';
 let S = null;
 
 // ───────────────────────── geometry ─────────────────────────
@@ -28,25 +31,44 @@ function geom(a) {
   for (let i = -Math.ceil(s / d); i <= Math.ceil(s / d); i++) ribs.push((i + 0.5) * d); // a pane (not a rib) on the centre line
   const cols = [];
   for (let k = 1; k * P < W / 2 + PAD + P; k++) cols.push(a.cx - k * P, a.cx + k * P);
-  return { y0, yH, ribs, cols };
+  // panes alternate: one carries a paper-cut, the next a fine diagonal lattice (斜格). [left x, top y] of each 斜格 pane
+  const diag = [];
+  for (const sgn of [-1, 1]) for (const [k, row] of [[1, 0], [3, 0], [2, 1], [4, 1], [5, 0]]) diag.push([a.cx + (sgn > 0 ? k : -k - 1) * P, yH[0] - P + row * P]);
+  const lamp = { x: a.cx - 128, y: a.crestY + 262 };  // the oil lamp, behind the left half of the middle pane
+  return { y0, yH, ribs, cols, diag, lamp };
 }
-/** radial ribs + vertical muntins (grow widens them — used for the glue/shadow mask) */
-function fillVerticals(g, a, G, grow = 0) {
-  for (const th of G.ribs) a.at(g, th, 0, () => g.fillRect(-RIB / 2 - grow, -3, RIB + grow * 2, BAND + 6));
+/** the thin ±45° bars of the 斜格 panes, three diamonds to a pane */
+function strokeDiagonals(g, a, G, width) {
   g.save(); a.clipBelow(g, -BAND - RAIL + 2);
-  for (const x of G.cols) g.fillRect(x - MUN / 2 - grow, a.crestY, MUN + grow * 2, FH);
+  g.lineWidth = width; g.lineCap = 'butt';
+  for (const [x, y] of G.diag) {
+    g.save(); g.beginPath(); g.rect(x, y, P, P); g.clip();
+    g.beginPath();
+    for (let m = -3; m <= 3; m++) {
+      const o = (m * P) / 3;
+      g.moveTo(x + o, y); g.lineTo(x + o + P, y + P);
+      g.moveTo(x + P - o, y); g.lineTo(x - o, y + P);
+    }
+    g.stroke(); g.restore();
+  }
   g.restore();
 }
-/** frame head, rail and horizontal muntins. The middle pane is two cells tall, so the first muntin skips it. */
-function fillHorizontals(g, a, G, grow = 0) {
-  a.pathBand(g, FRAME + grow, 0); g.fill();
-  a.pathBand(g, -BAND + grow, -BAND - RAIL - grow); g.fill();
+/** radial ribs + vertical muntins. grow widens them (glue/shadow mask); depth shifts them toward the centre line → their flanks */
+function fillVerticals(g, a, G, grow = 0, depth = 0) {
+  for (const th of G.ribs) a.at(g, th, 0, () => g.fillRect(-RIB / 2 - grow - th * a.R * depth, -3, RIB + grow * 2, BAND + 6));
+  g.save(); a.clipBelow(g, -BAND - RAIL + 2);
+  for (const x of G.cols) g.fillRect(x - MUN / 2 - grow + (a.cx - x) * depth, a.crestY, MUN + grow * 2, FH);
+  g.restore();
+}
+/** frame head, rail and horizontal muntins (the middle pane is two cells tall, so the first muntin skips it). drop adds their soffits. */
+function fillHorizontals(g, a, G, grow = 0, drop = 0) {
+  a.pathBand(g, FRAME + SOFFIT + grow, drop ? 0 : SOFFIT); g.fill();
+  a.pathBand(g, -BAND + grow, -BAND - RAIL - grow - drop); g.fill();
   g.save(); a.clipBelow(g, -BAND - RAIL + 2);
   G.yH.forEach((y, j) => {
-    if (j === 0) {
-      g.fillRect(-PAD - 50, y - MUN / 2 - grow, a.cx - P + 50 + PAD, MUN + grow * 2);
-      g.fillRect(a.cx + P, y - MUN / 2 - grow, W / 2 + PAD + 50, MUN + grow * 2);
-    } else g.fillRect(-PAD - 50, y - MUN / 2 - grow, FW + 100, MUN + grow * 2);
+    const t = y - MUN / 2 - grow, h = MUN + grow * 2 + drop;
+    if (j === 0) { g.fillRect(-PAD - 50, t, a.cx - P + 50 + PAD, h); g.fillRect(a.cx + P, t, W / 2 + PAD + 50, h); }
+    else g.fillRect(-PAD - 50, t, FW + 100, h);
   });
   g.restore();
 }
@@ -156,64 +178,72 @@ function cutList(a, G) {
 // ───────────────────────── window paper, lit from inside ─────────────────────────
 function buildPaper(env, G) {
   const a = env.arc;
-  const lamp = { x: a.cx - 70, y: a.crestY + 300 };
+  const lamp = G.lamp;
   // soft brown haze hugging every bar: paste lines, doubled paper, and the bar's own thickness
-  const ao = L.blurred(L.makeLayer(PAD, (g) => { g.fillStyle = '#8a3508'; fillVerticals(g, a, G, 3); fillHorizontals(g, a, G, 3); }), 7);
+  const ao = L.blurred(L.makeLayer(PAD, (g) => {
+    g.fillStyle = g.strokeStyle = '#7a2c06';
+    fillVerticals(g, a, G, 3); fillVerticals(g, a, G, 3, FLANK); fillHorizontals(g, a, G, 3, SOFFIT); strokeDiagonals(g, a, G, DIAG + 5);
+  }), 6);
   const layer = L.makeLayer(PAD, (g) => {
     g.save(); a.clipBelow(g, 1);
-    // the lamp behind the paper: hot core falling off to deep orange in the corners
-    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 1380, [[0, '#fff4cc'], [0.09, '#ffe8a8'], [0.25, '#ffd98a'], [0.5, '#ffb44a'], [0.75, '#ea8629'], [1, '#b24f18']]);
+    // the lamp behind the paper: a hot core falling off to deep orange toward the springing of the arch
+    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 1000, [[0, '#fff8dc'], [0.05, '#ffeeb4'], [0.14, '#ffdc8c'], [0.28, '#ffc462'], [0.44, '#fba63e'], [0.6, '#e88426'], [0.8, '#c9641c'], [1, '#aa4e14']]);
     g.fillRect(-PAD, -PAD, FW, FH);
     // each pane is its own little sheet: slightly different thickness
     const r = L.rng('s20pane');
-    for (let i = 0; i < G.ribs.length - 1; i++) { g.fillStyle = `rgba(150,64,8,${r.range(0, 0.13).toFixed(3)})`; a.pathBand(g, 0, -BAND, G.ribs[i], G.ribs[i + 1]); g.fill(); }
+    for (let i = 0; i < G.ribs.length - 1; i++) { g.fillStyle = `rgba(150,60,6,${r.range(0, 0.12).toFixed(3)})`; a.pathBand(g, 0, -BAND, G.ribs[i], G.ribs[i + 1]); g.fill(); }
     const xs = [a.cx - P, a.cx + P, ...G.cols].sort((p, q) => p - q);
     for (let i = 0; i < xs.length - 1; i++) for (let j = 0; j < 2; j++) {
-      g.fillStyle = `rgba(150,64,8,${r.range(0, 0.12).toFixed(3)})`;
+      g.fillStyle = `rgba(150,60,6,${r.range(0, 0.09).toFixed(3)})`;
       g.fillRect(xs[i], j ? G.yH[0] : a.crestY + BAND, xs[i + 1] - xs[i], P);
     }
     // cloudy fibre of hand-made paper seen by transmitted light
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.75;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20cloud', scale: 64, octaves: 4, gain: 0.55, warp: 0.9, res: 0.4, contrast: 1.35, ramp: [[0, '#d99a58'], [0.45, '#f6dcb2'], [1, '#ffffff']] }), -PAD, -PAD);
-    g.globalAlpha = 0.5;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20fine', scale: 9, octaves: 2, res: 0.5, contrast: 1.6, ramp: [[0, '#e2b078'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.8;
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20cloud', scale: 58, octaves: 4, gain: 0.55, warp: 0.9, res: 0.4, contrast: 1.4, ramp: [[0, '#d48e48'], [0.45, '#f7d9a6'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.globalAlpha = 0.55;
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20fine', scale: 9, octaves: 2, res: 0.5, contrast: 1.6, ramp: [[0, '#dfa868'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // long fibres and a few creases
     g.lineCap = 'round';
-    for (let i = 0; i < 1500; i++) {
+    for (let i = 0; i < 1700; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(a.crestY - 10, H + PAD), len = r.range(14, 70), an = r.range(0, Math.PI);
-      g.strokeStyle = r.chance(0.6) ? `rgba(140,66,12,${r.range(0.06, 0.2).toFixed(3)})` : `rgba(255,246,214,${r.range(0.08, 0.26).toFixed(3)})`;
+      g.strokeStyle = r.chance(0.6) ? `rgba(136,58,8,${r.range(0.07, 0.24).toFixed(3)})` : `rgba(255,246,214,${r.range(0.08, 0.28).toFixed(3)})`;
       g.lineWidth = r.range(0.5, 1.5);
       g.beginPath(); g.moveTo(x, y);
       g.quadraticCurveTo(x + Math.cos(an) * len * 0.5 + r.range(-7, 7), y + Math.sin(an) * len * 0.5 + r.range(-7, 7), x + Math.cos(an) * len, y + Math.sin(an) * len); g.stroke();
     }
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 18; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(a.crestY + 20, H + 40), len = r.range(60, 150), an = r.range(-0.5, 0.5) + (r.chance(0.5) ? Math.PI / 2 : 0);
       const dx = Math.cos(an) * len, dy = Math.sin(an) * len, bx = r.range(-12, 12), by = r.range(-12, 12);
-      g.lineWidth = 2.2; g.strokeStyle = 'rgba(130,56,8,0.2)'; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + dx / 2 + bx, y + dy / 2 + by, x + dx, y + dy); g.stroke();
+      g.lineWidth = 2.2; g.strokeStyle = 'rgba(126,50,6,0.22)'; g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + dx / 2 + bx, y + dy / 2 + by, x + dx, y + dy); g.stroke();
       g.lineWidth = 1.4; g.strokeStyle = 'rgba(255,244,206,0.3)'; g.beginPath(); g.moveTo(x + 1.5, y + 2); g.quadraticCurveTo(x + dx / 2 + bx + 1.5, y + dy / 2 + by + 2, x + dx + 1.5, y + dy + 2); g.stroke();
     }
-    g.globalAlpha = 0.62; g.drawImage(ao, -PAD, -PAD); g.globalAlpha = 1;
+    g.globalAlpha = 0.6; g.drawImage(ao, -PAD, -PAD); g.globalAlpha = 1;
+    // the flame itself, burning through the paper as a soft white core
+    g.globalCompositeOperation = 'screen';
+    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 230, [[0, 'rgba(255,252,232,0.95)'], [0.3, 'rgba(255,240,196,0.6)'], [0.65, 'rgba(255,214,140,0.2)'], [1, 'rgba(255,200,120,0)']]);
+    g.fillRect(lamp.x - 240, lamp.y - 240, 480, 480);
+    g.globalCompositeOperation = 'source-over';
     // the paper-cuts: red paper holds back most of the light, so it multiplies over the glow
     for (const q of cutList(a, G)) {
       const pc = papercut(q.kind, q.r, q.kind + q.x);
       g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
       g.globalCompositeOperation = 'multiply'; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.3; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.42; g.drawImage(pc, -pc.width / 2, -pc.height / 2);
       g.restore();
     }
     g.restore();
   });
-  layer._lamp = lamp;
   return layer;
 }
 
 // ───────────────────────── the timber lattice ─────────────────────────
 function buildLattice(env, G) {
   const a = env.arc;
-  const tex = (seed, sx, sy) => L.polarNoiseLayer(env, PAD, { seed, scale: 7, sx, sy, octaves: 3, contrast: 1.5, res: 0.4, ramp: WOOD });
+  const tex = (seed, sx, sy) => L.polarNoiseLayer(env, PAD, { seed, scale: 7, sx, sy, octaves: 3, contrast: 1.5, res: 0.3, ramp: WOOD });
   const V = L.makeLayer(PAD, (g) => {
-    g.fillStyle = '#2a120a'; fillVerticals(g, a, G);
+    g.fillStyle = g.strokeStyle = '#2a120a';
+    strokeDiagonals(g, a, G, DIAG); fillVerticals(g, a, G);
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.9; g.drawImage(tex('s20wv', 1, 18), -PAD, -PAD); g.globalAlpha = 1;
     // a rounded face: faint dusk light on the left arris, shadow on the right
@@ -221,138 +251,151 @@ function buildLattice(env, G) {
       g.fillStyle = 'rgba(176,96,52,0.34)'; g.fillRect(-RIB / 2, 0, 2.6, BAND);
       g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(RIB / 2 - 3.2, 0, 3.2, BAND);
     });
+    g.save(); a.clipBelow(g, -BAND - RAIL + 2);
     for (const x of G.cols) {
       g.fillStyle = 'rgba(176,96,52,0.34)'; g.fillRect(x - MUN / 2, a.crestY, 2.8, FH);
       g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(x + MUN / 2 - 3.4, a.crestY, 3.4, FH);
     }
+    g.restore();
   });
   const Hz = L.makeLayer(PAD, (g) => {
     g.fillStyle = '#2a120a'; fillHorizontals(g, a, G);
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.9; g.drawImage(tex('s20wh', 18, 1), -PAD, -PAD); g.globalAlpha = 1;
-    g.lineWidth = 2.6; g.strokeStyle = 'rgba(176,96,52,0.36)'; a.stroke(g, FRAME - 1.5); a.stroke(g, -BAND - 1.5);
-    g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 3.2; a.stroke(g, -BAND - RAIL + 1.6);
+    g.lineWidth = 2.6; g.strokeStyle = 'rgba(176,96,52,0.36)'; a.stroke(g, FRAME + SOFFIT - 1.5); a.stroke(g, -BAND - 1.5);
     for (const y of G.yH) {
       g.fillStyle = 'rgba(176,96,52,0.34)'; g.fillRect(-PAD, y - MUN / 2, FW, 2.8);
-      g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(-PAD, y + MUN / 2 - 3.4, FW, 3.4);
     }
   });
-  return L.makeLayer(PAD, (g) => { g.drawImage(V, -PAD, -PAD); g.drawImage(Hz, -PAD, -PAD); });
+  // flanks and soffits: lit by the paper they stand against, brightest near the lamp
+  const side = L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#000'; fillVerticals(g, a, G, 0, FLANK); fillHorizontals(g, a, G, 0, SOFFIT);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = L.radial(g, G.lamp.x, G.lamp.y, 0, 1100, [[0, '#f2ac54'], [0.3, '#c87422'], [0.65, '#904614'], [1, '#5c280c']]);
+    g.fillRect(-PAD, -PAD, FW, FH);
+  });
+  return L.makeLayer(PAD, (g) => { g.drawImage(side, -PAD, -PAD); g.drawImage(V, -PAD, -PAD); g.drawImage(Hz, -PAD, -PAD); });
 }
 
 // ───────────────────────── loess wall at dusk ─────────────────────────
 function buildWall(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
-    // mud-and-straw plaster: warmest where the window's glow reaches it, sinking to deep red-brown overhead
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 1000, [[0, '#a23f18'], [0.13, '#993916'], [0.33, '#812d12'], [0.62, '#69220e'], [1, '#52190b']]);
+    // mud-and-straw plaster over the loess: deep red-brown overhead, warming toward the opening
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 1000, [[0, '#9e3c17'], [0.13, '#963715'], [0.33, '#7f2c12'], [0.62, '#67210e'], [1, '#501809']]);
     g.fillRect(-PAD, -PAD, FW, FH);
-    g.fillStyle = L.linear(g, -PAD, 0, 620, 0, [[0, 'rgba(46,12,5,0.5)'], [1, 'rgba(46,12,5,0)']]); g.fillRect(-PAD, -PAD, FW, FH);
-    g.fillStyle = L.linear(g, W + PAD, 0, W - 620, 0, [[0, 'rgba(46,12,5,0.5)'], [1, 'rgba(46,12,5,0)']]); g.fillRect(-PAD, -PAD, FW, FH);
-    // broad weathering stains
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.6;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20stain', scale: 360, octaves: 4, warp: 0.7, res: 0.25, ramp: [[0, '#9a664a'], [0.5, '#e4c6ae'], [1, '#ffffff']] }), -PAD, -PAD);
-    // trowelled relief
-    const hgt = L.noiseTex(FW, FH, { seed: 's20bump', scale: 70, octaves: 5, gain: 0.6, warp: 0.5, res: 0.4 });
-    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.55;
-    g.drawImage(L.bumpLight(hgt, { angle: 270, strength: 5, res: 0.4 }), -PAD, -PAD);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20grit', scale: 14, octaves: 3, res: 0.5, contrast: 1.8 }), -PAD, -PAD);
+    g.fillStyle = L.linear(g, -PAD, 0, 600, 0, [[0, 'rgba(40,10,4,0.5)'], [1, 'rgba(40,10,4,0)']]); g.fillRect(-PAD, -PAD, FW, FH);
+    g.fillStyle = L.linear(g, W + PAD, 0, W - 600, 0, [[0, 'rgba(40,10,4,0.5)'], [1, 'rgba(40,10,4,0)']]); g.fillRect(-PAD, -PAD, FW, FH);
+    // broad, soft weathering stains
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.34;
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20stain', scale: 420, octaves: 3, warp: 0.6, res: 0.25, ramp: [[0, '#a8785c'], [0.5, '#ead2be'], [1, '#ffffff']] }), -PAD, -PAD);
+    // fine trowelled grain, lit from below by the window
+    const hgt = L.noiseTex(FW, FH, { seed: 's20bump', scale: 30, octaves: 4, gain: 0.55, res: 0.4 });
+    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.17;
+    g.drawImage(L.bumpLight(hgt, { angle: 270, strength: 4, res: 0.4 }), -PAD, -PAD);
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.22;
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20grit', scale: 12, octaves: 3, res: 0.4, contrast: 1.7 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // chopped straw in the plaster, and pits where it has fallen out
     const r = L.rng('s20straw');
     g.lineCap = 'round';
-    for (let i = 0; i < 1700; i++) {
-      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, a.yAt(L.clamp(x, 0, W)) + 30), len = r.range(7, 26), an = r.gauss() * 0.55;
-      g.strokeStyle = r.chance(0.62) ? `rgba(236,170,98,${r.range(0.08, 0.3).toFixed(3)})` : `rgba(40,10,4,${r.range(0.12, 0.34).toFixed(3)})`;
-      g.lineWidth = r.range(0.7, 1.7);
+    for (let i = 0; i < 1500; i++) {
+      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, a.yAt(L.clamp(x, 0, W)) + 30), len = r.range(7, 24), an = r.gauss() * 0.6;
+      g.strokeStyle = r.chance(0.62) ? `rgba(232,160,90,${r.range(0.05, 0.2).toFixed(3)})` : `rgba(40,10,4,${r.range(0.08, 0.24).toFixed(3)})`;
+      g.lineWidth = r.range(0.7, 1.6);
       g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(an) * len, y + Math.sin(an) * len); g.stroke();
     }
-    L.speckle(g, { seed: 's20pit', count: 900, x: -PAD, y: -PAD, w: FW, h: FH, rMin: 0.8, rMax: 3.4, colors: ['#3a0f06', '#2a0a04', '#c26a34'], alpha: [0.1, 0.42] });
+    L.speckle(g, { seed: 's20pit', count: 700, x: -PAD, y: -PAD, w: FW, h: FH, rMin: 0.8, rMax: 3, colors: ['#3a0f06', '#2a0a04', '#b8602e'], alpha: [0.08, 0.3] });
     // keep the tagline's patch of wall quiet
-    g.fillStyle = L.radial(g, a.cx, a.crestY - 140, 60, 470, [[0, 'rgba(147,54,21,0.5)'], [0.6, 'rgba(147,54,21,0.3)'], [1, 'rgba(147,54,21,0)']]);
-    g.save(); g.translate(a.cx, a.crestY - 140); g.scale(1, 0.56); g.translate(-a.cx, -(a.crestY - 140));
-    g.fillRect(a.cx - 500, a.crestY - 140 - 500, 1000, 1000); g.restore();
-    // the reveal: a line of shadow where the plaster turns in to meet the frame, then a lip catching the glow
-    g.lineWidth = 12; g.strokeStyle = 'rgba(30,8,3,0.4)'; a.stroke(g, FRAME + 5);
-    g.lineWidth = 2; g.strokeStyle = 'rgba(255,170,96,0.22)'; a.stroke(g, FRAME + 12);
+    const ty = a.crestY - 140;
+    g.save(); g.translate(a.cx, ty); g.scale(1, 0.56); g.translate(-a.cx, -ty);
+    g.fillStyle = L.radial(g, a.cx, ty, 60, 480, [[0, 'rgba(143,52,20,0.6)'], [0.6, 'rgba(143,52,20,0.36)'], [1, 'rgba(143,52,20,0)']]);
+    g.fillRect(a.cx - 500, ty - 500, 1000, 1000); g.restore();
+    // lamp light spilling up the wall from the opening: an ember-red fringe that hugs the arc
+    g.globalCompositeOperation = 'screen';
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 360, [[0, 'rgba(255,112,36,0.44)'], [0.16, 'rgba(246,92,30,0.3)'], [0.45, 'rgba(224,70,24,0.13)'], [1, 'rgba(200,56,20,0)']]);
+    g.fillRect(-PAD, -PAD, FW, FH);
+    g.globalCompositeOperation = 'source-over';
+    // the reveal: a line of shadow where the plaster turns in to meet the frame
+    g.lineWidth = 10; g.strokeStyle = 'rgba(30,8,3,0.36)'; a.stroke(g, FRAME + SOFFIT + 4);
   });
 }
 
 // ───────────────────────── harvest strings, far out to the sides ─────────────────────────
 function chiliString(g, x0, yTop, yEnd, seed, k = 1) {
   const r = L.rng('s20chili' + seed);
-  const n = Math.round((yEnd - yTop) / (12 * k));
-  g.strokeStyle = '#5a3a1c'; g.lineWidth = 5 * k; g.beginPath(); g.moveTo(x0, yTop); g.lineTo(x0, yEnd - 70 * k); g.stroke();
+  const step = 15 * k, n = Math.round((yEnd - 118 * k - yTop) / step);
   for (let i = n; i >= 0; i--) {          // bottom → top, so each pod overlaps the stems below it
-    const u = i / n, y = L.lerp(yTop, yEnd - 84 * k, u);
-    const side = i % 2 ? 1 : -1;
-    for (let j = 0; j < 2; j++) {
-      const ang = side * (j ? r.range(0.1, 0.45) : r.range(0.5, 0.95)) + r.range(-0.1, 0.1);
-      const len = r.range(66, 98) * k, wid = r.range(13, 19) * k, bend = r.range(-0.3, 0.3) * len * 0.3;
-      const base = r.pick(['#b3170f', '#c9241a', '#9a120c', '#d4301c', '#7d0e0a']);
-      g.save(); g.translate(x0 + r.range(-7, 7) * k, y + r.range(-5, 5)); g.rotate(-ang);
-      g.fillStyle = L.linear(g, -wid / 2, 0, wid / 2, 0, [[0, L.shade(base, -0.35)], [0.32, L.shade(base, 0.14)], [0.6, base], [1, L.shade(base, -0.5)]]);
+    const y = yTop + i * step;
+    for (let j = 0; j < 3; j++) {
+      const ang = L.clamp(r.gauss() * 0.5, -1.05, 1.05);
+      const len = r.range(92, 146) * k, wid = r.range(17, 25) * k, bend = r.range(-0.4, 0.4) * len * 0.3;
+      const base = r.pick(['#b3170f', '#c9241a', '#9a120c', '#d4301c', '#7d0e0a', '#a8140e']);
+      g.save(); g.translate(x0 + ang * 16 * k + r.range(-5, 5) * k, y + r.range(-6, 6)); g.rotate(-ang);
+      g.fillStyle = L.linear(g, -wid / 2, 0, wid / 2, 0, [[0, L.shade(base, -0.4)], [0.3, L.shade(base, 0.16)], [0.58, base], [1, L.shade(base, -0.58)]]);
       g.beginPath(); g.moveTo(-wid / 2, 0);
-      g.bezierCurveTo(-wid * 0.72, len * 0.35, bend - wid * 0.2, len * 0.8, bend, len);
-      g.bezierCurveTo(bend + wid * 0.25, len * 0.75, wid * 0.72, len * 0.35, wid / 2, 0); g.closePath(); g.fill();
-      g.strokeStyle = 'rgba(255,176,140,0.5)'; g.lineWidth = 1.7 * k; g.lineCap = 'round';
+      g.bezierCurveTo(-wid * 0.74, len * 0.35, bend - wid * 0.22, len * 0.8, bend, len);
+      g.bezierCurveTo(bend + wid * 0.26, len * 0.75, wid * 0.74, len * 0.35, wid / 2, 0); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,170,130,0.6)'; g.lineWidth = 2.2 * k; g.lineCap = 'round';
       g.beginPath(); g.moveTo(-wid * 0.2, len * 0.08); g.quadraticCurveTo(-wid * 0.3, len * 0.4, bend * 0.6 - wid * 0.06, len * 0.72); g.stroke();
-      g.fillStyle = '#4a3a14'; g.beginPath(); g.ellipse(0, 0, wid * 0.44, 4.2 * k, 0, 0, L.TAU); g.fill();
-      g.strokeStyle = '#6a5a24'; g.lineWidth = 2.4 * k; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -9 * k); g.stroke();
+      g.fillStyle = '#4c3912'; g.beginPath(); g.ellipse(0, 0, wid * 0.46, 5 * k, 0, 0, L.TAU); g.fill();
+      g.strokeStyle = '#6f5c22'; g.lineWidth = 3 * k; g.beginPath(); g.moveTo(0, 0); g.lineTo(-Math.sin(ang) * 6 * k, -11 * k); g.stroke();
       g.restore();
     }
   }
 }
-function cob(g, r, k) {
-  const len = r.range(106, 126) * k, w0 = r.range(20, 23) * k, w1 = w0 * 0.55;
-  const base = r.pick(['#e2a22c', '#d8922a', '#eab040', '#c98222']);
-  g.strokeStyle = 'rgba(217,188,132,0.85)'; g.lineWidth = 3.2 * k; g.lineCap = 'round';
-  for (let j = -1; j <= 1; j++) { g.beginPath(); g.moveTo(j * 5 * k, -12 * k); g.quadraticCurveTo(j * 9 * k, 0, j * w0 * 0.6, 15 * k); g.stroke(); }
+/** one maize cob hanging from its pulled-back husk; fs < 1 foreshortens a cob that points at the viewer */
+function cob(g, r, k, fs = 1) {
+  const len = r.range(126, 150) * k * fs, w0 = r.range(29, 33) * k;
+  const base = r.pick(['#ee981c', '#e48816', '#f2a424', '#d97a12']);
+  g.strokeStyle = 'rgba(216,168,92,0.9)'; g.lineWidth = 5 * k; g.lineCap = 'round';
+  for (let j = -1; j <= 1; j++) { g.beginPath(); g.moveTo(j * 6 * k, -16 * k); g.quadraticCurveTo(j * 13 * k, 0, j * w0 * 0.62, 22 * k); g.stroke(); }
   g.save();
-  g.beginPath(); g.moveTo(-w0, 14 * k);
-  g.bezierCurveTo(-w0 * 1.08, len * 0.5, -w1 * 1.2, len * 0.9, 0, len + 14 * k);
-  g.bezierCurveTo(w1 * 1.2, len * 0.9, w0 * 1.08, len * 0.5, w0, 14 * k);
-  g.quadraticCurveTo(0, 2 * k, -w0, 14 * k); g.closePath(); g.clip();
-  g.fillStyle = L.shade(base, -0.5); g.fillRect(-w0 * 1.3, 0, w0 * 2.6, len + 40 * k);
-  const kw = 7.2 * k, kh = 6.4 * k;
-  for (let yy = 10 * k, row = 0; yy < len + 18 * k; yy += kh, row++) {
-    for (let xx = -w0 * 1.1 + (row % 2) * kw * 0.5; xx < w0 * 1.15; xx += kw) {
-      const lit = 1 - Math.abs(xx / w0 + 0.3);
-      g.fillStyle = L.shade(base, L.clamp(-0.34 + 0.55 * lit + r.range(-0.08, 0.08), -0.6, 0.4));
-      g.beginPath(); g.ellipse(xx, yy, kw * 0.45, kh * 0.45, 0, 0, L.TAU); g.fill();
+  g.beginPath(); g.moveTo(-w0 * 0.9, 16 * k);
+  g.bezierCurveTo(-w0 * 1.12, len * 0.5, -w0 * 0.84, len + 14 * k, 0, len + 14 * k);
+  g.bezierCurveTo(w0 * 0.84, len + 14 * k, w0 * 1.12, len * 0.5, w0 * 0.9, 16 * k);
+  g.quadraticCurveTo(0, 2 * k, -w0 * 0.9, 16 * k); g.closePath(); g.clip();
+  g.fillStyle = '#5e2c06'; g.fillRect(-w0 * 1.3, 0, w0 * 2.6, len + 40 * k);
+  const kw = 10.6 * k, kh = 8.8 * k * (fs < 1 ? 0.78 : 1);
+  for (let yy = 12 * k; yy < len + 20 * k; yy += kh) {
+    for (let xx = -w0 * 1.08; xx < w0 * 1.15; xx += kw) {
+      const lit = 1 - Math.abs(xx / w0 + 0.3) + r.range(-0.1, 0.1);
+      g.fillStyle = lit > 0.62 ? L.mix(base, '#ffe28c', L.clamp((lit - 0.62) * 1.5)) : L.mix(base, '#6a3206', L.clamp((0.62 - lit) * 1.15));
+      g.beginPath(); g.ellipse(xx, yy, kw * 0.42, kh * 0.4, 0, 0, L.TAU); g.fill();
     }
   }
   g.restore();
 }
 function cornString(g, x0, yTop, yEnd, seed, k = 1) {
   const r = L.rng('s20corn' + seed);
-  const step = 44 * k, n = Math.floor((yEnd - 120 * k - yTop) / step);
-  g.strokeStyle = '#a8844a'; g.lineWidth = 16 * k; g.lineCap = 'round';
-  g.beginPath(); g.moveTo(x0, yTop - 40); g.lineTo(x0, yTop + n * step); g.stroke();
-  for (let i = n; i >= 0; i--) {
+  const step = 56 * k, n = Math.floor((yEnd - 170 * k - yTop) / step);
+  g.strokeStyle = '#9c7a44'; g.lineWidth = 22 * k; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x0, yTop - 60); g.lineTo(x0, yTop + n * step); g.stroke();
+  for (let i = n; i >= 0; i--) {          // bottom → top
     const y = yTop + i * step;
     for (const side of (i % 2 ? [1, -1] : [-1, 1])) {
-      g.save(); g.translate(x0 + side * 4 * k, y); g.rotate(-side * r.range(0.4, 0.62)); cob(g, r, k); g.restore();
+      g.save(); g.translate(x0 + side * 9 * k, y); g.rotate(-side * r.range(0.36, 0.86)); cob(g, r, k); g.restore();
     }
+    g.save(); g.translate(x0 + r.range(-7, 7) * k, y + 16 * k); g.rotate(r.range(-0.18, 0.18)); cob(g, r, k, 0.6); g.restore();
   }
 }
 function buildStrings(env) {
   const a = env.arc;
   const sharp = L.makeLayer(PAD, (g) => {
-    const end = (x, gap) => a.yAt(x) - gap;
-    cornString(g, 34, -PAD - 30, end(34, 78), 'L', 1.08);
-    chiliString(g, 246, -PAD - 30, end(246, 74), 'L', 1.0);
-    cornString(g, 1688, -PAD - 30, end(1688, 66), 'R', 1.0);
-    chiliString(g, 1884, -PAD - 30, end(1884, 84), 'R', 1.08);
+    const end = (x, gap) => a.yAt(L.clamp(x, 0, W)) - gap;
+    cornString(g, -46, -PAD - 40, end(-46, 96), 'L', 1.1);
+    chiliString(g, 222, -PAD - 40, end(222, 66), 'L', 1.3);
+    cornString(g, 1700, -PAD - 40, end(1700, 60), 'R', 1.0);
+    chiliString(g, 1962, -PAD - 40, end(1962, 100), 'R', 1.4);
     // dusk: they are dim up high, and pick up the window's warmth toward their tips
     g.globalCompositeOperation = 'source-atop';
-    g.fillStyle = L.linear(g, 0, -PAD, 0, 720, [[0, 'rgba(34,8,4,0.62)'], [0.6, 'rgba(40,10,4,0.36)'], [1, 'rgba(70,20,6,0.12)']]);
+    g.fillStyle = L.linear(g, 0, -PAD, 0, 700, [[0, 'rgba(30,7,3,0.6)'], [0.55, 'rgba(36,9,4,0.36)'], [1, 'rgba(60,16,5,0.1)']]);
     g.fillRect(-PAD, -PAD, FW, FH);
+    g.fillStyle = 'rgba(214,64,10,0.12)'; g.fillRect(-PAD, -PAD, FW, FH);
   });
   return L.makeLayer(PAD, (g) => {
-    g.save(); g.globalAlpha = 0.5; g.filter = 'blur(16px) brightness(0)'; g.drawImage(sharp, -PAD + 16, -PAD + 12); g.restore();
-    g.filter = 'blur(4.5px)'; g.drawImage(sharp, -PAD, -PAD); g.filter = 'none';
+    g.save(); g.globalAlpha = 0.55; g.filter = 'blur(18px) brightness(0)'; g.drawImage(sharp, -PAD + 18, -PAD + 12); g.restore();
+    g.filter = 'blur(3.4px)'; g.drawImage(sharp, -PAD, -PAD); g.filter = 'none';
   });
 }
 
@@ -363,21 +406,28 @@ export default {
     const a = env.arc, G = geom(a);
     const paper = buildPaper(env, G);
     const win = L.makeLayer(PAD, (g) => { g.drawImage(paper, -PAD, -PAD); g.drawImage(buildLattice(env, G), -PAD, -PAD); });
-    const halo = soft(win, 12, 2);        // tight halation that eats into the bars
-    const haze = soft(win, 90, 6);        // wide fog of lamp light over the wall
+    const halo = soft(win, 13, 2);        // halation: it eats into the bars near the lamp and leaves the far ones crisp
+    {
+      const hg = halo.getContext('2d');
+      hg.globalCompositeOperation = 'source-atop'; hg.fillStyle = 'rgba(255,128,30,0.6)'; hg.fillRect(0, 0, halo.width, halo.height);
+      hg.globalCompositeOperation = 'destination-in';
+      hg.fillStyle = L.radial(hg, G.lamp.x + PAD, G.lamp.y + PAD, 40, 1000, [[0, 'rgba(0,0,0,1)'], [0.16, 'rgba(0,0,0,0.6)'], [0.4, 'rgba(0,0,0,0.17)'], [1, 'rgba(0,0,0,0.06)']]);
+      hg.fillRect(0, 0, halo.width, halo.height);
+    }
+    const haze = soft(win, 84, 6);        // wide fog of lamp light, reddened like light through dust
+    const fog = L.makeLayer(PAD, (g) => {
+      g.drawImage(haze, -PAD, -PAD);
+      g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(255,88,26,0.55)'; g.fillRect(-PAD, -PAD, FW, FH);
+    });
     const base = L.makeLayer(PAD, (g) => {
       g.drawImage(buildWall(env), -PAD, -PAD);
-      g.drawImage(win, -PAD, -PAD);
-      g.globalCompositeOperation = 'screen';
-      g.globalAlpha = 0.34; g.drawImage(halo, 0 - PAD, -PAD);
-      g.globalAlpha = 0.42; g.drawImage(haze, -PAD, -PAD);
-      g.globalAlpha = 1;
-      g.fillStyle = L.radial(g, a.cx, a.crestY + 260, 0, 1500, [[0, 'rgba(255,150,60,0.16)'], [0.5, 'rgba(255,120,40,0.08)'], [1, 'rgba(255,110,40,0)']]);
-      g.fillRect(-PAD, -PAD, FW, FH);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.5; g.drawImage(fog, -PAD, -PAD);   // the fog lies on the wall…
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.drawImage(win, -PAD, -PAD);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.75; g.drawImage(halo, -PAD, -PAD);  // …the bars only get a breath of halation
     });
     // soft focus: fold a blurred copy back in
-    const scene = L.makeLayer(PAD, (g) => { g.drawImage(base, -PAD, -PAD); g.globalAlpha = 0.3; g.drawImage(soft(base, 8, 2), -PAD, -PAD); });
-    S = { scene, haze, strings: buildStrings(env), lamp: paper._lamp };
+    const scene = L.makeLayer(PAD, (g) => { g.drawImage(base, -PAD, -PAD); g.globalAlpha = 0.24; g.drawImage(soft(base, 8, 2), -PAD, -PAD); });
+    S = { scene, fog, strings: buildStrings(env), lamp: G.lamp };
   },
   draw(ctx, env, p) {
     const f = env.frame;
@@ -387,8 +437,8 @@ export default {
     const fl = 0.5 + 0.5 * (0.62 * Math.sin(f * 2.3 + 0.6) + 0.38 * Math.sin(f * 5.1 + 1.9));
     L.blit(ctx, env, S.scene, { zoom });
     L.blit(ctx, env, S.strings, { zoom: 1 + (zoom - 1) * 2.4 });
-    L.blit(ctx, env, S.haze, { zoom, alpha: 0.05 + 0.1 * fl, blend: 'screen' });
-    L.glow(ctx, S.lamp.x, S.lamp.y, 520, '#ffd28a', 0.1 + 0.07 * fl);
-    L.vignette(ctx, { strength: 0.34, color: '#1c0703', inner: 0.5, outer: 1.08 });
+    L.blit(ctx, env, S.fog, { zoom, alpha: 0.03 + 0.07 * fl, blend: 'screen' });
+    L.glow(ctx, S.lamp.x, S.lamp.y, 420, '#ffdc9a', 0.1 + 0.08 * fl);
+    L.vignette(ctx, { strength: 0.36, color: '#1c0703', inner: 0.5, outer: 1.08 });
   },
 };

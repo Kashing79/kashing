@@ -13,10 +13,10 @@ const { W, H } = L;
 const PAD = 120;
 let S = null;
 
-const RN = 28;            // nail-head radius (px)
-const PITCH = 84;         // nail spacing along the rim
-const ROWS = [46, 100];   // depth of the two nail rows below the rim
-const HB = 138;           // depth of the hide skirt's cut edge
+const RN = 26;            // nail-head radius (px)
+const PITCH = 88;         // nail spacing along the rim
+const ROWS = [52, 106];   // depth of the two nail rows below the rim
+const HB = 150;           // depth of the hide skirt's cut edge
 const KS = 520;           // how far a unit of radial slope drags the highlight (≈ radius of the barrel's bulge)
 const CU = 124, CD = 50;  // size of a craquelure plate along / across the barrel
 const KEY_T = -0.1;       // the key light sits a little left of centre
@@ -60,8 +60,8 @@ function buildGiltMask(env, X0, Y0, RW, RH) {
   };
   const cloud = (U, d, s, flip, seed) => {
     a.at(g, U / a.R, -d, () => {
-      g.scale(flip ? -s : s, s);
-      const P = (pts, w, k, taper = [0.08, 0.2]) => L.inkStroke(g, pts, { width: w / s, color: '#fff', seed: seed * 7 + k, taper, wobble: 0.28, smoothStep: 0.04 });
+      const fx = flip ? -s : s;
+      const P = (pts, w, k, taper = [0.08, 0.2]) => L.inkStroke(g, pts.map(([x, y]) => [x * fx, y * s]), { width: w, color: '#fff', seed: seed * 7 + k, taper, wobble: 0.22, smoothStep: 3 });
       // ruyi head: a round crown between two scrolls that curl inward
       P([[-0.5, -0.5], [-0.56, -0.9], [-0.34, -1.2], [0, -1.3], [0.34, -1.2], [0.56, -0.9], [0.5, -0.5]], 7.5, 1, [0.12, 0.12]);
       P([[-0.42, -0.62], [-0.7, -0.66]].concat(spiral(-0.98, 0.02, 0.6, -Math.PI / 2, 1.45, -1)), 7.5, 2, [0.05, 0.3]);
@@ -73,13 +73,13 @@ function buildGiltMask(env, X0, Y0, RW, RH) {
       P([[-1.5, 0.74], [-1.9, 0.9], [-2.4, 0.86]], 4.5, 7, [0.2, 0.5]);
     });
   };
-  cloud(-170, 392, 58, false, 1);
-  cloud(470, 352, 52, true, 2);
-  cloud(-760, 338, 50, true, 3);
-  cloud(1010, 330, 50, false, 4);
-  cloud(190, 520, 46, true, 5);
-  cloud(-1290, 330, 50, false, 6);
-  cloud(1500, 335, 50, true, 7);
+  cloud(-190, 408, 60, false, 1);
+  cloud(480, 372, 54, true, 2);
+  cloud(-800, 356, 52, true, 3);
+  cloud(1040, 348, 52, false, 4);
+  cloud(200, 540, 48, true, 5);
+  cloud(-1320, 350, 52, false, 6);
+  cloud(1540, 350, 52, true, 7);
   // a fine double gold line ringing the barrel above the clouds
   g.strokeStyle = '#fff'; g.lineWidth = 3.2; a.stroke(g, -(HB + 122));
   g.lineWidth = 1.6; a.stroke(g, -(HB + 131));
@@ -140,17 +140,18 @@ function buildDrum(env) {
       if (d < de) {
         // ── cowhide skirt ──
         Mat[k] = 1;
-        const tight = 0.3 + 0.7 * Math.exp(-d / 75);
-        const cr = (nA.n2(U / 7.5, d / 150 + 3) * 0.5 + nA.n2(U / 19 + 40, d / 240) * 0.55) * tight;   // tension creases run straight down from the rim
-        const pore = nB.n2(x / 2.7, y / 2.7) * 0.14 + nB.n2(x / 6.5 + 9, y / 6.5) * 0.1;
-        Hh[k] = cr + pore + bil(cBuck, i, j) * 1.5 + 2.6 * sstep(0, 3.2, de - d);
-        const m = bil(cMot, i, j) * 1.5;
-        let r = 216, g = 195, b = 154;
-        if (m > 0) { const t = m > 1 ? 1 : m; r += (238 - r) * t * 0.75; g += (224 - g) * t * 0.75; b += (192 - b) * t * 0.75; }
-        else { const t = m < -1 ? 1 : -m; r += (184 - r) * t; g += (143 - g) * t; b += (90 - b) * t; }
-        const dirt = 1 - 0.2 * Math.max(0, -cr) + pore * 0.22;
-        const eg = 1 - sstep(0, 26, de - d);                                  // grime gathered along the cut edge
-        r = (r + (118 - r) * eg * 0.55) * dirt; g = (g + (84 - g) * eg * 0.55) * dirt; b = (b + (50 - b) * eg * 0.55) * dirt;
+        const tight = 0.25 + 0.75 * Math.exp(-d / 60);
+        const cr = (nA.n2(U / 11, d / 170 + 3) * 0.3 + nA.n2(U / 34 + 40, d / 260) * 0.5) * tight;   // tension creases run straight down from the rim
+        const pore = nB.n2(x / 2.7, y / 2.7) * 0.1 + nB.n2(x / 6.5 + 9, y / 6.5) * 0.08;
+        Hh[k] = cr + pore + bil(cBuck, i, j) * 1.2 + 2.6 * sstep(0, 3.2, de - d);
+        const m = bil(cMot, i, j) * 1.4;
+        let r = 226, g = 207, b = 168;
+        if (m > 0) { const t = m > 1 ? 1 : m; r += (244 - r) * t * 0.8; g += (232 - g) * t * 0.8; b += (203 - b) * t * 0.8; }   // thin, milky patches
+        else { const t = m < -1 ? 1 : -m; r += (196 - r) * t; g += (157 - g) * t; b += (102 - b) * t; }                       // thick, honey-coloured ones
+        const fol = nB.n2(x / 1.7 + 50, y / 1.7);                               // hair follicles
+        const dirt = 1 - 0.14 * Math.max(0, -cr) + pore * 0.18 - (fol > 0.5 ? (fol - 0.5) * 0.22 : 0);
+        const eg = 1 - sstep(0, 18, de - d);                                  // grime gathered along the cut edge
+        r = (r + (128 - r) * eg * 0.42) * dirt; g = (g + (92 - g) * eg * 0.42) * dirt; b = (b + (56 - b) * eg * 0.42) * dirt;
         px[o] = r; px[o + 1] = g; px[o + 2] = b;
       } else {
         // ── vermilion lacquer ──
@@ -177,11 +178,11 @@ function buildDrum(env) {
           h += 0.28 * Math.exp(-Math.abs(sd) / 9) - 0.9 * seam;
         }
         const wearN = bil(cWear, i, j);
-        const wv = wearN * 0.5 + 0.5 + 0.05 * fine + 0.07 * cm * Math.exp(-e / 7) + 0.1 * Math.max(0, nB.n2(U / 380 + 3, d / 6.5)) * sstep(0.1, 0.35, wearN + 0.3);
-        const wear = sstep(0.665, 0.72, wv);
+        const wv = wearN * 0.5 + 0.5 + 0.06 * fine + 0.08 * cm * Math.exp(-e / 7);
+        const wear = sstep(0.69, 0.76, wv);
         // flakes: whole plates gone, down to the grey ground
         let chip = 0;
-        if (tC < 0.085 && cm > 0.6 && wearN > -0.05 && q > 30) { chip = sstep(1.0, 2.6, e + 1.2 * fine); h -= 1.5 * chip; }
+        if (tC < 0.045 && cm > 0.6 && wearN > 0 && q > 30) { chip = sstep(1.0, 2.6, e + 1.2 * fine) * sstep(-0.4, -0.15, nB.n2(U / 46 + 7, d / 34)); h -= 1.5 * chip; }
         let mg = gilt[k] / 255;
         if (mg > 0) {
           const keep = sstep(-0.32, 0.02, bil(cGl, i, j) + 0.22 * fine) * (tC > 0.72 && cm > 0.5 ? 0.12 : 1) * (1 - wear) * (1 - chip) * (1 - line);
@@ -189,10 +190,10 @@ function buildDrum(env) {
         }
         Hh[k] = h;
         const tn = bil(cTone, i, j), tone = 1 + 0.16 * tn + 0.035 * tT * cm + 0.03 * fine;
-        let r = 199 * tone, g = (38 + 16 * tn) * tone, b = (26 - 4 * tn) * tone;
-        if (wear > 0) { const w = wear * 0.92; r += (52 - r) * w; g += (15 - g) * w; b += (10 - b) * w; }
-        if (chip > 0) { const cv = 0.86 + 0.3 * fine; r += (150 * cv - r) * chip; g += (128 * cv - g) * chip; b += (99 * cv - b) * chip; }
-        if (mg > 0) { r += (222 - r) * mg; g += (166 - g) * mg; b += (62 - b) * mg; }
+        let r = 192 * tone, g = (34 + 14 * tn) * tone, b = (24 - 4 * tn) * tone;
+        if (wear > 0) { const w = wear * 0.9; r += (62 - r) * w; g += (19 - g) * w; b += (12 - b) * w; }
+        if (chip > 0) { const cv = 0.8 + 0.35 * fine; r += (136 * cv - r) * chip; g += (112 * cv - g) * chip; b += (86 * cv - b) * chip; }
+        if (mg > 0) { r += (204 - r) * mg; g += (150 - g) * mg; b += (58 - b) * mg; }
         const dk = 1 - 0.72 * line - 0.6 * seam;
         px[o] = r * dk; px[o + 1] = g * dk; px[o + 2] = b * dk;
         Gl[k] = 255 * (1 - line) * (1 - 0.8 * wear) * (1 - 0.95 * chip) * (1 - 0.7 * seam) * sstep(1, 4, q);
@@ -222,7 +223,7 @@ function buildDrum(env) {
     Hh[k] -= 2.2 * Math.exp(-t * t);
     const fan = Math.exp(-out / (0.8 * nl.rad));
     Hh[k] += 0.55 * fan * nA.n2(Math.atan2(oy, ox) * 2.6 + nl.id * 3.1, dist / 70);
-    const st = Math.exp(-out / (0.42 * nl.rad)) * (0.55 + 0.45 * nB.n2(ox / 14 + nl.id, oy / 14)) * 0.5, o = k * 4;
+    const st = Math.exp(-out / (0.3 * nl.rad)) * (0.55 + 0.45 * nB.n2(ox / 14 + nl.id, oy / 14)) * 0.3, o = k * 4;
     px[o] += (126 - px[o]) * st; px[o + 1] += (84 - px[o + 1]) * st; px[o + 2] += (46 - px[o + 2]) * st;
   });
 
@@ -238,7 +239,7 @@ function buildDrum(env) {
       const ku = j > 0 && Mat[k - RW] ? Hh[k - RW] : h0, kd = j < RH - 1 && Mat[k + RW] ? Hh[k + RW] : h0;
       const hx = (kr - kl) * 0.5, hy = (kd - ku) * 0.5;
       const ddx = X0 + i - cx, rr = R - d, sn = ddx / rr, cs = ddy / rr;
-      const th = Ua[k] / R, side = 1 - 0.42 * sstep(0.1, 0.52, Math.abs(th - KEY_T));
+      const th = Ua[k] / R, sf = sstep(0.1, 0.54, Math.abs(th - KEY_T)), side = 1 - (mat === 1 ? 0.3 : 0.45) * sf;
       let rel = -(hx * lx + hy * ly);
       let r = px[o], g = px[o + 1], b = px[o + 2];
       if (mat === 1) {
@@ -252,9 +253,9 @@ function buildDrum(env) {
         let hv = -hx * sn + hy * cs; hv = hv < -0.4 ? -0.4 : hv > 0.4 ? 0.4 : hv;
         E[k] = d - KS * hv;
         const q = Qe[k];
-        const lit = (1.1 - 0.62 * sstep(150, 740, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
+        const lit = (1.12 - 0.7 * sstep(170, 700, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
         // deep lacquer never goes fully flat: a broad soft sheen sits under the moving highlight
-        const sh = 26 * Math.exp(-((d - 228) * (d - 228)) / 16000) * side * (Gl[k] / 255);
+        const sh = 24 * Math.exp(-((d - 242) * (d - 242)) / 16000) * side * (Gl[k] / 255);
         r = r * lit + sh; g = g * lit + sh * 0.45; b = b * lit + sh * 0.32;
         if (rel > 0.3) { const sp = (rel - 0.3) * 150 * side; r += sp; g += sp * 0.7; b += sp * 0.5; }
       }
@@ -277,23 +278,22 @@ function buildDrum(env) {
   const hl = Math.hypot(-0.5, -0.66, 1.56), Hx = -0.5 / hl, Hy = -0.66 / hl, Hz = 1.56 / hl;      // half-vector of the key light
   const ll = Math.hypot(-0.5, -0.66, 0.56), Lx = -0.5 / ll, Ly = -0.66 / ll, Lz = 0.56 / ll;
   for (const nl of nails) {
-    const Rs = nl.rad * 1.19, bounce = nl.row ? 0.55 : 0.2, gAmt = 0.25 + 0.5 * nl.gilt;
+    const Rs = nl.rad * 1.19, bounce = nl.row ? 0.55 : 0.2, gAmt = 0.3 * nl.gilt;
     eachPx(nl, 1.1, (k, ox, oy) => {
       const dist = Math.sqrt(ox * ox + oy * oy), cov = nl.rad - dist + 0.5;
       if (cov <= 0 || !Mat[k]) return;
       const dent = 0.075;
       let nx = ox / Rs + dent * nB.n2(ox / 9 + nl.id * 5.3, oy / 9 + 2.1), ny = oy / Rs + dent * nB.n2(ox / 9 - 7.7, oy / 9 + nl.id * 3.9);
-      const pit = nC.n2(ox / 2.2 + nl.id * 11, oy / 2.2);
-      nx += 0.05 * pit; ny += 0.05 * nC.n2(ox / 2.2, oy / 2.2 + nl.id * 13);
+      nx += 0.03 * nC.n2(ox / 2.2 + nl.id * 11, oy / 2.2); ny += 0.03 * nC.n2(ox / 2.2, oy / 2.2 + nl.id * 13);
       const nz = Math.sqrt(Math.max(0.03, 1 - nx * nx - ny * ny));
       const ndh = nx * Hx + ny * Hy + nz * Hz, ndl = Math.max(0, nx * Lx + ny * Ly + nz * Lz);
-      const s1 = sstep(0.972, 0.992, ndh), s2 = Math.pow(Math.max(0, ndh), 12);
-      // worn gilding over dark iron
-      const gm = sstep(-0.12, 0.2, nA.fbm(ox / 12 + nl.id * 9.1, oy / 12 - nl.id * 4.7, 2) + gAmt - 0.5 + 0.25 * (ndh - 0.7));
-      const di = 0.3 + 1.05 * ndl, dg = 0.22 + 0.95 * ndl;
-      let r = 44 * di + (217 * dg + 150 * s2 - 44 * di) * gm + 52 * s2 * (1 - gm);
-      let g = 37 * di + (160 * dg + 118 * s2 - 37 * di) * gm + 40 * s2 * (1 - gm);
-      let b = 31 * di + (60 * dg + 60 * s2 - 31 * di) * gm + 28 * s2 * (1 - gm);
+      const s1 = sstep(0.972, 0.992, ndh) + 0.3 * sstep(0.986, 0.996, nx * 0.36 - ny * 0.16 + nz * 0.919), s2 = Math.pow(Math.max(0, ndh), 12);
+      // gilding survives on the crown; dark tarnish creeps up from the skirt in soft clouds
+      const gm = sstep(0, 0.5, (nz - 0.56) * 1.2 + 0.6 * nA.fbm(ox / 13 + nl.id * 9.1, oy / 13 - nl.id * 4.7, 2) + gAmt);
+      const di = 0.3 + 1.05 * ndl, dg = 0.2 + 0.98 * ndl;
+      let r = 54 * di + (214 * dg + 150 * s2 - 54 * di) * gm + 52 * s2 * (1 - gm);
+      let g = 40 * di + (160 * dg + 118 * s2 - 40 * di) * gm + 40 * s2 * (1 - gm);
+      let b = 28 * di + (62 * dg + 60 * s2 - 28 * di) * gm + 28 * s2 * (1 - gm);
       // the skirt of the dome mirrors the pale hide around it (lit side) and the red barrel below
       const skirt = sstep(0.76, 0.56, nz), lee = 0.5 - 0.5 * (nx * 0.58 + ny * 0.81) / Math.sqrt(1.001 - nz * nz);
       const up = skirt * (0.14 + 0.5 * lee) * (0.55 + 0.45 * gm);
@@ -310,6 +310,25 @@ function buildDrum(env) {
   const cnv = L.makeCanvas(RW, RH);
   cnv.getContext('2d').putImageData(img, 0, 0);
   const body = L.makeLayer(PAD, (g) => { g.drawImage(cnv, X0, Y0); });
+  // macro lens: the barrel swells toward the camera at the bottom of frame and drops out of focus
+  const soft = L.blurred(body, 3.2), sg = soft.getContext('2d');
+  sg.globalCompositeOperation = 'destination-in';
+  sg.fillStyle = L.radial(sg, cx + PAD, cy + PAD, R - 640, R - 400, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+  sg.fillRect(0, 0, soft.width, soft.height);
+  body.getContext('2d').drawImage(soft, -PAD, -PAD);
+  // halation: a quarter-res blurred copy, screened back over the picture in draw()
+  const BW = Math.ceil((W + PAD * 2) / 4), BH = Math.ceil((H + PAD * 2) / 4);
+  const bloom = L.makeCanvas(BW, BH), bg = bloom.getContext('2d');
+  bg.filter = 'blur(5px)'; bg.drawImage(body, 0, 0, BW, BH);
+  const sbloom = L.makeCanvas(Math.ceil(RW / 4), Math.ceil(RH / 4));
+  // a little dust hanging in the dark, well clear of the caption
+  const dust = L.makeCanvas(W, H), dg = dust.getContext('2d'), dr = L.rng('s16dust');
+  for (let n = 0; n < 70; n++) {
+    const x = dr.range(0, W), y = dr.range(0, 700), rad = dr.range(0.6, 2.4), al = dr.range(0.05, 0.3) * (dr.chance(0.12) ? 2 : 1);
+    if (a.drAt(x, y) < 26 || (x > 560 && x < 1360 && y > a.crestY - 330)) continue;
+    dg.fillStyle = L.radial(dg, x, y, 0, rad * 2.2, [[0, L.rgba(dr.pick(['#cfd8e6', '#f1e3c8', '#ffffff']), al)], [1, 'rgba(255,255,255,0)']]);
+    dg.fillRect(x - 6, y - 6, 12, 12);
+  }
 
   // per-frame highlight buffer + 1-D profiles
   const spec = new ImageData(RW, RH);
@@ -318,11 +337,11 @@ function buildDrum(env) {
   const BL = new Float32Array(1024);   // band profile vs (E − E0), 0.5 px steps, centre at 512
   for (let n = 0; n < 1024; n++) {
     const e = (n - 512) * 0.5, ae = Math.abs(e);
-    BL[n] = 0.46 * (1 - sstep(13, 30, ae)) + 0.2 * Math.exp(-(e * e) / 4200) + 0.15 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.05 * Math.exp(-((e - 128) * (e - 128)) / 1800);
+    BL[n] = 0.48 * (1 - sstep(11, 27, ae)) + 0.14 * Math.exp(-(e * e) / 70) + 0.18 * Math.exp(-(e * e) / 4200) + 0.13 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.04 * Math.exp(-((e - 128) * (e - 128)) / 1800);
   }
   const LL = new Float32Array(1024);   // lateral falloff vs |U − Uc|, 2 px steps
   for (let n = 0; n < 1024; n++) { const t = (n * 2) / 900; LL[n] = Math.exp(-t * t) * 0.92 + 0.08; }
-  return { body, E, Ua, Gl, Mg, spec, specC, sctx: specC.getContext('2d'), BL, LL, X0, Y0, N };
+  return { body, bloom, sbloom, dust, E, Ua, Gl, Mg, spec, specC, sctx: specC.getContext('2d'), BL, LL, X0, Y0, RW, RH, N };
 }
 
 /** refresh the lacquer's specular band for this frame. E0 = depth of the band's centre, Uc = where it is brightest along the rim */
@@ -342,14 +361,22 @@ function renderSpec(E0, Uc) {
 export default {
   name: '朱漆更鼓',
   tone: 'light',
-  init(env) { S = buildDrum(env); },
+  init(env) { S = buildDrum(env); globalThis.__s16S = S; },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.006, 0.006, p);
     ctx.fillStyle = '#040404'; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(S.dust, L.lerp(-3, 3, p), L.lerp(2, -2, p));
     L.blit(ctx, env, S.body, { rot });
     // the light stays put while the drum turns under it → the band creeps down the barrel and along the rim
-    renderSpec(L.lerp(214, 232, p), L.lerp(-330, -250, p) - rot * a.R);
-    L.cam(ctx, env, { rot }, () => { ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(S.specC, S.X0, S.Y0); });
+    if (!(globalThis.__s16 || {}).once || !S._done) { renderSpec(L.lerp(228, 246, p), L.lerp(-330, -250, p) - rot * a.R); S._done = 1; }
+    const DBG = globalThis.__s16 || {};
+    const sb = S.sbloom.getContext('2d');
+    if (!DBG.noSb) { sb.globalCompositeOperation = 'copy'; sb.filter = 'blur(3px)'; sb.drawImage(S.specC, 0, 0, S.sbloom.width, S.sbloom.height); }
+    L.cam(ctx, env, { rot }, () => {
+      ctx.globalCompositeOperation = DBG.blend || 'lighter'; if (DBG.noRot) ctx.setTransform(1, 0, 0, 1, 0, 0); if (DBG.smooth === 0) ctx.imageSmoothingEnabled = false; if (!DBG.noSpec) ctx.drawImage(S.specC, S.X0, S.Y0);
+      ctx.globalAlpha = 0.5; if (!DBG.noSb) ctx.drawImage(S.sbloom, S.X0, S.Y0, S.sbloom.width * 4, S.sbloom.height * 4);
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.3; if (!DBG.noBloom) ctx.drawImage(S.bloom, -PAD, -PAD, S.bloom.width * 4, S.bloom.height * 4);
+    });
   },
 };

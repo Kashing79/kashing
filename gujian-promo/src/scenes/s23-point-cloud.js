@@ -1,8 +1,8 @@
-// s23 — 点云扫描. A 3-D laser-scan point cloud of a multi-eaved circular hall, pseudo-coloured by elevation on black.
-// The arc = the eave edge (檐口) of the lowest roof, drawn by the densest, hottest points. Below it the cloud is laid out
-// in concentric bands that repeat tier after tier (a stylised, see-through read of the stacked roofs):
-//   檐口 (rim + 勾头 rosettes + 滴水) → 瓦垄 (radial rows of points: one bright 筒瓦 row, two dim 板瓦 rows)
-//   → 围脊 → 额枋 → 斗拱 (a regular lattice of stepped point clusters) → the next eave …
+// s23 — 点云扫描. A 3-D laser-scan point cloud of a triple-eaved circular hall (三重檐圆攒尖), pseudo-coloured by
+// elevation on black. The arc = the eave edge (檐口) of the lowest, widest roof, drawn by the densest, hottest points.
+// Below it the cloud is laid out in concentric bands, inward = upward (a stylised, see-through read of the stacked roofs):
+//   檐口 (rim + 勾头 rosettes alternating with 滴水) → 瓦垄 (radial rows: one bright 筒瓦 row, two dim 板瓦 rows)
+//   → 围脊 → 额枋 → 斗拱 (a regular ring of stepped point clusters) → the next, smaller eave …
 // Elevation colour cycles magenta → orange → yellow → green → cyan once per tier.
 // Above the arc: sparse vertical scan profiles (columns of points), thinned and dimmed behind the tagline.
 import * as L from '../lib/core.js';
@@ -10,7 +10,7 @@ import * as L from '../lib/core.js';
 const { W, H } = L;
 const PAD = 240;
 const BG = '#030406';
-const TIERS = [244, 208, 232, 220];   // radial depth of each stacked roof tier (px)
+const TIERS = [244, 208];   // radial depth of the lower and middle roof tiers (px); the third, top roof runs on toward the finial
 let S = null;
 
 const RAMP = L.makeRamp([[0, '#ff2bd6'], [0.25, '#ff8a1f'], [0.5, '#ffe14a'], [0.75, '#3ddc84'], [1, '#2bd6ff']]);
@@ -67,7 +67,10 @@ function buildRoofDots(env) {
   // scan shadows: crisp radial strips where something stood between the scanner and the roof …
   const strips = [];
   const rs = L.rng('s23shadow');
-  for (let s = -SPAN * R + 120; s < SPAN * R; s += rs.range(300, 620)) strips.push({ s: s + rs.range(-60, 60), w: rs.range(10, 26), d0: rs.range(24, 330), len: rs.range(170, 420) });
+  for (let s = -SPAN * R + 120; s < SPAN * R; s += rs.range(300, 620)) {
+    const q = { s: s + rs.range(-60, 60), w: rs.range(10, 26), d0: rs.range(24, 330), len: rs.range(170, 420) };
+    if (Math.abs(q.s) > 250) strips.push(q);            // the middle of the frame, where the eye rests, stays intact
+  }
   const hole = (th, d) => {
     const s = th * R;
     let h = 0;
@@ -80,7 +83,7 @@ function buildRoofDots(env) {
     }
     // … and a few ragged blobs the scanner never saw at all
     const v2 = nz.fbm(s / 330 - 21.3, d / 240 + 8.9, 3);
-    return 0.975 * Math.max(h, L.smooth((v2 - 0.56) / 0.09));
+    return 0.975 * Math.max(h, L.smooth((v2 - 0.56 - 0.25 * Math.exp(-(s * s) / 90000)) / 0.09));
   };
   // glossy glaze swallows returns: broad regions where the cloud merely thins out
   const thin = (th, d) => 0.5 * L.smooth((nz.fbm((th * R) / 250 + 3.1, d / 430 + 1.7, 3) - 0.3) / 0.3);
@@ -96,12 +99,15 @@ function buildRoofDots(env) {
     bin.put(a.cx + rr * Math.sin(th), a.cy - rr * Math.cos(th), rad, u + r.range(-0.025, 0.025), al * lum(th, d), w);
   };
 
-  // tiers: each roof is a little different in depth, like the stacked eaves of a real hall
+  // three stacked eaves (三重檐圆攒尖): the lower and middle roofs each end at a 围脊 under the next eave's
+  // bracket band; the top roof simply keeps converging toward the finial, far below the frame
   const tiers = [];
-  for (let k = 0, d = 0; d < DMAX; k++) { const Tk = TIERS[k % TIERS.length]; tiers.push({ k, d0: d, Tk }); d += Tk; }
+  let dAcc = 0;
+  TIERS.forEach((Tk, k) => { tiers.push({ k, d0: dAcc, Tk, top: false }); dAcc += Tk; });
+  tiers.push({ k: TIERS.length, d0: dAcc, Tk: 250, top: true });
   const tierAt = (d) => { for (let i = tiers.length - 1; i >= 0; i--) if (d >= tiers[i].d0) return tiers[i]; return tiers[0]; };
 
-  for (const { k, d0, Tk } of tiers) {
+  for (const { k, d0, Tk, top } of tiers) {
     const Rk = R - d0;
     const uOf = (f) => Math.pow(L.clamp(f / Tk), 1.35);   // elevation colour: one full cycle per tier
     const tg = [1, 0.92, 0.85, 0.78][k] || 0.72;          // deeper tiers return a little weaker
@@ -122,7 +128,7 @@ function buildRoofDots(env) {
 
     // (2) 瓦垄 — every ridge: a 勾头 rosette at the eave, then a bright 筒瓦 row flanked by two dim 板瓦 rows
     const pitch = 24, dth = pitch / Rk, nR = Math.ceil(SPAN / dth);
-    const fEnd = Tk - 78;
+    const fEnd = top ? DMAX - d0 : Tk - 78;
     for (let i = -nR; i <= nR; i++) {
       const th = i * dth;
       P(th, d0 + 14.2, 2.6, 0, tg, 0.55 * hot, kr);
@@ -150,6 +156,7 @@ function buildRoofDots(env) {
       }
     }
 
+    if (top) continue;
     // (3) 围脊 — where this roof meets the drum of the hall
     row(Tk - 74.5, 4.7, 1.95, 0.95, 0.2);
     row(Tk - 68.4, 4.7, 1.6, 0.8, 0.05);
@@ -208,6 +215,11 @@ function buildRoof(env) {
     g.drawImage(dots, -PAD, -PAD);
     g.globalAlpha = 0.9; g.drawImage(bloom, -PAD, -PAD);
     g.restore();
+    // a breath of magenta light spilling just outside the eave
+    g.save(); g.globalCompositeOperation = 'lighter';
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 2, a.R + 22, [[0, 'rgba(255,70,214,0.2)'], [0.4, 'rgba(255,70,214,0.07)'], [1, 'rgba(255,70,214,0)']]);
+    a.pathBand(g, 22, -2); g.fill();
+    g.restore();
     // the cloud thins into darkness toward the middle of the roof
     g.save(); a.clipBelow(g, 0);
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 820, a.R - 260, [[0, L.rgba(BG, 0.72)], [1, L.rgba(BG, 0)]]);
@@ -237,7 +249,7 @@ function buildBack(env) {
   const corridor = (x) => L.smooth((500 - Math.abs(x - W / 2)) / 130);
   let x = -PAD - 12, si = 0;
   while (x < W + PAD + 12) {
-    const n = r.pick([1, 1, 1, 2, 2, 3, 3, 4, 6, 8]);          // a stripe = a bundle of neighbouring profiles
+    const n = r.pick([1, 1, 2, 2, 3, 3, 4, 5, 6, 8, 10]);          // a stripe = a bundle of neighbouring profiles
     const cs = r.range(5.5, 8.5);
     const hue = r.pick([0.72, 0.78, 0.86, 0.94, 1.0, 1.0, 0.6, 0.5, 0.28, 0.2, 0.04, 0.0]);
     const gainS = r.range(0.55, 1);
@@ -247,11 +259,11 @@ function buildBack(env) {
       const cz = corridor(cx);
       if (cz > 0.4 && r.chance(0.5 * cz)) continue;             // thinner behind the text
       const yArc = a.yAt(cx, 0);
-      const rad0 = r.range(1.15, 1.85), ph = r() * sp, drift = r.range(-0.012, 0.012);
+      const rad0 = r.range(1.25, 2.0), ph = r() * sp, drift = r.range(-0.012, 0.012);
       for (let y = -PAD - 4 + ph; y < yArc + 16; y += sp) {
         const seg = nz.fbm(si * 3.7 + c * 0.11, y / 300 + si * 0.9, 2);          // long on / off runs along a profile
         let al = gainS * L.smooth((seg + 0.3) / 0.35);
-        al *= L.lerp(1, 0.17, cz) * (0.5 + 0.5 * r());
+        al *= L.lerp(1, hue > 0.3 && hue < 0.68 ? 0.08 : 0.13, cz) * (0.5 + 0.5 * r());
         al *= L.lerp(0.5, 1, L.smooth((yArc - y) / 110));       // let the eave stay the brightest thing around
         const u = hue + 0.09 * nz.n2(si * 1.3, y / 340) + r.range(-0.02, 0.02);
         bin.put(cx + (y - 400) * drift + r.range(-0.45, 0.45), y, rad0 * r.range(0.8, 1.2), u, al * 0.95, r.chance(0.02) ? 0.6 : 0);
@@ -267,10 +279,11 @@ function buildBack(env) {
   }
   const dots = L.makeLayer(PAD, (g) => { g.globalCompositeOperation = 'lighter'; bin.paint(g); });
   const bloom = L.blurred(dots, 4);
+  const wide = soft(dots, 0.25, 22);
   const FW = W + PAD * 2, FH = H + PAD * 2;
   // faint "intensity curtain" behind the profiles: vertical streaks, almost black
   const curtain = L.noiseTex(FW, FH, { seed: 's23curtain', scale: 60, sx: 0.5, sy: 40, octaves: 3, contrast: 1.7, res: 0.25,
-    ramp: [[0, 'rgba(10,40,48,0)'], [0.5, 'rgba(10,40,48,0)'], [0.8, 'rgba(22,78,84,0.26)'], [1, 'rgba(70,40,96,0.34)']] });
+    ramp: [[0, 'rgba(10,40,48,0)'], [0.46, 'rgba(10,40,48,0)'], [0.78, 'rgba(22,84,90,0.34)'], [1, 'rgba(84,44,110,0.42)']] });
   return L.makeLayer(PAD, (g) => {
     g.drawImage(curtain, -PAD, -PAD);
     // keep the corridor behind the tagline calm
@@ -279,7 +292,8 @@ function buildBack(env) {
     g.fillRect(W / 2 - 640, -PAD, 1280, FH);
     g.globalCompositeOperation = 'lighter';
     g.drawImage(dots, -PAD, -PAD);
-    g.globalAlpha = 0.7; g.drawImage(bloom, -PAD, -PAD);
+    g.globalAlpha = 0.85; g.drawImage(bloom, -PAD, -PAD);
+    g.globalAlpha = 0.5; g.drawImage(wide, -PAD, -PAD, FW, FH);
   });
 }
 

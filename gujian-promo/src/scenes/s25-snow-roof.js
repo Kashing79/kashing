@@ -9,11 +9,13 @@ import * as L from '../lib/core.js';
 
 const { W, H } = L;
 const PAD = 240;
-const PITCH = 100;        // spacing of tile ridges along the arc (px)
-const HALF = 27;          // half-width of a tube tile (筒瓦) at the arc
-const TILE = 124;         // length of one tube tile between joints
+const PITCH = 112;        // spacing of tile ridges along the arc (px)
+const HALF = 31;          // half-width of a tube tile (筒瓦) at the arc
+const TILE = 140;         // length of one tube tile between joints
 const RES = 0.6;          // resolution of the per-pixel snow pass
 const HS = 13;            // thickness of the snow sheet lying on the roof (height units = px)
+const CAP_D = 112;        // depth of the row of nail caps (钉帽) below the arc
+const CAP_R = 17;
 const KN = 700;           // depth samples (2 px apart) of the per-ridge melt profile
 const C = { sky: '#8a2f7f', snow: '#f4f1f6', shade: '#b9b3d6', gold: '#e0a81f', goldDark: '#8a5a0c', sun: '#ffcf7a' };
 let S = null;
@@ -46,11 +48,11 @@ function makePlan(env) {
     const s = sa / PITCH - 0.5, j = Math.floor(s), f = s - j;
     const T = -Math.cos(L.TAU * f);
     topL[k] = L.clamp(3.1 * nz.fbm(sa / 170, 3.3, 2) + 1.5 * nz.n2(sa / 46, 8.1), -4.5, 4.5);
-    let c = 80 + 16 * nz.fbm(sa / 400, 1.7, 2) + 6 * nz.n2(sa / 80, 9.2) + 6 * T;
+    let c = 70 + 13 * nz.fbm(sa / 400, 1.7, 2) + 5 * nz.n2(sa / 80, 9.2) + 6 * T;
     const lb = lobes[j + n + 2];
     if (lb) { const x = (f - 0.5) * PITCH - lb.off; c += lb.amp * Math.exp(-(x * x) / (2 * lb.sig * lb.sig)); }
     cL[k] = c;
-    hcL[k] = 30 + 7 * nz.fbm(sa / 260, 5.9, 2);
+    hcL[k] = 28 + 6 * nz.fbm(sa / 260, 5.9, 2);
   }
   const lut = (arr, th) => arr[L.clamp(Math.round((th - TH0) * LS), 0, NL - 1)];
   // per-ridge melt profile
@@ -63,17 +65,17 @@ function makePlan(env) {
     const u = r();
     const rd = {
       i, theta, c,
-      bridged: r.chance(0.1),                       // snow never slid off this ridge near the cornice
-      band: r.range(6, 55), tr: r.range(40, 85),    // fully bare band right under the cornice, then the troughs fill with snow
-      k: r.range(-0.3, 0.28),                       // width bias of the bare strip (negative = wider)
-      len: u < 0.2 ? r.range(170, 250) : u < 0.52 ? r.range(250, 400) : u < 0.7 ? r.range(400, 560) : 5000,
-      tip: r.range(45, 110),
+      bridged: r.chance(0.05),                      // snow never slid off this ridge near the cornice
+      band: r.range(30, 95), tr: r.range(50, 100),    // fully bare band right under the cornice, then the troughs fill with snow
+      k: r.range(-0.5, 0.2),                       // width bias of the bare strip (negative = wider)
+      len: u < 0.24 ? r.range(160, 240) : u < 0.58 ? r.range(240, 360) : u < 0.83 ? r.range(360, 480) : 5000,
+      tip: r.range(40, 95),
       hole: null,
       tone: r.range(-0.06, 0.06),
       jit: r.range(-6, 6),
     };
     if (rd.bridged) { if (r.chance(0.65)) { const d0 = c + r.range(60, 200); rd.hole = [d0, r.chance(0.5) ? 5000 : d0 + r.range(140, 380)]; } }
-    else if (rd.len < 1000 && r.chance(0.4)) { const d0 = rd.len + rd.tip + r.range(50, 150); rd.hole = [d0, d0 + r.range(70, 260)]; }
+    else if (rd.len < 1000 && r.chance(0.28)) { const d0 = rd.len + rd.tip + r.range(50, 150); rd.hole = [d0, d0 + r.range(70, 260)]; }
     ridges.push(rd);
     const base = (i + n + 2) * KN;
     for (let q = 0; q < KN; q++) {
@@ -94,21 +96,24 @@ function buildTiles(env, P) {
   const DEPTH = 1120;
   return L.makeLayer(PAD, (g) => {
     const r = L.rng('s25tile');
-    // 1) pan tiles (板瓦) in the troughs: deep amber, densely lapped
+    // 1) pan tiles (板瓦) in the troughs: deep amber, densely lapped ("压七露三": only a narrow lip of each shows)
     g.save(); a.clipBelow(g, 16);
-    g.fillStyle = L.radial(g, a.cx, a.cy, R - 950, R + 16, [[0, '#4d2e05'], [0.55, '#7f540b'], [1, '#a87613']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, R - 950, R + 16, [[0, '#3e2002'], [0.55, '#704305'], [1, '#9c6408']]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.restore();
     for (let i = 0; i < P.ridges.length - 1; i++) {
       const mid = (P.ridges[i].theta + P.ridges[i + 1].theta) / 2;
       a.at(g, mid, 0, () => {
-        const w0 = PITCH / 2 - HALF + 3;
-        for (let d = 20 + r.range(-3, 3); d < DEPTH; d += 38) {
+        const w0 = PITCH / 2 - HALF + 4;
+        // the trough is a shallow gutter: lighter down its middle
+        g.fillStyle = L.linear(g, -w0, 0, w0, 0, [[0, 'rgba(255,200,80,0)'], [0.45, 'rgba(255,200,80,0.3)'], [0.6, 'rgba(255,200,80,0.24)'], [1, 'rgba(255,200,80,0)']]);
+        g.beginPath(); g.moveTo(-w0, -24); g.lineTo(w0, -24); g.lineTo((w0 * (R - DEPTH)) / R, DEPTH); g.lineTo((-w0 * (R - DEPTH)) / R, DEPTH); g.closePath(); g.fill();
+        for (let d = 18 + r.range(-3, 3); d < DEPTH; d += 40) {
           const w = (w0 * (R - d)) / R;
-          g.strokeStyle = 'rgba(46,24,2,0.62)'; g.lineWidth = 4.5;
-          g.beginPath(); g.moveTo(-w, d - 4); g.quadraticCurveTo(0, d + 7, w, d - 4); g.stroke();
-          g.strokeStyle = 'rgba(255,224,132,0.42)'; g.lineWidth = 1.8;
-          g.beginPath(); g.moveTo(-w, d + 1); g.quadraticCurveTo(0, d + 12, w, d + 1); g.stroke();
+          g.strokeStyle = 'rgba(40,20,2,0.7)'; g.lineWidth = 5;
+          g.beginPath(); g.moveTo(-w, d - 5); g.quadraticCurveTo(0, d + 8, w, d - 5); g.stroke();
+          g.strokeStyle = 'rgba(255,226,130,0.6)'; g.lineWidth = 2;
+          g.beginPath(); g.moveTo(-w, d); g.quadraticCurveTo(0, d + 13, w, d); g.stroke();
         }
       });
     }
@@ -118,45 +123,76 @@ function buildTiles(env, P) {
         const hwAt = (d) => (HALF * (R - d)) / R;
         const far = hwAt(DEPTH);
         // shadow thrown into the trough on the right, a thinner occlusion on the left
-        g.fillStyle = L.linear(g, HALF - 3, 0, HALF + 24, 0, [[0, 'rgba(28,12,0,0.78)'], [1, 'rgba(28,12,0,0)']]);
-        g.beginPath(); g.moveTo(HALF - 3, -24); g.lineTo(HALF + 24, -24); g.lineTo(far + 15, DEPTH); g.lineTo(far - 3, DEPTH); g.closePath(); g.fill();
-        g.fillStyle = L.linear(g, -HALF - 8, 0, -HALF + 2, 0, [[0, 'rgba(28,12,0,0)'], [1, 'rgba(28,12,0,0.5)']]);
+        g.fillStyle = L.linear(g, HALF - 3, 0, HALF + 22, 0, [[0, 'rgba(24,10,0,0.85)'], [1, 'rgba(24,10,0,0)']]);
+        g.beginPath(); g.moveTo(HALF - 3, -24); g.lineTo(HALF + 22, -24); g.lineTo(far + 14, DEPTH); g.lineTo(far - 3, DEPTH); g.closePath(); g.fill();
+        g.fillStyle = L.linear(g, -HALF - 8, 0, -HALF + 2, 0, [[0, 'rgba(24,10,0,0)'], [1, 'rgba(24,10,0,0.55)']]);
         g.beginPath(); g.moveTo(-HALF - 8, -24); g.lineTo(-HALF + 2, -24); g.lineTo(-far + 2, DEPTH); g.lineTo(-far - 6, DEPTH); g.closePath(); g.fill();
-        let d0 = -24, d1 = 38 + rd.jit;
+        let d0 = -24, d1 = 44 + rd.jit;
         while (d0 < DEPTH) {
           const h0 = hwAt(d0), h1 = hwAt(d1), hm = (h0 + h1) / 2;
-          const tone = rd.tone + r.range(-0.07, 0.07);
+          const tone = rd.tone + r.range(-0.06, 0.06);
           g.fillStyle = L.linear(g, -hm, 0, hm, 0, [
-            [0, L.shade('#8a5a0c', tone)], [0.11, L.shade('#d0941a', tone)], [0.25, L.shade('#ffe487', tone)], [0.33, L.shade('#fbd04a', tone)],
-            [0.5, L.shade('#e0a81f', tone)], [0.72, L.shade('#b47a10', tone)], [0.9, L.shade('#7a4a09', tone)], [1, L.shade('#4a2b05', tone)]]);
+            [0, L.shade('#6e3f04', tone)], [0.1, L.shade('#d08a08', tone)], [0.22, L.shade('#ffd43a', tone)], [0.3, L.shade('#ffec9a', tone)], [0.38, L.shade('#f9bf1e', tone)],
+            [0.55, L.shade('#e6a40f', tone)], [0.74, L.shade('#b06a06', tone)], [0.9, L.shade('#693803', tone)], [1, L.shade('#341c02', tone)]]);
           g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
-          // glaze: a broad soft sheen and a hard wet streak
+          // each tile swells very slightly and darkens toward the end tucked under its neighbour
+          g.fillStyle = L.linear(g, 0, d0, 0, d1, [[0, 'rgba(60,30,0,0.34)'], [0.14, 'rgba(60,30,0,0)'], [0.8, 'rgba(255,236,150,0)'], [1, 'rgba(255,236,150,0.16)']]);
+          g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
+          // glaze: a broad soft sheen, a hard wet streak, a second faint reflection
           g.lineCap = 'round';
-          g.strokeStyle = 'rgba(255,242,186,0.26)'; g.lineWidth = hm * 0.34;
-          g.beginPath(); g.moveTo(-h0 * 0.42, d0 + 9); g.lineTo(-h1 * 0.42, d1 - 9); g.stroke();
-          g.strokeStyle = 'rgba(255,253,236,0.85)'; g.lineWidth = 2.3;
-          g.beginPath(); g.moveTo(-h0 * 0.47, d0 + 12); g.lineTo(-h1 * 0.47, d1 - r.range(10, 34)); g.stroke();
-          // a breath of the magenta sky mirrored in the shadow flank
-          g.strokeStyle = 'rgba(196,96,170,0.3)'; g.lineWidth = 2.2;
-          g.beginPath(); g.moveTo(h0 * 0.8, d0 + 8); g.lineTo(h1 * 0.8, d1 - 8); g.stroke();
-          // joint with the next tile (熊头搭接): a dark seam and a lit lip under it
+          g.strokeStyle = 'rgba(255,244,190,0.3)'; g.lineWidth = hm * 0.36;
+          g.beginPath(); g.moveTo(-h0 * 0.42, d0 + 10); g.lineTo(-h1 * 0.42, d1 - 10); g.stroke();
+          g.strokeStyle = 'rgba(255,254,240,0.95)'; g.lineWidth = 3;
+          g.beginPath(); g.moveTo(-h0 * 0.46, d0 + 13); g.lineTo(-h1 * 0.46, d1 - r.range(12, 40)); g.stroke();
+          g.strokeStyle = 'rgba(255,250,220,0.5)'; g.lineWidth = 1.2;
+          g.beginPath(); g.moveTo(-h0 * 0.16, d0 + r.range(14, 40)); g.lineTo(-h1 * 0.16, d1 - 16); g.stroke();
+          // the magenta sky mirrored in the shadow flank
+          g.strokeStyle = 'rgba(214,96,176,0.42)'; g.lineWidth = 2.4;
+          g.beginPath(); g.moveTo(h0 * 0.8, d0 + 9); g.lineTo(h1 * 0.8, d1 - 9); g.stroke();
+          // joint with the next tile: a fine seam and the lit lip of the tile below
           g.lineCap = 'butt';
-          g.strokeStyle = 'rgba(52,28,2,0.72)'; g.lineWidth = 3;
-          g.beginPath(); g.moveTo(-h1, d1); g.quadraticCurveTo(0, d1 - 6, h1, d1); g.stroke();
-          g.strokeStyle = 'rgba(255,238,170,0.5)'; g.lineWidth = 1.5;
-          g.beginPath(); g.moveTo(-h1 * 0.92, d1 + 3.5); g.quadraticCurveTo(0, d1 - 2.5, h1 * 0.7, d1 + 3.5); g.stroke();
+          g.strokeStyle = 'rgba(44,22,2,0.7)'; g.lineWidth = 2;
+          g.beginPath(); g.moveTo(-h1, d1 - 1); g.quadraticCurveTo(0, d1 + 3, h1, d1 - 1); g.stroke();
+          g.strokeStyle = 'rgba(255,240,176,0.55)'; g.lineWidth = 1.4;
+          g.beginPath(); g.moveTo(-h1 * 0.9, d1 + 1.8); g.quadraticCurveTo(0, d1 + 5.6, h1 * 0.55, d1 + 1.8); g.stroke();
           d0 = d1; d1 += TILE;
         }
+        // the nail cap (钉帽) near the eave end of every ridge: a glazed dome, half lost under the snow lip
+        const cr = CAP_R;
+        g.fillStyle = 'rgba(30,14,0,0.6)'; g.beginPath(); g.ellipse(5, CAP_D + 8, cr * 1.08, cr * 0.85, 0, 0, L.TAU); g.fill();
+        g.fillStyle = L.radial(g, -cr * 0.36, CAP_D - cr * 0.4, 1, cr * 1.3, [[0, '#fff2b0'], [0.22, '#ffd03a'], [0.6, '#d48e0a'], [0.86, '#8a5206'], [1, '#4a2803']]);
+        g.beginPath(); g.arc(0, CAP_D, cr, 0, L.TAU); g.fill();
+        g.strokeStyle = 'rgba(214,96,176,0.5)'; g.lineWidth = 2; g.beginPath(); g.arc(0, CAP_D, cr - 2.2, -0.5, 0.9); g.stroke();
+        g.fillStyle = 'rgba(255,255,244,0.95)'; g.beginPath(); g.ellipse(-cr * 0.38, CAP_D - cr * 0.42, cr * 0.24, cr * 0.15, -0.6, 0, L.TAU); g.fill();
       });
     }
     // 3) glaze mottling that runs down the slope, a little grime
     g.save(); a.clipBelow(g, 16);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.5;
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.42;
     g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25glaze', scale: 30, sx: 1, sy: 7, octaves: 3, contrast: 1.5, res: 0.33 }), -PAD, -PAD);
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.35;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25dirt', scale: 230, octaves: 3, warp: 0.5, res: 0.2, ramp: [[0, '#6a4a2a'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.25;
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25dirt', scale: 230, octaves: 3, warp: 0.5, res: 0.2, ramp: [[0, '#7a4a1a'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
     g.restore();
+    // richer, deeper gold: the layer overlaid on itself (a cheap contrast + saturation lift)
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.55; g.drawImage(g.canvas, 0, 0); g.restore();
   });
+}
+
+/** in-place separable box blur of a Float32Array field (radius r, in grid px) */
+function boxBlur(f, w, h, r) {
+  const tmp = new Float32Array(Math.max(w, h)), k = 1 / (2 * r + 1);
+  for (let y = 0; y < h; y++) {
+    const o = y * w; let acc = 0;
+    for (let x = -r; x <= r; x++) acc += f[o + (x < 0 ? 0 : x)];
+    for (let x = 0; x < w; x++) { tmp[x] = acc * k; const xa = x + r + 1, xb = x - r; acc += f[o + (xa >= w ? w - 1 : xa)] - f[o + (xb < 0 ? 0 : xb)]; }
+    for (let x = 0; x < w; x++) f[o + x] = tmp[x];
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += f[(y < 0 ? 0 : y) * w + x];
+    for (let y = 0; y < h; y++) { tmp[y] = acc * k; const ya = y + r + 1, yb = y - r; acc += f[(ya >= h ? h - 1 : ya) * w + x] - f[(yb < 0 ? 0 : yb) * w + x]; }
+    for (let y = 0; y < h; y++) f[y * w + x] = tmp[y];
+  }
 }
 
 // ───────────────────────── snow: height field → light ─────────────────────────
@@ -170,6 +206,8 @@ function buildSnow(env, P) {
   const nz = L.makeNoise('s25snow');
   const { TH0, LS, NL, cL, hcL, Klut, n } = P;
   const inv = 1 / RES, NRm = 2 * n + 2;
+  // pass 1: the cornice, and the raw sheet field S (= T + K, snow where S > 0)
+  const SS = new Float32Array(N).fill(1.2), TT = new Float32Array(N), live = new Uint8Array(N);
   for (let gy = 0; gy < gh; gy++) {
     const Y = (gy + 0.5) * inv - PAD, ddy = cy - Y;
     for (let gx = 0; gx < gw; gx++) {
@@ -180,42 +218,56 @@ function buildSnow(env, P) {
       const th = Math.atan2(ddx, ddy);
       let li = ((th - TH0) * LS + 0.5) | 0; if (li < 0) li = 0; else if (li >= NL) li = NL - 1;
       const c = cL[li];
-      dD[i] = d;
+      dD[i] = d; live[i] = 1;
       // the cornice: a fat roll of snow between the arc and its scalloped lower edge
       const Sc = (c - d) / 14;
       if (Sc > -0.3) {
         aC[i] = sm((Sc + 0.05) / 0.14);
         const m = (d + 13) / (c + 13);
         if (m > 0 && m < 1) {
-          let h = hcL[li] * 2 * Math.sqrt(m * (1 - m));
-          h *= 1 + 0.17 * nz.fbm(X / 85, Y / 60, 2);
-          hC[i] = h + 1.1 * nz.n2(X / 10, Y / 10);
+          const q = Math.abs(2 * m - 1);
+          let h = hcL[li] * Math.sqrt(1 - q * q * q);             // a fat roll: broad crown, steep underside
+          h *= 1 + 0.15 * nz.fbm(X / 120, Y / 70, 2);
+          hC[i] = h + 0.2 * nz.n2(X / 13, Y / 13);
         }
       }
-      if (Sc > 0.7) continue; // the sheet is hidden under the cornice here
       // the sheet lying on the roof
       const sa = th * R, s = sa / PITCH - 0.5, j = Math.floor(s), f = s - j;
-      const T = -Math.cos(L.TAU * f);
-      let di = (d * 0.5) | 0; if (di < 0) di = 0; else if (di >= KN) di = KN - 1;
+      // snow drifts a little to one side of a ridge or the other
+      const T = -Math.cos(L.TAU * (f + 0.07 * nz.n2(sa / 330 + 11.3, d / 190 - 4.2)));
+      let dq = d * 0.5; if (dq < 0) dq = 0; else if (dq > KN - 2) dq = KN - 2;
+      const di = dq | 0, df = dq - di;
       let jj = j + n + 2; if (jj < 0) jj = 0; else if (jj > NRm) jj = NRm;
       const b = jj * KN + di;
       const fs = f * f * (3 - 2 * f);
-      let K = Klut[b] + (Klut[b + KN] - Klut[b]) * fs;
-      K += 0.26 * nz.fbm(sa / 64, d / 130, 2) + 0.3 * nz.n2(sa / 340 + 5.1, d / 460 + 1.3);
-      const Ss = T + K;
-      if (Ss > -0.5) {
-        aS[i] = sm((Ss + 0.05) / 0.13);
-        slS[i] = 0.34 * sm((Ss + 0.5) / 0.45);
-        if (Ss > 0) {
-          const e = Ss > 0.85 ? 1 : Ss / 0.85;
-          hS[i] = HS * Math.sqrt(e) + e * (7.5 * nz.fbm(X / 200, Y / 200, 3) - 3.2 * T + 1.3 * nz.n2(X / 11, Y / 11));
-        }
+      const k0 = Klut[b] + (Klut[b + 1] - Klut[b]) * df, k1 = Klut[b + KN] + (Klut[b + KN + 1] - Klut[b + KN]) * df;
+      let K = k0 + (k1 - k0) * fs;
+      K += 0.24 * nz.fbm(sa / 62, d / 105, 2) + 0.28 * nz.n2(sa / 340 + 5.1, d / 460 + 1.3);
+      // here and there a whole slab has slid off, baring ridges and troughs together
+      K -= 1.9 * sm((nz.fbm(sa / 520 + 2.2, d / 360 + 7.7, 2) - 0.3) / 0.3) * (1 - sm((d - 300) / 220));
+      SS[i] = T + K; TT[i] = T;
+    }
+  }
+  // melt the field a little: a small blur rounds every corner into a soft, drip-like lobe
+  boxBlur(SS, gw, gh, 3); boxBlur(SS, gw, gh, 2);
+  // pass 2: sheet coverage and height from the melted field
+  for (let gy = 0; gy < gh; gy++) {
+    const Y = (gy + 0.5) * inv - PAD;
+    for (let gx = 0; gx < gw; gx++) {
+      const i = gy * gw + gx, Ss = SS[i];
+      if (Ss <= -0.5 || !live[i] || (aC[i] >= 1 && dD[i] < 30)) continue; // nothing here, or buried deep under the cornice
+      aS[i] = sm((Ss + 0.05) / 0.13);
+      slS[i] = 0.2 * sm((Ss + 0.3) / 0.25);
+      if (Ss > 0) {
+        const X = (gx + 0.5) * inv - PAD;
+        const e = Ss > 0.85 ? 1 : Ss / 0.85;
+        hS[i] = HS * Math.sqrt(e) + e * (8 * nz.fbm(X / 210, Y / 210, 3) - 3.2 * TT[i] + 1.6 * nz.n2(X / 47, Y / 47) + 0.18 * nz.n2(X / 12, Y / 12));
       }
     }
   }
   // light: low sun from the upper left; shadows take the violet of the sky
   const lx = -0.22, ly = -0.74, lz = 0.635;
-  const ramp = L.makeRamp([[0, '#7f77b6'], [0.2, '#958dc6'], [0.44, C.shade], [0.705, '#eeeaf5'], [0.86, '#fffbf4'], [1, '#ffeac4']]);
+  const ramp = L.makeRamp([[0, '#7a71b4'], [0.24, '#9a92cb'], [0.44, C.shade], [0.6, '#dedaee'], [0.7, '#f7f5f9'], [0.82, '#fffefb'], [1, '#fff4e0']]);
   const lutN = 512, lutC = new Uint8ClampedArray(lutN * 3);
   for (let k = 0; k < lutN; k++) { const c = ramp(k / (lutN - 1)); lutC[k * 3] = c[0]; lutC[k * 3 + 1] = c[1]; lutC[k * 3 + 2] = c[2]; }
   const rj = L.rng('s25grain');
@@ -235,13 +287,13 @@ function buildSnow(env, P) {
         let cr = lutC[q], cg = lutC[q + 1], cb = lutC[q + 2];
         // broad, soft violet shadow patches and a slow fall into shade down the roof
         const X = (x + 0.5) * inv - PAD, d = dD[i];
-        let cool = isCornice ? 0 : 0.26 * sm((d - 150) / 650) + 0.3 * sm(0.5 + 1.3 * nz.fbm(X / 360 + 3.7, Y / 250 - 1.9, 2)) * sm((d - 90) / 120);
+        let cool = isCornice ? 0 : 0.1 * sm((d - 220) / 650) + 0.17 * sm(0.1 + 1.4 * nz.fbm(X / 360 + 3.7, Y / 250 - 1.9, 2)) * sm((d - 90) / 120);
         if (cool > 0) { cr += (shadeRGB[0] - cr) * cool; cg += (shadeRGB[1] - cg) * cool; cb += (shadeRGB[2] - cb) * cool; }
         // crystalline grain, the odd sparkle on lit snow
         const rv = rj();
-        const jit = (rv - 0.5) * 9;
+        const jit = (rv - 0.5) * 7;
         cr += jit; cg += jit; cb += jit;
-        if (rv > 0.9972 && t > 0.55) { cr = 255; cg = 253; cb = 244; }
+        if (rv > 0.9978 && t > 0.6) { cr = 255; cg = 254; cb = 248; }
         // translucent slush / ice skirt where the snow thins out over the glaze
         if (solid < 1) { const w = 1 - solid; cr += (214 - cr) * w; cg += (206 - cg) * w; cb += (238 - cb) * w; }
         const k = i * 4;
@@ -315,47 +367,60 @@ function buildRoof(env, P, snow) {
   { const nE = Math.ceil((2 * sEdge * R) / 3); for (let i = 0; i <= nE; i++) { const th = L.lerp(-sEdge, sEdge, i / nE); edge.push([th, topOf(th)]); } }
   const traceEdge = (g, off) => { edge.forEach(([th, dr], i) => { const p = a.pt(th, dr + off); if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y); }); };
 
-  const roof = buildTiles(env, P);
+  const tA = performance.now();
+  const tiles = buildTiles(env, P);
+  const tB = performance.now();
+  const roof = tiles;
+  console.warn('TIMING tiles', (tB - tA) | 0, 'filter', (performance.now() - tB) | 0);
   const g = roof.getContext('2d');
+  g.setTransform(1, 0, 0, 1, PAD, PAD);
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
   const full = (c, op = 'source-over', alpha = 1) => { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = op; g.globalAlpha = alpha; g.drawImage(c, 0, 0, LW, LH); g.restore(); };
+  const TT = [performance.now()]; const mark = (n) => { TT.push(performance.now()); console.warn('TIMING', n, (TT[TT.length - 1] - TT[TT.length - 2]) | 0); };
   // thin shadow of the snow sheet on the glaze, then the sheet
-  full(castShadow(env, snow.sheet, { push: 8, dx: 4, blur: 5, color: 'rgba(58,26,44,0.6)' }), 'multiply');
+  full(castShadow(env, snow.sheet, { push: 8, dx: 4, blur: 5, color: 'rgba(66,26,40,0.5)' }), 'multiply');
   full(snow.sheet);
+  mark('sheet');
   // the cornice throws a long violet shadow down the roof (dark gold on tile, blue-violet on snow)
-  full(castShadow(env, snow.cornice, { push: 30, dx: 7, blur: 13, color: 'rgba(84,62,138,0.72)' }), 'multiply');
-  full(castShadow(env, snow.cornice, { push: 9, dx: 2, blur: 5, color: 'rgba(60,34,84,0.5)' }), 'multiply');
+  full(castShadow(env, snow.cornice, { push: 36, dx: 8, blur: 12, color: 'rgba(82,54,134,0.8)' }), 'multiply');
+  full(castShadow(env, snow.cornice, { push: 10, dx: 2, blur: 5, color: 'rgba(54,26,70,0.55)' }), 'multiply');
+  mark('cornice shadows');
   // icicles hanging from the drip lobes
   const r = L.rng('s25ice');
   for (const lb of P.lobes) {
     if (!lb || lb.amp < 15 || !r.chance(0.72)) continue;
     const th = ((lb.j + 1) * PITCH + lb.off) / R;
     const c = P.lut(P.cL, th);
-    a.at(g, th, -(c - 7), () => drawIcicle(g, 12 + lb.amp * r.range(0.7, 1.7), r.range(6.5, 11), r));
-    if (r.chance(0.45)) { const o = r.range(9, 20) * r.sign(); const th2 = th + o / R; a.at(g, th2, -(P.lut(P.cL, th2) - 7), () => drawIcicle(g, r.range(12, 30), r.range(4.5, 7), r)); }
+    a.at(g, th, -(c - 8), () => drawIcicle(g, 18 + lb.amp * r.range(0.9, 2.1), r.range(8, 13), r));
+    if (r.chance(0.55)) { const o = r.range(11, 24) * r.sign(); const th2 = th + o / R; a.at(g, th2, -(P.lut(P.cL, th2) - 8), () => drawIcicle(g, r.range(16, 40), r.range(5.5, 8.5), r)); }
   }
+  mark('icicles');
   full(snow.cornice);
   // warm sunset wash over the crown of the cornice
   g.save(); g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 30, R + 6, [[0, L.rgba(C.sun, 0)], [0.55, L.rgba(C.sun, 0.2)], [1, L.rgba(C.sun, 0.62)]]);
-  a.pathBand(g, 8, -30, -sEdge, sEdge); g.fill();
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 46, R + 6, [[0, L.rgba(C.sun, 0)], [0.45, L.rgba(C.sun, 0.14)], [0.72, L.rgba(C.sun, 0.42)], [1, L.rgba(C.sun, 0.9)]]);
+  a.pathBand(g, 8, -46, -sEdge, sEdge); g.fill();
   g.restore();
+  mark('cornice+wash');
   // cut the silhouette: everything above the (gently undulating) top edge goes
   g.save(); g.globalCompositeOperation = 'destination-in';
   g.beginPath(); traceEdge(g, 0);
   g.lineTo(a.pt(sEdge, 0).x + 400, H + PAD + 900); g.lineTo(a.pt(-sEdge, 0).x - 400, H + PAD + 900); g.closePath();
   g.fillStyle = '#000'; g.fill();
   g.restore();
+  mark('cut');
   // the thread of gold light on the very top of the snow
   const rim = L.makeLayer(PAD, (rg) => {
     rg.lineJoin = 'round'; rg.lineCap = 'round';
-    rg.strokeStyle = C.sun; rg.lineWidth = 6; rg.beginPath(); traceEdge(rg, -3); rg.stroke();
-    rg.strokeStyle = '#fff3d2'; rg.lineWidth = 2.4; rg.beginPath(); traceEdge(rg, -1.5); rg.stroke();
+    rg.strokeStyle = '#ffc45e'; rg.lineWidth = 8; rg.beginPath(); traceEdge(rg, -4); rg.stroke();
+    rg.strokeStyle = '#fff1cc'; rg.lineWidth = 2.6; rg.beginPath(); traceEdge(rg, -1.6); rg.stroke();
     rg.globalCompositeOperation = 'destination-in';
     rg.drawImage(L.noiseTex(LW, LH, { seed: 's25rim', scale: 120, sx: 1, sy: 30, octaves: 2, res: 0.2, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.5, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), -PAD, -PAD);
   });
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop'; g.drawImage(rim, 0, 0); g.restore();
+  mark('rim');
   const bloom = L.blurred(rim, 9);
+  mark('bloom');
   return { roof, bloom };
 }
 
@@ -369,7 +434,7 @@ function buildSky(env) {
   g.fillRect(0, 0, W, H);
   g.fillStyle = L.linear(g, 0, 0, 0, 430, [[0, 'rgba(46,6,70,0.16)'], [1, 'rgba(46,6,70,0)']]);
   g.fillRect(0, 0, W, H);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.2;
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.13;
   g.drawImage(L.noiseTex(W, H, { seed: 's25sky', scale: 460, octaves: 3, res: 0.2 }), 0, 0);
   g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
   g.drawImage(L.grainTex(W, H, { seed: 's25sky', amount: 0.12, size: 2 }), 0, 0);
@@ -382,10 +447,15 @@ export default {
   name: '雪后金瓦',
   tone: 'light',
   init(env) {
+    const t0 = performance.now();
     const P = makePlan(env);
+    const t1 = performance.now();
     const snow = buildSnow(env, P);
+    const t2 = performance.now();
     const { roof, bloom } = buildRoof(env, P, snow);
+    const t3 = performance.now();
     S = { sky: buildSky(env), roof, bloom, sparks: snow.sparks };
+    console.warn('TIMING plan', (t1 - t0) | 0, 'snow', (t2 - t1) | 0, 'roof', (t3 - t2) | 0, 'sky', (performance.now() - t3) | 0);
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -406,7 +476,7 @@ export default {
       for (const sp of S.sparks) {
         const k = (env.frame + sp.ph) % 4;
         if (k > 1) continue;
-        const q = a.pt(sp.theta, sp.dr), al = k === 0 ? 0.95 : 0.5, rad = 7 * sp.size;
+        const q = a.pt(sp.theta, sp.dr), al = k === 0 ? 0.95 : 0.5, rad = 4.5 * sp.size;
         ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, rad, [[0, L.rgba(sp.warm ? '#ffe9bd' : '#ffffff', al)], [0.25, L.rgba(sp.warm ? '#ffd58c' : '#e6e2ff', al * 0.35)], [1, 'rgba(255,255,255,0)']]);
         ctx.fillRect(q.x - rad, q.y - rad, rad * 2, rad * 2);
         ctx.fillStyle = L.rgba('#ffffff', al);

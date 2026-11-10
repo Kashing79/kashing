@@ -1,12 +1,12 @@
 // s09 — 青绿山水·山亭. A close crop of an old blue-and-green landscape on silk (绢本设色), as if re-photographed:
 // the shared arc is the ridge of one huge rounded mountain. Malachite (石绿) body, azurite (石青) on the summit and the
 // shaded flanks, outlines and hemp-fibre texture strokes (皴) in ochre-ink and gold that drape over the forms like leaf veins.
-// A small red-columned, grey-tiled pavilion (攒尖亭) stands just behind the ridge left of centre.
+// A small red-columned, grey-tiled pavilion (四角攒尖亭) stands just behind the ridge left of centre; a path winds down from it.
 //
 // Recipe: the mountain is a stack of overlapping rounded "lobes" described in arc space (s = px along the arc, d = px below it).
-// A half-res per-pixel pass in init() paints the washes (dark cap → body → pale foot, exactly how the genre models a rock),
-// then all line work is drawn at full res on top, the whole pigment layer is chipped with a flake mask, laid over aged silk,
-// embossed a little, and covered with a weave. draw() is a single blit plus a travelling glint on the gold.
+// A half-res per-pixel pass in init() paints the washes (dark cap → body → pale foot, the way the genre models a rock) and the
+// bands of white cloud; all line work is then drawn at full res on top. The pigment layer is chipped with a flake mask, laid
+// over aged silk, embossed a little and covered with a weave. draw() is one blit plus a travelling glint on the gold.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -16,7 +16,7 @@ const RES = 0.5;                      // resolution of the per-pixel wash pass
 const UMAX = 3.2, WN = 768, WK = (WN - 1) / (2 * UMAX);
 const DMAX = 680, SMAX = 1420;        // extent of the layer in arc space
 const PAV_X = 628;                    // pavilion axis (frame x)
-const GOLD = '#c9a24a', INK = '#2a2620', RED = '#b23a22';
+const GOLD = '#c9a24a', RED = '#b23a22';
 let S = null;
 
 const sm = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
@@ -83,7 +83,7 @@ function makeLobes() {
     const A = o.A ?? r.range(0.74, 1.0), skew = o.skew ?? r.range(-0.22, 0.22);
     const lb = {
       s0, d0, w, iw: 1 / w, lean, wAl: w * A * (1 + skew), wAr: w * A * (1 - skew), p15: o.p15 ?? r.chance(0.45), name: o.name || '',
-      blue: o.blue ?? (r.chance(0.5) ? r.range(0.8, 1) : r.range(0.08, 0.3)),
+      blue: o.blue ?? (r.chance(0.6) ? r.range(0.8, 1) : r.range(0.08, 0.3)),
       capLen: o.cap ?? w * r.range(0.2, 0.3), len: w * r.range(0.8, 1.0), footLen: o.foot ?? r.range(48, 82),
       side: 1, seed: r.range(0, 90), ochre: o.ochre || 0, small: w < 130,
       fs: o.soft ? w * r.range(0.28, 0.42) : 1e6, fl: o.soft ? w * r.range(0.5, 0.75) : 1,
@@ -127,7 +127,7 @@ function makeLobes() {
   for (let k = 0; k < 11; k++) {
     const s0 = -1340 + k * 268 + r.range(-80, 80);
     if (s0 > -480 && s0 < -110) continue;
-    add(s0, r.range(34, 78), r.range(64, 118), (s0 / 1500) * 0.5 + r.range(-0.1, 0.1), { A: r.range(0.5, 0.8), p15: false, foot: r.range(26, 44), soft: true });
+    add(s0, r.range(30, 76), r.chance(0.3) ? r.range(92, 120) : r.range(46, 76), (s0 / 1500) * 0.5 + r.range(-0.1, 0.1), { A: r.range(0.5, 0.8), p15: false, foot: r.range(26, 44), soft: true });
   }
   // more of them riding the shoulders of the big forms
   for (const P of [A, B, C, D, E, F, G]) {
@@ -196,7 +196,7 @@ function shadeMountain(a, lobes) {
       const gA = fl * 0.6 * (1 - capT * 0.3);                                    // the ochre slope turns green in its shade
       r_ += (GM[0] - r_) * gA; g_ += (GM[1] - g_) * gA; b_ += (GM[2] - b_) * gA;
     } else {
-      const bA = sm(lb.blue * capT * 1.12 + (0.2 + 0.5 * lb.blue) * fl * (1 - bodyT * 0.7) * (0.55 + 0.45 * capT) + 0.14 * bl);
+      const bA = sm(lb.blue * capT * 1.12 + (0.42 + 0.42 * lb.blue) * fl * (1 - bodyT * 0.62) * (0.6 + 0.4 * capT) + 0.14 * bl);
       if (bA > 0) {
         const t = sm(ee / (capLen * 1.25)), q = t < 0.6 ? t / 0.6 : (t - 0.6) / 0.4, x0 = t < 0.6 ? BD : BM, x1 = t < 0.6 ? BM : BL;
         r_ += (x0[0] + (x1[0] - x0[0]) * q - r_) * bA; g_ += (x0[1] + (x1[1] - x0[1]) * q - g_) * bA; b_ += (x0[2] + (x1[2] - x0[2]) * q - b_) * bA;
@@ -503,17 +503,31 @@ function makeCracks() {
   return out;
 }
 
+/** where the paint has come away: alpha mask (opaque = lost). Smooth low-res noise fields are upscaled first and
+ *  thresholded at full resolution afterwards, so the chips keep crisp, irregular edges. */
 function buildFlake(cracks) {
-  // small chips where the thick mineral colour has let go of the silk
-  const c = L.noiseTex(LW, LH, { seed: 's09flakeA', scale: 20, octaves: 3, gain: 0.55, warp: 0.7, res: 0.5, contrast: 1.6,
-    ramp: [[0, 'rgba(0,0,0,0)'], [0.8, 'rgba(0,0,0,0)'], [0.845, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] });
-  const g = c.getContext('2d');
-  // a few larger losses
-  g.drawImage(L.noiseTex(LW, LH, { seed: 's09flakeC', scale: 64, octaves: 4, gain: 0.55, warp: 0.9, res: 0.5, contrast: 1.5,
-    ramp: [[0, 'rgba(0,0,0,0)'], [0.815, 'rgba(0,0,0,0)'], [0.84, 'rgba(0,0,0,0.92)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
-  // rubbed streaks along the rolling direction of the scroll
-  g.drawImage(L.noiseTex(LW, LH, { seed: 's09flakeB', scale: 10, sx: 8, sy: 0.7, octaves: 2, res: 0.5, contrast: 1.7,
-    ramp: [[0, 'rgba(0,0,0,0)'], [0.82, 'rgba(0,0,0,0)'], [0.89, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,0.85)']] }), 0, 0);
+  const nz = L.makeNoise('s09flake');
+  const c = L.makeCanvas(LW, LH), g = c.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#000'; g.fillRect(0, 0, LW, LH);
+  g.globalCompositeOperation = 'lighter'; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  // each field goes into one colour channel; 0.5 (→127) is its threshold
+  const field = (ch, stepX, stepY, fn) => {
+    const fw = Math.ceil(LW / stepX) + 1, fh = Math.ceil(LH / stepY) + 1;
+    const img = new ImageData(fw, fh), d = img.data;
+    for (let y = 0, k = 0; y < fh; y++) for (let x = 0; x < fw; x++, k += 4) { d[k + ch] = L.clamp(fn(x * stepX, y * stepY)) * 255; d[k + 3] = 255; }
+    const t = L.makeCanvas(fw, fh); t.getContext('2d').putImageData(img, 0, 0);
+    g.drawImage(t, 0, 0, fw * stepX, fh * stepY);
+  };
+  field(0, 3, 3, (x, y) => 0.5 + (nz.fbm(x / 21, y / 21, 2) - 0.53) * 3.2);                                                         // small chips
+  field(1, 5, 5, (x, y) => 0.5 + (nz.fbm(x / 70 + 0.8 * nz.n2(x / 150, y / 150), y / 70 + 0.8 * nz.n2(x / 150 + 9, y / 150 + 4), 4) - 0.44) * 3.2); // a few larger losses
+  field(2, 8, 2, (x, y) => 0.5 + (nz.fbm(x / 85 + 40, y / 7.5, 2) - 0.57) * 3.2);                                                    // rubbed streaks along the roll
+  const id = g.getImageData(0, 0, LW, LH), d = id.data;
+  for (let k = 0; k < d.length; k += 4) {
+    let v = (d[k] - 120) * 18; const v1 = (d[k + 1] - 120) * 18, v2 = (d[k + 2] - 120) * 12;
+    if (v1 > v) v = v1; if (v2 > v) v = v2;
+    d[k] = d[k + 1] = d[k + 2] = 0; d[k + 3] = v < 0 ? 0 : v > 238 ? 238 : v;
+  }
+  g.putImageData(id, 0, 0);
   // wear comes in patches: keep it where a slow mask says so
   g.globalCompositeOperation = 'destination-in';
   g.drawImage(L.noiseTex(LW, LH, { seed: 's09flakeM', scale: 360, octaves: 3, res: 0.12, contrast: 1.8, ramp: [[0, 'rgba(0,0,0,0.06)'], [0.42, 'rgba(0,0,0,0.2)'], [0.68, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
@@ -594,26 +608,26 @@ function buildSilk(env, cracks) {
     g.fillRect(X0, Y0, LW, LH);
     g.globalAlpha = 0.46;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's09stainA', scale: 430, octaves: 4, res: 0.2, warp: 0.6, ramp: [[0, 'rgba(118,86,42,0.62)'], [0.45, 'rgba(150,115,66,0.12)'], [0.7, 'rgba(255,244,214,0)'], [1, 'rgba(255,246,220,0.3)']] }), X0, Y0);
-    // tide marks from old damp
-    g.globalAlpha = 0.14;
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's09stainB', scale: 300, ridged: true, octaves: 3, res: 0.25, warp: 0.9, contrast: 1.5, ramp: [[0, 'rgba(110,80,42,0)'], [0.7, 'rgba(110,80,42,0)'], [0.88, 'rgba(104,74,38,0.5)'], [1, 'rgba(104,74,38,0.15)']] }), X0, Y0);
     g.globalAlpha = 1;
     // distant ranges: a breath of azurite wash, darkest along the top edge, dissolving before it reaches the ridge
+    const farL = L.makeLayer(PAD), fq = farL.getContext('2d');
+    const tmp = L.makeLayer(PAD), q = tmp.getContext('2d');
     const far = (pts, col, alpha, fade) => {
       const top = L.smoothPath(pts.map(([x, h]) => [x, a.yAt(x) - h]), 8);
-      const c = L.makeLayer(PAD), q = c.getContext('2d');
+      q.globalCompositeOperation = 'source-over'; q.clearRect(X0, Y0, LW, LH);
       q.beginPath(); q.moveTo(top[0][0], top[0][1]); top.forEach((p) => q.lineTo(p[0], p[1]));
       q.lineTo(top[top.length - 1][0], H + PAD); q.lineTo(top[0][0], H + PAD); q.closePath();
       q.fillStyle = col; q.fill();
       q.globalCompositeOperation = 'destination-in';
       q.fillStyle = L.radial(q, a.cx, a.cy, a.R + 6, a.R + fade, [[0, 'rgba(0,0,0,0)'], [0.3, 'rgba(0,0,0,0.22)'], [1, 'rgba(0,0,0,1)']]);
       q.fillRect(X0, Y0, LW, LH);
-      g.globalAlpha = alpha; g.drawImage(L.blurred(c, 1.6), X0, Y0); g.globalAlpha = 1;
+      fq.globalAlpha = alpha; fq.drawImage(tmp, X0, Y0);
     };
     far([[1230, 0], [1330, 60], [1430, 150], [1520, 196], [1600, 150], [1690, 236], [1780, 300], [1870, 250], [1960, 318], [2120, 280]], '#6f8a8e', 0.3, 330);
     far([[1180, 0], [1290, 36], [1390, 94], [1462, 122], [1550, 88], [1640, 150], [1736, 206], [1826, 160], [1930, 216], [2100, 180]], '#3f6aa6', 0.4, 250);
     far([[-180, 250], [-60, 290], [50, 232], [150, 262], [250, 180], [330, 110], [410, 40], [470, 0]], '#6f8a8e', 0.3, 330);
     far([[-180, 168], [-40, 206], [60, 150], [150, 182], [250, 112], [340, 58], [430, 0]], '#3f6aa6', 0.4, 250);
+    g.drawImage(L.blurred(farL, 1.6), X0, Y0);
     // foxing and specks
     L.speckle(g, { seed: 's09fox', count: 900, x: X0, y: Y0, w: LW, h: LH, rMin: 0.6, rMax: 3.6, colors: ['#7a5a30', '#5e4424', '#8f6d3c'], alpha: [0.08, 0.4] });
     L.speckle(g, { seed: 's09fox2', count: 60, x: X0, y: Y0, w: LW, h: LH, rMin: 5, rMax: 16, colors: ['#8a683a', '#7a5a30'], alpha: [0.04, 0.12] });
@@ -677,7 +691,9 @@ function buildPaint(env, lobes) {
     g.drawImage(over, -PAD, -PAD);
     L.inkStroke(g, L.arcPts(a, -1.6, -sp, sp, 110), { width: 4.4, color: '#2e2219', seed: 9, taper: [0, 0], wobble: 0.3, alpha: 0.9 });
   });
-  return { paint, gold, pav };
+  // the same outline again, kept aside: ink soaks into the silk and does not flake, so the arc stays unbroken
+  const ridgeInk = L.makeLayer(PAD, (g) => L.inkStroke(g, L.arcPts(a, -1.6, -sp, sp, 110), { width: 4.4, color: '#2e2219', seed: 9, taper: [0, 0], wobble: 0.3, alpha: 0.8 }));
+  return { paint, gold, pav, ridgeInk };
 }
 
 export default {
@@ -688,7 +704,7 @@ export default {
     const cracks = makeCracks();
     const flake = buildFlake(cracks);
     const weave = buildWeave();
-    const { paint, gold, pav } = buildPaint(env, lobes);
+    const { paint, gold, pav, ridgeInk } = buildPaint(env, lobes);
     const all = buildSilk(env, cracks);
     const g = all.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -698,7 +714,7 @@ export default {
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.13; g.drawImage(paint, 0, 0);
     for (const c of [paint, gold, pav]) { const q = c.getContext('2d'); q.setTransform(1, 0, 0, 1, 0, 0); q.globalCompositeOperation = 'destination-out'; q.globalAlpha = c === pav ? 0.4 : 1; q.drawImage(flake, 0, 0); }
     g.globalAlpha = 1; g.drawImage(pav, 0, 0);
-    g.globalAlpha = 1; g.drawImage(paint, 0, 0);
+    g.globalAlpha = 1; g.drawImage(paint, 0, 0); g.drawImage(ridgeInk, 0, 0);
     // centuries of grime lie over silk and pigment alike
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.24;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's09grime', scale: 340, octaves: 4, res: 0.2, warp: 0.5, contrast: 1.3, ramp: [[0, '#b39258'], [0.45, '#e6d6b4'], [0.7, '#ffffff'], [1, '#ffffff']] }), 0, 0);
@@ -712,8 +728,9 @@ export default {
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // bright copy of the gold for the travelling glint
     const gq = gold.getContext('2d'); gq.globalCompositeOperation = 'source-in'; gq.fillStyle = '#fff1c0'; gq.fillRect(0, 0, LW, LH);
-    const scratch = L.makeCanvas(W, H);
-    S = { all, goldHi: gold, scratch, sg: scratch.getContext('2d') };
+    const scratch = L.makeCanvas(W, H), sg = scratch.getContext('2d');
+    sg.drawImage(all, 0, 0); sg.drawImage(gold, 0, 0); sg.clearRect(0, 0, W, H);   // touch the big layers once so the first frame is not slower than the rest
+    S = { all, goldHi: gold, scratch, sg };
   },
   draw(ctx, env, p) {
     const a = env.arc;

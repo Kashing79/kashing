@@ -11,5 +11,5 @@ export default makeTitleScene({
   seal: '营造',
   cta: ['千年营造', '等你发现'],
   tilt0: 720,
-  style: STYLE.title,
+  style: () => STYLE.title,
 });

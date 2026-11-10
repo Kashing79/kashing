@@ -8,7 +8,17 @@ const BASE = FILM === 'arch' ? '.' : `./films/${FILM}`;
 const TL = await import(`${BASE}/timeline.js`);
 const { SHOTS, BEATS, TOTAL_FRAMES, shotAt, FPS } = TL;
 // per-film typography for the tagline overlay (a film's timeline.js may export STYLE to override)
-const STYLE = Object.assign({ font: 'serif', light: '#f7f2e8', dark: '#15110d', blur: 0.6 }, TL.STYLE || {});
+const STYLE = TL.STYLE || {};
+for (const [k, v] of Object.entries({ font: 'serif', light: '#f7f2e8', dark: '#15110d', blur: 0.6 })) if (STYLE[k] === undefined) STYLE[k] = v;
+if (!STYLE.title) STYLE.title = {};
+/** change typography at runtime (used by the specimen tool): { font, blur, light, dark, title: {...}, beats: { 1: {...}, 2: {...}, 3: {...} } } */
+function setStyle(patch = {}) {
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'title') Object.assign(STYLE.title, v);
+    else if (k === 'beats') for (const [b, bv] of Object.entries(v)) Object.assign(BEATS[b], bv);
+    else STYLE[k] = v;
+  }
+}
 
 const { W, H } = L;
 const canvas = document.getElementById('c');
@@ -53,7 +63,6 @@ function ensureGrain() {
   grains = [1, 2, 3, 4, 5].map((s) => L.grainTex(W + 64, H + 64, { seed: 'film' + s, amount: 0.42, size: 2 }));
 }
 
-const TEXT_LIGHT = STYLE.light, TEXT_DARK = STYLE.dark;
 const beatShots = { 1: SHOTS.filter((s) => s.beat === 1), 2: SHOTS.filter((s) => s.beat === 2), 3: SHOTS.filter((s) => s.beat === 3) };
 
 /** tagline text sits just above the arc crest, hard-cutting with every shot like the reference */
@@ -63,7 +72,7 @@ function drawBeatText(shot, rec) {
   const size = b.sizeEnd ? L.lerp(b.size, b.sizeEnd, u) : b.size * (1 + 0.05 * u);
   const r = L.rng('txt' + shot.id);
   const tone = (rec.mod && rec.mod.tone) || 'light';
-  const color = tone === 'dark' ? TEXT_DARK : TEXT_LIGHT;
+  const color = tone === 'dark' ? STYLE.dark : STYLE.light;
   const x = W / 2 + r.range(-5, 5);
   const y = rec.env.arc.crestY - b.gap - size * 0.5 + r.range(-4, 4);
   ctx.save();
@@ -135,7 +144,7 @@ async function renderFrame(n, opts = {}) {
 const ready = loadFonts();
 window.GJ = {
   ready, errors, missingFonts, SHOTS, TOTAL_FRAMES, FPS, film: FILM,
-  renderShot, renderFrame,
+  renderShot, renderFrame, setStyle,
   preload: async (ids) => { for (const s of SHOTS) if (!ids || ids.includes(s.id)) await ensure(s); return errors.slice(); },
   toDataURL: (type = 'image/png', q) => canvas.toDataURL(type, q),
 };

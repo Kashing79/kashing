@@ -1,12 +1,13 @@
 // s29 — 白塔覆钵. Macro on the crown of a white dagoba's dome (覆钵): thick lime plaster rising as the arc,
-// against a dusty ochre mountainside at dusk. Everything is a tiny height-field render:
-//   dome  = trowel sweeps + brush bristle tracks (concentric with the arc) + craquelure + pores, lit from the upper left,
-//           with the surface foreshortened toward the silhouette so it reads as a swelling dome, not a flat disc;
-//   back  = eroded gullies of a far slope, soft-focus, calmed down behind the tagline.
+// against a rough ochre rock face at dusk. Both halves are small height-field renders (height → normal → light):
+//   dome = trowel sweeps and brush bristle tracks running round the dome (concentric with the arc), lap edges of
+//          successive coats, craquelure, pores, pale rain tears running downhill; lit by a low sun from the upper left.
+//          The surface is foreshortened toward the silhouette so it reads as a swelling dome, not a flat disc.
+//   back = far rock: broad buttresses, rough grain and pores, kept calm and mid-dark behind the tagline.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 80;            // the move is a few px of rot → a modest margin is plenty
+const PAD = 80;            // the move is only a few px of rot → a modest margin is plenty
 let S = null;
 
 // ── rounded-rim foreshortening: d = screen px below the arc, s = px along the plaster surface ──
@@ -15,9 +16,9 @@ const S0 = RS * Math.acos(1 - D0 / RS);
 const fore = (d) => RS * Math.acos(L.clamp(1 - (Math.max(d, 1 - D0) + D0) / RS, -1, 1)) - S0;
 const unfore = (s) => RS * (1 - Math.cos((s + S0) / RS)) - D0;
 const squash = (s) => Math.sin((s + S0) / RS);      // dd/ds: how flat a round mark looks at surface depth s
-const TURN = 1.5;          // the dome turns away from the light faster than the arc itself (keeps the crest lit, sinks the right flank)
+const TURN = 1.5;          // the dome turns away from the light faster than the arc itself (crest stays lit, right flank sinks)
 
-// light: low dusk sun from the upper left, slightly behind the dome
+// light: low dusk sun from the upper left, a little in front of the dome
 const LV = (() => { const v = [-0.72, -0.62, 0.22]; const m = Math.hypot(...v); return v.map((c) => c / m); })();
 
 // ── allocation-free worley ──
@@ -46,6 +47,26 @@ function lutOf(stops) {
   return lut;
 }
 
+/**
+ * Slow-varying fields are evaluated on a coarse grid (every G low-res px) and bilinearly interpolated per pixel —
+ * that keeps the expensive per-pixel noise budget for the detail that actually needs it.
+ * fill(ix, iy, out) writes nf values for low-res pixel (ix, iy). Returns { at(ix, iy), get(k) }.
+ */
+function coarseFields(cw, ch, G, nf, fill) {
+  const gw = Math.ceil(cw / G) + 2, gh = Math.ceil(ch / G) + 2;
+  const data = new Float32Array(gw * gh * nf); const tmp = new Float32Array(nf);
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) { fill(gx * G, gy * G, tmp); data.set(tmp, (gy * gw + gx) * nf); }
+  let o00 = 0, o10 = 0, o01 = 0, o11 = 0, w00 = 0, w10 = 0, w01 = 0, w11 = 0;
+  return {
+    at(ix, iy) {
+      const fx = ix / G, fy = iy / G, gx = fx | 0, gy = fy | 0, tx = fx - gx, ty = fy - gy;
+      o00 = (gy * gw + gx) * nf; o10 = o00 + nf; o01 = o00 + gw * nf; o11 = o01 + nf;
+      w00 = (1 - tx) * (1 - ty); w10 = tx * (1 - ty); w01 = (1 - tx) * ty; w11 = tx * ty;
+    },
+    get(k) { return data[o00 + k] * w00 + data[o10 + k] * w10 + data[o01 + k] * w01 + data[o11 + k] * w11; },
+  };
+}
+
 // ───────────────────────── the dome ─────────────────────────
 function buildDome(env) {
   const a = env.arc, R = a.R, CX = a.cx, CY = a.cy;
@@ -53,12 +74,27 @@ function buildDome(env) {
   const yTop = Math.floor(a.crestY) - 14;
   const cw = Math.ceil((W + PAD * 2) * RES), ch = Math.ceil((H + PAD - yTop) * RES);
   const n = cw * ch;
-  const hgt = new Float32Array(n), occ = new Float32Array(n), stk = new Float32Array(n), warm = new Float32Array(n), flk = new Float32Array(n);
+  const hgt = new Float32Array(n), occ = new Float32Array(n), stk = new Float32Array(n), warm = new Float32Array(n), flk = new Float32Array(n), rim = new Float32Array(n);
   const nmx = new Float32Array(n), nmy = new Float32Array(n), nmz = new Float32Array(n);
   const live = new Uint8Array(n);
   const nA = L.makeNoise('s29-a'), nB = L.makeNoise('s29-b'), nC = L.makeNoise('s29-c'), nD = L.makeNoise('s29-d');
   const sm = L.smooth;
-  const LAPS = [[105, 1.7], [318, -1.5], [600, 1.5]];
+  const LAPS = [[96, 2.6], [322, -2.3], [610, 2.4]];   // [surface depth, step height] of plaster-coat edges
+  const surf = (ix, iy) => {
+    const ddx = -PAD + (ix + 0.5) / RES - CX, ddy = CY - (yTop + (iy + 0.5) / RES);
+    return [Math.atan2(ddx, ddy) * R, fore(R - Math.sqrt(ddx * ddx + ddy * ddy))];
+  };
+  // coarse: 0 a-warp, 1 s-warp, 2 crack-patch field, 3 flake field, 4 tear-cluster field, 5 warm/cool mottling, 6-8 lap-edge depths
+  const cf = coarseFields(cw, ch, 4, 9, (ix, iy, o) => {
+    const [av, s] = surf(ix, iy);
+    o[0] = 46 * nA.fbm(av / 620 + 3.1, s / 620 + 8.2, 2);
+    o[1] = 24 * nA.fbm(av / 480 - 5.7, s / 480 + 1.3, 2);
+    o[2] = nC.fbm(av / 700 + 11, s / 700 - 4, 2);
+    o[3] = nD.fbm(av / 250 + 70, s / 250 + 33, 3);
+    o[4] = nD.fbm(av / 300 + 5, 2.2, 2);
+    o[5] = nD.fbm(av / 400 + 1, s / 400 + 2, 3);
+    for (let k = 0; k < 3; k++) o[6 + k] = LAPS[k][0] + 70 * nA.n2(av / 900 + k * 31.7, k * 5.3) + 18 * nA.n2(av / 120 + k * 7.1, 9.9);
+  });
 
   for (let iy = 0; iy < ch; iy++) {
     const y = yTop + (iy + 0.5) / RES;
@@ -72,32 +108,32 @@ function buildDome(env) {
       live[i] = 1;
       const th = Math.atan2(ddx, ddy);
       const av = th * R;                        // px along the arc
-      const st = Math.sin(th * TURN), ct = Math.cos(th * TURN);
       const s = fore(d);                        // px down the surface
       // macro normal of the swelling dome
       const nr = L.clamp(1 - (Math.max(d, 0) + D0) / RS, -1, 1);
-      nmx[i] = nr * st; nmy[i] = -nr * ct; nmz[i] = Math.sqrt(1 - nr * nr);
+      const mx = nr * Math.sin(th * TURN), my = -nr * Math.cos(th * TURN), mz = Math.sqrt(1 - nr * nr);
+      nmx[i] = mx; nmy[i] = my; nmz[i] = mz;
+      // the plaster's edge catches the last light
+      rim[i] = Math.exp(-Math.max(d, 0) / 4.5) * L.clamp((mx * LV[0] + my * LV[1] + mz * LV[2]) * 1.25);
+      cf.at(ix, iy);
       // slow warp so no stroke is perfectly concentric
-      const a2 = av + 46 * nA.fbm(av / 620 + 3.1, s / 620 + 8.2, 2);
-      const s2 = s + 24 * nA.fbm(av / 480 - 5.7, s / 480 + 1.3, 2);
+      const a2 = av + cf.get(0), s2 = s + cf.get(1);
       let h = 0;
       // trowel sweeps: long shallow swells running round the dome
       h += 2.1 * nA.fbm(a2 / 540, s2 / 40, 3);
       // raised lips left by the trowel's edge
       const rg = nB.ridged(a2 / 820 + 3.7, s2 / 58 + 1.9, 2);
-      h += 1.9 * rg * rg * rg * rg;
+      h += 1.3 * rg * rg * rg * rg;
       // bristle tracks of the limewash brush
-      h += 0.8 * nB.fbm(a2 / 330, s2 / 6.5, 2);
-      // lumps and sand
-      h += 1.1 * nC.fbm(av / 85, s / 85, 3);
-      h += 0.38 * nC.n2(av / 11 + 40, s / 11);
+      h += 0.62 * nB.fbm(a2 / 330, s2 / 6.5, 2);
+      // chalky lumps and sand
+      h += 1.5 * nC.fbm(av / 62, s / 62, 3);
+      h += 0.55 * nC.fbm(av / 27 + 13, s / 27 + 5, 2);
+      h += 0.36 * nC.n2(av / 11 + 40, s / 11);
       // edges where one coat of plaster laps over the last
-      for (let k = 0; k < LAPS.length; k++) {
-        const sk = LAPS[k][0] + 70 * nA.n2(av / 900 + k * 31.7, k * 5.3) + 16 * nA.n2(av / 120 + k * 7.1, 9.9);
-        h += LAPS[k][1] * sm((s2 - sk) / 9 + 0.5);
-      }
+      for (let k = 0; k < 3; k++) h += LAPS[k][1] * sm((s2 - cf.get(6 + k)) / 6 + 0.5);
       // craquelure (龟裂): patchy plates bounded by wavering hairline cracks
-      const cm = sm((nC.fbm(av / 700 + 11, s / 700 - 4, 2) - 0.1) / 0.28);
+      const cm = sm((cf.get(2) - 0.1) / 0.28);
       let crack = 0;
       if (cm > 0.01) {
         const a3 = a2 + 17 * nC.n2(av / 64 + 9, s / 64) + 5 * nC.n2(av / 19, s / 19 + 4);
@@ -115,21 +151,21 @@ function buildDome(env) {
         h -= 3.2 * pit;
       }
       // a few places where the top coat has flaked off
-      const fl = sm((nD.fbm(av / 250 + 70, s / 250 + 33, 3) - 0.53) / 0.03);
+      const fl = sm((cf.get(3) - 0.53) / 0.03);
       h -= 2.0 * fl;
       hgt[i] = h; flk[i] = fl;
       occ[i] = Math.max(crack * 0.75, pit);
-      // rain tear streaks: narrow, running straight downhill, gathering in clusters
-      const se = sm((nD.fbm(av / 300 + 5, 2.2, 2) + 0.18) / 0.5);
-      const sn = nD.fbm(av / 10, s / 1100 + 7.7, 3);
+      // broad faint rain staining, gathered in clusters (the distinct tears are drawn later)
+      const se = sm((cf.get(4) + 0.18) / 0.5);
+      const sn = nD.fbm(av / 26, s / 1100 + 7.7, 2);
       const sf = sm(s / 170) * (0.55 + 0.45 * nD.n2(av / 60, s / 380));
-      stk[i] = sm((sn - 0.04) / 0.36) * se * sf;
-      warm[i] = sm(nD.fbm(av / 400 + 1, s / 400 + 2, 3) * 1.4 + 0.5);
+      stk[i] = sm((sn - 0.04) / 0.4) * se * sf;
+      warm[i] = sm(cf.get(5) * 1.4 + 0.5);
     }
   }
 
-  // shade
-  const lut = lutOf([[0, '#5a5045'], [0.14, '#8f8473'], [0.29, '#a99e8c'], [0.42, '#bcb2a1'], [0.54, '#d8d1c3'], [0.64, '#ece8dd'], [0.78, '#f6f3eb'], [1, '#fffefa']]);
+  // shade: sunlit lime white → warm grey shadow
+  const lut = lutOf([[0, '#5e5448'], [0.13, '#978c7b'], [0.26, '#aea392'], [0.38, '#bfb5a4'], [0.49, '#dbd4c7'], [0.59, '#eeeae0'], [0.72, '#f7f4ed'], [1, '#fffefa']]);
   const img = new ImageData(cw, ch); const px = img.data;
   const K = 1.25 * RES * 0.5;
   for (let iy = 0; iy < ch; iy++) {
@@ -139,13 +175,12 @@ function buildDome(env) {
       const il = ix > 0 && live[i - 1] ? i - 1 : i, ir = ix < cw - 1 && live[i + 1] ? i + 1 : i;
       const iu = iy > 0 && live[i - cw] ? i - cw : i, id = iy < ch - 1 && live[i + cw] ? i + cw : i;
       const hx = (hgt[ir] - hgt[il]) * K * (ir - il === 2 ? 1 : 2), hy = (hgt[id] - hgt[iu]) * K * (id - iu === 2 * cw ? 1 : 2);
-      let nx = nmx[i] - hx, ny = nmy[i] - hy, nz = nmz[i];
-      const m = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
-      let v = (nx * LV[0] + ny * LV[1] + nz * LV[2]) * m;
-      v = v * (1 - 0.5 * occ[i]) - 0.05 * flk[i];
+      const nx = nmx[i] - hx, ny = nmy[i] - hy, nz = nmz[i];
+      let v = (nx * LV[0] + ny * LV[1] + nz * LV[2]) / Math.sqrt(nx * nx + ny * ny + nz * nz);
+      v = v * (1 - 0.5 * occ[i]) - 0.05 * flk[i] + 0.2 * rim[i];
       const li = (L.clamp(v) * 1023) | 0;
       const sk = stk[i], wm = warm[i], fl = flk[i];
-      const tr = (1 - 0.2 * sk) * (1 - 0.1 * fl), tg = (1 - 0.2 * sk) * (1 - 0.01 * wm) * (1 - 0.12 * fl), tb = (1 - 0.18 * sk) * (1 - 0.04 * wm) * (1 - 0.16 * fl);
+      const tr = (1 - 0.17 * sk) * (1 - 0.1 * fl), tg = (1 - 0.17 * sk) * (1 - 0.01 * wm) * (1 - 0.12 * fl), tb = (1 - 0.15 * sk) * (1 - 0.04 * wm) * (1 - 0.16 * fl);
       const o = i * 4;
       px[o] = lut[li * 3] * tr; px[o + 1] = lut[li * 3 + 1] * tg; px[o + 2] = lut[li * 3 + 2] * tb; px[o + 3] = 255;
     }
@@ -158,7 +193,7 @@ function buildDome(env) {
   const toXY = (av, s) => a.pt(av / R, -unfore(s));
 
   return L.makeLayer(PAD, (g) => {
-    // silhouette: the arc itself, with the faintest lumpiness of hand-laid plaster (never above the arc)
+    // silhouette: the arc itself, with the faintest lumpiness of hand-laid plaster (never above the arc, at most ~2 px below)
     const nz = L.makeNoise('s29-rim');
     g.save();
     g.beginPath();
@@ -175,17 +210,17 @@ function buildDome(env) {
 
     // ── crisp full-resolution detail on top of the soft height-field render ──
     const r = L.rng('s29-detail');
-    // bristle hairlines in bundles
+    // bristle hairlines, in bundles like the passes of a wide brush
     g.lineCap = 'round';
-    for (let b = 0; b < 620; b++) {
+    for (let b = 0; b < 420; b++) {
       const s0 = r.range(1, sMax), a0 = r.range(-aMax, aMax), len = r.range(90, 620), spread = r.range(5, 24);
       const tilt = r.range(-0.05, 0.05), bow = r.range(-8, 8), hairs = r.int(4, 14);
       for (let k = 0; k < hairs; k++) {
         const so = s0 + r.range(-spread, spread), ao = a0 + r.range(-40, 40), ln = len * r.range(0.5, 1.1);
         const light = r.chance(0.68);
-        g.strokeStyle = light ? `rgba(255,254,250,${r.range(0.1, 0.3).toFixed(3)})` : `rgba(122,110,94,${r.range(0.04, 0.12).toFixed(3)})`;
-        const q = squash(Math.max(0, so));
-        g.lineWidth = Math.max(0.45, r.range(0.6, 1.5) * Math.sqrt(q));
+        const lf = L.clamp(0.82 - 0.5 * (ao / aMax), 0.3, 1);      // fewer bright ones on the shadow flank
+        g.strokeStyle = light ? `rgba(255,254,250,${(r.range(0.07, 0.2) * lf).toFixed(3)})` : `rgba(122,110,94,${r.range(0.04, 0.12).toFixed(3)})`;
+        g.lineWidth = Math.max(0.45, r.range(0.6, 1.5) * Math.sqrt(squash(Math.max(0, so))));
         g.beginPath();
         const segs = Math.max(4, Math.round(ln / 16));
         for (let j = 0; j <= segs; j++) {
@@ -199,70 +234,77 @@ function buildDome(env) {
     // pin holes: dark core, lit lip on the lower right
     for (let k = 0; k < 760; k++) {
       const av = r.range(-aMax, aMax), s = r.range(3, sMax);
-      const rad = 0.7 + 3.4 * Math.pow(r(), 3.2), q = squash(s), th = av / R;
+      const rad = 0.7 + 3.4 * Math.pow(r(), 3.2), q = Math.max(0.5, squash(s)), th = av / R;
       const p = toXY(av, s);
       const al = r.range(0.45, 0.9);
       g.save(); g.translate(p.x, p.y); g.rotate(th);
-      const ox = 0.75 * Math.cos(-th) - 0.75 * Math.sin(-th) * 0 + 0, oy = 0.75;
+      const ox = 0.75 * (Math.cos(th) + Math.sin(th)), oy = 0.75 * (Math.cos(th) - Math.sin(th));   // screen (+.75,+.75) in the local frame
       g.fillStyle = `rgba(255,254,250,${(al * 0.75).toFixed(3)})`;
-      g.beginPath(); g.ellipse(ox, oy * Math.max(0.5, q), rad + 0.3, Math.max(0.5, (rad + 0.3) * q), 0, 0, L.TAU); g.fill();
+      g.beginPath(); g.ellipse(ox, oy * q, rad + 0.3, Math.max(0.5, (rad + 0.3) * q), 0, 0, L.TAU); g.fill();
       g.fillStyle = `rgba(78,68,55,${al.toFixed(3)})`;
       g.beginPath(); g.ellipse(0, 0, rad, Math.max(0.45, rad * q), 0, 0, L.TAU); g.fill();
       g.restore();
     }
-    // hero cracks wandering downhill, with branches
+    // a few longer cracks wandering downhill: jagged, with short forks; dark core, shadowed near edge, lit far edge
     const crackRun = (av, s, dir, len, w, depth) => {
       const pts = [[av, s]];
-      let steps = Math.round(len / 7);
+      const STEP = 6, steps = Math.round(len / STEP);
       const kids = [];
       for (let k = 0; k < steps; k++) {
-        dir += r.range(-0.42, 0.42); dir = L.lerp(dir, Math.PI / 2, 0.06);
-        av += Math.cos(dir) * 7; s += Math.sin(dir) * 7;
+        const kink = r.chance(0.1);
+        dir += kink ? r.sign() * r.range(0.5, 1.0) : r.range(-0.2, 0.2);
+        dir = L.lerp(dir, Math.PI / 2, 0.07);
+        av += Math.cos(dir) * STEP + r.range(-1.6, 1.6); s += Math.sin(dir) * STEP + r.range(-1.6, 1.6);
         if (s < 1.5) break;
         pts.push([av, s]);
-        if (depth < 2 && r.chance(0.07)) kids.push([av, s, dir + r.sign() * r.range(0.6, 1.2), len * r.range(0.25, 0.5), w * 0.65, depth + 1]);
+        if (depth < 1 && kink && r.chance(0.5)) kids.push([av, s, dir + r.sign() * r.range(1.0, 1.7), len * r.range(0.12, 0.28), w * 0.7, depth + 1]);
       }
       const m = pts.length;
+      g.lineCap = 'round'; g.lineJoin = 'round';
       for (let k = 1; k < m; k++) {
         const u = k / m, p0 = toXY(pts[k - 1][0], pts[k - 1][1]), p1 = toXY(pts[k][0], pts[k][1]);
-        const lw = Math.max(0.5, w * (1 - 0.75 * u));
-        g.strokeStyle = 'rgba(255,253,246,0.55)'; g.lineWidth = lw * 0.8;
-        g.beginPath(); g.moveTo(p0.x + 1.0, p0.y + 0.9); g.lineTo(p1.x + 1.0, p1.y + 0.9); g.stroke();
-        g.strokeStyle = 'rgba(66,56,44,0.82)'; g.lineWidth = lw;
+        const lw = Math.max(0.8, w * (1 - 0.55 * u * u) * r.range(0.6, 1.3));
+        g.strokeStyle = 'rgba(255,253,246,0.62)'; g.lineWidth = lw;
+        g.beginPath(); g.moveTo(p0.x + 1.2, p0.y + 1.1); g.lineTo(p1.x + 1.2, p1.y + 1.1); g.stroke();
+        g.strokeStyle = 'rgba(134,122,106,0.5)'; g.lineWidth = lw + 1.6;
+        g.beginPath(); g.moveTo(p0.x - 0.5, p0.y - 0.5); g.lineTo(p1.x - 0.5, p1.y - 0.5); g.stroke();
+        g.strokeStyle = 'rgba(70,60,48,0.86)'; g.lineWidth = lw;
         g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke();
       }
       kids.forEach((c) => crackRun(...c));
     };
-    [[-760, 18, 1.2, 330, 2.0], [-250, 60, 1.9, 260, 1.7], [330, 8, 1.4, 420, 2.2], [840, 40, 1.1, 300, 1.8], [-1050, 120, 1.7, 280, 1.6], [90, 300, 1.3, 260, 1.5]]
+    [[-770, 10, 1.25, 330, 2.4], [-230, 90, 1.9, 240, 2.0], [340, 4, 1.45, 420, 2.6], [870, 40, 1.15, 280, 2.2], [-1060, 130, 1.7, 260, 1.9], [110, 340, 1.3, 240, 1.9]]
       .forEach(([av, s, dir, len, w]) => crackRun(av, s, dir, len, w, 0));
-    // rain tear streaks (泪痕): pale grey rivulets running straight downhill from lips, pores and cracks
+    // rain tear streaks (泪痕): pale grey bands running straight downhill, soft-edged, fading as they go
     const tears = L.makeLayer(PAD, (t) => {
       t.lineCap = 'round';
       const rt = L.rng('s29-tears');
       const nt = L.makeNoise('s29-tears');
-      for (let k = 0; k < 84; k++) {
+      for (let k = 0; k < 34; k++) {
         // they gather in a few wet zones rather than spreading evenly
-        const zone = rt.pick([-930, -640, -520, -150, 60, 240, 520, 700, 1010]);
-        const av0 = zone + rt.gauss() * 85, sA = rt.range(4, sMax * 0.5), len = rt.range(220, 760), wid = rt.range(2.2, 7.5), str = rt.range(0.3, 1);
+        const zone = rt.pick([-940, -560, -150, 60, 250, 540, 700, 1010]);
+        const wide = rt.chance(0.3);
+        const av0 = zone + rt.gauss() * 90, sA = rt.range(3, sMax * 0.45), len = rt.range(260, 800), wid = wide ? rt.range(16, 30) : rt.range(5, 13);
+        const str = rt.range(0.4, 1) * (wide ? 0.55 : 1);
         const rivs = rt.int(1, 3);
         for (let q = 0; q < rivs; q++) {
-          const off = q === 0 ? 0 : rt.range(-wid * 1.6, wid * 1.6), l2 = len * (q === 0 ? 1 : rt.range(0.4, 0.9)), w2 = wid * (q === 0 ? 1 : rt.range(0.4, 0.8));
+          const off = q === 0 ? 0 : rt.range(-wid * 1.3, wid * 1.3), l2 = len * (q === 0 ? 1 : rt.range(0.4, 0.9)), w2 = wid * (q === 0 ? 1 : rt.range(0.3, 0.6));
           const segs = Math.ceil(l2 / 9);
           for (let j = 0; j < segs; j++) {
             const u0 = j / segs, u1 = (j + 1) / segs;
-            const wob0 = 4 * nt.n2(k * 3.1 + q, u0 * l2 / 160), wob1 = 4 * nt.n2(k * 3.1 + q, u1 * l2 / 160);
+            const wob0 = 4 * nt.n2(k * 3.1 + q, u0 * l2 / 170), wob1 = 4 * nt.n2(k * 3.1 + q, u1 * l2 / 170);
             const p0 = toXY(av0 + off + wob0, sA + l2 * u0), p1 = toXY(av0 + off + wob1, sA + l2 * u1);
             const um = (u0 + u1) / 2;
-            const al = str * Math.min(1, um / 0.05) * Math.pow(1 - um, 1.5) * (0.7 + 0.3 * nt.n2(k * 7.7, um * 6));
-            t.strokeStyle = `rgba(126,116,100,${(0.4 * al).toFixed(3)})`;
-            t.lineWidth = w2 * (0.6 + 0.5 * Math.sqrt(um));
+            const al = str * Math.min(1, um / 0.04) * Math.pow(1 - um, 1.6) * (0.7 + 0.3 * nt.n2(k * 7.7, um * 6));
+            t.strokeStyle = `rgba(132,122,106,${(0.3 * al).toFixed(3)})`;
+            t.lineWidth = w2 * (0.5 + 0.6 * Math.sqrt(um));
             t.beginPath(); t.moveTo(p0.x, p0.y); t.lineTo(p1.x, p1.y); t.stroke();
           }
         }
       }
     });
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.9;
-    g.drawImage(L.blurred(tears, 1.5), -PAD, -PAD);
+    g.drawImage(L.blurred(tears, 2.6), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     // fine tooth of the lime
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
@@ -273,32 +315,37 @@ function buildDome(env) {
   });
 }
 
-// ───────────────────────── the dusk mountainside behind ─────────────────────────
+// ───────────────────────── the dusk rock face behind ─────────────────────────
 function buildBack(env) {
   const a = env.arc;
   const RES = 0.5;
   const yBot = Math.ceil(a.yAt(-PAD)) + 40;
   const cw = Math.ceil((W + PAD * 2) * RES), ch = Math.ceil((yBot + PAD) * RES);
-  const hgt = new Float32Array(cw * ch), gul = new Float32Array(cw * ch);
+  const hgt = new Float32Array(cw * ch), tone = new Float32Array(cw * ch);
   const nA = L.makeNoise('s29-bgA'), nB = L.makeNoise('s29-bgB');
+  // coarse: 0/1 domain warp, 2 broad swells + big buttresses, 3 tonal mottling
+  const cf = coarseFields(cw, ch, 4, 4, (ix, iy, o) => {
+    const x = -PAD + (ix + 0.5) / RES, y = -PAD + (iy + 0.5) / RES;
+    o[0] = 80 * nA.fbm(x / 600, y / 600, 2); o[1] = 80 * nA.fbm(x / 600 + 9, y / 600 + 4, 2);
+    const wu = x + o[0], wv = y + o[1];
+    o[2] = 30 * nA.fbm(wu / 620 + 5, wv / 620, 3) + 52 * nA.ridged(wu / 840 + 7.7, wv / 1180 + 1.1, 3);
+    o[3] = nB.fbm(x / 380 + 11, y / 380 + 3, 3);
+  });
   for (let iy = 0; iy < ch; iy++) {
     const y = -PAD + (iy + 0.5) / RES;
     for (let ix = 0; ix < cw; ix++) {
       const x = -PAD + (ix + 0.5) / RES;
-      if (a.drAt(x, y) < -40) continue;                 // hidden behind the dome
-      // far rock face: broad swells, soft eroded ridges, then a lot of rough grain, pores and a few crevices
-      const wu = x + 80 * nA.fbm(x / 600, y / 600, 2), wv = y + 80 * nA.fbm(x / 600 + 9, y / 600 + 4, 2);
-      const gl = nA.ridged(wu / 300 + 2.3, wv / 420, 4, 2.05, 0.55);
-      let h = 22 * gl + 30 * nA.fbm(wu / 620 + 5, wv / 620, 4);
+      if (a.drAt(x, y) < -40) continue;                         // hidden behind the dome
+      cf.at(ix, iy);
+      const wu = x + cf.get(0), wv = y + cf.get(1);
+      const gl = nA.ridged(wu / 300 + 2.3, wv / 420, 4, 2.05, 0.55);   // soft eroded ridges
+      let h = cf.get(2) + 22 * gl;
       h += 6.5 * nB.fbm(x / 64, y / 64, 3);                     // lumps
       h += 3.4 * nB.fbm(x / 15, y / 15, 2);                     // grit
       worley(x / 34 + 20, y / 34, 9);                           // pores
       if (wId > 0.5) { const pr = 0.06 + 0.2 * (wId - 0.5); h -= 5.5 * (1 - L.smooth((wF1 - pr * 0.4) / (pr * 0.6))); }
-      const cv = nB.fbm(wu / 760 + 40, wv / 520 + 7, 3);        // crevices: meandering zero-crossings, only here and there
-      const cmk = L.smooth((nB.fbm(x / 900 + 3, y / 900 + 8, 2) - 0.0) / 0.3);
-      h -= 9 * (1 - L.smooth(Math.abs(cv) / 0.022)) * cmk;
       const i = iy * cw + ix;
-      hgt[i] = h; gul[i] = gl;
+      hgt[i] = h; tone[i] = gl - 0.4 + 0.8 * cf.get(3);
     }
   }
   const lut = lutOf([[0, '#281a11'], [0.3, '#5f4630'], [0.6, '#8a6844'], [0.85, '#a67a4c'], [1, '#bd8f58']]);
@@ -315,7 +362,7 @@ function buildBack(env) {
       const ox = Math.max(0, Math.abs(x - 960) - 370), oy = Math.max(0, Math.abs(y - 410) - 150);
       const calm = L.lerp(0.3, 1, L.smooth(Math.hypot(ox, oy) / 280));
       const base = 0.5 - 0.14 * (x / W) - 0.1 * L.clamp(y / 600);
-      const v = base + calm * ((hx * 0.82 + hy * 0.5) + 0.1 * (gul[i] - 0.4));
+      const v = base + calm * ((hx * 0.82 + hy * 0.5) + 0.1 * tone[i]);
       const li = (L.clamp(v) * 1023) | 0;
       const o = i * 4;
       px[o] = lut[li * 3]; px[o + 1] = lut[li * 3 + 1]; px[o + 2] = lut[li * 3 + 2]; px[o + 3] = 255;
@@ -328,7 +375,7 @@ function buildBack(env) {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, -PAD, -PAD, cw / RES, ch / RES);
   });
-  const out = L.blurred(soft, 0.9);
+  const out = L.blurred(soft, 0.9);                             // a breath of distance; the plaster stays the sharpest thing
   const g = out.getContext('2d');
   // dusty dusk light pooling in the upper left
   g.globalCompositeOperation = 'screen';
@@ -342,7 +389,7 @@ function buildBack(env) {
   return out;
 }
 
-/** the dome's shadow, thrown up-right onto the haze behind it and hugging the arc */
+/** the dome's shadow, thrown up-right onto the rock behind it and hugging the arc */
 function buildShadow(env) {
   const a = env.arc;
   const c = L.makeCanvas(W, H); const g = c.getContext('2d');
@@ -359,10 +406,13 @@ export default {
   tone: 'light',
   init(env) {
     const over = L.makeCanvas(W, H);
-    L.vignette(over.getContext('2d'), { strength: 0.24, inner: 0.5, outer: 1.1 });
-    S = { dome: buildDome(env), back: buildBack(env), shadow: buildShadow(env), over };
+    L.vignette(over.getContext('2d'), { strength: 0.13, inner: 0.5, outer: 1.1 });
+    const t0 = performance.now(); const dome = buildDome(env); const t1 = performance.now(); const back = buildBack(env); const t2 = performance.now();
+    console.warn('TIMING dome', (t1 - t0).toFixed(0), 'back', (t2 - t1).toFixed(0));
+    S = { dome, back, shadow: buildShadow(env), over };
   },
   draw(ctx, env, p) {
+    // the plaster slides a few px round the dome; the far rock barely moves
     const rot = L.lerp(-0.006, 0.006, p);
     L.blit(ctx, env, S.back, { rot: rot * 0.35, zoom: L.lerp(1.0, 1.012, p) });
     ctx.drawImage(S.shadow, 0, 0);

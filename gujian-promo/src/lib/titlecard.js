@@ -44,13 +44,15 @@ export function drawSeal(ctx, x, y, size, chars, opts = {}) {
  */
 export function makeTitleScene(cfg) {
   const { initOpening, drawOpening, title, seal, cta, tilt0 = 720, dim = 0.35, dimColor = '#05070b' } = cfg;
-  const st = Object.assign({ font: 'serif', titleSize: 92, titleWeight: 600, titleSpacing: 22, ctaSize: 64, ctaWeights: [600, 300], ctaSpacing: 10,
-    ink: '#f7f2e8', sealColor: '#b3261e', sealFont: 'xiaowei', sealSize: 78, y: 498 }, cfg.style || {});
+  // style may be an object or a function returning one (resolved every frame, so typography can be swapped at runtime)
+  const style = () => Object.assign({ font: 'serif', titleSize: 92, titleWeight: 600, titleSpacing: 22, ctaSize: 64, ctaWeights: [600, 300], ctaSpacing: 10,
+    ink: '#f7f2e8', sealColor: '#b3261e', sealFont: 'xiaowei', sealSize: 78, y: 498 }, (typeof cfg.style === 'function' ? cfg.style() : cfg.style) || {});
   return {
     name: '片名卡',
     tone: 'light',
     init(env) { if (initOpening) initOpening(env); },
     draw(ctx, env) {
+      const st = style();
       const f = env.frame, n = env.frames;
       const prog = (ff) => L.ease.inOutCubic(L.clamp((ff - TILT_START) / (n - 1 - TILT_START)));
       const e = prog(f);

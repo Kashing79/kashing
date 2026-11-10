@@ -1,5 +1,5 @@
 // s11 — 拱桥红灯笼. A Jiangnan stone arch bridge at night, seen in side elevation from the water.
-// The arc = the top of the stone parapet (栏板压顶) following the humped deck. A string of red gauze
+// The arc = the top of the low, plain stone parapet (石栏板) following the humped deck. A string of red gauze
 // lanterns rides that line; their light is the only light in the picture, so the masonry is relit
 // per-pixel in init() from the lantern positions (height map → normals → point lights → colour ramp).
 // Everything hangs plumb (posts, lanterns, tassels, horizontal stone courses): only the deck line curves.
@@ -10,9 +10,10 @@ const PAD = 150;                       // camera move is tiny (±0.5° about the
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const XL = -PAD - 30, XR = W + PAD + 30;
 const SP = 256;                        // lantern pitch along the arc (px)
-// vertical offsets below the parapet-top arc (px)
-const O = { cope: 20, panel: 112, base: 130, deck: 178 };
-const POST_HW = 19;                    // half-width of a baluster post (望柱)
+// vertical offsets below the parapet-top arc (px). Water-town bridges carry LOW, PLAIN slab parapets —
+// no carved balustrade, no lotus finials (that is the northern imperial manner) — so: bare slabs, square posts.
+const O = { cope: 13, slab: 98, deck: 142 };
+const POST_HW = 20, POST_UP = 9;      // half-width of a post (望柱); how far its plain head stands above the slabs
 const DROP = 404, RA = 1150, RT = 50;  // arch: intrados crown sits DROP px under the crest; radius; ring thickness
 const LIGHT_Z = 110;                   // how far the lanterns hang in front of the wall plane
 const Q = 1.5;                         // frame px per light-map px (the relighting runs at 1/Q resolution)
@@ -31,9 +32,9 @@ function layout(a) {
     const sc = k === 0 ? 1.12 : r.range(0.84, 1.13);
     const rx = 80 * sc, ry = rx * 0.87;
     const y = a.yAt(x) - ry * 0.5 + r.range(-5, 5);
-    lanterns.push({ k, x, y, rx, ry, sc, phase: r(), amp: r.range(0.55, 1), power: sc * sc * r.range(0.93, 1.07) });
+    lanterns.push({ k, x, y, rx, ry, sc, phase: r(), amp: r.range(0.55, 1), power: sc * sc * r.range(0.93, 1.07), warm: k === 0 ? 0.9 : r() });
     const xp = a.cx + a.R * Math.sin(((k + 0.5) * SP) / a.R);
-    posts.push({ k, x: xp, y: a.yAt(xp), yt: Math.min(a.yAt(xp - POST_HW), a.yAt(xp + POST_HW)) - 5 });
+    posts.push({ k, x: xp, y: a.yAt(xp), yt: Math.min(a.yAt(xp - POST_HW), a.yAt(xp + POST_HW)) - POST_UP });
   }
   return { lanterns, posts };
 }
@@ -67,15 +68,12 @@ function tline(g, a, o, x0 = XL, x1 = XR) {
   g.arc(a.cx, a.cy + o, a.R, a.thetaAtX(x0) - Math.PI / 2, a.thetaAtX(x1) - Math.PI / 2, false);
   g.stroke();
 }
-/** lotus-bud post head (望柱头) standing on the shaft top */
-function finialPath(g, p) {
-  const x = p.x, y = p.yt;
+/** a post: plain square shaft with a chamfered head, from just above the slabs down to the deck course */
+function postPath(g, a, p) {
+  const x = p.x, y = p.yt, yb = Math.max(a.yAt(x - POST_HW), a.yAt(x + POST_HW)) + O.slab + 1;
   g.beginPath();
-  g.rect(x - POST_HW - 2, y - 5, POST_HW * 2 + 4, 5.5);
-  g.rect(x - 10, y - 9, 20, 4.5);
-  g.moveTo(x - 10, y - 9);
-  g.bezierCurveTo(x - 22, y - 14, x - 15, y - 27, x, y - 37);
-  g.bezierCurveTo(x + 15, y - 27, x + 22, y - 14, x + 10, y - 9);
+  g.moveTo(x - POST_HW, yb); g.lineTo(x - POST_HW, y + 6); g.lineTo(x - POST_HW + 5, y);
+  g.lineTo(x + POST_HW - 5, y); g.lineTo(x + POST_HW, y + 6); g.lineTo(x + POST_HW, yb);
   g.closePath();
 }
 
@@ -113,54 +111,58 @@ function drawStructure(g, a, lay, courses, arch, mode) {
   }
   g.fillStyle = G(hgt ? 36 : 60); g.beginPath(); g.arc(arch.cx, arch.cy, arch.ri, 0, TAU); g.fill();
 
-  // parapet: slab face, recessed panels (栏板), rounded coping, base rail (地栿)
-  tband(g, a, 0, O.base); g.fillStyle = G(hgt ? 134 : 206); g.fill();
+  // parapet: plain stone slabs (素面石栏板) butted between square posts; the top arris is worn round
   for (let i = 0; i < lay.posts.length - 1; i++) {
-    const xa = lay.posts[i].x + POST_HW + 13, xb = lay.posts[i + 1].x - POST_HW - 13;
-    tband(g, a, O.cope + 12, O.panel - 11, xa, xb); g.fillStyle = G(hgt ? 106 : 194 + r.range(-12, 10)); g.fill();
-    tband(g, a, O.cope + 23, O.panel - 22, xa + 11, xb - 11); g.fillStyle = G(hgt ? 119 : 204); g.fill();
+    const xa = lay.posts[i].x, xb = lay.posts[i + 1].x, v = L.rng('s11-slab-' + lay.posts[i].k);
+    const base = 132 + v.range(-7, 7), tl = v.range(-6, 6);
+    tband(g, a, 0, O.slab, xa, xb);
+    g.fillStyle = hgt ? L.linear(g, xa, 0, xb, 0, [[0, G(base - tl)], [1, G(base + tl)]]) : G(206 + v.range(-20, 14));
+    g.fill();
   }
-  g.lineWidth = 2.2;
-  for (let o = 0; o <= O.cope; o += 1) {
-    const u = o / O.cope;
-    g.strokeStyle = G(hgt ? 138 + 42 * Math.sqrt(Math.max(0, 1 - (2 * u - 1) ** 2)) : 216); tline(g, a, o);
+  if (hgt) {
+    g.lineWidth = 2.2;
+    for (let o = 0; o <= O.cope; o += 1) {
+      const u = 1 - o / O.cope;
+      g.strokeStyle = `rgba(58,58,58,${(0.62 * (1 - Math.sqrt(Math.max(0, 1 - u * u)))).toFixed(3)})`; tline(g, a, o);
+    }
   }
-  tband(g, a, O.panel, O.base); g.fillStyle = G(hgt ? 152 : 208); g.fill();
-
-  // posts (望柱) with lotus-bud heads
+  // posts (望柱): plain, a little proud of the slabs
   for (const p of lay.posts) {
-    const yb = Math.max(a.yAt(p.x - POST_HW), a.yAt(p.x + POST_HW)) + O.base + 1;
-    g.fillStyle = G(hgt ? 144 : 210); g.fillRect(p.x - POST_HW, p.yt, POST_HW * 2, yb - p.yt);
-    g.fillStyle = G(hgt ? 168 : 214); g.fillRect(p.x - POST_HW + 4, p.yt + 2, POST_HW * 2 - 8, yb - p.yt - 2);
-    if (hgt) { g.strokeStyle = G(140); g.lineWidth = 2.6; g.strokeRect(p.x - POST_HW + 10, p.y + O.cope + 18, POST_HW * 2 - 20, O.panel - O.cope - 40); }
-    finialPath(g, p);
-    g.fillStyle = hgt ? L.radial(g, p.x, p.yt - 19, 2, 25, [[0, G(210)], [1, G(124)]]) : G(212); g.fill();
-    if (hgt) { g.fillStyle = G(176); g.fillRect(p.x - POST_HW - 2, p.yt - 5, POST_HW * 2 + 4, 5.5); }
+    postPath(g, a, p); g.fillStyle = G(hgt ? 146 : 212); g.fill();
+    if (hgt) {
+      const yb = Math.max(a.yAt(p.x - POST_HW), a.yAt(p.x + POST_HW)) + O.slab + 1;
+      g.fillStyle = G(166); g.fillRect(p.x - POST_HW + 4, p.yt + 7, POST_HW * 2 - 8, yb - p.yt - 7);
+      g.fillStyle = L.linear(g, 0, p.yt, 0, p.yt + 7, [[0, G(120)], [1, G(166)]]); g.fillRect(p.x - POST_HW + 5, p.yt, POST_HW * 2 - 10, 7);
+    }
   }
 
-  // deck-edge course (桥面沿石): a rounded nosing that projects over the wall
+  // deck-edge course (桥面沿石): a rounded nosing that projects over the wall; the slabs stand on it
   g.lineWidth = 2.2;
-  for (let o = O.base; o <= O.deck; o += 1) {
-    const u = (o - O.base) / (O.deck - O.base);
+  for (let o = O.slab; o <= O.deck; o += 1) {
+    const u = (o - O.slab) / (O.deck - O.slab);
     g.strokeStyle = G(hgt ? 150 + 36 * Math.pow(Math.sin(Math.PI * u), 0.55) : 204); tline(g, a, o);
   }
   const jr = L.rng('s11-deckjoints');
   g.strokeStyle = G(hgt ? 104 : 140); g.lineWidth = 3;
   for (let x = XL + jr.range(0, 200); x < XR; x += jr.range(250, 430)) {
-    const y = a.yAt(x); g.beginPath(); g.moveTo(x, y + O.base + 1); g.lineTo(x, y + O.deck); g.stroke();
+    const y = a.yAt(x); g.beginPath(); g.moveTo(x, y + O.slab + 1); g.lineTo(x, y + O.deck); g.stroke();
   }
 
   if (!hgt) {
-    // baked occlusion: shadow under the projecting deck course and under the coping
+    // baked occlusion: shadow under the projecting deck course, grime where the slabs meet it
     g.globalCompositeOperation = 'multiply'; g.lineWidth = 2.2;
     for (let o = 0; o < 22; o++) { g.strokeStyle = G(255 * (0.56 + 0.44 * Math.pow(o / 22, 0.7))); tline(g, a, O.deck + o); }
-    for (let o = 0; o < 9; o++) { g.strokeStyle = G(255 * (0.62 + 0.38 * (o / 9))); tline(g, a, O.cope + o); }
+    for (let o = 0; o < 12; o++) { g.strokeStyle = G(255 * (0.7 + 0.3 * (o / 12))); tline(g, a, O.slab - o); }
     // weathering: broad mottling + rain streaks running down the face
-    g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11mottle', scale: 120, octaves: 4, warp: 0.6, res: 0.4, ramp: [[0, G(156)], [0.5, G(234)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
+    g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11mottle', scale: 120, octaves: 4, warp: 0.6, res: 0.4, ramp: [[0, G(150)], [0.5, G(232)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
     g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11streak', scale: 34, sx: 0.32, sy: 8, octaves: 3, res: 0.5, contrast: 1.8, ramp: [[0, G(172)], [0.42, G(244)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
-    // run-off: dark tide marks hanging from every ledge (coping, base rail, deck nosing)
+    // lichen: pale crusts scattered over the old faces
+    g.globalCompositeOperation = 'screen';
+    g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11lichen', scale: 30, octaves: 4, gain: 0.6, warp: 1.2, res: 0.5, contrast: 2.2, ramp: [[0, G(0)], [0.62, G(0)], [0.78, G(52)], [1, G(84)]] }), -PAD, -PAD, LW, LH);
+    g.globalCompositeOperation = 'multiply';
+    // run-off: dark tide marks hanging from the ledges (slab tops, deck nosing)
     const dr = L.rng('s11-drips');
-    for (const [off, n, lmin, lmax, dark] of [[O.deck - 4, 64, 40, 230, 172], [O.cope + 4, 90, 14, 70, 168], [O.base - 6, 50, 10, 36, 170]]) {
+    for (const [off, n, lmin, lmax, dark] of [[O.deck - 4, 64, 40, 230, 172], [5, 96, 14, 80, 166]]) {
       for (let k = 0; k < n; k++) {
         const x = dr.range(XL, XR), y = a.yAt(x) + off, len = dr.range(lmin, lmax) * (dr.chance(0.2) ? 1.5 : 1), ww = dr.range(4, 34);
         g.fillStyle = L.linear(g, 0, y, 0, y + len, [[0, G(dark + dr.range(-20, 30))], [1, G(255)]]);
@@ -332,27 +334,43 @@ function buildBridge(env, lay, courses, arch) {
       }
       g.stroke();
     }
+    // the slab faces were dressed by hand too; a few have cracked with age
     for (let i = 0; i < lay.posts.length - 1; i++) {
-      const xa = lay.posts[i].x + POST_HW + 13, xb = lay.posts[i + 1].x - POST_HW - 13;
-      const t0 = O.cope + 12, b0 = O.panel - 11;
-      g.lineWidth = 1.6; g.strokeStyle = dk(0.5); tline(g, a, t0 + 0.8, xa, xb);
-      g.lineWidth = 1.3; g.strokeStyle = lt(0.3); tline(g, a, b0 - 0.4, xa, xb);
-      g.strokeStyle = dk(0.3); g.beginPath();
-      g.moveTo(xa, a.yAt(xa) + t0); g.lineTo(xa, a.yAt(xa) + b0); g.moveTo(xb, a.yAt(xb) + t0); g.lineTo(xb, a.yAt(xb) + b0); g.stroke();
-      g.lineWidth = 1.1; g.strokeStyle = lt(0.2); tline(g, a, t0 + 11.4, xa + 11, xb - 11);
-      g.strokeStyle = dk(0.32); tline(g, a, b0 - 11.2, xa + 11, xb - 11);
+      const xa = lay.posts[i].x + POST_HW, xb = lay.posts[i + 1].x - POST_HW, key = lay.posts[i].k, v = L.rng('s11-slabtool-' + key);
+      const yT = Math.min(a.yAt(xa), a.yAt(xb)), hh = Math.max(a.yAt(xa), a.yAt(xb)) + O.slab - yT;
+      const sl = Math.tan(v.range(-0.55, 0.55)) * hh, sp = v.range(6, 10), m = Math.abs(sl) + 8;
+      g.save(); tband(g, a, 4, O.slab - 2, xa + 2, xb - 2); g.clip();
+      g.lineWidth = 1.1;
+      for (const [off, col] of [[0, 'rgba(0,0,0,0.1)'], [1.7, 'rgba(255,180,200,0.05)']]) {
+        const r2 = L.rng('s11-slabtool2-' + key);
+        g.strokeStyle = col; g.beginPath();
+        for (let x = xa - m; x < xb + m; x += sp) {
+          const j = r2.range(-1.5, 1.5), f0 = r2.range(0, 0.3), f1 = 1 - r2.range(0, 0.3);
+          g.moveTo(x + j + off + sl * f0, yT + hh * f0); g.lineTo(x + j + off + sl * f1, yT + hh * f1);
+        }
+        g.stroke();
+      }
+      if (v.chance(0.35)) {
+        let x = v.range(xa + 30, xb - 30), y = a.yAt(x) + 1; const pts = [[x, y]];
+        for (let n = v.int(4, 9); n > 0; n--) { x += v.range(-7, 7); y += v.range(6, 13); pts.push([x, y]); }
+        for (const [off, col, lw] of [[0, dk(0.4), 1.2], [1.3, lt(0.13), 1]]) {
+          g.strokeStyle = col; g.lineWidth = lw; g.beginPath(); pts.forEach((q, n) => (n ? g.lineTo(q[0] + off, q[1]) : g.moveTo(q[0] + off, q[1]))); g.stroke();
+        }
+      }
+      g.restore();
     }
     for (const p of lay.posts) {
-      const yb = Math.max(a.yAt(p.x - POST_HW), a.yAt(p.x + POST_HW)) + O.base;
-      g.lineWidth = 1.5; g.strokeStyle = dk(0.42); g.beginPath();
-      for (const sx of [-1, 1]) { g.moveTo(p.x + sx * (POST_HW + 0.5), p.yt); g.lineTo(p.x + sx * (POST_HW + 0.5), yb); }
+      const yb = Math.max(a.yAt(p.x - POST_HW), a.yAt(p.x + POST_HW)) + O.slab;
+      g.lineWidth = 1.5; g.strokeStyle = dk(0.45); g.beginPath();
+      for (const sx of [-1, 1]) { g.moveTo(p.x + sx * (POST_HW + 0.5), p.yt + 6); g.lineTo(p.x + sx * (POST_HW + 0.5), yb); }
       g.stroke();
-      g.lineWidth = 1.2; g.strokeStyle = lt(0.22); g.beginPath();
-      for (const sx of [-1, 1]) { g.moveTo(p.x + sx * (POST_HW - 2.2), p.yt + 2); g.lineTo(p.x + sx * (POST_HW - 2.2), yb); }
+      g.lineWidth = 1.2; g.strokeStyle = lt(0.24); g.beginPath();
+      for (const sx of [-1, 1]) { g.moveTo(p.x + sx * (POST_HW - 2.4), p.yt + 7); g.lineTo(p.x + sx * (POST_HW - 2.4), yb); }
       g.stroke();
-      g.strokeStyle = dk(0.4); g.beginPath(); g.moveTo(p.x - POST_HW - 2, p.yt + 0.8); g.lineTo(p.x + POST_HW + 2, p.yt + 0.8); g.stroke();
+      g.lineWidth = 1; g.strokeStyle = dk(0.3); g.beginPath(); g.moveTo(p.x - POST_HW + 1, p.yt + 7.5); g.lineTo(p.x + POST_HW - 1, p.yt + 7.5); g.stroke();
     }
-    g.lineWidth = 1.4; g.strokeStyle = dk(0.42); tline(g, a, O.cope + 0.5); tline(g, a, O.panel); tline(g, a, O.base);
+    g.lineWidth = 1.6; g.strokeStyle = dk(0.5); tline(g, a, O.slab);
+    g.lineWidth = 1; g.strokeStyle = lt(0.2); tline(g, a, O.slab + 2.4);
     g.lineWidth = 1.8; g.strokeStyle = dk(0.6); tline(g, a, O.deck);
     // wet gloss along the nosing of the deck course
     g.globalCompositeOperation = 'screen';
@@ -360,7 +378,7 @@ function buildBridge(env, lay, courses, arch) {
       let e = 0;
       for (const ln of lay.lanterns) { const d = x - ln.x; e += ln.power / (1 + (d * d) / (110 * 110)); }
       e = L.clamp(0.1 + 0.42 * e, 0, 1) * (0.55 + 0.45 * mn.n2(x / 37, 5.5));
-      const x1 = x + 6.6, o = O.base + (O.deck - O.base) * 0.3;
+      const x1 = x + 6.6, o = O.slab + (O.deck - O.slab) * 0.3;
       g.strokeStyle = `rgba(255,170,170,${(0.5 * e).toFixed(3)})`; g.lineWidth = 2.2;
       g.beginPath(); g.moveTo(x, a.yAt(x) + o); g.lineTo(x1, a.yAt(x1) + o); g.stroke();
       g.strokeStyle = `rgba(255,120,150,${(0.2 * e).toFixed(3)})`; g.lineWidth = 8;
@@ -378,23 +396,23 @@ function buildBridge(env, lay, courses, arch) {
     g.globalCompositeOperation = 'soft-light';
     for (const ln of lay.lanterns) {
       const R1 = ln.rx * 3.2;
-      g.fillStyle = L.radial(g, ln.x, ln.y + ln.ry * 0.7, ln.rx * 0.4, R1, [[0, 'rgba(255,150,40,0.62)'], [0.4, 'rgba(255,124,40,0.24)'], [1, 'rgba(255,110,40,0)']]);
+      g.fillStyle = L.radial(g, ln.x, ln.y + ln.ry * 0.7, ln.rx * 0.4, R1, [[0, 'rgba(255,150,40,0.5)'], [0.4, 'rgba(255,124,40,0.2)'], [1, 'rgba(255,110,40,0)']]);
       g.fillRect(ln.x - R1, ln.y - R1, R1 * 2, R1 * 2);
     }
     g.drawImage(L.noiseTex(LW, LH, { seed: 's11hue', scale: 260, octaves: 3, warp: 0.5, res: 0.2,
-      ramp: [[0, 'rgba(70,30,190,0.34)'], [0.42, 'rgba(70,30,190,0)'], [0.62, 'rgba(255,130,60,0)'], [1, 'rgba(255,130,60,0.2)']] }), -PAD, -PAD);
-    g.fillStyle = L.linear(g, 0, a.crestY + 200, 0, H + 40, [[0, 'rgba(60,34,200,0)'], [1, 'rgba(60,34,200,0.5)']]);
+      ramp: [[0, 'rgba(70,30,190,0.2)'], [0.42, 'rgba(70,30,190,0)'], [0.62, 'rgba(255,130,60,0)'], [1, 'rgba(255,130,60,0.2)']] }), -PAD, -PAD);
+    g.fillStyle = L.linear(g, 0, a.crestY + 200, 0, H + 40, [[0, 'rgba(60,34,200,0)'], [1, 'rgba(60,34,200,0.24)']]);
     g.fillRect(-PAD, a.crestY + 200, LW, LH);
     g.globalCompositeOperation = 'source-over';
     // the bridge sinks into darkness toward the water
-    g.fillStyle = L.linear(g, 0, a.crestY + 300, 0, H + 80, [[0, 'rgba(5,2,8,0)'], [0.6, 'rgba(5,2,8,0.3)'], [1, 'rgba(5,2,8,0.72)']]);
-    g.fillRect(-PAD, a.crestY + 300, LW, LH);
+    g.fillStyle = L.linear(g, 0, a.crestY + 240, 0, H + 60, [[0, 'rgba(5,2,8,0)'], [0.5, 'rgba(5,2,8,0.34)'], [1, 'rgba(5,2,8,0.8)']]);
+    g.fillRect(-PAD, a.crestY + 240, LW, LH);
     g.restore();
 
     // ── cut the silhouette at full resolution
     const mask = L.makeLayer(PAD, (m) => {
       m.fillStyle = '#fff'; tband(m, a, 0, 1700, XL - 20, XR + 20); m.fill();
-      for (const p of lay.posts) { m.fillRect(p.x - POST_HW, p.yt, POST_HW * 2, 60); finialPath(m, p); m.fill(); }
+      for (const p of lay.posts) { postPath(m, a, p); m.fill(); }
       m.globalCompositeOperation = 'destination-out';
       m.beginPath(); m.arc(arch.cx, arch.cy, arch.ri, 0, TAU); m.fill();
     });
@@ -424,18 +442,35 @@ function buildBridge(env, lay, courses, arch) {
     // ── the rim: the rounded coping catches the lantern light full on → the brightest line in the frame sits on the arc
     g.save();
     g.beginPath(); g.rect(-PAD, -PAD, LW, LH);
-    for (const p of lay.posts) g.rect(p.x - POST_HW, p.y - 60, POST_HW * 2, 120);
+    for (const p of lay.posts) g.rect(p.x - POST_HW - 0.5, p.y - 60, POST_HW * 2 + 1, 120);
     g.clip('evenodd');
     g.globalCompositeOperation = 'screen'; g.lineCap = 'butt';
     for (let x = XL; x < XR; x += 6) {
       let e = 0;
       for (const ln of lay.lanterns) { const d = x - ln.x; e += ln.power / (1 + (d * d) / (150 * 150)); }
-      e = L.clamp(0.42 + 0.36 * e, 0, 1);
+      e = L.clamp(0.42 + 0.36 * e, 0, 1) * (0.74 + 0.26 * mn.n2(x / 21, 17.3));
       const x1 = x + 6.6, ya = a.yAt(x), yb = a.yAt(x1);
       for (const [o, lw, al, col] of [[5.2, 9, 0.34, '255,120,150'], [3.2, 5, 0.5, '255,170,170'], [1.5, 2.4, 0.9, '255,226,204']]) {
         g.strokeStyle = `rgba(${col},${(al * e).toFixed(3)})`; g.lineWidth = lw;
         g.beginPath(); g.moveTo(x, ya + o); g.lineTo(x1, yb + o); g.stroke();
       }
+    }
+    g.restore();
+    g.save(); g.globalCompositeOperation = 'destination-out';
+    const cr = L.rng('s11-chips');
+    for (let i = 0; i < lay.posts.length - 1; i++) {
+      const xa = lay.posts[i].x + POST_HW + 8, xb = lay.posts[i + 1].x - POST_HW - 8;
+      for (let n = cr.int(0, 2); n > 0; n--) {
+        const x = cr.range(xa, xb);
+        g.beginPath(); g.ellipse(x, a.yAt(x) - 0.6, cr.range(4, 11), cr.range(1.6, 3.2), a.thetaAtX(x), 0, TAU); g.fill();
+      }
+    }
+    g.restore();
+    g.save(); g.globalCompositeOperation = 'screen'; g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const p of lay.posts) {
+      const head = () => { g.beginPath(); g.moveTo(p.x - POST_HW + 1, p.yt + 6.5); g.lineTo(p.x - POST_HW + 5.5, p.yt + 1.2); g.lineTo(p.x + POST_HW - 5.5, p.yt + 1.2); g.lineTo(p.x + POST_HW - 1, p.yt + 6.5); };
+      g.strokeStyle = 'rgba(255,150,165,0.4)'; g.lineWidth = 5; head(); g.stroke();
+      g.strokeStyle = 'rgba(255,222,204,0.72)'; g.lineWidth = 1.8; head(); g.stroke();
     }
     g.restore();
   });
@@ -470,7 +505,7 @@ function makeLantern(ln, tex) {
   g.save(); g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.clip();
   // the lamp itself, a taller blur of light
   g.save(); g.globalCompositeOperation = 'screen'; g.scale(0.56, 1);
-  g.fillStyle = L.radial(g, 0, ry * 0.06, 0, ry * 0.66, [[0, 'rgba(255,238,176,0.8)'], [0.45, 'rgba(255,176,76,0.3)'], [1, 'rgba(255,120,40,0)']]);
+  g.fillStyle = L.radial(g, 0, ry * 0.06, 0, ry * 0.66, [[0, `rgba(255,238,176,${(0.5 + 0.42 * ln.warm).toFixed(3)})`], [0.45, `rgba(255,176,76,${(0.16 + 0.2 * ln.warm).toFixed(3)})`], [1, 'rgba(255,120,40,0)']]);
   g.fillRect(-rx * 2, -ry, rx * 4, ry * 2);
   g.restore();
   // cloth: vertical threads + uneven dye, seen in transmitted light
@@ -554,7 +589,7 @@ function makeLantern(ln, tex) {
 
   // bloom of the lamp through the cloth
   g.globalCompositeOperation = 'screen';
-  g.fillStyle = L.radial(g, 0, ry * 0.05, 0, rx * 0.9, [[0, 'rgba(255,214,130,0.42)'], [0.5, 'rgba(255,150,60,0.14)'], [1, 'rgba(255,110,40,0)']]);
+  g.fillStyle = L.radial(g, 0, ry * 0.05, 0, rx * 0.9, [[0, `rgba(255,214,130,${(0.28 + 0.2 * ln.warm).toFixed(3)})`], [0.5, 'rgba(255,150,60,0.13)'], [1, 'rgba(255,110,40,0)']]);
   g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.fill();
 
   ln.sprite = c; ln.sox = w / 2; ln.soy = m; ln.py = ln.y - top; ln.top = top;

@@ -1,12 +1,16 @@
 // s10 — 徽派马头墙. A cluster of Huizhou gable walls under a flat teal sky: whitewashed, rain-streaked,
-// capped with dark 小青瓦. Every tier's upturned 鹊尾 tip touches the shared arc, so the stepped skyline
-// rises toward the centre like saw-teeth riding the curve. Dark tiled roofs close the bottom of the frame.
+// capped with dark 小青瓦. Every tier's upturned 鹊尾 tip touches the shared arc, so the stepped wall-heads
+// rise toward the centre like saw-teeth riding the curve. Behind them a hazy 青山 carries the arc itself as one
+// unbroken edge against the sky; dark tiled roofs close the bottom of the frame.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
 const PAD = 240;
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const BOTTOM = H + PAD + 10;
+// nothing but sky lives above frame row Y0, so the big procedural textures only cover the rows below it (halves init time)
+const Y0 = 540, TEXH = LH - (Y0 + PAD);
+const tex = (opts) => L.noiseTex(LW, TEXH, { ...opts, oy: Y0 + PAD });
 let S = null;
 
 const COL = { sky: '#3fb0c8', wall: '#ece9e1', stain: '#8f918e', tile: '#2e2f33', brick: '#6f7478' };
@@ -61,30 +65,31 @@ function clearLayer(c) {
 // ───────────────────────── shared materials ─────────────────────────
 function buildTextures() {
   const T = {};
+  const grain = L.grainTex(LW, TEXH, { seed: 's10pg', amount: 0.3 });
   // lime plaster: big damp mottling, mid blotches, trowel drag, fine grit
   T.plaster = L.makeLayer(PAD, (g) => {
     g.fillStyle = COL.wall; g.fillRect(-PAD, -PAD, LW, LH);
     g.globalCompositeOperation = 'multiply';
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's10pa', scale: 420, octaves: 4, warp: 0.7, res: 0.2, ramp: [[0, '#d2d6d6'], [0.5, '#fbfaf8'], [1, '#ffffff']] }), -PAD, -PAD);
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's10pb', scale: 62, octaves: 4, res: 0.3, contrast: 1.5, ramp: [[0, '#e3e1db'], [0.5, '#fefdfb'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.drawImage(tex({ seed: 's10pa', scale: 420, octaves: 4, warp: 0.7, res: 0.2, ramp: [[0, '#d2d6d6'], [0.5, '#fbfaf8'], [1, '#ffffff']] }), -PAD, Y0);
+    g.drawImage(tex({ seed: 's10pb', scale: 62, octaves: 4, res: 0.3, contrast: 1.5, ramp: [[0, '#e3e1db'], [0.5, '#fefdfb'], [1, '#ffffff']] }), -PAD, Y0);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.36;
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's10pc', scale: 14, sx: 4, sy: 1, octaves: 3, res: 0.4, contrast: 1.7 }), -PAD, -PAD);
+    g.drawImage(tex({ seed: 's10pc', scale: 14, sx: 4, sy: 1, octaves: 3, res: 0.4, contrast: 1.7 }), -PAD, Y0);
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
-    g.drawImage(L.grainTex(LW, LH, { seed: 's10pg', amount: 0.3 }), -PAD, -PAD);
+    g.drawImage(grain, -PAD, Y0);
   });
   // rain-wash: long vertical streaks of grey-black mildew (alpha map)
-  T.streak = L.noiseTex(LW, LH, { seed: 's10st', scale: 24, sx: 0.42, sy: 20, octaves: 4, gain: 0.55, contrast: 2.1, res: 0.5,
+  T.streak = tex({ seed: 's10st', scale: 24, sx: 0.42, sy: 20, octaves: 4, gain: 0.55, contrast: 2.1, res: 0.5,
     ramp: [[0, L.rgba('#33383b', 0.92)], [0.24, L.rgba('#555b5d', 0.62)], [0.39, L.rgba(COL.stain, 0.22)], [0.5, L.rgba(COL.stain, 0)], [1, L.rgba(COL.stain, 0)]] });
   // green algae tint that lives inside the stains
-  T.moss = L.noiseTex(LW, LH, { seed: 's10ms', scale: 170, octaves: 4, warp: 0.8, res: 0.2,
+  T.moss = tex({ seed: 's10ms', scale: 170, octaves: 4, warp: 0.8, res: 0.2,
     ramp: [[0, L.rgba('#4d6648', 0.6)], [0.36, L.rgba('#5f7a5a', 0.12)], [0.46, L.rgba('#5f7a5a', 0)], [1, L.rgba('#5f7a5a', 0)]] });
   // 青砖 behind it
-  const bricks = L.makeCanvas(LW, LH);
+  const bricks = L.makeCanvas(LW, TEXH);
   {
     const g = bricks.getContext('2d'); const r = L.rng('s10br');
-    g.fillStyle = '#a9aba6'; g.fillRect(0, 0, LW, LH);
+    g.fillStyle = '#a9aba6'; g.fillRect(0, 0, LW, TEXH);
     const bh = 12, bl = 42;
-    for (let row = 0, y = 0; y < LH; y += bh, row++) {
+    for (let row = 0, y = 0; y < TEXH; y += bh, row++) {
       const off = (row % 2) * bl / 2 + r.range(-3, 3);
       for (let x = -bl + off; x < LW; x += bl) {
         const t = r.range(-0.2, 0.16);
@@ -93,7 +98,7 @@ function buildTextures() {
       }
     }
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.6;
-    g.drawImage(L.grainTex(LW, LH, { seed: 's10bg', amount: 0.35 }), 0, 0);
+    g.drawImage(grain, 0, 0);
   }
   T.bricks = bricks;
   return T;
@@ -106,8 +111,8 @@ function drawHorn(g, xe, y, k, dir, rh, th, lift, over = HORN) {
   g.beginPath(); g.moveTo(X(-50), Y(0)); g.quadraticCurveTo(X(-6), Y(0.8), X(over), Y(-lift));
   g.quadraticCurveTo(X(over * 0.34), Y(-0.5), X(-1), Y(rh + th * 0.5)); g.lineTo(X(-10), Y(rh + 1)); g.lineTo(X(-50), Y(rh)); g.closePath(); g.fill();
   g.beginPath(); g.moveTo(X(-3), Y(rh)); g.lineTo(X(2.4), Y(rh + th + 2)); g.lineTo(X(-3), Y(rh + th + 2)); g.closePath(); g.fill();
-  g.strokeStyle = dir < 0 ? 'rgba(200,209,216,0.9)' : 'rgba(150,160,168,0.6)'; g.lineWidth = Math.max(0.9, 1.15 * k); g.lineCap = 'round';
-  g.beginPath(); g.moveTo(X(-50), Y(0.6)); g.quadraticCurveTo(X(-6), Y(1.4), X(over - 0.8), Y(-lift + 0.9)); g.stroke();
+  g.strokeStyle = dir < 0 ? 'rgba(232,238,242,0.96)' : 'rgba(196,206,214,0.85)'; g.lineWidth = Math.max(1.1, 1.5 * k); g.lineCap = 'round';
+  g.beginPath(); g.moveTo(X(-50), Y(0.75)); g.quadraticCurveTo(X(-6), Y(1.55), X(over - 1.2), Y(-lift + 1.3)); g.stroke();
 }
 function drawCap(g, t, k, r) {
   const { xa, xb, y } = t;
@@ -157,8 +162,8 @@ function drawCap(g, t, k, r) {
   g.fillRect(xa, y, xb - xa, RH * k);
   g.strokeStyle = 'rgba(0,0,0,0.3)'; g.lineWidth = Math.max(0.6, 0.8 * k);
   g.beginPath(); for (let x = xa + 2 * k; x < xb; x += 3.1 * k) { g.moveTo(x, y + 1.2 * k); g.lineTo(x - 1.2 * k, yT); } g.stroke();
-  g.strokeStyle = 'rgba(190,200,208,0.82)'; g.lineWidth = Math.max(0.9, 1.1 * k);
-  g.beginPath(); g.moveTo(xa, y + 0.6 * k); g.lineTo(xb, y + 0.6 * k); g.stroke();
+  g.strokeStyle = 'rgba(226,233,238,0.95)'; g.lineWidth = Math.max(1.1, 1.5 * k);
+  g.beginPath(); g.moveTo(xa, y + 0.75 * k); g.lineTo(xb, y + 0.75 * k); g.stroke();
   // cushions of moss in the tile joints and along the eave
   const greens = ['#4d6a38', '#6c8a44', '#3a5030', '#8aa258', '#5b7440'];
   for (let c = 0, nc = Math.max(1, Math.round((xb - xa) / (95 * k))); c < nc; c++) {
@@ -191,8 +196,8 @@ function buildStains(tmp, T, tiers, k, r) {
     const a = L.clamp(0.42 + 1.5 * nz.fbm(x / 230, 1.7, 3), 0, 0.95);
     g.fillStyle = `rgba(0,0,0,${a.toFixed(3)})`; g.fillRect(x, -PAD, 12, LH);
   }
-  g.globalCompositeOperation = 'source-in'; g.drawImage(T.streak, -PAD, -PAD);
-  g.globalCompositeOperation = 'source-atop'; g.drawImage(T.moss, -PAD, -PAD);
+  g.globalCompositeOperation = 'source-in'; g.drawImage(T.streak, -PAD, Y0);
+  g.globalCompositeOperation = 'source-atop'; g.drawImage(T.moss, -PAD, Y0);
   g.globalCompositeOperation = 'source-over';
 }
 function drawDrips(g, tiers, k, r) {
@@ -246,7 +251,7 @@ function drawPatch(g, T, x, y, rad, r) {
   // brick, with the upper-left lip throwing its shadow in
   path(0, 0); g.clip();
   const bx = Math.floor(x - rad * 1.8), by = Math.floor(y - rad * 1.4), bw = Math.ceil(rad * 3.6), bh = Math.ceil(rad * 2.8);
-  g.drawImage(T.bricks, bx + PAD, by + PAD, bw, bh, bx, by, bw, bh);
+  g.drawImage(T.bricks, bx + PAD, by - Y0, bw, bh, bx, by, bw, bh);
   g.lineJoin = 'round';
   const sh = big ? 1 : 0.45;
   g.strokeStyle = 'rgba(12,16,22,0.34)'; g.lineWidth = 15 * sh; path(5 * sh, 7 * sh); g.stroke();
@@ -286,10 +291,10 @@ function capShadows(g, tiers, k) {
   for (const t of tiers) {
     const yB = t.y + CAPH * k, hh = 15 * k;
     g.fillStyle = L.linear(g, 0, yB, 0, yB + hh, [[0, `rgba(34,44,58,${a})`], [0.78, `rgba(34,44,58,${a * 0.9})`], [1, 'rgba(34,44,58,0)']]);
-    g.fillRect(t.xa + 3 * k, yB, t.xb - t.xa + 8 * k, hh);
+    g.fillRect(t.xa + 3 * k, yB, t.xb - t.xa + (t.tipR ? 8 : 1.5) * k, hh);
     // soft contact occlusion below it
     g.fillStyle = L.linear(g, 0, yB, 0, yB + 46 * k, [[0, 'rgba(40,50,62,0.22)'], [1, 'rgba(40,50,62,0)']]);
-    g.fillRect(t.xa, yB, t.xb - t.xa + 12 * k, 46 * k);
+    g.fillRect(t.xa, yB, t.xb - t.xa + (t.tipR ? 12 : 0) * k, 46 * k);
     if (t.tipL) { // the corbel shades the wall just beside/below it
       g.fillStyle = L.linear(g, 0, yB, 0, yB + 22 * k, [[0, 'rgba(34,44,58,0.5)'], [0.6, 'rgba(34,44,58,0.4)'], [1, 'rgba(34,44,58,0)']]);
       g.fillRect(t.bL - 2, yB, 22 * k, 22 * k);
@@ -380,7 +385,7 @@ function renderWall(T, tmp, spec) {
   g.fillRect(last.bR - 16 * k, -PAD, 16 * k, LH);
   g.restore();
   for (const t of tiers.slice().sort((p, q) => q.y - p.y)) drawCap(g, t, k, r);
-  if (haze) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = L.rgba('#a9d6e2', haze); g.fillRect(-PAD, -PAD, LW, LH); g.globalCompositeOperation = 'source-over'; }
+  if (haze) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = L.rgba('#7fabc0', haze); g.fillRect(-PAD, -PAD, LW, LH); g.globalCompositeOperation = 'source-over'; }
   return c;
 }
 /** paint a soft offset shadow of `c` onto whatever already exists in g, then (optionally) c itself */
@@ -437,25 +442,28 @@ function drawRoof(g, r, x0, x1, yR, k) {
 // ───────────────────────── scene ─────────────────────────
 function build(env) {
   const a = env.arc, cx = a.cx;
-  const T = buildTextures();
+  const __t = [performance.now()]; const __m = (n) => { __t.push(performance.now()); (globalThis.__s10t = globalThis.__s10t || []).push(n + ':' + Math.round(__t[__t.length - 1] - __t[__t.length - 2])); };
+  const T = buildTextures(); __m('tex');
   const tmp = L.makeLayer(PAD);
 
   // far → near. every tip sits on the arc; walls further back are smaller in detail and hazier
-  const wLL = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [-1110, -1260, -1400], -860), k: 0.7, seed: 's10LL', haze: 0.46, cracks: 2, chips: 1 });
-  const wRR = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [1100, 1250, 1395], 850), k: 0.7, seed: 's10RR', haze: 0.46, cracks: 2, chips: 1 });
-  const wL = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [-770, -950], -440), k: 0.9, seed: 's10L', haze: 0.27, cracks: 5, chips: 2,
+  const wLL = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [-1110, -1260, -1400], -860), k: 0.7, seed: 's10LL', haze: 0.28, cracks: 2, chips: 1 });
+  const wRR = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [1100, 1250, 1395], 850), k: 0.7, seed: 's10RR', haze: 0.28, cracks: 2, chips: 1 });
+  const wL = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [-770, -950], -440), k: 0.9, seed: 's10L', haze: 0.14, cracks: 5, chips: 2,
     windows: [[cx - 652, 852, 1]], patches: [[cx - 838, 905, 40], [cx - 560, 930, 30]] });
-  const wR = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [760, 942], 440), k: 0.9, seed: 's10R', haze: 0.27, cracks: 5, chips: 2,
+  const wR = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [760, 942], 440), k: 0.9, seed: 's10R', haze: 0.14, cracks: 5, chips: 2,
     windows: [[cx + 700, 884, 1]], patches: [[cx + 610, 842, 34], [cx + 872, 940, 44]] });
   const wC = renderWall(T, tmp, { tiers: symTiers(a, 1.2, [180, 535]), k: 1.2, seed: 's10C', cracks: 8, chips: 3,
     windows: [[cx - 338, 756, 0.92], [cx + 300, 770, 0.85]], patches: [[cx - 64, 832, 40], [cx + 412, 846, 44], [cx - 452, 842, 30], [cx + 96, 742, 15]] });
 
+  __m('walls');
   const far = L.makeLayer(PAD, (g) => {
     g.drawImage(wLL, -PAD, -PAD); g.drawImage(wRR, -PAD, -PAD);
     stack(g, wL, { alpha: 0.42, dx: 26, dy: 14, q: 4, blur: 1.2 }); stack(g, wR, { alpha: 0.42, dx: 26, dy: 14, q: 4, blur: 1.2 });
     stack(g, wC, { alpha: 0.5, dx: 40, dy: 22, draw: false, q: 4, blur: 1.2, color: '#22323f' });
   });
 
+  __m('far');
   // foreground: a row of tiled roofs stepping up toward the centre, an echo of the skyline
   const r = L.rng('s10roof');
   const near = L.makeLayer(PAD, (g) => {
@@ -472,13 +480,14 @@ function build(env) {
     // lichen, dust and uneven firing over all the tiles
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.5;
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's10rf', scale: 120, octaves: 4, warp: 0.6, res: 0.2,
-      ramp: [[0, 'rgba(0,0,0,0.55)'], [0.45, 'rgba(0,0,0,0)'], [0.62, 'rgba(150,160,150,0)'], [1, 'rgba(168,176,160,0.4)']] }), -PAD, -PAD);
+    g.drawImage(tex({ seed: 's10rf', scale: 120, octaves: 4, warp: 0.6, res: 0.2,
+      ramp: [[0, 'rgba(0,0,0,0.55)'], [0.45, 'rgba(0,0,0,0)'], [0.62, 'rgba(150,160,150,0)'], [1, 'rgba(168,176,160,0.4)']] }), -PAD, Y0);
     g.globalAlpha = 1;
     L.speckle(g, { seed: 's10lich', count: 2200, x: -PAD, y: 820, w: LW, h: 520, rMin: 0.5, rMax: 2.4, colors: ['#8a938a', '#7f8f6c', '#aab0a6', '#566546'], alpha: [0.1, 0.42] });
     g.globalCompositeOperation = 'source-over';
   });
 
+  __m('near');
   const main = L.makeLayer(PAD, (g) => {
     g.drawImage(wC, -PAD, -PAD);
     // the alley between this wall and the roofs in front is dim
@@ -496,6 +505,37 @@ function build(env) {
     g.globalCompositeOperation = 'source-over';
   }
 
+  __m('main+sun');
+  // 青山: a far wooded hill whose crest IS the arc — darkest along the ridge line, paling into valley haze behind the village
+  const hill = L.makeLayer(PAD, (g) => {
+    g.save(); a.clipBelow(g, 0);
+    const HY = 536, HH = 500;
+    const hp = (opts) => L.noiseTex(LW, HH, { ...opts, polar: { cx: a.cx + PAD, cy: a.cy - HY, R: a.R } });
+    const D = 460, st = (dr, c) => [1 + dr / D, c];
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - D, a.R, [st(-D, '#7fbcc5'), st(-230, '#5aa5b0'), st(-120, '#3f8f9b'), st(-58, '#2c7c87'), st(-20, '#1f6a73'), st(0, '#1a626a')]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+    // sun on the left flank, shade on the right
+    g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(120,190,150,0.16)'], [0.5, 'rgba(120,190,150,0)'], [1, 'rgba(8,40,60,0.2)']]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+    // forest: spurs and gullies running down-slope, then the pebbled texture of tree crowns
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.5;
+    g.drawImage(hp({ seed: 's10h1', scale: 54, sx: 1, sy: 3.6, octaves: 4, contrast: 1.6, warp: 0.4, res: 0.3 }), -PAD, HY);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.34;
+    g.drawImage(hp({ seed: 's10h2', scale: 6.5, sx: 1.2, sy: 0.9, octaves: 2, contrast: 2.0, res: 0.5, ramp: [[0, '#0f474f'], [0.55, '#ffffff'], [1, '#ffffff']] }), -PAD, HY);
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.16;
+    g.drawImage(hp({ seed: 's10h3', scale: 6.5, sx: 1.2, sy: 0.9, octaves: 2, contrast: 2.0, res: 0.5, ramp: [[0, '#000000'], [0.6, '#000000'], [1, '#bfe6d2']] }), -PAD, HY);
+    g.restore();
+    // tree line: the crest is a fringe of tiny crowns (≤ 2 px proud of the arc)
+    const rr = L.rng('s10trees');
+    g.fillStyle = '#195f67';
+    a.along({ spacing: 4, margin: PAD + 120 }, (q) => {
+      const rad = rr.range(1.4, 3.6), dr = 1.8 - rad - rr.range(0, 1.4);
+      const pt = a.pt(q.theta + rr.range(-0.0006, 0.0006), dr);
+      g.beginPath(); g.arc(pt.x, pt.y, rad, 0, L.TAU); g.fill();
+    });
+  });
+
+  __m('hill');
   // flat teal sky with the faintest breath of unevenness
   const sky = L.makeCanvas(W, H);
   {
@@ -508,7 +548,8 @@ function build(env) {
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.3;
     g.drawImage(L.grainTex(W, H, { seed: 's10sg', amount: 0.14 }), 0, 0);
   }
-  return { sky, far, main, near: L.blurred(near, 0.8) };
+  __m('sky'); const __n = L.blurred(near, 0.8); __m('blur');
+  return { sky, hill, far, main, near: __n };
 }
 
 export default {
@@ -516,8 +557,9 @@ export default {
   tone: 'light',
   init(env) { S = build(env); },
   draw(ctx, env, p) {
-    const rot = L.lerp(-0.008, 0.008, p), z = L.lerp(1.0, 1.025, p);
+    const rot = L.lerp(-0.008, 0.008, p), z = L.lerp(1.0, 1.018, p);
     ctx.drawImage(S.sky, 0, 0);
+    L.blit(ctx, env, S.hill, { rot: rot * 0.45 });   // no zoom: the crest stays exactly on the arc
     L.blit(ctx, env, S.far, { rot: rot * 0.72, zoom: 1 + (z - 1) * 0.7 });
     L.blit(ctx, env, S.main, { rot, zoom: z });
     L.blit(ctx, env, S.near, { rot: rot * 1.4, zoom: 1 + (z - 1) * 1.5 });

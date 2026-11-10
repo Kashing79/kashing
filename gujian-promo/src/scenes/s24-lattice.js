@@ -11,7 +11,7 @@ const LW = W + PAD * 2, LH = H + PAD * 2;
 let S = null;
 
 const INK = '#050505';
-const FACE = '#f1eee5';       // painted timber
+const FACE = '#f5f2ea';       // painted timber
 const GREY = '#8a867c';       // thickness / worn paint
 const FRAME_W = 56;           // outer frame: dr 0 … -56
 const FRAME_EXT = 6;          // how far the frame's thickness shows under it
@@ -19,13 +19,14 @@ const FRET_H = 50;            // key-fret band between frame and rail
 const FB = 6, FQ = 13;        // fret bar width / pitch
 const RAIL_W = 9;
 const RAILC = -(FRAME_W + FRET_H + RAIL_W / 2);   // centre line of the inner rail
-const BAR = 8;                // ice-crack bar width
-const EXT = 3.4;              // thickness showing under every lattice bar
-const TARGET = 5600;          // typical area of one ice-crack cell (px²)
+const BAR = 7.6;               // ice-crack bar width
+const FLW = 16;               // blossom radius
+const EXT = 3.6;              // thickness showing under every lattice bar
+const TARGET = 4100;          // typical area of one ice-crack cell (px²)
 
 // ───────────────────────── geometry ─────────────────────────
 function buildGeometry(a) {
-  const r = L.rng('s24-ice-1');
+  const r = L.rng('s24-ice-2');
   const sp = a.span(PAD + 80);
   const bottom = H + PAD + 50;
 
@@ -47,26 +48,59 @@ function buildGeometry(a) {
     const dx = x1 - x0, dy = y1 - y0; const t = L.clamp(((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy || 1));
     return Math.hypot(px - (x0 + dx * t), py - (y0 + dy * t));
   };
-  const SIN_MIN = Math.sin(L.deg(40)), MINJ = 23, MINCELL = TARGET * 0.3;
+  const inPoly = (p, x, y) => { let c = false; for (let i = 0, j = p.length - 1; i < p.length; j = i++) { const u = p[i], v = p[j]; if ((u.y > y) !== (v.y > y) && x < ((v.x - u.x) * (y - u.y)) / (v.y - u.y) + u.x) c = !c; } return c; };
+  const bbox = (p) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const v of p) { if (v.x < x0) x0 = v.x; if (v.x > x1) x1 = v.x; if (v.y < y0) y0 = v.y; if (v.y > y1) y1 = v.y; } return [x0, y0, x1, y1]; };
+  const medsNear = (p) => { const [x0, y0, x1, y1] = bbox(p); return meds.filter((m) => m.x > x0 - m.R && m.x < x1 + m.R && m.y > y0 - m.R && m.y < y1 + m.R); };
+  /** area of the part of a cell that is not hidden behind a medallion (sampled) */
+  const visArea = (p, A, near) => {
+    if (!near.length) return A;
+    const [x0, y0, x1, y1] = bbox(p);
+    const st = Math.max(3, Math.sqrt(((x1 - x0) * (y1 - y0)) / 160));
+    let ins = 0, vis = 0;
+    for (let y = y0 + st / 2; y < y1; y += st) for (let x = x0 + st / 2; x < x1; x += st) {
+      if (!inPoly(p, x, y)) continue; ins++;
+      let hid = false; for (const m of near) if (Math.hypot(x - m.x, y - m.y) < m.R) { hid = true; break; }
+      if (!hid) vis++;
+    }
+    return ins ? (A * vis) / ins : A;
+  };
+  /** where an infinite line crosses a convex cell: [i, ti, j, tj] */
+  const lineCut = (p, px, py, ux, uy) => {
+    const hits = [];
+    for (let i = 0; i < p.length; i++) {
+      const u = p[i], v = p[(i + 1) % p.length]; const ex = v.x - u.x, ey = v.y - u.y; const den = ex * uy - ey * ux;
+      if (Math.abs(den) < 1e-9) continue;
+      const t = ((px - u.x) * uy - (py - u.y) * ux) / den;
+      if (t >= 0 && t < 1) hits.push([i, t]);
+    }
+    return hits.length === 2 ? [hits[0][0], hits[0][1], hits[1][0], hits[1][1]] : null;
+  };
+
+  const COS_PAR = Math.cos(L.deg(15));
   const joints = poly0.filter((v) => v.c).map((v) => [v.x, v.y]);
   const bars = [], seams = [];
-  const stack = [poly0];
-  let guard = 0;
-  while (stack.length && guard++ < 6000) {
-    const poly = stack.pop();
-    const A = area(poly);
-    if (A < TARGET * r.range(0.62, 1.5)) continue;
+  /** look for a good crack across one cell; `lax` loosens the rules for cells that would otherwise stay too big */
+  const search = (poly, near, A, lax) => {
+    const SIN_MIN = Math.sin(L.deg(lax ? 33 : 40)), MINJ = lax ? 15 : 22, MINCELL = TARGET * (lax ? 0.24 : 0.3), QMIN = lax ? 0.42 : 0.5, WMIN = lax ? 20 : 23;
     const m = poly.length;
     const len = [], cum = []; let tot = 0;
     for (let i = 0; i < m; i++) { const u = poly[i], v = poly[(i + 1) % m]; const l = Math.hypot(v.x - u.x, v.y - u.y); len.push(l); tot += l; cum.push(tot); }
     const pickEdge = () => { const t = r() * tot; let i = 0; while (i < m - 1 && cum[i] < t) i++; return i; };
     const big = A > TARGET * 12;
     let best = null, found = 0;
-    for (let k = 0; k < (big ? 500 : 140) && found < 6; k++) {
-      let i = pickEdge(), j = pickEdge();
+    for (let k = 0; k < (big ? 600 : 300) && found < 6; k++) {
+      let i, j, ti, tj;
+      if (near.length && r.chance(0.5)) {
+        // aim a bar squarely at a medallion so it lands on the ring like a spoke
+        const md = r.pick(near), ang = r.range(0, Math.PI), rr = r.range(0, 0.45) * md.R, ao = r.range(0, L.TAU);
+        const cut = lineCut(poly, md.x + Math.cos(ao) * rr, md.y + Math.sin(ao) * rr, Math.cos(ang), Math.sin(ang));
+        if (!cut) continue;
+        [i, ti, j, tj] = cut;
+      } else {
+        i = pickEdge(); j = pickEdge(); ti = r.range(0.1, 0.9); tj = r.range(0.1, 0.9);
+      }
       if (i === j) continue;
-      if (i > j) { const t = i; i = j; j = t; }
-      const ti = r.range(0.1, 0.9), tj = r.range(0.1, 0.9);
+      if (i > j) { let t = i; i = j; j = t; t = ti; ti = tj; tj = t; }
       const a0 = poly[i], a1 = poly[(i + 1) % m], b0 = poly[j], b1 = poly[(j + 1) % m];
       const P = { x: L.lerp(a0.x, a1.x, ti), y: L.lerp(a0.y, a1.y, ti), c: true };
       const Q = { x: L.lerp(b0.x, b1.x, tj), y: L.lerp(b0.y, b1.y, tj), c: true };
@@ -79,27 +113,56 @@ function buildGeometry(a) {
       for (const jt of joints) { if (Math.hypot(jt[0] - P.x, jt[1] - P.y) < MINJ || Math.hypot(jt[0] - Q.x, jt[1] - Q.y) < MINJ) { ok = false; break; } }
       if (!ok) continue;
       // keep bars from grazing a medallion ring: either miss it clearly or cross it squarely
-      for (const md of meds) { const h = segDist(md.x, md.y, P.x, P.y, Q.x, Q.y); if (h > md.R * 0.7 && h < md.R + 30) { ok = false; break; } }
+      for (const md of near) { const h = segDist(md.x, md.y, P.x, P.y, Q.x, Q.y); if (h > md.R * (lax ? 0.78 : 0.68) && h < md.R + (lax ? 18 : 26)) { ok = false; break; } }
       if (!ok) continue;
       const pa = [P]; for (let t = i + 1; t <= j; t++) pa.push(poly[t]); pa.push(Q);
       const pb = [Q]; for (let t = j + 1; t <= i + m; t++) pb.push(poly[t % m]); pb.push(P);
-      const A1 = area(pa), A2 = area(pb);
-      if (Math.min(A1, A2) < Math.max(MINCELL, 0.2 * A)) continue;
+      const B1 = area(pa), B2 = area(pb);
+      if (Math.min(B1, B2) < MINCELL) continue;
+      const A1 = visArea(pa, B1, near), A2 = visArea(pb, B2, near);
+      const hid1 = A1 < TARGET * 0.05, hid2 = A2 < TARGET * 0.05;
+      if (hid1 && hid2) continue;
+      if ((!hid1 && A1 < Math.max(MINCELL, 0.2 * A)) || (!hid2 && A2 < Math.max(MINCELL, 0.2 * A))) continue;
       const p1 = perim(pa), p2 = perim(pb);
-      const q1 = (4 * Math.PI * A1) / (p1 * p1), q2 = (4 * Math.PI * A2) / (p2 * p2);
-      if ((A1 < TARGET * 0.62 && q1 < 0.5) || (A2 < TARGET * 0.62 && q2 < 0.5)) continue;
-      const score = Math.min(q1, q2) + r() * 0.16;
+      if ((2 * B1) / p1 < WMIN || (2 * B2) / p2 < WMIN) continue;
+      const q1 = (4 * Math.PI * B1) / (p1 * p1), q2 = (4 * Math.PI * B2) / (p2 * p2);
+      if ((A1 < TARGET * 0.62 && q1 < QMIN) || (A2 < TARGET * 0.62 && q2 < QMIN)) continue;
+      // ice-crack never repeats a direction: mark down bars that run parallel to a side of their own cell
+      let par = 0;
+      for (let e = 0; e < m; e++) { if (len[e] < 30 || e === i || e === j) continue; const u = poly[e], v = poly[(e + 1) % m]; if (Math.abs(((v.x - u.x) * ux + (v.y - u.y) * uy) / len[e]) > COS_PAR) { par = 1; break; } }
+      const score = Math.min(q1, q2) + r() * 0.16 - par * 0.3;
       found++;
       if (!best || score > best.score) best = { score, P, Q, pa, pb, e1x, e1y, e2x, e2y, ux, uy };
     }
+    return best;
+  };
+  const stack = [poly0];
+  let guard = 0;
+  while (stack.length && guard++ < 8000) {
+    const poly = stack.pop();
+    const near = medsNear(poly);
+    const A0 = area(poly), A = A0 < TARGET * 8 ? visArea(poly, A0, near) : A0;
+    if (A < TARGET * r.range(0.62, 1.45)) continue;
+    let best = search(poly, near, A, false);
+    if (!best && A > TARGET * 1.3) best = search(poly, near, A, true);
     if (!best) continue;
     const { P, Q } = best;
-    bars.push({ x0: P.x, y0: P.y, x1: Q.x, y1: Q.y, tone: r(), g: r() });
+    bars.push({ x0: P.x, y0: P.y, x1: Q.x, y1: Q.y, tone: r() });
     joints.push([P.x, P.y], [Q.x, Q.y]);
     seams.push({ x: P.x, y: P.y, ex: best.e1x, ey: best.e1y, dx: best.ux, dy: best.uy }, { x: Q.x, y: Q.y, ex: best.e2x, ey: best.e2y, dx: -best.ux, dy: -best.uy });
     stack.push(best.pa, best.pb);
   }
-  return { bars, seams, meds, sp };
+  // 冰梅: a few small five-petalled blossoms sitting on joints, well clear of rings, rail and each other
+  const flowers = [];
+  const fr = L.rng('s24-mei');
+  const cand = joints.slice(4).map((j) => [j[0], j[1], fr()]).sort((u, v) => u[2] - v[2]);
+  for (const [x, y] of cand) {
+    if (a.drAt(x, y) > RAILC - 46) continue;
+    if (meds.some((m) => Math.hypot(x - m.x, y - m.y) < m.R + 44)) continue;
+    if (flowers.some((f) => Math.hypot(x - f.x, y - f.y) < 150)) continue;
+    flowers.push({ x, y, rot: fr.range(0, L.TAU) });
+  }
+  return { bars, seams, meds, flowers, sp };
 }
 
 // ───────────────────────── timber outlines ─────────────────────────
@@ -170,15 +233,25 @@ function drawLattice(g, a, geo, shrink) {
     g.save(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(m.x, m.y, m.R, 0, L.TAU); g.fill(); g.restore();
     g.save(); g.translate(m.x, m.y); g.rotate(m.theta); medallion(g, m, shrink); g.restore();
   }
+  for (const f of geo.flowers) {
+    g.beginPath();
+    for (let k = 0; k < 5; k++) { const an = f.rot + (k * L.TAU) / 5; const x = f.x + Math.cos(an) * FLW * 0.56, y = f.y + Math.sin(an) * FLW * 0.56; g.moveTo(x + FLW * 0.46 - shrink, y); g.arc(x, y, FLW * 0.46 - shrink, 0, L.TAU); }
+    g.fill();
+  }
   g.lineWidth = RAIL_W - 2 * shrink; a.stroke(g, RAILC);
   drawFret(g, a, geo, shrink);
 }
 
 // ───────────────────────── materials ─────────────────────────
-function chipPattern(g, seed, thresh, scale) {
-  const tile = L.noiseTex(640, 640, { seed, scale, octaves: 3, gain: 0.6, warp: 0.7, res: 1, contrast: 1.5,
-    ramp: [[0, 'rgba(120,115,104,0)'], [thresh, 'rgba(120,115,104,0)'], [thresh + 0.035, 'rgba(126,121,110,0.85)'], [1, 'rgba(96,92,84,0.95)']] });
-  return g.createPattern(tile, 'repeat');
+const chipTiles = {};
+/** tiny flakes where the paint has let go (repeating tile; sparse on the flats, denser for arrises) */
+function chipPattern(g, kind) {
+  if (!chipTiles[kind]) {
+    const th = kind === 'dense' ? 0.76 : 0.905;
+    chipTiles[kind] = L.noiseTex(512, 512, { seed: 's24chip' + kind, scale: kind === 'dense' ? 9 : 7, octaves: 3, gain: 0.6, res: 1, contrast: 1.2,
+      ramp: [[0, 'rgba(132,127,116,0)'], [th, 'rgba(132,127,116,0)'], [th + 0.03, 'rgba(132,127,116,0.8)'], [1, 'rgba(104,100,92,0.9)']] });
+  }
+  return g.createPattern(chipTiles[kind], 'repeat');
 }
 
 /** extrude a white mask downward (the visible thickness of the timber) and put the finished face on top */
@@ -204,14 +277,14 @@ function buildLattice(env, geo) {
     const r = L.rng('s24grain');
     g.lineCap = 'butt';
     for (const b of geo.bars) {
-      g.strokeStyle = L.mix(FACE, GREY, 0.02 + 0.13 * b.tone * b.tone); g.lineWidth = BAR + 1;
+      g.strokeStyle = L.mix(FACE, GREY, 0.11 * b.tone * b.tone); g.lineWidth = BAR + 1;
       g.beginPath(); g.moveTo(b.x0, b.y0); g.lineTo(b.x1, b.y1); g.stroke();
     }
     for (const b of geo.bars) {
       const dx = b.x1 - b.x0, dy = b.y1 - b.y0, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len;
       for (let k = 0; k < 2; k++) {
         const o = r.range(-0.36, 0.36) * BAR, t0 = r.range(0, 0.35), t1 = r.range(0.6, 1);
-        g.strokeStyle = L.rgba('#6d695f', r.range(0.1, 0.26)); g.lineWidth = r.range(0.6, 1.1);
+        g.strokeStyle = L.rgba('#6d695f', r.range(0.12, 0.3)); g.lineWidth = r.range(0.6, 1.1);
         g.beginPath();
         for (let i = 0; i <= 5; i++) { const t = L.lerp(t0, t1, i / 5), w = o + r.range(-0.5, 0.5); const x = b.x0 + dx * t + nx * w, y = b.y0 + dy * t + ny * w; if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
         g.stroke();
@@ -226,25 +299,33 @@ function buildLattice(env, geo) {
       g.moveTo(cx - s.ex * k, cy - s.ey * k); g.lineTo(cx + s.ex * k, cy + s.ey * k);
     }
     g.stroke();
+    // blossoms: petals parted by fine cuts, a small round heart
+    for (const f of geo.flowers) {
+      g.fillStyle = FACE; g.beginPath(); g.arc(f.x, f.y, FLW, 0, L.TAU); g.fill();
+      g.strokeStyle = 'rgba(64,60,53,0.6)'; g.lineWidth = 1.1; g.beginPath();
+      for (let k = 0; k < 5; k++) { const an = f.rot + ((k + 0.5) * L.TAU) / 5; g.moveTo(f.x + Math.cos(an) * 3.6, f.y + Math.sin(an) * 3.6); g.lineTo(f.x + Math.cos(an) * FLW, f.y + Math.sin(an) * FLW); }
+      g.stroke();
+      g.strokeStyle = 'rgba(64,60,53,0.7)'; g.lineWidth = 1.2; g.beginPath(); g.arc(f.x, f.y, 3.6, 0, L.TAU); g.stroke();
+    }
     // soft, broad unevenness of old paint
-    g.globalAlpha = 0.9;
+    g.globalAlpha = 0.6;
     g.drawImage(L.noiseLayer(PAD, { seed: 's24tone', scale: 210, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.32)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.3)']] }), -PAD, -PAD);
     g.globalAlpha = 1;
     // a few chips straight through the paint
-    g.fillStyle = chipPattern(g, 's24chipA', 0.78, 9); g.fillRect(-PAD, -PAD, LW, LH);
+    g.fillStyle = chipPattern(g, 'sparse'); g.fillRect(-PAD, -PAD, LW, LH);
   });
   // paint flaking along the arrises (edge band = mask − slightly shrunken mask)
   {
     const edge = L.makeLayer(PAD, (g) => {
-      g.fillStyle = chipPattern(g, 's24chipB', 0.6, 13); g.fillRect(-PAD, -PAD, LW, LH);
+      g.fillStyle = chipPattern(g, 'dense'); g.fillRect(-PAD, -PAD, LW, LH);
       g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, -PAD, -PAD);
       g.globalCompositeOperation = 'destination-out'; drawLattice(g, a, geo, 1.7);
     });
     const g = face.getContext('2d');
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.8; g.drawImage(edge, 0, 0);
+    g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.7; g.drawImage(edge, 0, 0);
     // rounded arrises: relief light from the upper left
-    const bump = L.bumpLight(L.blurred(mask, 1.1), { angle: 45, strength: 0.55, res: 1 });
+    const bump = L.bumpLight(L.blurred(mask, 1.1), { angle: 45, strength: 0.7, res: 0.75 });
     g.globalAlpha = 0.75; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, 0);
     g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, 0, 0);
   }
@@ -252,7 +333,7 @@ function buildLattice(env, geo) {
   // the frame stands proud of the lattice and shades the first rows beneath it
   const g = out.getContext('2d');
   g.translate(PAD, PAD); g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - FRAME_W - 46, a.R - FRAME_W, [[0, 'rgba(0,0,0,0)'], [0.6, 'rgba(0,0,0,0.22)'], [1, 'rgba(0,0,0,0.6)']]);
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - FRAME_W - 46, a.R - FRAME_W, [[0, 'rgba(0,0,0,0)'], [0.6, 'rgba(0,0,0,0.16)'], [1, 'rgba(0,0,0,0.5)']]);
   a.pathBand(g, -FRAME_W + 2, -FRAME_W - 46); g.fill();
   return out;
 }
@@ -272,29 +353,34 @@ function buildFrame(env) {
     g.drawImage(mask, -PAD, -PAD);
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = FACE; g.fillRect(-PAD, -PAD, LW, LH);
-    // grain running round the frame
-    g.globalAlpha = 0.85;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's24fgrain', scale: 5, sx: 46, sy: 1, octaves: 3, contrast: 1.5, res: 0.5,
-      ramp: [[0, 'rgba(104,98,86,0.4)'], [0.42, 'rgba(104,98,86,0)'], [0.75, 'rgba(255,255,255,0)'], [1, 'rgba(255,255,255,0.35)']] }), -PAD, -PAD);
+    // grain running round the frame: long hairlines that follow the curve
+    const r = L.rng('s24frame');
+    const s = a.span(PAD + 60);
+    for (let i = 0; i < 620; i++) {
+      const dr = -r.range(1, FRAME_W - 1), t0 = r.range(-s, s), tl = r.range(0.02, 0.13);
+      g.strokeStyle = r.chance(0.62) ? L.rgba('#6d695f', r.range(0.06, 0.26)) : L.rgba('#ffffff', r.range(0.15, 0.5));
+      g.lineWidth = r.range(0.5, 1.5);
+      g.beginPath(); a.trace(g, dr, t0, t0 + tl); g.stroke();
+    }
+    g.globalAlpha = 0.7;
     g.drawImage(L.noiseLayer(PAD, { seed: 's24ftone', scale: 300, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.3)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.3)']] }), -PAD, -PAD);
     g.globalAlpha = 1;
     // the ring is pieced from curved segments: scarf joints every so often
-    const s = a.span(PAD + 60);
     for (let th = -s + 0.07; th < s; th += 0.262) {
       a.at(g, th, 0, () => {
         g.strokeStyle = 'rgba(60,56,50,0.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-7, 0); g.lineTo(7, FRAME_W); g.stroke();
         g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(-5.6, 0); g.lineTo(8.4, FRAME_W); g.stroke();
       });
     }
-    // worn paint: sparse flakes on the flat, more along the inner bead
-    g.fillStyle = chipPattern(g, 's24chipF', 0.8, 15); g.fillRect(-PAD, -PAD, LW, LH);
+    // worn paint: sparse specks on the flat, more along the inner bead
+    g.fillStyle = chipPattern(g, 'sparse'); g.fillRect(-PAD, -PAD, LW, LH);
     g.save(); a.clipBand(g, -40, -FRAME_W);
-    g.fillStyle = chipPattern(g, 's24chipG', 0.66, 11); g.fillRect(-PAD, -PAD, LW, LH);
+    g.fillStyle = chipPattern(g, 'dense'); g.fillRect(-PAD, -PAD, LW, LH);
     g.restore();
   });
   const g = face.getContext('2d');
   g.setTransform(1, 0, 0, 1, 0, 0);
-  const bump = L.bumpLight(L.blurred(height, 1), { angle: 45, strength: 1.5, res: 1 });
+  const bump = L.bumpLight(L.blurred(height, 1), { angle: 45, strength: 2.6, res: 0.5 });
   g.globalAlpha = 0.8; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, 0, 0);
   return assemble(mask, face, FRAME_EXT);
@@ -309,19 +395,21 @@ export default {
     const wg = win.getContext('2d');
     wg.setTransform(1, 0, 0, 1, 0, 0); wg.globalCompositeOperation = 'source-over';
     wg.drawImage(buildFrame(env), 0, 0);
-    S = { win, bloom: L.blurred(win, 14) };
+    // halation: a breath of glow around the white timber, baked under it
+    const out = L.makeCanvas(LW, LH); out._pad = PAD;
+    const g = out.getContext('2d');
+    g.globalAlpha = 0.17; g.drawImage(L.blurred(win, 12), 0, 0);
+    g.globalAlpha = 1; g.drawImage(win, 0, 0);
+    S = { win: out };
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.0055, 0.0055, p), zoom = L.lerp(1.0, 1.035, p);
+    const rot = L.lerp(-0.0055, 0.0055, p), zoom = L.lerp(0.985, 1.02, p);   // push-in centred on 1 → the frame edge never leaves the arc by more than a few px
     ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
-    L.blit(ctx, env, S.bloom, { rot, zoom, alpha: 0.3, blend: 'screen' });
     L.blit(ctx, env, S.win, { rot, zoom });
-    // a pool of light drifting along the frame; the black ground is untouched by it
-    const lp = a.pt(L.lerp(-0.075, 0.045, p), -110);
-    ctx.save(); ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1300, [[0, '#ffffff'], [0.3, '#f4f3ee'], [0.62, '#b3b0a9'], [1, '#75736d']]);
+    // a pool of light drifting along the frame (falls off into shade; the black ground stays black)
+    const lp = a.pt(L.lerp(-0.075, 0.045, p), -120);
+    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1250, [[0, 'rgba(0,0,0,0)'], [0.26, 'rgba(0,0,0,0.03)'], [0.58, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0.7)']]);
     ctx.fillRect(0, 0, W, H);
-    ctx.restore();
   },
 };
