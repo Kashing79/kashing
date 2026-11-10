@@ -297,6 +297,8 @@ function buildCollage(env) {
         chalk(L.lerp(tl[0], tr[0], u), L.lerp(tl[1], tr[1], u) + 7, L.lerp(bl[0], br[0], u), L.lerp(bl[1], br[1], u) - 4, { width: 2.0, alpha: 0.5, density: 0.8, color: '#cfcabb' });
       }
     };
+    // roof ridge (屋脊): a slate-grey strip along the top of an eave roof, its ends tipped up a little
+    const ridge = (tl, tr, seed) => paper(g, cut([[tl[0] - 13, tl[1] - 10], [tl[0] + 22, tl[1] - 4], [tr[0] - 22, tr[1] - 4], [tr[0] + 13, tr[1] - 10], [tr[0] + 11, tr[1] + 3], [tr[0] - 22, tr[1] + 7], [tl[0] + 22, tl[1] + 7], [tl[0] - 11, tl[1] + 3]], seed, 0.6, 80, 10), { color: '#42474d', lift: 0.4, sh: 0.9, tex: 0.4, curl: 0.5 });
     const sliver = (x, y, len, th, tilt, color, seed) => {
       const pts = []; const m = 18;
       for (let i = 0; i <= m; i++) { const u = i / m; pts.push([x + (u - 0.5) * len, y + (u - 0.5) * len * tilt - th * 0.5 * Math.pow(Math.sin(Math.PI * u), 0.55)]); }
@@ -321,6 +323,7 @@ function buildCollage(env) {
       const tl = [-78, 806], tr = [236, 798], br = [297, 880], bl = [-116, 886];
       paper(g, cut(eaveRoof(tl, tr, br, bl, 13), 'Lfr', 1.0, 120, 7), { color: C.black, tex: 0.34, lift: 0.9, crumple: 0.16, peel: [[296, 880, 80]] });
       tileLines(tl, tr, br, bl, 13);
+      ridge(tl, tr, 'Lfg');
     }
     lantern(41, 890, 938); lantern(229, 888, 936);
 
@@ -333,8 +336,9 @@ function buildCollage(env) {
       const tl = [1808, 824], tr = [2030, 832], br = [2062, 898], bl = [1771, 900];
       paper(g, cut(eaveRoof(tl, tr, br, bl, 9), 'Rsr', 1.0, 120, 7), { color: C.black, tex: 0.34, lift: 0.9, crumple: 0.16 });
       tileLines(tl, tr, br, bl, 9);
+      ridge(tl, tr, 'Rsg');
     }
-    lantern(1836, 902, 948); lantern(1893, 902, 950);
+    lantern(1824, 902, 948); lantern(1879, 902, 950);
 
     // ── the bridge ──
     const BX = 985, YB = 1010;

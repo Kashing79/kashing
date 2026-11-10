@@ -1,8 +1,9 @@
 // s28 — 月下瓦垄. Moonlight raking across a grey-tile roof (筒瓦屋面), almost black & white.
 // The arc is the roof's round ridge: a row of 筒瓦 crowns makes a softly scalloped edge whose crests touch env.arc.
 // Below it the tile ridges (凸起的筒瓦垄) run down the slope along the radius, alternating with the sunken 板瓦 troughs.
-// Recipe: build a real HEIGHT FIELD of the roof once in init() (tubes, pan-tile laps, joints, grit, moss), light it with a
-// low raking light from the upper left (lambert + marched cast shadows), then blit that single layer with a small rot.
+// Recipe: build a real HEIGHT FIELD of the roof once in init() (tubes, pan-tile laps, joints, grit, lichen, moss, 瓦松),
+// light it with a low raking light from the upper left (lambert + marched cast shadows + a breath of skylight), tone it
+// like a lith print, then blit that single layer with a small rot while a patch of brighter moonlight drifts along the ridge.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -180,6 +181,14 @@ function buildRoof(env) {
   }
 
   // ── height field + albedo ──
+  // the two broad, slow noises (blotches / roughness) are sampled on a coarse grid and interpolated: same look, half the work
+  const GS = 8, gw2 = Math.ceil(cw / GS) + 2, gh2 = Math.ceil(ch / GS) + 2;
+  const gA = new Float32Array(gw2 * gh2), gR = new Float32Array(gw2 * gh2);
+  for (let j = 0; j < gh2; j++) for (let i = 0; i < gw2; i++) {
+    const X = x0 + (i * GS) / RES, Y = y0 + (j * GS) / RES;
+    gA[j * gw2 + i] = nz.fbm(X * 0.011, Y * 0.011, 3);
+    gR[j * gw2 + i] = nz.fbm(X * 0.02 + 70, Y * 0.02 - 30, 2);
+  }
   const loc = { ki: 0, f: 0 };
   for (let j = 0; j < ch; j++) {
     const Y = y0 + (j + 0.5) / RES, dy = a.cy - Y;
@@ -216,11 +225,13 @@ function buildRoof(env) {
       }
       if (w < W0) { const t = 1 - w / W0; h -= KR * t * t; }    // the ridge rolls over, away from us
       // weathering: broad blotches, lumps, grit, rain streaks down the slope, pale lichen crust, moss
-      const nA = nz.fbm(X * 0.011, Y * 0.011, 3);
+      const gx = (i + 0.5) / GS, gy = (j + 0.5) / GS, gi = gx | 0, gj = gy | 0, tx = gx - gi, ty = gy - gj, g0 = gj * gw2 + gi;
+      const nA = (gA[g0] * (1 - tx) + gA[g0 + 1] * tx) * (1 - ty) + (gA[g0 + gw2] * (1 - tx) + gA[g0 + gw2 + 1] * tx) * ty;
+      const nR = (gR[g0] * (1 - tx) + gR[g0 + 1] * tx) * (1 - ty) + (gR[g0 + gw2] * (1 - tx) + gR[g0 + gw2 + 1] * tx) * ty;
       const nB = nz.fbm(X * 0.1 + 13, Y * 0.1, 2);
       const nC = nz.n2(X * 0.45 + 40, Y * 0.45);
       const st = nz.fbm(th * a.R * 0.05, v * 0.006 + 9, 2);
-      const ro = L.smooth(0.5 + 1.6 * nz.fbm(X * 0.02 + 70, Y * 0.02 - 30, 2));      // where the surface has gone rough
+      const ro = L.smooth(0.5 + 1.6 * nR);                                            // where the surface has gone rough
       h += nA * 1.5 + nB * (0.45 + 0.9 * ro) + nC * (0.2 + 0.25 * ro) + pitH[idx];
       al *= (0.86 + 0.2 * nA) * (0.88 + 0.22 * st) * (1.04 - 0.1 * ro);
       const lc = lichA[idx];

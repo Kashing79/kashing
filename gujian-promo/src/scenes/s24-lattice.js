@@ -26,7 +26,7 @@ const TARGET = 4100;          // typical area of one ice-crack cell (px²)
 
 // ───────────────────────── geometry ─────────────────────────
 function buildGeometry(a) {
-  const r = L.rng('s24-ice-2');
+  const r = L.rng('s24-ice-4');
   const sp = a.span(PAD + 80);
   const bottom = H + PAD + 50;
 
@@ -76,7 +76,7 @@ function buildGeometry(a) {
     return hits.length === 2 ? [hits[0][0], hits[0][1], hits[1][0], hits[1][1]] : null;
   };
 
-  const COS_PAR = Math.cos(L.deg(15));
+  const COS_PAR = Math.cos(L.deg(20));
   const joints = poly0.filter((v) => v.c).map((v) => [v.x, v.y]);
   const bars = [], seams = [];
   /** look for a good crack across one cell; `lax` loosens the rules for cells that would otherwise stay too big */
@@ -88,7 +88,7 @@ function buildGeometry(a) {
     const pickEdge = () => { const t = r() * tot; let i = 0; while (i < m - 1 && cum[i] < t) i++; return i; };
     const big = A > TARGET * 12;
     let best = null, found = 0;
-    for (let k = 0; k < (big ? 600 : 300) && found < 6; k++) {
+    for (let k = 0; k < (big ? 600 : 320) && found < 9; k++) {
       let i, j, ti, tj;
       if (near.length && r.chance(0.5)) {
         // aim a bar squarely at a medallion so it lands on the ring like a spoke
