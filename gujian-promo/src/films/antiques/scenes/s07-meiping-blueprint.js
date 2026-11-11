@@ -353,7 +353,7 @@ function build(env) {
       dash(g, ix, iy - 26, ix, yb + 26, [34, 7, 5, 7], 2.8, { wob: 0.2 });
       for (const l of lead) { cs(g, [l.a, l.b], 2.9, { press: 0.92, wob: 0.3 }); dot(g, l.a[0], l.a[1], 4); }
       g.globalAlpha = 1;
-      for (const l of lead) L.text(g, l.ch, ix + 182, l.ly + 1, { font: 'brush', size: 44, weight: 400, color: '#fff' });
+      for (const l of lead) L.text(g, l.ch, ix + 182, l.ly + 1, { font: '"GJ WenKai", "GJ Brush", cursive', size: 44, weight: 400, color: '#fff' });
     } }, { color: PALE, draw(g) {
       for (const t of [0.186, 0.208, 0.46]) cs(g, [[ix + 4, iy + t * Hv], [ix + rAt(t) - 3, iy + t * Hv]], 2.4, { wob: 0.2 });
     } }], [
