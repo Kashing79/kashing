@@ -37,7 +37,7 @@ const b1 = len(sb.tagline[0]), b2 = len(sb.tagline[1]), b3 = len(sb.tagline[2]);
 // weight follows stroke density: sparse glyphs (few strokes) get the heavier cut, dense glyphs stay at 600
 const dense = (s) => /[藏赢繁鹰瓣鑫麟馨蠡鼎疆鬱]/.test(s) || len(s) >= 5;
 const beats = {
-  1: { text: sb.tagline[0], size: Math.round(80 * Math.min(1.12, 4 / b1) ** 0.8), gap: 30, weight: 700, spacing: 6, stroke: 1.0 },
+  1: Object.assign({ text: sb.tagline[0], size: Math.round(80 * Math.min(1.12, 4 / b1) ** 0.8), gap: 30, weight: 700, spacing: 9, stroke: 1.0 }, sb.tagline[0][0] === '一' ? { kern: [-6] } : {}),
   2: { text: sb.tagline[1], size: Math.round(112 * Math.min(1.08, 2 / b2) ** 0.6), gap: 30, weight: dense(sb.tagline[1]) ? 600 : 700, spacing: 12, stroke: 1.0 },
   3: { text: sb.tagline[2], size: Math.round(160 * Math.min(1.08, 2 / b3) ** 0.7), sizeEnd: Math.round(200 * Math.min(1.08, 2 / b3) ** 0.7), gap: 32, weight: 700, spacing: 14, stroke: 0.8 },
 };
