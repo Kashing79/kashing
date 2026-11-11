@@ -51,9 +51,10 @@ let S = null;
 
 // ── colour by distance from the rim (px). Task palette: 月白 #e6f3ef · 天青 #8fc9c4 · 青蓝 #3f7f9a · 夜蓝 #0d1b3a · #050a16 ──
 const FAR = [[495, '#0d1b3a'], [650, '#0a152e'], [850, '#070f22'], [1150, '#050a16'], [2800, '#04080f']];
-// (the stops are spaced so that the fall-off never changes pace abruptly: a knee in it would read as the edge of a band)
-const SKY_BRIGHT = [[0, '#bde2dd'], [5, '#b1dcd7'], [14, '#a6d6d1'], [30, '#9ad0cb'], [54, '#8fc9c4'], [87, '#7bc1c3'], [134, '#63b1be'],
-  [182, '#4f9cb2'], [240, '#3f7f9a'], [292, '#2e6992'], [362, '#205080'], [434, '#173b6a'], [508, '#122b53'], [586, '#0e2042'], [707, '#0a152e'], [837, '#070f22']];
+// (the stops are chosen so that red, green and blue each fall away at a pace that never changes abruptly: a knee in any
+// of them would read as the edge of a band of colour)
+const SKY_BRIGHT = [[0, '#bde2dd'], [5, '#b1dcd7'], [14, '#a6d6d1'], [30, '#9ad0cb'], [54, '#8fc9c4'], [87, '#7ec1c3'], [134, '#65b1be'],
+  [182, '#509cb0'], [240, '#3c7f9e'], [292, '#2e6990'], [362, '#20507e'], [434, '#173b6a'], [508, '#122b53'], [586, '#0e2042'], [707, '#0a152e'], [837, '#070f22']];
 const SKY_DIM = [[0, '#5a9cae'], [2.5, '#468aa0'], [9, '#3f7f9a'], [26, '#35708f'], [58, '#2a5d82'], [105, '#204b74'], [165, '#183b66'], [240, '#132e58'],
   [320, '#10254b'], [422, '#0e1f41'], ...FAR];
 const DEEP = [[300, '#071123'], [430, '#060e1e'], [620, '#050b18'], [1400, '#04080f']];
@@ -66,28 +67,38 @@ const MOON = [233, 245, 241];    // the lip highlight (月白)
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
 
-/** colour ramp through [distance, css colour] stops as one smooth curve (cubic, tangents from the three nearest stops and held monotone: no kink at a stop, no flat spot or overshoot between two) */
+/**
+ * colour ramp through [distance, css colour] stops as one smooth curve: a natural cubic spline, so that not only the
+ * colour but also the pace and the bend of the fall-off are continuous (a kink at a stop would show as a faint ring).
+ * The spline runs in log-distance, where the stops are evenly spread, and is held between the two stops it is passing.
+ */
 function smoothRamp(stops) {
-  const xs = stops.map((st) => st[0]), cs = stops.map((st) => L.parseColor(st[1])), n = xs.length;
+  const warp = (t) => Math.log(1 + t / 9);
+  const xs = stops.map((st) => warp(st[0])), cs = stops.map((st) => L.parseColor(st[1])), n = xs.length;
   const ms = [0, 1, 2].map((ch) => {
-    const d = [], m = new Array(n);
-    for (let i = 0; i < n - 1; i++) d.push((cs[i + 1][ch] - cs[i][ch]) / (xs[i + 1] - xs[i]));
-    m[0] = d[0]; m[n - 1] = d[n - 2];
+    const a = new Float64Array(n), b = new Float64Array(n), c = new Float64Array(n), d = new Float64Array(n), m = new Float64Array(n);
+    b[0] = b[n - 1] = 1;
     for (let i = 1; i < n - 1; i++) {
       const h0 = xs[i] - xs[i - 1], h1 = xs[i + 1] - xs[i];
-      const t = (h1 * d[i - 1] + h0 * d[i]) / (h0 + h1), lim = 3 * Math.min(Math.abs(d[i - 1]), Math.abs(d[i]));
-      m[i] = d[i - 1] * d[i] <= 0 ? 0 : Math.sign(t) * Math.min(Math.abs(t), lim);
+      a[i] = h0; b[i] = 2 * (h0 + h1); c[i] = h1;
+      d[i] = 6 * ((cs[i + 1][ch] - cs[i][ch]) / h1 - (cs[i][ch] - cs[i - 1][ch]) / h0);
     }
+    for (let i = 1; i < n; i++) { const k = a[i] / b[i - 1]; b[i] -= k * c[i - 1]; d[i] -= k * d[i - 1]; }
+    m[n - 1] = d[n - 1] / b[n - 1];
+    for (let i = n - 2; i >= 0; i--) m[i] = (d[i] - c[i] * m[i + 1]) / b[i];
     return m;
   });
   return (t) => {
-    if (t <= xs[0]) return cs[0];
-    if (t >= xs[n - 1]) return cs[n - 1];
+    const x = warp(t);
+    if (x <= xs[0]) return cs[0];
+    if (x >= xs[n - 1]) return cs[n - 1];
     let i = 0;
-    while (t > xs[i + 1]) i++;
-    const h = xs[i + 1] - xs[i], u = (t - xs[i]) / h, u2 = u * u, u3 = u2 * u;
-    const a = 2 * u3 - 3 * u2 + 1, b = (u3 - 2 * u2 + u) * h, c = 3 * u2 - 2 * u3, e = (u3 - u2) * h;
-    return [0, 1, 2].map((ch) => a * cs[i][ch] + b * ms[ch][i] + c * cs[i + 1][ch] + e * ms[ch][i + 1]);
+    while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], A = (xs[i + 1] - x) / h, B = (x - xs[i]) / h, k = (h * h) / 6;
+    return [0, 1, 2].map((ch) => {
+      const p = cs[i][ch], q = cs[i + 1][ch], v = A * p + B * q + ((A * A * A - A) * ms[ch][i] + (B * B * B - B) * ms[ch][i + 1]) * k;
+      return p < q ? (v < p ? p : v > q ? q : v) : v < q ? q : v > p ? p : v;
+    });
   };
 }
 
@@ -261,7 +272,7 @@ function crackle() {
       for (let i = 0; i < n; i++) { const t = Math.abs((P[i][0] - cu) * gx + (P[i][1] - cv) * gy); if (t > ext) ext = t; }
       // one flake in a dozen lies at just the angle to throw the light back (the shimmer the crackle is named for)
       const glint = r.chance(0.085);
-      cells.push({ P, cu, cv, gx, gy, ext, base: glint ? r.range(0.55, 1) : L.clamp(r.gauss() * 0.3, -0.7, 0.7), amp: glint ? r.range(0.3, 0.5) : r.range(0.22, 0.55) });
+      cells.push({ P, cu, cv, gx, gy, ext, base: glint ? r.range(0.55, 1) : L.clamp(r.gauss() * 0.3, -0.5, 0.7), amp: glint ? r.range(0.3, 0.5) : r.range(0.22, 0.55) });
       // now and then a crack has only started (it tapers out inside the flake), or one lies deeper in the glaze, under
       // the surface: no hairline to it, only its glow
       if (hit && A > 1000 && r.chance(0.42)) {
@@ -362,7 +373,7 @@ function buildFields(a) {
       sg.fillStyle = `rgb(0,${Math.round(255 * v * c.k)},0)`; sg.fill();
     }
     // a bold crack that crosses the lip nicks the highlight there
-    const dep = 0.36 * Math.pow(L.clamp((c.k - 0.5) / 0.5), 1.2);
+    const dep = 0.36 * Math.pow(L.clamp((c.k - 0.7) / 0.3), 1.2);
     if (dep > 0.01) for (let i = 1; i < n; i++) {
       if ((pts[i - 1].V - 2) * (pts[i].V - 2) >= 0) continue;
       const U = L.lerp(pts[i - 1].U, pts[i].U, (2 - pts[i - 1].V) / (pts[i].V - pts[i - 1].V)), sw = 1 + 0.7 * sigmaOf(U), dd = dep * Math.pow(1.35 / sw, 0.7);

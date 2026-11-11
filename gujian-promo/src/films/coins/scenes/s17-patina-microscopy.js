@@ -123,23 +123,72 @@ function relight(d, hB, sB, gB, RW, RH, o) {
 // focus sits on the crest of the arc; this is how far (in "focus radii") a frame point is from it
 const FOC = { rx: 700, ry: 330, dy: 24 };
 
-/** shallow depth of field: progressively blurred copies are laid over the sharp layer away from the focus; the arc edge itself stays crisp */
-function depthOfField(env, src, X0, Y0) {
-  const a = env.arc, w = src.width, h = src.height, hw = Math.ceil(w / 2), hh = Math.ceil(h / 2);
+/** one horizontal + one vertical box-blur pass of radius r over a w×h float plane (edges clamped); src is overwritten, tmp is scratch */
+function boxBlur(src, tmp, w, h, r) {
+  const inv = 1 / (2 * r + 1);
+  for (let j = 0; j < h; j++) {
+    const o = j * w;
+    let acc = src[o] * (r + 1);
+    for (let i = 1; i <= r; i++) acc += src[o + (i < w ? i : w - 1)];
+    for (let i = 0; i < w; i++) {
+      tmp[o + i] = acc * inv;
+      const ia = i + r + 1, ib = i - r;
+      acc += src[o + (ia < w ? ia : w - 1)] - src[o + (ib > 0 ? ib : 0)];
+    }
+  }
+  for (let i = 0; i < w; i++) {
+    let acc = tmp[i] * (r + 1);
+    for (let j = 1; j <= r; j++) acc += tmp[(j < h ? j : h - 1) * w + i];
+    for (let j = 0; j < h; j++) {
+      src[j * w + i] = acc * inv;
+      const ja = j + r + 1, jb = j - r;
+      acc += tmp[(ja < h ? ja : h - 1) * w + i] - tmp[(jb > 0 ? jb : 0) * w + i];
+    }
+  }
+}
+
+/**
+ * Shallow depth of field, done the way a lens does it: in linear light. Progressively blurred copies (half size — nobody can
+ * tell, and it is four times cheaper) are laid over the sharp layer away from the focus; because the blur averages light and
+ * not pigment values, out-of-focus highlights swell and stay bright instead of going muddy. Three box passes make each blur a
+ * near-gaussian. The arc edge itself is kept out of it and stays crisp. img = the lit layer as ImageData.
+ */
+function depthOfField(env, img, X0, Y0) {
+  const a = env.arc, w = img.width, h = img.height, hw = Math.ceil(w / 2), hh = Math.ceil(h / 2), n = hw * hh, d = img.data;
   const out = L.makeCanvas(w, h), g = out.getContext('2d');
-  g.drawImage(src, 0, 0);
-  // the blurs are done at half size (nobody can tell, and it is four times cheaper)
-  const half = L.makeCanvas(hw, hh);
-  half.getContext('2d').drawImage(src, 0, 0, w / 2, h / 2);
+  g.putImageData(img, 0, 0);
+  // half-size copy in linear light (value², near enough), weighted by coverage so the transparent side of an edge adds nothing
+  const P = [new Float32Array(n), new Float32Array(n), new Float32Array(n), new Float32Array(n)];
+  for (let j = 0; j < hh; j++) {
+    const ja = j * 2, jb = ja + 1 < h ? ja + 1 : ja;
+    for (let i = 0; i < hw; i++) {
+      const ia = i * 2, ib = ia + 1 < w ? ia + 1 : ia;
+      let r = 0, gg = 0, b = 0, al = 0;
+      for (let k = 0; k < 4; k++) {
+        const q = ((k < 2 ? ja : jb) * w + (k & 1 ? ib : ia)) * 4, aa = d[q + 3];
+        r += d[q] * d[q] * aa; gg += d[q + 1] * d[q + 1] * aa; b += d[q + 2] * d[q + 2] * aa; al += aa;
+      }
+      const p = j * hw + i;
+      P[0][p] = r; P[1][p] = gg; P[2][p] = b; P[3][p] = al;
+    }
+  }
   // a soft ribbon along the arc that the blur is kept out of: the shared edge must stay exact
   const rib = L.makeCanvas(hw, hh), rgx = rib.getContext('2d');
   rgx.scale(0.5, 0.5); rgx.translate(-X0, -Y0); rgx.filter = 'blur(5px)'; rgx.strokeStyle = '#000'; rgx.lineWidth = 40; a.stroke(rgx, 0); rgx.filter = 'none';
   const tmp = L.makeCanvas(hw, hh), tg = tmp.getContext('2d');
-  for (const [px, e0, e1] of [[0, 0.9, 1.3], [2.1, 1.25, 1.75], [4.4, 1.7, 2.5]]) {
-    const bl = px ? L.blurred(half, px) : half;
+  const Q = [new Float32Array(n), new Float32Array(n), new Float32Array(n), new Float32Array(n)], scr = new Float32Array(n);
+  const lvl = new ImageData(hw, hh), ld = lvl.data;
+  // [box radii (≈ gaussian σ 0 / 2.2 / 4.5 half-size px), where the copy starts to show, where it is fully in] (focus radii)
+  for (const [radii, e0, e1] of [[[], 0.9, 1.3], [[1, 2, 2], 1.25, 1.75], [[4, 4, 4], 1.7, 2.5]]) {
+    for (let c = 0; c < 4; c++) { Q[c].set(P[c]); for (const r of radii) boxBlur(Q[c], scr, hw, hh, r); }
+    for (let p = 0, q = 0; p < n; p++, q += 4) {
+      const al = Q[3][p];
+      if (al > 0.5) { ld[q] = Math.sqrt(Q[0][p] / al); ld[q + 1] = Math.sqrt(Q[1][p] / al); ld[q + 2] = Math.sqrt(Q[2][p] / al); ld[q + 3] = al * 0.25; }
+      else ld[q + 3] = 0;
+    }
     tg.setTransform(1, 0, 0, 1, 0, 0);
-    tg.globalCompositeOperation = 'copy';
-    tg.drawImage(bl, 0, 0);
+    tg.globalCompositeOperation = 'source-over';
+    tg.putImageData(lvl, 0, 0);
     tg.globalCompositeOperation = 'destination-in';
     tg.setTransform(FOC.rx / 2, 0, 0, FOC.ry / 2, (a.cx - X0) / 2, (a.crestY + FOC.dy - Y0) / 2);
     const grd = tg.createRadialGradient(0, 0, e0, 0, 0, e1);
@@ -282,9 +331,9 @@ function buildUpper(env) {
       // each blade is broken along its length into cleavage segments, every one a slightly different pair of facets.
       // a cleavage crack is neither ruler-straight nor square to the blade: it leans a little and wanders as it crosses
       const segLen = P * (1.1 + 1.9 * hs2);
-      const cwv = xb * 0.1 + hs * 61, cwi = cwv | 0, cwk = cwi & 1023;
-      const wob = SR[cwk] + (SR[cwk + 1] - SR[cwk]) * (cwv - cwi);
-      const sl = (along + (hs3 - 0.5) * 0.7 * xb + 2.4 * wob) / segLen + hs * 13, ai = Math.floor(sl), af = sl - ai;
+      const cwv = xb * 0.1 + hs * 61, cwi = cwv | 0, cwk = cwi & 1023, cwu = xb * 0.031 + hs * 17, cui = cwu | 0, cuk = cui & 1023;
+      const wob = SR[cwk] + (SR[cwk + 1] - SR[cwk]) * (cwv - cwi), wob2 = SR[cuk] + (SR[cuk + 1] - SR[cuk]) * (cwu - cui);
+      const sl = (along + (hs3 - 0.5) * 0.7 * xb + 2.6 * wob + 5 * wob2) / segLen + hs * 13, ai = Math.floor(sl), af = sl - ai;
       let hseg = hsh(ai, si * 31 + bi * 7), hseg2 = hsh(ai, si * 17 + bi * 29 + 5), hseg3 = hsh(ai, si * 7 + bi * 3 + 11);
       let tilt = (af - 0.5) * (hseg - 0.5);
       const afPx = af * segLen;
@@ -294,10 +343,10 @@ function buildUpper(env) {
         // ends square) …
         const pB = hsh(ai - 1, si * 17 + bi * 29 + 5);
         bwSeg = pB + (hseg2 - pB) * sstep(0, 18, afPx);
-        if (afPx < 3) {
+        if (afPx < 3.4) {
           // … and the facets themselves ease over three pixels, so the step is a lit / shaded little cliff with a soft foot
           // instead of a one-pixel hairline
-          const wq = sstep(0, 3, afPx), pA = hsh(ai - 1, si * 31 + bi * 7), pC = hsh(ai - 1, si * 7 + bi * 3 + 11);
+          const wq = sstep(0, 3.4, afPx), pA = hsh(ai - 1, si * 31 + bi * 7), pC = hsh(ai - 1, si * 7 + bi * 3 + 11);
           tilt = (af + 0.5) * (pA - 0.5) * (1 - wq) + tilt * wq;
           hseg = pA + (hseg - pA) * wq; hseg2 = pB + (hseg2 - pB) * wq; hseg3 = pC + (hseg3 - pC) * wq;
         }
@@ -310,7 +359,7 @@ function buildUpper(env) {
       let h = xc < bw ? Hb * xc / bw : Hb * (1 - back * (xc - bw) / (Wb - bw));
       const hEdge = Hb * (1 - back);
       if (m < 0.98) h *= 1 - sstep(Wb - 16 * (1 - m), Wb, xc);            // in the calm face the blades melt into each other
-      h += tilt * segLen * 0.085 * k * m;                                   // cleavage steps
+      h += tilt * segLen * (0.03 + 0.04 * (wob2 + 1)) * k * m;              // cleavage steps, deeper at one end of a crack than the other
       // growth striations, dead parallel to the blade: some facets silky, some glass-smooth
       const c1 = q * 15 + along * 0.004 + hs * 37 + 4096, c2 = q * 38 - along * 0.007 + hs * 11 + 8192;
       const i1 = c1 | 0, i2 = c2 | 0, k1 = i1 & 1023, k2 = i2 & 1023;
@@ -331,14 +380,16 @@ function buildUpper(env) {
         let bg = sstep(Wb - 0.7, Wb + 0.7, xb) * (1 - sstep(P - 1.4, P, xb));
         if (gapPx < 2) bg *= gapPx / 2;
         const gp = xb - Wb;
-        // cuprite grows as octahedra: every cell carries the tip of one — a little square pyramid of its own size, turned its
-        // own way, so each of its faces takes the lamp differently — on a floor of deeper crimson
-        cell(x / 8.6, y / 8.6);
-        const an = cId * 19.7, cc = Math.cos(an), ss = Math.sin(an);
+        // cuprite grows as octahedra: the floor of a slit is a druse of their tips — little square pyramids, each its own size
+        // and turned its own way, so every face takes the lamp differently — with bare, deeper crimson floor between them.
+        // every slit has its own grain: fine sugar in one, a few fat crystals in the next
+        const ds = 7.6 + 6.4 * hs2;
+        cell(x / ds + si * 3.7, y / ds + bi * 1.9);
+        const an = cId * 19.7, cc = Math.cos(an), ss = Math.sin(an), szr = (cId * 13.7) % 1;
         const ux = Math.abs(cDx * cc + cDy * ss), uy = Math.abs(cDy * cc - cDx * ss);
-        const pyr = 1 - (ux > uy ? ux : uy) / (0.36 + 0.3 * ((cId * 13.7) % 1));
+        const pyr = szr < 0.3 ? -1 : 1 - (ux > uy ? ux : uy) / (0.2 + 0.52 * (szr - 0.3) * (szr - 0.3) * 2.04 + 0.16 * szr);
         const on = sstep(0, 0.16, pyr), gv = 0.9 + 0.2 * ((cId * 7.1) % 1);
-        const bump = pyr > 0 ? pyr * (0.7 + 1.05 * ((cId * 29.3) % 1)) : 0;
+        const bump = pyr > 0 ? pyr * (0.5 + 1.3 * ((cId * 29.3) % 1)) * (ds / 8.6) : 0;
         let gr = 150 + (229 * gv - 150) * on, gG = 30 + (54 * gv - 30) * on, gb = 26 + (30 * gv - 26) * on;
         if (cId > 0.92) { gr += (252 - gr) * on; gG += (100 - gG) * on; gb += (50 - gb) * on; }          // a few thin, glowing ones
         const Ls = 1.25 * (hEdge > 0 ? hEdge : 0) + 2.5;
@@ -378,11 +429,9 @@ function buildUpper(env) {
   }
 
   relight(d, hB, sB, gB, RW, RH, { kd: 0.92, amb: [24, 13, 56], spec: [190, 215, 255], pw: 46 });
-  const raw = L.makeCanvas(RW, RH);
-  raw.getContext('2d').putImageData(img, 0, 0);
-  const cnv = depthOfField(env, raw, X0, Y0);
+  const cnv = depthOfField(env, img, X0, Y0);
   const fl = flares(cnv, X0, Y0, L.rng('s17glintU'), {
-    count: 120, T: 48, p0: 0.955, p1: 0.997, tint: [222, 238, 255],
+    count: 150, T: 48, p0: 0.955, p1: 0.997, tint: [222, 238, 255],
     measure: (dd, q) => dd[q + 1] - 0.35 * dd[q],                          // pale = lit crystal; keeps the red slits out
     accept: (x, y) => featherMask(a, x, y, 0) > 0.5 && y < a.yAt(x) - 30,
   });
@@ -459,11 +508,24 @@ function buildLower(env) {
       let h = 0.3 * gR * GS * cap * (0.7 + 0.6 * j1);
       const lean = 0.2 * ((j3 * 3.7) % 1) * GS * sstep(0, 0.3, g1), la = j4 * 6.2832;
       h -= lean * (gdx * Math.cos(la) + gdy * Math.sin(la));
+      // two grains in five are little bundles of fibres (malachite's habit): fine parallel growth lines, each grain its own way
+      const j5 = (gid * 173.3) % 1;
+      let silk = 0;
+      if (j5 < 0.4) {
+        const fa = j4 * 3.1416 + 0.6, fcv = (gdx * Math.cos(fa) + gdy * Math.sin(fa)) * GS * 0.58 + gid * 517 + 64, fci = fcv | 0, fck = fci & 1023;
+        silk = sstep(0.03, 0.3, g1);
+        h += 0.46 * (SF[fck] + (SF[fck + 1] - SF[fck]) * (fcv - fci)) * silk;
+      }
       // bedded in a darker green matrix
       const gin = sstep(0, 0.14, gv);
       const mr = 22 - 8 * tm, mg = 160, mb = 112 + 34 * tm;
       cr = mr + (cr - mr) * gin; cg = mg + (cg - mg) * gin; cb = mb + (cb - mb) * gin; gloss *= gin;
       let sh = 0.7 + 0.3 * sstep(-0.07, 0.3, gv);
+      // the clear ones let the lamp through: a little light comes out again along the rim that faces away from it
+      if (j5 > 0.66 && gv > 0) {
+        const far = (gdx * 0.643 - gdy * 0.766) / gR, tl = sstep(0.2, 0.95, far) * (1 - g1) * gin;
+        sh += 0.3 * tl; cr += 26 * tl; cg += 18 * tl;
+      }
       // botryoidal knobs (葡萄状): silky domes of very different sizes crowding each other in patches
       let cover = 0;
       const bm = sstep(0.2, 0.5, bil(fBot, i, j));
@@ -478,9 +540,9 @@ function buildLower(env) {
             const kR = (50 - 30 * tm) * kk, kG = 206 * kk, kB = (134 + 50 * tm) * kk;
             cr += (kR - cr) * cover; cg += (kG - cg) * cover; cb += (kB - cb) * cover;
             // a knob is a bundle of needles seen end-on: fine fibres run from its pole down its flanks and give it the silk
-            const fc = Math.atan2(lDy, lDx) * (3 + 5 * lR) + lId * 97 + 64, fi = fc | 0, fk = fi & 1023;
-            const fib = (SF[fk] + (SF[fk + 1] - SF[fk]) * (fc - fi)) * sstep(0.04, 0.5, 1 - v);
-            h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v)) + 0.8 * fib * cover;
+            const fn = 6 + 8 * lR, fc = Math.atan2(lDy, lDx) * fn + lId * 97 + 64, fi = fc | 0, fk = fi & 1023;
+            const fib = (SF[fk] + (SF[fk + 1] - SF[fk]) * (fc - fi)) * sstep(1.5, 3.2, Math.sqrt(lDx * lDx + lDy * lDy) * BS / fn);
+            h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v)) + 0.42 * fib * cover;
             sh += (1 - sh) * cover * 0.85;
             sh *= 0.8 + 0.2 * sstep(0, 0.14, v - (lV2 > 0 ? lV2 : 0));  // the crease where two domes meet
             gloss += (0.6 - gloss) * cover;
@@ -491,7 +553,7 @@ function buildLower(env) {
         }
       }
       // fine drusy tooth
-      h += 0.4 * MT[((y & 255) << 8) | (x & 255)] * (1 - 0.6 * cover);
+      h += 0.33 * MT[((y & 255) << 8) | (x & 255)] * (1 - 0.6 * cover) * (1 - 0.55 * silk);
       // the crust ends in a smooth, rounded lip — one clean bright line for the lamp to run along, right under the seam
       if (u > -9) {
         const s = Math.atan2(ddx, ddy) * R, lw = 6.0 + 2.0 * nA.n2(s / 47, 7.7);
@@ -511,11 +573,9 @@ function buildLower(env) {
     }
   }
   relight(d, hB, sB, gB, RW, RH, { kd: 0.5, amb: [8, 62, 54], spec: [215, 255, 235], pw: 38 });
-  const raw = L.makeCanvas(RW, RH);
-  raw.getContext('2d').putImageData(img, 0, 0);
-  const cnv = depthOfField(env, raw, X0, Y0);
+  const cnv = depthOfField(env, img, X0, Y0);
   const fl = flares(cnv, X0, Y0, L.rng('s17glintL'), {
-    count: 260, T: 40, p0: 0.95, p1: 0.997, tint: [240, 255, 232],
+    count: 320, T: 40, p0: 0.95, p1: 0.997, tint: [240, 255, 232],
     measure: (dd, q) => (dd[q] < dd[q + 2] ? dd[q] : dd[q + 2]),             // white-ish = a facet mirroring the lamp
     accept: (x, y) => y > a.yAt(x) + 12,
   });

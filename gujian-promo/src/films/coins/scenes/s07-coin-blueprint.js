@@ -83,7 +83,7 @@ function makeField(seed, octaves) {
 }
 /** the tooth of the sheet: 0 = the highest points of the grain (chalk catches there first), 1 = the deepest pores.
  *  Clumps of fibre a few pixels across, carrying a finer grit — so a light stroke breaks into clumps whose edges are nibbled. */
-const makeTooth = (seed) => makeField(seed, [[2.6, 0.45], [1.2, 0.4], [0.6, 0.15]]);
+const makeTooth = (seed) => makeField(seed, [[2.6, 0.4], [1.2, 0.4], [0.6, 0.2]]);
 function tileCanvas(fill) {
   const c = L.makeCanvas(TN, TN), g = c.getContext('2d'), img = g.createImageData(TN, TN);
   fill(img.data);
@@ -96,11 +96,11 @@ function reliefTile(T) {
     for (let y = 0; y < TN; y++) for (let x = 0; x < TN; x++) {
       const o = y << TSH, i = o | x;
       const tx = T[o | ((x + 1) & TM)] - T[o | ((x - 1) & TM)], ty = T[(((y + 1) & TM) << TSH) | x] - T[(((y - 1) & TM) << TSH) | x];
-      let v = 0.6 * (0.5 - T[i]) - 1.3 * (tx + ty);   // height falls where T rises, so a flank facing the top-left light has tx + ty < 0
+      let v = 0.45 * (0.5 - T[i]) - 1.3 * (tx + ty);   // height falls where T rises, so a flank facing the top-left light has tx + ty < 0
       v = v < -1 ? -1 : v > 1 ? 1 : v;
       const k = i << 2;
-      if (v > 0) { d[k] = 104; d[k + 1] = 166; d[k + 2] = 240; d[k + 3] = 255 * 0.115 * v; }
-      else { d[k] = 7; d[k + 1] = 28; d[k + 2] = 64; d[k + 3] = 255 * 0.14 * -v; }
+      if (v > 0) { d[k] = 104; d[k + 1] = 166; d[k + 2] = 240; d[k + 3] = 255 * 0.1 * v; }
+      else { d[k] = 7; d[k + 1] = 28; d[k + 2] = 64; d[k + 3] = 255 * 0.12 * -v; }
     }
   });
 }
@@ -169,6 +169,25 @@ function stroke(g, pts, width, seed, o = {}) {
       g.stroke();
     }
   }
+  // the grain of the stick itself: hairline striations along the stroke, where a hard grit dragged a groove (or a ridge pressed harder)
+  if (o.grain !== false && g.globalCompositeOperation === 'source-over' && width >= 5 && len > 30) {
+    const ns = Math.round((len / 70) * (width / 9) * (o.grain === undefined ? 1 : o.grain));   // ≈ one striation in play per 9 px of width
+    g.lineCap = 'round';
+    for (let k = 0; k < ns; k++) {
+      const off = r.range(-0.44, 0.44) * width, d0 = r.range(-0.1, 1) * len, d1 = d0 + r.range(20, 120), cut = r.chance(0.8);
+      g.globalCompositeOperation = cut ? 'destination-out' : 'source-over';
+      g.strokeStyle = WHITE(cut ? r.range(0.22, 0.62) * (width < 8 ? 0.6 : 1) : a * r.range(0.12, 0.3)); g.lineWidth = r.range(1.4, width < 8 ? 2 : 2.6);
+      g.beginPath();
+      let on = false;
+      for (let i = 0; i < n; i++) {
+        if (cum[i] < d0 || cum[i] > d1) continue;
+        const x = pts[i][0] + NX[i] * off, y = pts[i][1] + NY[i] * off;
+        if (on) g.lineTo(x, y); else { g.moveTo(x, y); on = true; }
+      }
+      if (on) g.stroke();
+    }
+    g.globalCompositeOperation = 'source-over';
+  }
   if (caps) {   // the blunt end of the stick where it was set down, and a lighter touch where it left the paper
     g.fillStyle = WHITE(a * 0.5); g.beginPath(); g.arc(pts[0][0], pts[0][1], width * 0.5, 0, L.TAU); g.fill();
     g.fillStyle = WHITE(a * 0.2); g.beginPath(); g.arc(pts[n - 1][0], pts[n - 1][1], width * 0.46, 0, L.TAU); g.fill();
@@ -199,8 +218,8 @@ function dash(g, x0, y0, x1, y1, pat, width, seed, o = {}) {
 function arrow(g, x, y, ang, size, seed) {
   const r = L.rng('s07ar' + seed);
   for (const sg of [-1, 1]) {
-    const b = ang + Math.PI + sg * (0.34 + r.range(-0.06, 0.06)), l = size * r.range(0.86, 1.06);
-    rule(g, x + Math.cos(ang) * 2, y + Math.sin(ang) * 2, x + Math.cos(b) * l, y + Math.sin(b) * l, 6, 'ar' + seed + sg, { a: 0.95, lo: 0.8, hand: 0.7 });
+    const b = ang + Math.PI + sg * (0.4 + r.range(-0.05, 0.05)), l = size * r.range(0.92, 1.1);
+    rule(g, x + Math.cos(ang) * 2, y + Math.sin(ang) * 2, x + Math.cos(b) * l, y + Math.sin(b) * l, 5, 'ar' + seed + sg, { a: 1, lo: 0.85, hand: 0.5 });
   }
 }
 function ring(g, x, y, rad, width, seed) {
@@ -241,7 +260,7 @@ function buildMask(env) {
     for (let th = -s, i = 0; th < s; th += (40 + hr.range(-7, 7)) / a.R, i++) {
       if (hr.chance(0.05)) continue;
       const x0 = -19 + hr.range(-4, 4), y0 = 10 + hr.range(-2, 6), x1 = 19 + hr.range(-4, 4), y1 = RIM - 5 + hr.range(-8, 3), w = hr.range(5.2, 7), pr = hr.range(0.42, 0.68);
-      a.at(g, th, 0, () => rule(g, x0, y0, x1, y1, w, 'ha' + i, { a: pr, lo: 0.5, hand: 0.8 }));
+      a.at(g, th, 0, () => rule(g, x0, y0, x1, y1, w, 'ha' + i, { a: pr, lo: 0.5, hand: 0.8, grain: 0.5 }));
     }
     for (let c = cx - xo + yo + 14, i = 0; c < cx + xo + BOT; c += 44 + hr.range(-6, 6), i++) {
       const lo = Math.max(cx - xo, c - BOT), hi = Math.min(cx + xo, c - yo), e0 = cx - xi, e1 = Math.min(cx + xi, c - yi);
@@ -249,7 +268,7 @@ function buildMask(env) {
       runs.forEach(([xa, xb], j) => {
         xa += hr.range(1, 6) * 0.7; xb -= hr.range(1, 7) * 0.7;
         if (xb - xa < 9) return;
-        rule(g, xa, c - xa, xb, c - xb, hr.range(5.2, 7), 'hb' + i + '_' + j, { a: hr.range(0.42, 0.68), lo: 0.5, hand: 0.8 });
+        rule(g, xa, c - xa, xb, c - xb, hr.range(5.2, 7), 'hb' + i + '_' + j, { a: hr.range(0.46, 0.7), lo: 0.55, hand: 0.8, grain: 0.5 });
       });
     }
 
@@ -263,7 +282,7 @@ function buildMask(env) {
       const th = q.k * STEP, yEnd = Math.abs(q.k) <= 2 ? yo : BOT;
       const p0 = P(th, q.top), rEnd = (a.cy - yEnd) / Math.cos(th), p1 = P(th, rEnd - a.R);
       if (q.dd) dash(g, p0[0], p0[1], p1[0], p1[1], [104, 15, 12, 15], q.w, 'rd' + q.k, { phase: -((q.k * 37 + 200) % 70), a: 0.9 });
-      else rule(g, p0[0], p0[1], p1[0], p1[1], q.w, 'rd' + q.k, { lo: 0.74, a: q.w >= 13 ? 1 : 0.93 });
+      else rule(g, p0[0], p0[1], p1[0], p1[1], q.w, 'rd' + q.k, { lo: 0.74, a: q.w >= 13 ? 1 : q.k === -5 || q.k === 4 ? 0.8 : 0.9 });
     }
     // lines that were struck twice / abandoned
     { const t1 = STEP + 0.011, q0 = P(t1, -RIM - 26), q1 = P(t1, -RIM - 236); rule(g, q0[0], q0[1], q1[0], q1[1], 5.5, 'gh1', { a: 0.6, lo: 0.3 });
@@ -283,16 +302,16 @@ function buildMask(env) {
 
     // ── 外郭: the coin's edge (on the shared arc) and the inner line of the rim ──
     stroke(g, L.arcPts(a, -RIM, -s, s, 220), 9, 'rimIn', { lo: 0.66, a: 0.84, caps: false });
-    stroke(g, L.arcPts(a, 0, -s, s, 320), 22, 'edge', { lo: 0.9, vary: 0.16, caps: false });
-    stroke(g, L.arcPts(a, 0, -s, s, 220), 13, 'edge2', { lo: 0.8, a: 0.86, lanes: false, caps: false });
+    stroke(g, L.arcPts(a, 0, -s, s, 320), 22, 'edge', { lo: 0.9, vary: 0.16, caps: false, grain: 0.75 });
+    stroke(g, L.arcPts(a, 0, -s, s, 220), 13, 'edge2', { lo: 0.8, a: 0.86, lanes: false, caps: false, grain: false });
     stroke(g, L.arcPts(a, 6.5, -s, -0.06, 100), 5, 'edge3', { a: 0.58, lo: 0.2, caps: false });   // the compass went round twice
     stroke(g, L.arcPts(a, -7, 0.13, s, 100), 5, 'edge4', { a: 0.58, lo: 0.2, caps: false });
 
     // ── 内郭 + 穿: the square hole, its sides parallel to the axis ──
-    rule(g, cx - xo - 20, yo, cx + xo + 20, yo, 10, 'no', { lo: 0.75 });
+    rule(g, cx - xo - 20, yo, cx + xo + 20, yo, 10, 'no', { lo: 0.75, a: 0.92 });
     rule(g, cx - xi - 14, yi, cx + xi + 14, yi, 14, 'ni', { lo: 0.86 });
     for (const sg of [-1, 1]) {
-      rule(g, cx + sg * xo, yo - 20, cx + sg * xo, BOT, 10, 'so' + sg, { lo: 0.75 });
+      rule(g, cx + sg * xo, yo - 20, cx + sg * xo, BOT, 10, 'so' + sg, { lo: 0.75, a: 0.92 });
       rule(g, cx + sg * xi, yi - 14, cx + sg * xi, BOT, 14, 'si' + sg, { lo: 0.86 });
       rule(g, cx + sg * (xo + 5), yo - 5, cx + sg * (xi - 5), yi + 5, 5.5, 'mi' + sg, { lo: 0.7, a: 0.88 });   // mitre of the corner
     }
@@ -378,8 +397,8 @@ function buildWearMask() {
   // the folds themselves: the coating has cracked along the ridge and flaked off beside it
   for (const f of FOLDS) {
     const pts = creasePts(...f);
-    stroke(g, pts, 7, 'cw' + f[4], { a: 0.42, lo: 0.2, caps: false });
-    stroke(g, pts, 2.8, 'cx' + f[4], { a: 0.85, lo: 0.3, caps: false, lanes: false });
+    stroke(g, pts, 7, 'cw' + f[4], { a: 0.42, lo: 0.2, caps: false, grain: false });
+    stroke(g, pts, 2.8, 'cx' + f[4], { a: 0.85, lo: 0.3, caps: false, lanes: false, grain: false });
   }
   return m;
 }
@@ -395,7 +414,7 @@ function creaseRelief(g, x0, y0, x1, y1) {
 }
 
 // ───────────────────────── develop pressure against the tooth ─────────────────────────
-const SOFT = 0.2;    // width of the catch/no-catch transition in tooth units (≈ 1 px on the sheet: every grain edge is anti-aliased)
+const SOFT = 0.19;   // width of the catch/no-catch transition in tooth units (≈ 1 px on the sheet: every grain edge is anti-aliased)
 function develop(line, text, wearM, T, F) {
   const w = line.width, h = line.height;
   const rd = (c) => c.getContext('2d').getImageData(0, 0, w, h).data;
@@ -468,7 +487,7 @@ function buildPaper(T) {
     g.drawImage(L.noiseTex(LW, LH, { seed: 's07cA', scale: 880, octaves: 3, res: 0.125, warp: 0.5, contrast: 1.6,
       ramp: [[0, L.rgba(DEEP, 0.7)], [0.42, L.rgba(DEEP, 0.1)], [0.6, L.rgba(WORN, 0)], [1, L.rgba(WORN, 0.26)]] }), -PAD, -PAD);
     // brush streaks of the hand-coated sensitiser
-    g.globalAlpha = 0.2;
+    g.globalAlpha = 0.11;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's07cB', scale: 26, sx: 50, sy: 1, octaves: 3, res: 0.33, contrast: 1.7,
       ramp: [[0, L.rgba('#0d2c57', 0.6)], [0.45, 'rgba(13,44,87,0)'], [0.62, 'rgba(90,146,208,0)'], [1, L.rgba('#5a92d0', 0.45)]] }), -PAD, -PAD);
     g.globalAlpha = 1;
@@ -515,7 +534,7 @@ export default {
       });
       g.globalAlpha = 0.16; g.drawImage(L.blurred(smear, 16), 0, 0);
     }
-    g.globalAlpha = 0.14; g.drawImage(L.blurred(chalk, 5), 0, 0);       // powder worked into the grain beside every stroke
+    g.globalAlpha = 0.09; g.drawImage(L.blurred(chalk, 4), 0, 0);       // powder worked into the grain beside every stroke
     g.globalAlpha = 0.08; g.drawImage(L.blurred(chalk, 20), 12, 5);     // a smear from the draughtsman's sleeve
     g.globalAlpha = 1;
     strewDust(g, chalk);
@@ -527,6 +546,12 @@ export default {
     g.drawImage(chalk, 0, 0);
     g.drawImage(wear, 0, 0);
     g.translate(PAD, PAD);
+    { // opened out again, the folded sheet no longer lies flat: each panel leans a little differently to the light
+      const [v0, v1, hz] = FOLDS, poly = (pts, style) => { g.fillStyle = style; g.beginPath(); pts.forEach((q, i) => (i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]))); g.closePath(); g.fill(); };
+      poly([[-PAD, -PAD], [v0[0], v0[1]], [v0[2], v0[3]], [-PAD, H + PAD]], 'rgba(150,196,246,0.04)');
+      poly([[v1[0], v1[1]], [W + PAD, -PAD], [W + PAD, H + PAD], [v1[2], v1[3]]], 'rgba(4,16,40,0.07)');
+      poly([[-PAD, -PAD], [W + PAD, -PAD], [hz[2], hz[3]], [hz[0], hz[1]]], 'rgba(4,16,40,0.05)');
+    }
     for (const f of FOLDS) creaseRelief(g, f[0], f[1], f[2], f[3]);
     for (const x of CREASE_X) L.speckle(g, { seed: 's07fl' + x, count: 110, x: x - 64, y: CREASE_Y - 64, w: 128, h: 128, rMin: 0.7, rMax: 2.2, colors: ['#c4daf0', '#8fb8e4'], alpha: [0.3, 0.8] });
     S = { sheet: L.filtered(paper, 'saturate(1.2) contrast(1.04)') };

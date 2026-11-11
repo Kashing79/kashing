@@ -57,8 +57,9 @@ const makeGild = (nA, nB) => ({
   left(U, d, wear) {
     // rubbed thin in streaks that follow the rim …
     const fn = 0.6 * nA.n2(U / 58 + 3, d / 3.3 + 11) + 0.4 * nB.n2(U / 19, d / 4.2 - 5);
-    // … and, here and there, a stretch where it is all but gone
-    return (1 - 0.8 * sstep(0.56 - 0.3 * wear, 0.84 - 0.3 * wear, fn)) * (1 - 0.86 * sstep(0.34, 0.6, nA.n2(U / 170 + 31.7, 2.9) + 0.25 * nB.n2(U / 23, d / 5 + 1.1)));
+    // … and, here and there, a stretch where it is all but gone: a few of them, of unequal length, none at the crest
+    const gone = sstep(0.4, 0.62, nA.n2(U / 210 + 88.8, 2.9) * (0.75 + 0.35 * nB.n2(U / 520 + 32.9, 6.1)) + 0.2 * nB.n2(U / 23, d / 5 + 1.1));
+    return (1 - 0.8 * sstep(0.56 - 0.3 * wear, 0.84 - 0.3 * wear, fn)) * (1 - 0.86 * gone);
   },
 });
 
@@ -218,7 +219,7 @@ function buildDish(env, nA, nB, rimDash, gild) {
       if (d < LIP) {
         const th = U / R;
         const wear = gild.wear(U);
-        const gw = 23 + 2.6 * nB.n2(U / 260, 1.7) + 1.1 * nB.n2(U / 70, 5.1) + 0.4 * nB.n2(U / 17, 8.3);             // inner edge of the gilding
+        const gw = 23 + 2.6 * nB.n2(U / 260, 1.7) + 1.1 * nB.n2(U / 70, 5.1) + 0.4 * nB.n2(U / 17, 8.3);   // inner edge of the gilding
         const dRed = 12.5 + 2.2 * nA.n2(U / 77, 3.9) + 1.2 * nB.n2(U / 19, 8.2);            // where the red stops short of the crown
         const wEdge = 3.4 + 7.6 * sstep(0.3, 0.92, wear) + 1.1 * nA.n2(U / 9, 1.3 + d / 4); // how far the gold has rubbed back
         // white porcelain: clean where it faces us; where the lip turns away it mirrors the ground — a hairline of deep green

@@ -5,12 +5,12 @@
 //
 // Everything under the arc is a height field shaded per pixel in init(): an analytic rim profile (rounded shoulder → domed
 // top → inner wall with a fillet at its foot) plus a micro relief that is *drawn*, not noise — irregular sand holes, shallow
-// casting dimples, pin-head beads, hairline scratches cut as grooves, the pillow-sectioned strokes of the legend. The field is
-// lit from above the frame: soft shadows are found by marching every pixel toward the light, hollows gather a darker, redder
-// tone and proud edges are rubbed bright (the patina logic of handled gold), walls that face away pick up the glow of the lit
-// field below them. The result is looked up in a gold ramp that stays saturated all the way down (shadows go red-orange,
-// never grey). A second "sheen" layer stores how strongly each pixel answers a moving light; draw() reveals it through a soft
-// window that travels along the rim.
+// casting dimples, pin-head beads, hairline scratches cut as grooves, the strokes of the legend with their rolled-over
+// shoulders and faintly crowned tops. It is lit from above the frame: soft shadows are found by marching every pixel toward
+// the light; hollows gather a darker, redder tone while proud edges are rubbed bright (the patina logic of handled gold);
+// walls that face away pick up the glow of the lit field below them. The result is looked up in a gold ramp that stays
+// saturated all the way down (shadows go red-orange, never grey). A second "sheen" layer stores how strongly each pixel
+// answers a moving light; draw() reveals it through a soft window that travels along the rim.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
@@ -77,12 +77,13 @@ function shadeCoin(a) {
   const fd = curve([[0, 1.3], [90, 1.27], [RIM, 1.17], [240, 1.05], [340, 0.83], [450, 0.63], [540, 0.5], [720, 0.4]]);
   const FD = new Float32Array(800); for (let i = 0; i < 800; i++) FD[i] = fd(i);
   // the cast rim's inner edge is never a perfect circle; nor is the thread of light on its corner even
-  const UM = 1500, WOB = new Float32Array(UM * 2 + 1), THR = new Float32Array(UM * 2 + 1), EDG = new Float32Array(UM * 2 + 1);
+  const UM = 1500, WOB = new Float32Array(UM * 2 + 1), THR = new Float32Array(UM * 2 + 1), EDG = new Float32Array(UM * 2 + 1), BNC = new Float32Array(UM * 2 + 1);
   for (let i = 0; i <= UM * 2; i++) {
     const u = i - UM;
     WOB[i] = 1.5 * nA.n2(u / 190, 1.7) + 0.45 * nB.n2(u / 47, 5.1);
     THR[i] = 0.16 * (1 + 0.4 * nC.n2(u / 120, 3.3) + 0.22 * nC.n2(u / 27, 8.1));
     EDG[i] = EDGE * (1 + 0.11 * nC.n2(u / 430, 11.3) + 0.035 * nC.n2(u / 140, 4.4));
+    BNC[i] = 0.088 * (1 + 0.28 * nC.n2(u / 150, 21.7) + 0.07 * nC.n2(u / 46, 15.2));
   }
   // integrated rim profile (height above the outer edge), 0.25 px steps
   const MHS = 4, MHN = 220 * MHS, MH = new Float32Array(MHN + 1);
@@ -238,6 +239,10 @@ function shadeCoin(a) {
   for (const [gx, gy] of [[-262, 3], [228, 4]]) {              // … and so have the upper edges of the strokes
     stamp(cx + gx + rk.range(-12, 12) - X0, GLY.yT + gy - Y0, rk.range(4, 6), rk.range(2.2, 3), rk.range(-0.3, 0.3), rk.range(0.9, 1.4), { pw: 1.6 });
   }
+  for (let n = 0; n < 64; n++) {                               // their lit shoulders are nibbled all along by fine wear
+    const sgn = rk.sign(), rn = rk.range(2.2, 4.4);
+    stamp(cx + sgn * rk.range(GLY.G + 6, GLY.A - 6) - X0, GLY.yT + rk.range(2, 13) - Y0, rn * rk.range(1, 2.2), rn * 0.8, rk.range(-0.25, 0.25), rk.range(0.22, 0.5) * (rk.chance(0.3) ? -0.7 : 1), { pw: 1.8 });
+  }
 
   // hairlines: grooves cut into the height field, so each one shows a lit lip and a shaded lip — or nothing, if it runs toward the light
   const rs = L.rng('c03hair');
@@ -257,19 +262,19 @@ function shadeCoin(a) {
     const [px, py] = toPx(rs.range(-960, 960), rs.range(W1 + 40, 430)), len = rs.range(70, 230);
     seg(px, py, rs.range(-0.75, 0.75), len, rs.range(-0.08, 0.08) * len, rs.range(0.95, 1.2), rs.range(0.2, 0.34), 0);
   }
-  for (let n = 0; n < 52; n++) {                               // rim: long lines that follow the circumference
-    const u0 = rs.range(-1090, 1000), d0 = rs.range(EDGE + 6, W0 - 9), ln = 70 + Math.pow(rs(), 1.4) * 380;
-    const [xa, ya] = toPx(u0, d0), [xb, yb] = toPx(u0 + ln, d0 + rs.range(-2.5, 2.5)), cl = Math.hypot(xb - xa, yb - ya);
-    line(Sc, xa, ya, xb, yb, -(cl * cl) / (4 * (R - d0)), rs.range(0.7, 0.9), rs.range(0.05, 0.16), 1, rs.range(0, 900));
+  for (let n = 0; n < 60; n++) {                               // rim: long lines that follow the circumference, a few of them bolder
+    const bold = n >= 52, u0 = rs.range(-1090, 1000), d0 = rs.range(EDGE + 6, W0 - 9), ln = bold ? rs.range(160, 520) : 70 + Math.pow(rs(), 1.4) * 380;
+    const [xa, ya] = toPx(u0, d0), [xb, yb] = toPx(u0 + ln, d0 + (bold ? rs.range(-6, 6) : rs.range(-2.5, 2.5))), cl = Math.hypot(xb - xa, yb - ya);
+    line(Sc, xa, ya, xb, yb, -(cl * cl) / (4 * (R - d0)), rs.range(0.7, 0.9), bold ? rs.range(0.18, 0.3) : rs.range(0.07, 0.2), 1, rs.range(0, 900));
   }
   for (let n = 0; n < 14; n++) {                               // rim: short ones that cut across
     const [px, py] = toPx(rs.range(-1050, 1050), rs.range(EDGE + 14, W0 - 16)), len = rs.range(36, 120);
-    seg(px, py, rs.range(0.14, 0.6) * rs.sign() + (px + X0 - cx) / R, len, rs.range(-0.05, 0.05) * len, rs.range(0.7, 0.9), rs.range(0.06, 0.16), 1);
+    seg(px, py, rs.range(0.14, 0.6) * rs.sign() + (px + X0 - cx) / R, len, rs.range(-0.05, 0.05) * len, rs.range(0.7, 0.9), rs.range(0.09, 0.22), 1);
   }
   for (let n = 0; n < 46; n++) {                               // the stroke tops are the high points: fine wear, mostly along the stroke
-    const sgn = rs.sign(), px = cx + sgn * rs.range(GLY.G + 14, GLY.A - 14) - X0, py = GLY.yT + rs.range(9, 46) - Y0, along = rs.chance(0.6);
-    const len = along ? rs.range(30, 110) : rs.range(14, 50);
-    seg(px, py, along ? rs.range(-0.22, 0.22) : rs.range(0, Math.PI), len, rs.range(-0.05, 0.05) * len, rs.range(0.72, 0.9), rs.range(0.08, 0.2), 2);
+    const sgn = rs.sign(), px = cx + sgn * rs.range(GLY.G + 14, GLY.A - 14) - X0, py = GLY.yT + rs.range(9, 46) - Y0, along = rs.chance(0.75);
+    const len = along ? rs.range(30, 120) : rs.range(12, 40);
+    seg(px, py, along ? rs.range(-0.12, 0.12) : rs.range(0, Math.PI), len, rs.range(-0.04, 0.04) * len, rs.range(0.85, 1.1), rs.range(0.1, 0.24), 2);
   }
   // micro-glints for the travelling light: short bright dashes lying along the polishing direction
   for (let n = 0; n < 760; n++) {
@@ -296,22 +301,22 @@ function shadeCoin(a) {
     }
     return out;
   };
-  const HB = boxBlur(boxBlur(HT, 6), 6);
-  const SMAX = 72, OX = new Int32Array(SMAX + 1), OY = new Int32Array(SMAX + 1), OF = new Int32Array(SMAX + 1), IV = new Float32Array(SMAX + 1);
+  const HB = boxBlur(boxBlur(HT, 6), 6), HW = boxBlur(boxBlur(HB, 15), 15);
+  const SMAX = 86, OX = new Int32Array(SMAX + 1), OY = new Int32Array(SMAX + 1), OF = new Int32Array(SMAX + 1), IV = new Float32Array(SMAX + 1);
   { const sn = Math.hypot(LX, LY); for (let s = 1; s <= SMAX; s++) { OX[s] = Math.round((s * LX) / sn); OY[s] = Math.round((s * LY) / sn); OF[s] = OY[s] * RW + OX[s]; IV[s] = 1 / Math.hypot(OX[s], OY[s]); } }
   let SH = new Float32Array(N);
   for (let j = 0; j < RH; j++) {
     const inGly = Y0 + j > GLY.yT - 8;
     for (let i = 0; i < RW; i++) {
       const k = j * RW + i; if (Dd[k] < 0) continue;
-      const dw = Dw[k], lim = dw > W0 - 4 && dw < W1 + 70 ? SMAX : inGly && Math.abs(X0 + i - cx) < GLY.A + 44 ? 38 : 10;
+      const dw = Dw[k], lim = dw > W0 - 4 && dw < W1 + 84 ? SMAX : inGly && Math.abs(X0 + i - cx) < GLY.A + 44 ? 38 : 10;
       const h0 = HT[k]; let m = 0;
       for (let s = 1; s <= lim; s++) {
         const jj = j + OY[s]; if (jj < 0) break;
         const ii = i + OX[s]; if (ii < 0 || ii >= RW) break;
         const sl = (HT[k + OF[s]] - h0) * IV[s]; if (sl > m) m = sl;
       }
-      SH[k] = sstep(0.36, 1.2, m);                             // a broad soft source: penumbra from 20° to 50° of horizon
+      SH[k] = sstep(0.3, 1.2, m);                              // a broad soft source: penumbra from 17° to 50° of horizon
     }
   }
   SH = boxBlur(SH, 1);
@@ -336,14 +341,14 @@ function shadeCoin(a) {
       const gh = Gh[k], cav = Cv[k], sh = SH[k], st = St[k];
       // hollows (the foot of the wall, the feet of the strokes, the holes) and proud edges, away from the limb
       const lm = sstep(24, 60, dd), dv = HT[k] - HB[k];
-      const occ = dv < 0 ? Math.min(1, -dv / 6.5) * lm : 0, wear = dv > 0 ? Math.min(1, dv / 4) * lm : 0;
+      const occ = dv < 0 ? Math.min(1, -dv / 5.2) * lm : 0, wear = dv > 0 ? Math.min(1, dv / 4) * lm : 0;
       // key light, taken away by the soft shadow
       let I = F * (AMB + (Math.max(AMB, 0.7 + 1.15 * (nl - LZ)) - AMB) * (1 - 0.95 * sh));
       // the shoulder turns edge-on at the limb and mirrors the dark around it
       I *= 0.4 + 0.6 * sstep(-1, 10, dd);
       // what faces the lit field glows with it (the wall of the rim, the lower flanks of the strokes)
-      if (nb > BZ) I += F * 0.1 * Math.pow((nb - BZ) / (1 - BZ), 1.3) * sstep(2.5, -1.5, dv) * (1 - 0.8 * occ);
-      I *= 1 - 0.5 * occ;
+      if (nb > BZ) I += F * BNC[ui] * Math.pow((nb - BZ) / (1 - BZ), 1.3) * sstep(2.5, -1.5, dv) * (1 - 0.8 * occ);
+      I *= 1 - 0.6 * occ;
       // the rim keeps a little of the light off the field for a long way in
       if (dW > RIM) I *= 1 - 0.13 * (1 - sstep(RIM, RIM + 150, dW));
       // the worn inner corner of the rim catches a thread of light
@@ -353,7 +358,12 @@ function shadeCoin(a) {
       I *= 1 + 0.2 * gh + 0.1 * wear;
       const top = sstep(EDGE - 12, EDGE + 8, dd) * (1 - sstep(W0 - 6, W0 + 6, dW));
       I += F * st * L.lerp(0.032, 0.085, top);
-      I *= 1 + L.lerp(0.075, 0.1, top) * bil(cMed, i, j);
+      const cm = bil(cMed, i, j);
+      I *= 1 + L.lerp(0.075, 0.1, top) * cm;
+      // toning: where relief shelters the surface from handling (along the foot of the rim, around the strokes) the gold
+      // has kept a deeper, redder skin; out in the open it is rubbed paler
+      const dv2 = HT[k] - HW[k], tone = dv2 < 0 ? Math.min(1, -dv2 / 7) * lm : 0;
+      I *= 1 - 0.07 * tone;
       // a tight glint + the broad, soft lustre of a surface polished by handling
       const ni = nh > 0 ? (nh * PN + 0.5) | 0 : 0, sp = P46[ni], lit = 1 - 0.9 * sh;
       I += sp * 0.32 * F * lit;
@@ -364,7 +374,8 @@ function shadeCoin(a) {
       // the field runs a shade hotter (more orange) than the burnished rim and stroke tops; hollows run redder still
       const ft = sstep(RIM - 8, RIM + 4, dW) * (1 - 0.55 * gh);
       const nk = (-hx * KX - hy * KY + KZ) * inv, kick = nk > 0 ? Math.min(1, Math.pow(nk, 6) * 1.5) * (1 - cav) : 0;
-      const gm = (1 - 0.05 * ft) * (1 - 0.3 * kick) * (1 - 0.07 * occ), bm = (1 - 0.16 * ft) * (1 - 0.62 * kick) * (1 - 0.2 * occ);
+      const warm = L.clamp(0.5 * tone - 0.3 * cm, -0.5, 1);
+      const gm = (1 - 0.05 * ft) * (1 - 0.3 * kick) * (1 - 0.07 * occ) * (1 - 0.045 * warm), bm = (1 - 0.16 * ft) * (1 - 0.62 * kick) * (1 - 0.2 * occ) * (1 - 0.16 * warm);
       d8[o] = RAMP[li]; d8[o + 1] = RAMP[li + 1] * gm; d8[o + 2] = RAMP[li + 2] * bm; d8[o + 3] = al * 255;
       // sheen: broad lobe + sparkle of the polishing lines + drawn micro-glints
       let sb = P20[ni] * (0.8 + 0.9 * Math.max(0, st)) + top * 0.42 * (1 + 0.9 * st) + Gl[k] * (0.3 + 0.5 * top);
@@ -395,7 +406,7 @@ function buildCoin(env) {
   soften(1.2, 340, 460); soften(2.2, 470, 600);
   // … and so does the far limb (a true cross-fade: the soft copy replaces the sharp one, alpha edge included)
   const far = L.blurred(coin, 2.3), fg = far.getContext('2d');
-  const limbMask = (c) => { c.fillStyle = L.radial(c, cxl, cyl, R - 110, R - 12, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); c.fillRect(0, 0, RW, RH); };
+  const limbMask = (c) => { c.fillStyle = L.radial(c, cxl, cyl, R - 92, R - 10, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); c.fillRect(0, 0, RW, RH); };
   fg.globalCompositeOperation = 'destination-in'; limbMask(fg);
   g.globalCompositeOperation = 'destination-out'; limbMask(g);
   g.globalCompositeOperation = 'lighter'; g.drawImage(far, 0, 0);
@@ -423,7 +434,7 @@ export default {
     const TY = built.Y0 - 2;
     // pin-point glints on the rim that flare as the highlight passes over them
     const rg = L.rng('c03glint'), glints = [];
-    for (let i = 0; i < 9; i++) glints.push({ th: L.lerp(-0.2, 0.06, (i + rg.range(0.1, 0.9)) / 9), d: rg.range(16, RIM - 50), k: rg.range(0.5, 1) });
+    for (let i = 0; i < 9; i++) glints.push({ th: L.lerp(-0.2, 0.06, (i + rg.range(0.1, 0.9)) / 9), d: rg.range(16, RIM - 50), k: rg.range(0.5, 1), sx: rg.range(1.5, 3.4), sy: rg.range(0.3, 0.52), tilt: rg.range(-0.03, 0.03) });
     S = { ...built, TY, tmp: L.makeCanvas(W, H - TY), glints };
   },
   draw(ctx, env, p) {
@@ -493,8 +504,15 @@ export default {
       const w = Math.exp(-Math.pow((q.th - thH) / 0.045, 2)) * q.k;
       if (w < 0.04) continue;
       const pt = a.pt(q.th, -q.d), rr = 18;
-      ctx.save(); ctx.translate(zx(pt.x), zy(pt.y)); ctx.rotate(q.th); ctx.scale(2.6, 0.42);
-      ctx.fillStyle = L.radial(ctx, 0, 0, 0, rr, [[0, `rgba(255,250,226,${0.85 * w})`], [0.16, `rgba(255,236,170,${0.42 * w})`], [0.5, `rgba(255,206,110,${0.08 * w})`], [1, 'rgba(255,190,90,0)']]);
+      ctx.save(); ctx.translate(zx(pt.x), zy(pt.y)); ctx.rotate(q.th + q.tilt);
+      // a polishing line catching the light: a small soft flare …
+      ctx.save(); ctx.scale(q.sx, q.sy);
+      ctx.fillStyle = L.radial(ctx, 0, 0, 0, rr, [[0, `rgba(255,246,214,${0.5 * w})`], [0.2, `rgba(255,236,170,${0.26 * w})`], [0.55, `rgba(255,206,110,${0.06 * w})`], [1, 'rgba(255,190,90,0)']]);
+      ctx.fillRect(-rr, -rr, rr * 2, rr * 2);
+      ctx.restore();
+      // … around a thin bright core
+      ctx.scale(q.sx * 1.15, 0.11);
+      ctx.fillStyle = L.radial(ctx, 0, 0, 0, rr, [[0, `rgba(255,252,236,${0.95 * w})`], [0.35, `rgba(255,240,190,${0.5 * w})`], [1, 'rgba(255,220,140,0)']]);
       ctx.fillRect(-rr, -rr, rr * 2, rr * 2);
       ctx.restore();
     }

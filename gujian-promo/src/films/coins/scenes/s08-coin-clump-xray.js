@@ -48,6 +48,33 @@ function cavity(scale, open) {
   return bd < dd ? bd : dd;
 }
 
+// ── exact worley: the nearest feature point A (eAx, eAy = its offset from the sample, in cell units; eId; eD1 = squared
+//    distance), the TRUE distance eBd to the border of A's cell, and the neighbour B across that border (eBx, eBy).
+//    Continuous everywhere, so walls keep one width and nothing in a bubble jumps. ──
+let eAx = 0, eAy = 0, eBx = 0, eBy = 0, eId = 0, eD1 = 0, eBd = 0;
+const ePx = new Float32Array(25), ePy = new Float32Array(25), ePi = new Float32Array(25);
+function cellX(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  let d1 = 1e9, n = 0, im = 0;
+  for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) {
+    const cx = xi + ox, cy = yi + oy;
+    let h = (Math.imul(cx, 374761393) + Math.imul(cy, 668265263)) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+    const dx = cx + (h & 1023) / 1023 - x, dy = cy + ((h >>> 10) & 1023) / 1023 - y, d = dx * dx + dy * dy;
+    ePx[n] = dx; ePy[n] = dy; ePi[n] = ((h >>> 20) & 255) / 255;
+    if (d < d1) { d1 = d; im = n; }
+    n++;
+  }
+  const ax = ePx[im], ay = ePy[im];
+  let bd = 1e9, ib = im;
+  for (let k = 0; k < 25; k++) {
+    if (k === im) continue;
+    const sx = ePx[k] - ax, sy = ePy[k] - ay, dd = (0.5 * (ax + ePx[k]) * sx + 0.5 * (ay + ePy[k]) * sy) / Math.sqrt(sx * sx + sy * sy);   // to the bisector of A and k
+    if (dd < bd) { bd = dd; ib = k; }
+  }
+  eAx = ax; eAy = ay; eBx = ePx[ib]; eBy = ePy[ib]; eId = ePi[im]; eD1 = d1; eBd = bd;
+}
+
 /** where the coins lie inside the lump (offsets from the crest point). All much the same size, as in a real hoard. */
 function layCoins(a) {
   const r = L.rng('s08-coins-macro'), r2 = L.rng('s08-coins-solid');
@@ -71,43 +98,40 @@ function layCoins(a) {
       lip: r2.range(-0.14, 0.14),    // the rims of the two faces do not stand equally high
       inr: r2.range(0.74, 0.94),     // the rim round the hole (内郭) stands a little lower than the outer one
       hk: o.hk === undefined ? 0.3 : o.hk,   // how empty the hole is (the cord has rotted away; soil only half fills it)
+      halo: o.halo || 0,             // the crust next to the metal is looser: a faint dark fringe outside the edge
+      lo: !!o.lo,                    // a coin in the background: computed with less care
     });
   };
   // far coins first: soft ghosts that give the lump its depth
   add(835, 560, 276, 0.74, 1.15, 0.2, 0.36, 5);
   add(-430, 226, 276, 0.34, -0.2, 0.9, 0.3, 3.2);
-  // a roll: coins once strung together, now one rusted cylinder seen at an angle → their rims nest one inside the next
+  // a string that has slumped: coins leaning one on the next → ring outlines nested one inside another
   {
-    const c = 0.47, psi = 0.38, rc = 278, n = 5, sinT = Math.sqrt(1 - c * c), ax = -Math.sin(psi), ay = Math.cos(psi), pitch = rc * 0.108 * sinT;
-    let s = -0.5 * (n + 1) * pitch;
+    const c = 0.47, psi = 0.38, rc = 278, n = 5, sinT = Math.sqrt(1 - c * c), ax = -Math.sin(psi), ay = Math.cos(psi), pitch = rc * 0.19 * sinT;
+    let s = -0.5 * (n - 1) * pitch;
     for (let i = 0; i < n; i++) {
-      add(-720 + ax * s + r.range(-3, 3), 480 + ay * s + r.range(-3, 3), rc * r.range(0.98, 1.02), L.clamp(c + r.range(-0.03, 0.03), 0.2, 1),
-        psi + r.range(-0.04, 0.04), r.range(0, Math.PI / 2), 0.2, 2.3);
+      add(-790 + ax * s + r.range(-3, 3), 500 + ay * s + r.range(-3, 3), rc * r.range(0.98, 1.02), L.clamp(c + r.range(-0.03, 0.03), 0.2, 1),
+        psi + r.range(-0.04, 0.04), r.range(0, Math.PI / 2), 0.24, 1.9, { lo: true });
       s += pitch * r.range(0.8, 1.25);
-    }
-    for (let i = 0; i < 2; i++) {     // two more at the far end of the roll
-      add(-720 + ax * s + r2.range(-3, 3), 480 + ay * s + r2.range(-3, 3), rc * r2.range(0.98, 1.02), L.clamp(c + r2.range(-0.03, 0.03), 0.2, 1),
-        psi + r2.range(-0.04, 0.04), r2.range(0, Math.PI / 2), 0.2, 2.3, { rs: r2 });
-      s += pitch * r2.range(0.85, 1.2);
     }
   }
   // the three coins the eye lands on
-  add(560, 270, 272, 0.3, 0.27, 0.5, 0.34, 1.9, { eat: 0.35, hk: 0.42 });
-  add(250, 424, 276, 0.78, -0.6, 1.0, 0.72, 1.35, { eat: 0.5, chip: [2.5, 0.2], hk: 0.5 });
-  add(-215, 382, 280, 0.955, 0.5, 0.33, 1.0, 1.25, { eat: 0.25, chip: [-2.2, 0.13], hk: 0.62 });
+  add(560, 270, 272, 0.3, 0.27, 0.5, 0.34, 1.9, { eat: 0.35, hk: 0.42, halo: 0.1 });
+  add(250, 424, 276, 0.78, -0.6, 1.0, 0.72, 1.35, { eat: 0.5, chip: [2.5, 0.2], hk: 0.5, halo: 0.15 });
+  add(-215, 382, 280, 0.955, 0.5, 0.33, 1.0, 1.25, { eat: 0.25, chip: [-2.2, 0.13], hk: 0.62, halo: 0.17 });
   return coins;
 }
 
 /** add every coin's metal thickness (along the beam) into C, and how empty its hole is into Hm.
  *  A coin is a stack of thin layers along its own axis — the flan (disc minus square hole) and, on either face, the raised
  *  rims (外郭 round the edge, 内郭 round the hole). Seen at an angle each layer lands a little further along the minor axis. */
-function castCoins(coins, C, Hm, RW, RH, X0, Y0) {
+function castCoins(coins, C, Hm, Ha, RW, RH, X0, Y0) {
   const nz = L.makeNoise('s08-metal');
   const offs = new Float32Array(8), wF = new Float32Array(8), wL = new Float32Array(8), xa = new Float32Array(8);
   for (const q of coins) {
     const rc = q.rc, c = q.c, ic = 1 / c, sinT = Math.sqrt(1 - c * c);
     const cp = Math.cos(q.psi), sp = Math.sin(q.psi), cr = Math.cos(q.rot), sr = Math.sin(q.rot);
-    const cheap = q.soft > 3;
+    const cheap = q.soft > 3 || q.lo;
     const tt = q.th * rc, tf = tt * 0.58, lh = (tt - tf) / 2, lipD = tf / 2 + lh / 2, hT = 0.5 * tt * sinT;
     // the layers: nf slices of the flan, then the rim of either face
     const nf = tf * sinT < 2.4 ? 1 : (tf * sinT < 8 || cheap) ? 3 : 5;
@@ -115,7 +139,8 @@ function castCoins(coins, C, Hm, RW, RH, X0, Y0) {
     for (let i = 0; i < nf; i++) { offs[nl] = ((i + 0.5) / nf - 0.5) * tf * sinT; wF[nl] = 1 / nf; wL[nl] = 0; xa[nl] = 0.5 * tf * sinT / nf * ic; nl++; }
     offs[nl] = -lipD * sinT; wF[nl] = 0; wL[nl] = 0.5 * (1 + q.lip); xa[nl] = 0.5 * lh * sinT * ic; nl++;
     offs[nl] = lipD * sinT; wF[nl] = 0; wL[nl] = 0.5 * (1 - q.lip); xa[nl] = 0.5 * lh * sinT * ic; nl++;
-    const ext = rc * 1.035 + q.soft * 2 + 2, ext2 = ext * ext, eb = ext * c + hT + 2;
+    const hw = q.halo ? 0.1 * rc : 0;
+    const extM = rc * 1.035 + q.soft * 2 + 2, extM2 = extM * extM, ext = extM + hw, ext2 = ext * ext, eb = ext * c + hT + 2;
     const bw = Math.sqrt((ext * cp) ** 2 + (eb * sp) ** 2) + 3, bh = Math.sqrt((ext * sp) ** 2 + (eb * cp) ** 2) + 3;
     const i0 = Math.max(0, Math.floor(q.x - bw - X0)), i1 = Math.min(RW - 1, Math.ceil(q.x + bw - X0));
     const j0 = Math.max(0, Math.floor(q.y - bh - Y0)), j1 = Math.min(RH - 1, Math.ceil(q.y + bh - Y0));
@@ -138,15 +163,15 @@ function castCoins(coins, C, Hm, RW, RH, X0, Y0) {
         const v0 = vs * ic, lx0 = u * cr + v0 * sr, ly0 = -u * sr + v0 * cr;
         const m1 = nz.n2(lx0 * k1 + q.seed, ly0 * k1 - q.seed * 0.7), m2 = cheap ? 0 : nz.n2(lx0 * k2 - q.seed, ly0 * k2 + 3.1);
         const re = rc * (1 + 0.008 * m2 + 0.02 * m1);                       // a worn, slightly nibbled edge
-        let field = 0.46 * (0.86 + 0.3 * m1 + 0.13 * m2) * (1 + lx0 * wx + ly0 * wy);
-        field *= 1 - 0.42 * sstep(0.42, 0.8, m2);                            // pitting
+        let field = 0.41 * (0.86 + 0.3 * m1 + 0.13 * m2) * (1 + lx0 * wx + ly0 * wy);
+        field *= 1 - 0.3 * sstep(0.42, 0.8, m2);                             // pitting
         let top = (1.22 + 0.08 * m2) * (0.84 + 0.16 * sstep(-0.5, 0.3, m1));   // the raised rims are worn unevenly
         if (q.eat) { const e = q.eat * sstep(0.05, 0.6, m1 * 0.85 + m2 * 0.3); field *= 1 - e; top *= 1 - 0.6 * e; }
         const lipGain = top - field;
         let acc = 0, hAcc = 0;
         for (let l = 0; l < nl; l++) {
           const v = (vs - offs[l]) * ic, rho2 = u * u + v * v;
-          if (rho2 > ext2) continue;
+          if (rho2 > extM2) continue;
           const rho = Math.sqrt(rho2), av = v < 0 ? -v : v;
           // one screen px measured along the radius of the coin, plus the reach of this layer's own thickness
           const aa = rho > 1 ? q.soft * Math.sqrt(u * u + v * v * ic * ic) / rho + xa[l] * av / rho : q.soft;
@@ -172,6 +197,7 @@ function castCoins(coins, C, Hm, RW, RH, X0, Y0) {
         const k = j * RW + i;
         if (acc > 0) C[k] += acc * gain;
         if (hAcc > 0) { const hv = hAcc * q.hk; if (hv > Hm[k]) Hm[k] = hv; }
+        if (hw) { const rho0 = Math.sqrt(u * u + vv * vv); if (rho0 > re) { const hv = q.halo * (1 - sstep(0, hw, rho0 - re)); if (hv > Ha[k]) Ha[k] = hv; } }
       }
     }
   }
@@ -227,31 +253,29 @@ function drawMarks(a, coins, X0, Y0, RW, RH, gAt, tkAt) {
     hair(g1, brittle(p[0], p[1], inward, tkAt(al) * r.range(0.45, 1.25), 0.3), r.range(1.3, 2.1), r.range(0.4, 0.8), RED);
   }
   // long cracks through the body, each with a branch or two
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 6; i++) {
     const p = polar(r.range(-1000, 1050), r.range(170, 560)), pts = brittle(p[0], p[1], r.range(0, L.TAU), r.range(220, 560), 0.36);
-    hair(g1, pts, r.range(1.5, 2.4), r.range(0.3, 0.58), RED);
+    hair(g1, pts, r.range(1.5, 2.3), r.range(0.28, 0.5), RED);
     for (let b = r.int(1, 2); b > 0; b--) {
       const k = r.int(1, pts.length - 2), p0 = pts[k], d = Math.atan2(pts[k + 1][1] - p0[1], pts[k + 1][0] - p0[0]) + r.sign() * r.range(0.6, 1.15);
       hair(g1, brittle(p0[0], p0[1], d, r.range(50, 170), 0.4), r.range(1.3, 1.8), r.range(0.25, 0.42), RED);
     }
   }
-  // where the crust has come away from a coin a thin gap follows its edge for a stretch
-  for (const q of coins) {
-    if (q.soft > 3) continue;
-    const ry = q.c + 0.5 * q.th * Math.sqrt(1 - q.c * q.c);
-    for (let i = r.int(3, 5); i > 0; i--) {
-      const k = q.rc * r.range(1.014, 1.04), a0 = r.range(0, L.TAU);
-      g1.strokeStyle = RED + r.range(0.2, 0.46).toFixed(3) + ')'; g1.lineWidth = r.range(1.4, 2.6);
-      g1.beginPath(); g1.ellipse(q.x, q.y, k, k * ry, q.psi, a0, a0 + r.range(0.22, 0.9)); g1.stroke();
-    }
+  // ── pores (blue): froth — they come in swarms and keep to the fringes of the foam; a few larger gas holes have a
+  //    denser lip (green) ──
+  const frothy = (p) => { const gv = gAt(p[0], p[1]); return gv > 0.03 && gv < 0.45 ? true : r.chance(0.16); };
+  for (let t = 0, made = 0; t < 900 && made < 30; t++) {
+    const p = polar(r.range(-1080, 1080), r.range(56, 600));
+    if (!frothy(p)) continue;
+    made++;
+    const n = r.int(6, 24), spr = r.range(22, 70);
+    for (let k = 0; k < n; k++) dot(g1, p[0] + r.gauss() * spr, p[1] + r.gauss() * spr * 0.8, 1.6 + 5 * Math.pow(r(), 2.4), r.range(0.3, 0.75), BLU);
   }
-  // ── pores (blue): they come in swarms; a few larger gas holes have a denser lip (green) ──
-  for (let i = 0; i < 48; i++) {
-    const p = polar(r.range(-1080, 1080), r.range(56, 600)), n = r.int(5, 26), spr = r.range(26, 95);
-    for (let k = 0; k < n; k++) dot(g1, p[0] + r.gauss() * spr, p[1] + r.gauss() * spr * 0.8, 1.5 + 4.4 * Math.pow(r(), 2.6), r.range(0.3, 0.75), BLU);
-  }
-  for (let i = 0; i < 30; i++) {
-    const p = polar(r.range(-1080, 1080), r.range(70, 600)), rad = r.range(4.5, 10.5);
+  for (let t = 0, made = 0; t < 600 && made < 18; t++) {
+    const p = polar(r.range(-1080, 1080), r.range(70, 600));
+    if (!frothy(p)) continue;
+    made++;
+    const rad = r.range(4.5, 10.5);
     dot(g1, p[0], p[1], rad, r.range(0.45, 0.8), BLU);
     g1.strokeStyle = GRN + r.range(0.14, 0.3).toFixed(3) + ')'; g1.lineWidth = r.range(1.3, 2);
     const a0 = r.range(0, L.TAU); g1.beginPath(); g1.arc(p[0], p[1], rad * 0.9, a0, a0 + r.range(2.2, 5.4)); g1.stroke();
@@ -266,27 +290,29 @@ function drawMarks(a, coins, X0, Y0, RW, RH, gAt, tkAt) {
     for (let k = r.int(5, 14); k > 0; k--) grit(p[0] + r.gauss() * spr, p[1] + r.gauss() * spr, 1.3 + 2.2 * Math.pow(r(), 2), r.range(0.25, 0.7));
   }
 
-  // ── filaments in the foam (red on the second canvas): they follow a slow swirl, like smoke ──
-  const flow = (x, y) => Math.atan2(x - cx, cy - y) + 2.3 * nz.fbm(x / 190 + 7, y / 190 - 3, 2);
+  // ── filaments in the foam (red on the second canvas): they follow a slow swirl, like smoke, crinkling a little.
+  //    Many are the folded edge of a film: on one side of them a soft veil (green; blurred before it is used) ──
+  const flow = (x, y) => Math.atan2(x - cx, cy - y) + 2.3 * nz.fbm(x / 190 + 7, y / 190 - 3, 2) + 0.5 * nz.n2(x / 23 + 1.7, y / 23 - 4.1);
   const trace = (x, y, n, gMin) => {
     const pts = [[x, y]], back = r.chance(0.5) ? Math.PI : 0;
-    for (let s = 0; s < n; s++) { const an = flow(x, y) + back; x += Math.cos(an) * 6; y += Math.sin(an) * 6; if (gAt(x, y) < gMin) break; pts.push([x, y]); }
+    for (let s = 0; s < n; s++) { const an = flow(x, y) + back; x += Math.cos(an) * 5; y += Math.sin(an) * 5; if (gAt(x, y) < gMin) break; pts.push([x, y]); }
     return pts;
   };
-  for (let t = 0, made = 0; t < 6000 && made < 240; t++) {
+  for (let t = 0, made = 0; t < 6000 && made < 135; t++) {
     const x = r.range(X0, X0 + RW), y = r.range(Y0 + TOP, Y0 + RH);
     if (gAt(x, y) < 0.3) continue;
-    const pts = trace(x, y, r.int(10, 46), 0.05);
-    if (pts.length < 4) continue;
-    hair(g2, pts, r.range(1.3, 2.3), r.range(0.14, 0.55), RED); made++;
-  }
-  // broad soft veils of the same smoke (green), blurred before they are used
-  for (let t = 0, made = 0; t < 4000 && made < 70; t++) {
-    const x = r.range(X0, X0 + RW), y = r.range(Y0 + TOP, Y0 + RH);
-    if (gAt(x, y) < 0.14) continue;
-    const pts = trace(x, y, r.int(14, 50), 0.02);
-    if (pts.length < 5) continue;
-    g3.strokeStyle = GRN + r.range(0.07, 0.17).toFixed(3) + ')'; g3.lineWidth = r.range(7, 22); run(g3, pts, 0, pts.length - 1); made++;
+    const pts = trace(x, y, r.int(9, 40), 0.05), n = pts.length - 1;
+    if (n < 3) continue;
+    const u = r();
+    hair(g2, pts, r.range(1.25, 2.0), 0.1 + 0.5 * u * u, RED); made++;
+    if (r.chance(0.5) && n >= 5) {
+      const w2 = r.range(8, 24), side = r.sign() * w2 * 0.5, off = [];
+      for (let i = 0; i <= n; i++) {
+        const p0 = pts[i ? i - 1 : 0], p1 = pts[i < n ? i + 1 : n], dx = p1[0] - p0[0], dy = p1[1] - p0[1], dl = Math.hypot(dx, dy) || 1;
+        off.push([pts[i][0] - dy / dl * side, pts[i][1] + dx / dl * side]);
+      }
+      g3.lineCap = 'butt'; g3.strokeStyle = GRN + r.range(0.06, 0.15).toFixed(3) + ')'; g3.lineWidth = w2; run(g3, off, 1, n - 1);
+    }
   }
   g2.save(); g2.setTransform(1, 0, 0, 1, 0, 0); g2.filter = 'blur(4px)'; g2.drawImage(c3, 0, 0); g2.restore();
   // ── cracks in the metal (blue): a cast coin splits from a corner of its hole out to the rim ──
@@ -322,8 +348,8 @@ function buildClump(env) {
   // 1) slow fields on a coarse grid
   const CS = 6, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2, CN = cw * ch;
   const F = () => new Float32Array(CN);
-  const fWx = F(), fWy = F(), fVx = F(), fVy = F(), fBody = F(), fVoid = F(), fSh1 = F(), fRel = F(), fGate = F(), fPk = F(), fTk = F(),
-    fWsp = F(), fMem = F(), fCl = F(), fOp = F();
+  const fWx = F(), fWy = F(), fVx = F(), fVy = F(), fBody = F(), fVoid = F(), fSh1 = F(), fRel = F(), fTk = F(),
+    fWsp = F(), fMem = F(), fCl = F(), fOp = F(), fBig = F(), fGC = F();
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const px = X0 + i * CS, py = Y0 + j * CS, k = j * cw + i;
     const ddx = px - cx, ddy = cy - py, dp = R - Math.sqrt(ddx * ddx + ddy * ddy), al = Math.atan2(ddx, ddy) * R;
@@ -349,26 +375,42 @@ function buildClump(env) {
     const hh = 26 + 74 * run + 16 * nA.n2(al / 210, 5.3);
     const rag = 0.4 * nB.fbm(px / 150 + 5, py / 150 - 8, 3);
     const rel = (dp - d0) / hh;
-    const g = (1 - sstep(0.6, 1.08, Math.abs(rel) + rag)) * (0.5 + 0.5 * run);
-    fGate[k] = g; fRel[k] = rel;
+    // away from the main run the seam is no continuous line: it comes and goes in patches of froth
+    const patch = run + (1 - run) * sstep(-0.2, 0.22, nA.n2(al / 240, 9.7));
+    const g = (1 - sstep(0.6, 1.08, Math.abs(rel) + rag)) * (0.5 + 0.5 * run) * patch;
     const clear = sstep(0.8, 1.2, Math.hypot(px - hero.x, py - hero.y) / hero.rc) * sstep(0.75, 1.15, Math.hypot(px - second.x, py - second.y) / second.rc);
-    fPk[k] = sstep(0.22, 0.44, nC.fbm(ux / 230 - 4, uy / 200 + 12, 3)) * sstep(270, 420, dp) * 0.85 * clear;   // gas pockets between the coins
+    const pk = sstep(0.22, 0.44, nC.fbm(ux / 230 - 4, uy / 200 + 12, 3)) * sstep(270, 420, dp) * 0.85 * clear;   // gas pockets between the coins
     fMem[k] = nC.fbm(px / 95 + 31, py / 95 - 9, 2);
     fOp[k] = nA.fbm(px / 200 - 13, py / 200 + 29, 2);       // where the walls between bubbles have given way
     // the rind: thickness along the arc, and a wispy underside
     fTk[k] = tkAt(al);
     fWsp[k] = 11 * nB.fbm(al / 130, dp / 60, 3) + 4 * nB.n2(al / 38, dp / 30);
+    // one gate for the foam: the seam (it keeps clear of the shell) or a pocket, whichever is stronger — blended, not switched
+    const gS = g * sstep(0.8, 1.7, (dp + fWsp[k]) / fTk[k]), tP = sstep(-0.1, 0.1, pk - gS);
+    fGC[k] = gS + (pk - gS) * tP; fRel[k] = rel + (0.6 - rel) * tP;
+    fBig[k] = 0.25 + 0.75 * run * (1 - tP) + 0.75 * tP;     // big bubbles only where there is room for them
   }
-  const gAt = (px, py) => {
-    const i = Math.round((px - X0) / CS), j = Math.round((py - Y0) / CS);
-    if (i < 0 || j < 0 || i >= cw || j >= ch) return 0;
-    const k = j * cw + i; return fGate[k] > fPk[k] ? fGate[k] : fPk[k];
+  // the gate anywhere (bilinear), and where foam has to be worked out at all: a bubble reaches well beyond its centre
+  const gBil = (X, Y) => {
+    let fx = (X - X0) / CS, fy = (Y - Y0) / CS;
+    if (fx < 0) fx = 0; else if (fx > cw - 1.001) fx = cw - 1.001;
+    if (fy < 0) fy = 0; else if (fy > ch - 1.001) fy = ch - 1.001;
+    const i = fx | 0, j = fy | 0, tx = fx - i, ty = fy - j, k = j * cw + i;
+    return (fGC[k] * (1 - tx) + fGC[k + 1] * tx) * (1 - ty) + (fGC[k + cw] * (1 - tx) + fGC[k + cw + 1] * tx) * ty;
   };
+  const gAt = gBil;
+  const dilate = (lo, rad) => {
+    const tmp = new Float32Array(CN), out = new Float32Array(CN);
+    for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) { let mx = 0; for (let t = Math.max(0, i - rad), t1 = Math.min(cw - 1, i + rad); t <= t1; t++) { const v = fGC[j * cw + t] - lo; if (v > mx) mx = v; } tmp[j * cw + i] = mx; }
+    for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) { let mx = 0; for (let t = Math.max(0, j - rad), t1 = Math.min(ch - 1, j + rad); t <= t1; t++) { const v = tmp[t * cw + i]; if (v > mx) mx = v; } out[j * cw + i] = mx; }
+    return out;
+  };
+  const fGW1 = dilate(0.2, 28), fGW2 = dilate(0.02, 10);
 
   const tA = performance.now();
   // 2) the coins, and the drawn marks
-  const C = new Float32Array(N), Hm = new Float32Array(N);
-  castCoins(coins, C, Hm, RW, RH, X0, Y0);
+  const C = new Float32Array(N), Hm = new Float32Array(N), Ha = new Float32Array(N);
+  castCoins(coins, C, Hm, Ha, RW, RH, X0, Y0);
   const tB0 = performance.now();
   const { d1, d2 } = drawMarks(a, coins, X0, Y0, RW, RH, gAt, tkAt);
 
@@ -401,7 +443,6 @@ function buildClump(env) {
       const vd = v00 * w00 + v10 * w10 + v01 * w01 + v11 * w11;
       const s1 = fSh1[kk] * w00 + fSh1[kk + 1] * w10 + fSh1[kb] * w01 + fSh1[kb + 1] * w11;
       const cl = fCl[kk] * w00 + fCl[kk + 1] * w10 + fCl[kb] * w01 + fCl[kb + 1] * w11;
-      let G = fGate[kk] * w00 + fGate[kk + 1] * w10 + fGate[kb] * w01 + fGate[kb + 1] * w11;
       const tk = fTk[kk] * w00 + fTk[kk + 1] * w10 + fTk[kb] * w01 + fTk[kb + 1] * w11;
       const wsp = fWsp[kk] * w00 + fWsp[kk + 1] * w10 + fWsp[kb] * w01 + fWsp[kb + 1] * w11;
       const mem = fMem[kk] * w00 + fMem[kk + 1] * w10 + fMem[kb] * w01 + fMem[kb + 1] * w11;
@@ -428,66 +469,91 @@ function buildClump(env) {
         sh = (Math.sqrt(q) - (q > 1 ? Math.sqrt(q - 1) : 0)) * (1 - sstep(2.4, 6, q));
         sh *= 1.42 + (q < 2 ? 0.28 * (1 - sstep(1, 2, q)) * nB.n2((ddx / rr) * R / 140, dp / 9) : 0);   // faint laminations
       }
-      // what was drawn: cracks and pores take matter away, grit adds a little
+      // what was drawn: cracks and pores take matter away, grit adds a little. They belong to the crust between the
+      // coins — over a coin's face they fade, and there is none in its hole
+      const Ck = C[k], hm = Hm[k];
       const crack = d1[o] * i255, grit = d1[o + 1] * i255, pore = d1[o + 2] * i255;
       if (crack + grit + pore > 0) {
-        m = m * (1 - 0.44 * crack) * (1 - 0.5 * pore) + 0.3 * grit;
+        const off = (1 - 0.75 * sstep(0.12, 0.45, Ck)) * (1 - hm);
+        m = m * (1 - 0.44 * crack * off) * (1 - 0.5 * pore * off) + 0.3 * grit;
         sh *= 1 - 0.55 * crack;
       }
+      // the crust lies looser against the metal: a faint dark fringe outside each coin's edge
+      m *= 1 - Ha[k];
 
       // foam — an X-ray of bubbles: round cavities pressed against one another, each dark in the middle and brightening
       // toward its wall (the beam runs along the membrane there). Big cells low in the seam, a lace of small ones toward
       // the rind, a fainter net behind and soft out-of-focus walls behind that (the foam has depth), smoke-thin filaments
-      // across. Nothing switches on or off: walls thin out and give way where a slow field says so.
-      G *= sstep(0.8, 1.7, q);
-      {
-        const pk = fPk[kk] * w00 + fPk[kk + 1] * w10 + fPk[kb] * w01 + fPk[kb + 1] * w11;
-        let rel = fRel[kk] * w00 + fRel[kk + 1] * w10 + fRel[kb] * w01 + fRel[kb + 1] * w11;
-        const tP = sstep(-0.1, 0.1, pk - G);
-        G += (pk - G) * tP; rel += (0.6 - rel) * tP;
-        if (G > 0.012) {
-          const op = fOp[kk] * w00 + fOp[kk + 1] * w10 + fOp[kb] * w01 + fOp[kb + 1] * w11;
-          const ux = px + 72 * wx + 11 * vx, uy = py + 72 * wy + 11 * vy;
-          const core = sstep(0.2, 0.68, G), upper = 1 - sstep(-0.6, 0.25, rel);
-          const wg = 0.56 + 0.44 * sstep(-0.5, 0.15, mem);                 // membranes are not equally dense along their length
-          // big cells (bigger and emptier low in the seam)
-          cell(ux / 168, uy / 132);
-          let w = 1.0 + 1.5 * (1 + vy), cd = cavity(150, 26 * sstep(0.0, 0.42, op));
-          let vl = cId * 7.31; vl -= Math.floor(vl);                       // a film lying face-on across some bubbles: a soft veil
-          const fd = cBd * 150, veil = vl > 0.5 ? (vl - 0.5) * 0.5 * sstep(2, 34, fd < cd ? fd : cd) : 0;
-          const in1 = sstep(w, w + 2.4, cd), F1 = (1 - in1) * (0.72 + 0.28 * wg) + in1 * ((0.5 * Math.exp(-(cd - w) / 15) + 0.24 * Math.exp(-(cd - w) / 4.5)) * wg + veil);
+      // across. A bubble is there or not as a whole (the gate is read at its centre), so the seam ends in whole bubbles
+      // and never in a cut; and nothing switches on or off — walls thin out and give way where a slow field says so.
+      const gw2 = fGW2[kk] * w00 + fGW2[kk + 1] * w10 + fGW2[kb] * w01 + fGW2[kb + 1] * w11;
+      const gw1 = fGW1[kk] * w00 + fGW1[kk + 1] * w10 + fGW1[kb] * w01 + fGW1[kb + 1] * w11;
+      if (gw1 > 0 || gw2 > 0) {
+        const rel = fRel[kk] * w00 + fRel[kk + 1] * w10 + fRel[kb] * w01 + fRel[kb + 1] * w11;
+        const big = fBig[kk] * w00 + fBig[kk + 1] * w10 + fBig[kb] * w01 + fBig[kb + 1] * w11;
+        const op = fOp[kk] * w00 + fOp[kk + 1] * w10 + fOp[kb] * w01 + fOp[kb + 1] * w11;
+        const ux = px + 72 * wx + 11 * vx, uy = py + 72 * wy + 11 * vy;
+        const upper = 1 - sstep(-0.6, 0.25, rel);
+        const wg = 0.56 + 0.44 * sstep(-0.5, 0.15, mem);                   // membranes are not equally dense along their length
+        let S1 = 1, S2 = 1, Sf = 1;                                        // how much of each layer is solid here
+        // big cells (bigger and emptier low in the seam)
+        if (gw1 > 0) {
+          cellX(ux / 168, uy / 132);
+          const cA = sstep(0.2, 0.68, gBil(px + eAx * 168, py + eAy * 132)), cB = sstep(0.2, 0.68, gBil(px + eBx * 168, py + eBy * 132));
+          if (cA > 0.003 || cB > 0.003) {
+            const w = 1.0 + 1.5 * (1 + vy), dC = cA > cB ? cA - cB : cB - cA;
+            const opn = 26 * sstep(0.0, 0.42, op) * (1 - Math.min(1, 2.5 * dC));      // how far the wall has receded
+            const fd = eBd * 150, dd = (0.5 + 0.3 * eId) * 150 - Math.sqrt(eD1) * 150, cd = fd + opn < dd ? fd + opn : dd;
+            const c = cA + (cB - cA) * (0.5 - 0.5 * sstep(0, 14, fd)) * sstep(0.4 * w, w, opn);   // two bubbles run together share their emptiness
+            let vl = eId * 7.31; vl -= Math.floor(vl);                     // a film lying face-on across some bubbles: a soft veil
+            const veil = vl > 0.68 ? (vl - 0.68) * 0.55 * sstep(2, 34, fd < cd ? fd : cd) : 0;
+            const in1 = sstep(w, w + 2.4, cd);
+            const F1 = (1 - in1) * (0.72 + 0.28 * wg) + in1 * ((0.5 * Math.exp(-(cd - w) / 15) + 0.24 * Math.exp(-(cd - w) / 4.5)) * wg + veil);
+            S1 = 1 - c * (1 - F1);
+          }
+        }
+        // the lace of small cells; on the fringe of the foam the solid matrix is only nibbled by them
+        if (gw2 > 0) {
+          cellX(ux / 47 + 11.3 + 0.12 * vy, uy / 42 - 7.1 + 0.12 * vx);
+          const gA = gBil(px + eAx * 47, py + eAy * 42), gB = gBil(px + eBx * 47, py + eBy * 42);
+          if (gA > 0.02 || gB > 0.02) {
+            const cA = sstep(0.2, 0.68, gA), cB = sstep(0.2, 0.68, gB), nA2 = sstep(0.02, 0.24, gA) * (1 - cA), nB2 = sstep(0.02, 0.24, gB) * (1 - cB);
+            const dC = Math.abs(cA - cB) + Math.abs(nA2 - nB2);
+            const opn = 7 * sstep(0.1, 0.55, -op) * (1 - Math.min(1, 2.5 * dC));
+            const fd = eBd * 44, dd = (0.5 + 0.3 * eId) * 44 - Math.sqrt(eD1) * 44, cd = fd + opn < dd ? fd + opn : dd;
+            const tb = (0.5 - 0.5 * sstep(0, 9, fd)) * sstep(0.36, 0.9, opn);
+            const in2 = sstep(0.9, 2.9, cd), lip2 = Math.exp(-(cd - 0.9) / 7), F2 = (1 - in2) + in2 * 0.5 * lip2;
+            S2 = 1 - (cA + (cB - cA) * tb) * (1 - F2);
+            Sf = 1 - 0.8 * (nA2 + (nB2 - nA2) * tb) * in2 * (1 - 0.65 * lip2);
+          }
+        }
+        const small = 0.02 + 0.66 * upper, w1 = (0.95 - 0.5 * upper) * big, w2 = small + (0.8 - small) * (1 - big);
+        const base = (w1 * S1 + w2 * S2) / (w1 + w2), opn = 1 - base;      // opn: how much of the beam's way through the foam is empty
+        if (opn > 0.004) {
           // the net behind: membranes only, gone in places
           cell(ux / 92 - 3.9, uy / 80 + 21.7);
-          let bd = cBd * 86 + 5 * sstep(0.05, 0.5, vx);
+          const bd = cBd * 86 + 5 * sstep(0.05, 0.5, vx);
           const F3 = 0.5 * (1 - sstep(0.8, 3.0, bd)) + 0.16 * Math.exp(-bd / 9);
           // further back still, out of focus: broad soft walls
           cell(ux / 250 + 7.7, uy / 205 - 3.3);
           const F4 = Math.exp(-cBd * 225 / 13);
-          // lace of small cells
-          cell(ux / 47 + 11.3 + 0.12 * vy, uy / 42 - 7.1 + 0.12 * vx);
-          cd = cavity(44, 7 * sstep(0.1, 0.55, -op));
-          const in2 = sstep(0.9, 2.9, cd), lip2 = Math.exp(-(cd - 0.9) / 7), F2 = (1 - in2) + in2 * 0.5 * lip2;
           // filaments: the computed ones, and the ones that were drawn
           const f1 = 1 - Math.abs(nB.n2(ux / 96 + 1.2 * wx, uy / 96 + 1.2 * wy)), f2 = f1 * f1, f4 = f2 * f2;
-          const fil = (f4 * f4 * f4 * f4 * f2 * 0.5 + f4 * f1 * 0.07) * sstep(-0.4, 0.2, vy + mem) + 0.62 * d2[o] * i255 + 0.5 * d2[o + 1] * i255;
-          const foam = 0.02 + 0.13 * upper + F1 * (0.95 - 0.5 * upper) + F3 * (0.5 + 0.3 * upper) * (0.35 + 0.65 * sstep(-0.5, 0.3, mem))
-            + 0.2 * F4 * (1 - 0.6 * upper) + F2 * (0.02 + 0.66 * upper) + fil * (0.4 + 0.6 * upper);
-          m = m * (1 - core) + 1.1 * foam * core;
-          // on the fringe the solid matrix is only nibbled by small bubbles
-          const fr = sstep(0.02, 0.24, G) * (1 - core);
-          m *= 1 - 0.8 * fr * in2 * (1 - 0.65 * lip2);
-          sh *= 1 - 0.8 * core;
+          const fil = (f4 * f4 * f4 * f4 * f2 * 0.5 + f4 * f1 * 0.035) * sstep(-0.4, 0.2, vy + mem) + 0.62 * d2[o] * i255 + 0.42 * d2[o + 1] * i255;
+          m = m * base + 1.1 * opn * (0.02 + 0.13 * upper + F3 * (0.5 + 0.3 * upper) * (0.35 + 0.65 * sstep(-0.5, 0.3, mem))
+            + 0.07 * F4 * (1 - 0.6 * upper) + fil * (0.4 + 0.6 * upper));
+          sh *= 1 - 0.8 * opn;
         }
+        m *= Sf;
       }
 
       // the holes: the cord that strung the coins has rotted away and soil only half fills them
-      const hm = Hm[k];
       if (hm > 0) m *= 1 - hm * (0.84 + 0.16 * vx);
       // the contour, on the arc (a rough crust: ≤ 4 px of wobble inward)
       let wob = 1.3 * (1 + vx);
       if (dp < 7) wob += 0.75 * (1 + nA.n2(Math.atan2(ddx, ddy) * R / 8, 3.3));
       const edge = sstep(-1.4, 1.4, dp - wob);
-      const x = m + sh + C[k] * (1 - 0.5 * d2[o + 2] * i255);
+      const x = m + sh + Ck * (1 - 0.5 * d2[o + 2] * i255);
       let v = 1 - Math.exp(-x);
       // the lump thickens and the film darkens away from the crest
       const vdx = (px - vcx) / 1.5, vdy = py - vcy;

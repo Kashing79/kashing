@@ -1,12 +1,12 @@
-// s14 — 铸钱图. A corner of an old album leaf painted in the gongbi manner — fine ink line and flat colour on silk —
-// shot on a copy stand: founders seen from the waist down (wide trousers, leg bindings, cloth shoes) pour copper from
-// long-handled ladles into a row of upright sand-mould flasks standing on an indigo platform.
+// s14 — 铸钱图. A corner of an old album leaf painted in the gongbi manner — fine ink line and flat colour on a sized
+// sheet — shot on a copy stand: founders seen from the waist down (wide trousers, leg bindings, cloth shoes) pour
+// copper from long-handled ladles into a row of upright sand-mould flasks standing on an indigo platform.
 // The arc = the ink line along the top edge of the platform.
 //
 // Everything is drawn the way the painter would have laid it: a flat coat of colour (平涂), graded tone washed out from
 // the contours and the folds (分染), then the line drawn over it with a pointed brush — it presses in, runs, swells at
-// the turns and trails off (钉头鼠尾). No stipple, no grit: the only fine structure is the weave of the silk, the
-// streaks of the brush in the mineral blue and the thread tops rubbed bare in it.
+// the turns and trails off (钉头鼠尾). No stipple, no grit: the fine structure is the bast fibre of the paper and the
+// hairs of the flat brush in the mineral blue.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
@@ -17,7 +17,7 @@ const SC = 1.22;           // overall figure scale
 let S = null;
 
 const C = {
-  silk: '#F3E3B8',
+  paper: '#F0E2BC',
   ink: '#2B2118', ink2: '#4B3A2B', ink3: '#8A7458',                    // 浓墨 contours · 淡墨 folds · faint
   white: '#F6EFDA', whiteSh: '#D9CBA8',                                 // 蛤粉 and its shade
   o1: '#DDB67E', o2: '#C98F50', o3: '#AF6B33', o4: '#8C4E22', o5: '#683716',   // 赭石, thin → deep
@@ -25,7 +25,8 @@ const C = {
   v1: '#F29A66', v2: '#E05C3C', v3: '#B63D24',                          // 朱
   shoe: '#30271F', shoeHi: '#6A5B4E',
 };
-C.o1f = L.mix(C.o1, C.o2, 0.45); C.o2f = L.mix(C.o2, C.o3, 0.42);       // the far leg sits a tone deeper
+C.cloth = L.mix(C.b1, C.white, 0.5); C.clothSh = L.mix(C.b2, C.white, 0.25);                 // the short tunic: thin indigo over white
+C.o1f = L.mix(C.o1, C.o2, 0.5); C.o2f = L.mix(C.o2, C.o3, 0.6);       // the far leg sits a tone deeper
 
 const NZ = L.makeNoise('s14brush');
 let SID = 0;
@@ -97,22 +98,26 @@ function brush(g, pts, w, o = {}) {
     A.push([p[i][0] + nx * (hw + j), p[i][1] + ny * (hw + j)]);
     B.push([p[i][0] - nx * (hw - j), p[i][1] - ny * (hw - j)]);
   }
-  g.fillStyle = col;
+  g.fillStyle = col === C.ink ? L.mix(C.ink, C.ink2, 0.5 + 0.5 * NZ.n2(id * 1.37, 9.9)) : col === C.ink2 ? L.mix(C.ink2, C.ink3, 0.22 + 0.22 * NZ.n2(id * 1.37, 3.3)) : col;
   g.beginPath(); g.moveTo(A[0][0], A[0][1]);
   for (let i = 1; i < n; i++) g.lineTo(A[i][0], A[i][1]);
   for (let i = n - 1; i >= 0; i--) g.lineTo(B[i][0], B[i][1]);
   g.closePath(); g.fill();
 }
 
-/** the painted layer (transparent where the silk is left bare) and the three things everything is made of */
+/** the painted layer (transparent where the paper is left bare) and the three things everything is made of */
 function makePainter() {
   const layer = L.makeLayer(PAD);
   const g = layer.getContext('2d');
   const trace = (pts) => { g.beginPath(); poly(g, pts); g.closePath(); };
   return {
     layer, g, trace,
-    /** 平涂: a flat coat */
-    fill(pts, col, alpha = 1) { g.save(); g.globalAlpha = alpha; g.fillStyle = col; trace(pts); g.fill(); g.restore(); },
+    /** 平涂: a flat coat. Laid by hand it never sits exactly in the line: unless `exact`, it slips by a pixel or so, slowly varying over the sheet */
+    fill(pts, col, alpha = 1, exact = false) {
+      g.save(); g.globalAlpha = alpha; g.fillStyle = col;
+      trace(exact ? pts : pts.map(([x, y]) => [x + 0.5 + 1.2 * NZ.n2(x / 190, y / 190 + 7.7), y + 0.3 + 1.2 * NZ.n2(x / 190 + 53.1, y / 190)]));
+      g.fill(); g.restore();
+    },
     /** 分染: a soft-edged tone washed inside `clip`. fn(g) adds ONE path; mode = 'fill' or a stroke width */
     shade(clip, col, blur, alpha, mode, fn) {
       g.save(); trace(clip); g.clip();
@@ -123,6 +128,8 @@ function makePainter() {
     },
     /** 勾线 */
     line(pts, w, o) { brush(g, pts, w, o); },
+    /** run fn with the drawing confined to a shape */
+    within(clip, fn) { g.save(); trace(clip); g.clip(); fn(g); g.restore(); },
   };
 }
 
@@ -207,7 +214,7 @@ function leg(P, o) {
   const sh = [];
   for (let i = 0; i <= 10; i++) { const t = lerp(-0.4, 1.0, i / 10); sh.push(TP(t, -1.2)); }
   for (let i = 10; i >= 0; i--) { const t = lerp(-0.4, 1.0, i / 10); sh.push(TP(t, -0.5 + 0.13 * Math.sin(t * 7 + r() * 0.6) - 0.25 * Math.pow(Math.max(0, t), 3))); }
-  P.shade(trous, C.o3, 15 * k, 0.75, 'fill', (g) => poly(g, sh));
+  P.shade(trous, far ? C.o4 : C.o3, 15 * k, far ? 0.55 : 0.8, 'fill', (g) => poly(g, sh));
   P.shade(trous, C.o3, 9 * k, 0.85, 'fill', (g) => poly(g, [add(PB2, d2, 8 * k), add(HM, d2, 8 * k), add(PF2, d2, 8 * k), KP(0.105, 54), KP(0.125, 4), KP(0.1, -48)]));
   P.shade(trous, C.o3, 6 * k, 0.32, 14 * k, (g) => poly(g, trous.seg(0, 6)));
   // the folds: tension fans out from the hollow of the knee, the slack hangs from the hip, pleats run up from the tie
@@ -222,7 +229,15 @@ function leg(P, o) {
     const xx = x + r.range(-6, 6), top = x === 2 ? -0.02 : 0.05;
     folds.push([L.smoothPath([KP(0.172, xx), KP(0.115, xx * 1.14), KP(top + r.range(-0.02, 0.02), xx * 1.3)], 4), 1.9]);
   }
-  P.shade(trous, C.o4, 5 * k, 0.42, 13 * k, (g) => { for (const [fl] of folds) poly(g, fl.map((q) => add(q, n1, -6 * k))); });
+  P.shade(trous, C.o4, 5 * k, 0.5, 13 * k, (g) => { for (const [fl] of folds) poly(g, fl.map((q) => add(q, n1, -6 * k))); });
+  // the wash was laid with long pulls of the brush down the leg: a few of its hairs show
+  P.within(trous, (g) => {
+    for (let i = 0; i < 16; i++) {
+      const v0 = r.range(-0.9, 0.9), ta = r.range(-0.45, 0.45), tb = ta + r.range(0.3, 0.62), pts = [];
+      for (let j = 0; j <= 12; j++) pts.push(TP(lerp(ta, tb, j / 12), v0 + 0.05 * Math.sin(j * 0.7 + i)));
+      brush(g, pts, r.range(1.5, 2.8), { head: 0, tin: 0.3, tail: 0.4, wob: 0.4, turn: 0, col: r.chance(0.55) ? L.rgba(C.o4, r.range(0.06, 0.14)) : L.rgba(C.o1, r.range(0.08, 0.18)) });
+    }
+  });
   for (const [fl, w] of folds) P.line(fl, w, { raw: true, head: 0.8, tail: 0.6, wob: 0.22, col: C.ink2 });
   P.line(trous.seg(0, 4), 3.0, { raw: true, head: 0, tail: 0.05, wob: 0.2 });
   P.line(trous.seg(4, 6), 2.9, { raw: true, head: 0.45, tail: 0.12, wob: 0.2 });
@@ -237,11 +252,11 @@ function tunic(P, H, f, k, lean, r, o = {}) {
   const hemB = X(-108, 40), hemF = X(100, 80);
   // control points: hem 0…4, front edge 5…8, top 9…10, back edge 11…14
   const shape = loop([hemB, X(-62, 60), X(-12, 58), X(40, 74), hemF, hemF, X(98, -40), X(90, -200), X(88, -460), X(88, -460), X(-98, -460), X(-98, -460), X(-100, -220), X(-106, -60), hemB], 6);
-  P.fill(shape, C.white);
-  P.shade(shape, C.whiteSh, 10 * k, 0.8, 34 * k, (g) => poly(g, [X(-112, -460), X(-114, -220), X(-120, -60), X(-120, 44)]));
-  P.shade(shape, C.whiteSh, 7 * k, 0.6, 16 * k, (g) => poly(g, [hemB, X(-62, 60), X(-12, 58), X(40, 74), hemF]));
+  P.fill(shape, C.cloth);
+  P.shade(shape, C.clothSh, 10 * k, 0.8, 34 * k, (g) => poly(g, [X(-112, -460), X(-114, -220), X(-120, -60), X(-120, 44)]));
+  P.shade(shape, C.clothSh, 7 * k, 0.6, 16 * k, (g) => poly(g, [hemB, X(-62, 60), X(-12, 58), X(40, 74), hemF]));
   const folds = [L.smoothPath([X(-60, 52), X(-50, -30), X(-58, -150)], 4), L.smoothPath([X(34, 66), X(22, -20), X(36, -120)], 4), L.smoothPath([X(-14, 50), X(-10, 10)], 4)];
-  P.shade(shape, C.whiteSh, 5 * k, 0.7, 12 * k, (g) => { for (const fl of folds) poly(g, fl.map((q) => add(q, [-6 * k * f, 0]))); });
+  P.shade(shape, C.clothSh, 5 * k, 0.7, 12 * k, (g) => { for (const fl of folds) poly(g, fl.map((q) => add(q, [-6 * k * f, 0]))); });
   [1.9, 1.8, 1.6].forEach((w, i) => P.line(folds[i], w, { raw: true, head: 0.6, tail: 0.6, wob: 0.25, col: C.ink2 }));
   P.line(shape.seg(0, 4), 2.5, { raw: true, head: 0.2, tail: 0.03, wob: 0.26 });
   P.line(shape.seg(5, 8), 2.3, { raw: true, head: 0, tail: 0 });
@@ -375,8 +390,8 @@ function platform(P, a) {
   const end = row((u) => -99 + 3.5 * NZ.n2(u / 150, 5.5) + 1.8 * NZ.n2(u / 43, 9.1));
   const face = [...top, ...row(lowFn).reverse()];
   // the colour was not laid quite in register with the line: it runs a little past the lower one
-  g.save(); g.filter = 'blur(1.2px)'; P.fill([...row(() => -80), ...end.reverse()], L.mix(C.b2, C.silk, 0.3)); g.restore();
-  P.fill(face, C.b3);
+  g.save(); g.filter = 'blur(1.2px)'; P.fill([...row(() => -80), ...end.reverse()], L.mix(C.b2, C.paper, 0.3), 1, true); g.restore();
+  P.fill(face, C.b3, 1, true);
   // 分染: deepest under the top line, thinning toward the foot
   P.shade(face, C.b4, 13, 0.95, 40, (g2) => a.trace(g2, -8, -s, s));
   P.shade(face, C.b5, 6, 0.4, 10, (g2) => a.trace(g2, -3, -s, s));
@@ -388,7 +403,7 @@ function platform(P, a) {
 
 /** the ground under the platform: a pale ochre wash graded off from its foot, and a few dry strokes of a split brush */
 function ground(P, a) {
-  const g = P.g, s = a.span(PAD + 90), r = L.rng('s14cun');
+  const g = P.g, s = a.span(PAD + 90);
   g.save(); a.clipBelow(g, -92);
   g.filter = 'blur(26px)'; g.globalAlpha = 0.5; g.strokeStyle = C.o1; g.lineWidth = 60;
   a.stroke(g, -118, -s, s);
@@ -398,88 +413,69 @@ function ground(P, a) {
   g.filter = 'blur(15px)'; g.globalAlpha = 0.3; g.strokeStyle = '#CDB286'; g.lineWidth = 34;
   a.stroke(g, 12, -s, s);
   g.restore();
-  for (const [t0, t1, dr, w] of [[-0.34, -0.08, -188, 20], [0.05, 0.33, -246, 24]]) {
-    const hairs = 7;
-    for (let q = 0; q < hairs; q++) {
-      const off = (q / (hairs - 1) - 0.5) * w, a0 = t0 + r.range(0, 0.07), a1 = t1 - r.range(0, 0.09), pts = [];
-      for (let i = 0; i <= 44; i++) {
-        const u = i / 44, th = lerp(a0, a1, u);
-        const p = a.pt(th, dr + off + 5 * NZ.n2(th * 11, dr * 0.1) + 4 * Math.sin(u * Math.PI));
-        pts.push([p.x, p.y]);
-      }
-      brush(g, pts, r.range(1.6, 2.8), { raw: true, head: 0, tin: 0.3, tail: 0.4, wob: 0.5, turn: 0, col: L.rgba(C.o2, r.range(0.2, 0.42)) });
-    }
+  // and lower down two broad, barely tinted pulls of the same wash: the ground
+  for (const [t0, t1, dr, w, al] of [[-0.36, -0.05, -214, 46, 0.2], [0.0, 0.31, -292, 58, 0.17]]) {
+    g.save(); g.filter = 'blur(13px)'; g.globalAlpha = al; g.strokeStyle = C.o1; g.lineWidth = w; g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i <= 40; i++) { const u = i / 40, q = a.pt(lerp(t0, t1, u), dr + 9 * NZ.n2(u * 2.3, dr) + 6 * Math.sin(u * Math.PI)); if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y); }
+    g.stroke(); g.restore();
   }
 }
 
-// ───────────────────────── pigment and silk ─────────────────────────
-/** the silk the leaf is painted on: `tone` = its uneven browning, `weave` = the threads (both to be multiplied in), `tops` = the thread tops as alpha */
-function buildSilk(a) {
-  const tone = L.noiseTex(LW, LH, { seed: 's14silk', scale: 640, octaves: 3, res: 0.2, contrast: 1.2, ramp: [[0, '#e6d5b3'], [0.55, '#f8f0df'], [1, '#ffffff']] });
+// ───────────────────────── pigment and paper ─────────────────────────
+/** the sheet: `tone` = how unevenly it has browned (to be multiplied in), `fibre` = its bast fibres (a transparent layer) */
+function buildPaper(a) {
+  const tone = L.noiseTex(LW, LH, { seed: 's14paper', scale: 640, octaves: 3, res: 0.2, contrast: 1.2, ramp: [[0, '#eee0c4'], [0.55, '#fbf5e8'], [1, '#ffffff']] });
   const tg = tone.getContext('2d');
   tg.globalCompositeOperation = 'multiply';
-  tg.drawImage(L.noiseTex(LW, LH, { seed: 's14silk2', scale: 150, octaves: 3, res: 0.25, contrast: 1.1, ramp: [[0, '#eee3cc'], [0.6, '#ffffff'], [1, '#ffffff']] }), 0, 0);
-  tg.fillStyle = L.radial(tg, a.cx + PAD - 60, a.crestY + PAD - 40, 480, 1500, [[0, '#ffffff'], [1, '#efe3c8']]);
+  // formation: the pulp settled a little cloudily on the mould
+  tg.drawImage(L.noiseTex(LW, LH, { seed: 's14cloud', scale: 46, octaves: 3, res: 0.5, contrast: 1.2, ramp: [[0, '#f8f2e6'], [0.5, '#fdfbf6'], [1, '#ffffff']] }), 0, 0);
+  tg.fillStyle = L.radial(tg, a.cx + PAD - 60, a.crestY + PAD - 40, 520, 1500, [[0, '#ffffff'], [1, '#f1e6cd']]);
   tg.fillRect(0, 0, LW, LH);
 
-  // plain weave, a little under 5 px to the thread: every thread has its own weight, a few are slubs, and they all wander a little
-  const wimg = new ImageData(LW, LH), d = wimg.data, timg = new ImageData(LW, LH), td = timg.data;
-  const PX = 4.7, PY = 5.2, r = L.rng('s14weave');
-  const COS = new Float32Array(1025);
-  for (let i = 0; i <= 1024; i++) COS[i] = Math.cos((i / 1024) * L.TAU);
-  const nU = Math.ceil((LW + 24) / PX) + 4, nV = Math.ceil((LH + 24) / PY) + 4;
-  const aU = new Float32Array(nU), aV = new Float32Array(nV);
-  for (let i = 0; i < nU; i++) aU[i] = r.range(0.62, 1.1) * (r.chance(0.035) ? 1.5 : 1);
-  for (let i = 0; i < nV; i++) aV[i] = r.range(0.62, 1.1) * (r.chance(0.05) ? 1.6 : 1);
-  const inX = new Float32Array(LW), inY = new Float32Array(LH);
-  for (let x = 0; x < LW; x++) inX[x] = 0.31 * Math.sin(x * 0.0031 + 1.1) + 0.17 * Math.sin(x * 0.0117 + 0.4);
-  for (let y = 0; y < LH; y++) inY[y] = 0.33 * Math.sin(y * 0.0027 + 2.3) + 0.15 * Math.sin(y * 0.0131 + 1.9);
-  let k = 0;
-  for (let y = 0; y < LH; y++) {
-    const fy = y * 0.0023, iy = inY[y];
-    for (let x = 0; x < LW; x++, k += 4) {
-      let ph = fy + inX[x]; ph -= Math.floor(ph);
-      const ox = 1.6 * COS[(ph * 1024) | 0];
-      ph = x * 0.0019 + iy; ph -= Math.floor(ph);
-      const oy = 1.8 * COS[(ph * 1024) | 0];
-      const u = (x + ox + 12) / PX, v = (y + oy + 12) / PY;
-      const iu = u | 0, iv = v | 0, fu = u - iu, fv = v - iv;
-      // the light comes from the upper left and catches that flank of every thread
-      let su = fu + 0.09; if (su >= 1) su -= 1;
-      let sv = fv + 0.09; if (sv >= 1) sv -= 1;
-      const h = 0.4 * aU[iu] * COS[(su * 1024) | 0] + 0.4 * aV[iv] * COS[(sv * 1024) | 0] + 0.2 * COS[(fu * 1024) | 0] * COS[(fv * 1024) | 0];
-      let q = 0.5 - 0.5 * h; q = q < 0 ? 0 : q > 1 ? 1 : q; q *= q;      // 0 on a thread, 1 in the gap between four of them
-      d[k] = 255 * (1 - 0.085 * q); d[k + 1] = 255 * (1 - 0.1 * q); d[k + 2] = 255 * (1 - 0.125 * q); d[k + 3] = 255;
-      const t = (h - 0.3) * 1.6;
-      td[k] = td[k + 1] = td[k + 2] = 255; td[k + 3] = t <= 0 ? 0 : t >= 1 ? 255 : 255 * t;
-    }
+  const fibre = L.makeLayer(PAD), g = fibre.getContext('2d'), r = L.rng('s14fibre');
+  const pale = (al) => `rgba(255,250,232,${al.toFixed(3)})`, tan = (al) => `rgba(150,112,62,${al.toFixed(3)})`;
+  g.lineCap = 'round';
+  for (let i = 0; i < 900; i++) {       // the felt of short fibres
+    const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), len = r.range(14, 60), an = r.range(0, Math.PI), bend = r.range(-0.5, 0.5);
+    g.strokeStyle = r.chance(0.6) ? pale(r.range(0.06, 0.16)) : tan(r.range(0.03, 0.08));
+    g.lineWidth = r.range(1.2, 1.6);
+    g.beginPath(); g.moveTo(x, y);
+    g.quadraticCurveTo(x + Math.cos(an + bend) * len * 0.5, y + Math.sin(an + bend) * len * 0.5, x + Math.cos(an) * len, y + Math.sin(an) * len);
+    g.stroke();
   }
-  const weave = L.makeCanvas(LW, LH), tops = L.makeCanvas(LW, LH);
-  weave.getContext('2d').putImageData(wimg, 0, 0);
-  tops.getContext('2d').putImageData(timg, 0, 0);
-  return { tone, weave, tops };
+  for (let i = 0; i < 110; i++) {       // long strands that did not beat down
+    const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), len = r.range(70, 250), an = r.range(0, Math.PI);
+    const b1 = r.range(-0.7, 0.7), b2 = r.range(-0.7, 0.7);
+    g.strokeStyle = r.chance(0.72) ? pale(r.range(0.08, 0.2)) : tan(r.range(0.04, 0.1));
+    g.lineWidth = r.range(1.3, 2.0);
+    g.beginPath(); g.moveTo(x, y);
+    g.bezierCurveTo(x + Math.cos(an + b1) * len * 0.33, y + Math.sin(an + b1) * len * 0.33, x + Math.cos(an + b2) * len * 0.66, y + Math.sin(an + b2) * len * 0.66, x + Math.cos(an) * len, y + Math.sin(an) * len);
+    g.stroke();
+  }
+  return { tone, fibre };
 }
 
-/** what the colours look like close to: washes that did not dry perfectly flat; in the mineral blue of the platform, the streaks of the flat brush, thread tops rubbed bare, the odd coarse grain */
-function pigmentTexture(P, env, silk) {
+/** what the colours look like close to: washes that did not dry perfectly flat; in the mineral blue of the platform, the hairs of the flat brush and the odd coarse grain of the pigment */
+function pigmentTexture(P, env) {
   const g = P.g, a = env.arc;
   L.overlayOn(P.layer, L.noiseTex(LW, LH, { seed: 's14mot', scale: 130, octaves: 3, res: 0.25, contrast: 1.5 }), { blend: 'soft-light', alpha: 0.3 });
   g.save(); P.trace(P.band); g.clip();
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.5;
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.34;
   g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's14streak', scale: 26, sx: 14, sy: 0.55, octaves: 3, res: 0.5, contrast: 1.6 }), -PAD, -PAD);
-  g.globalCompositeOperation = 'source-over';
-  const wear = L.makeCanvas(LW, LH), wg = wear.getContext('2d');
-  wg.fillStyle = C.b1; wg.fillRect(0, 0, LW, LH);
-  wg.globalCompositeOperation = 'destination-in';
-  wg.drawImage(silk.tops, 0, 0);
-  wg.drawImage(L.noiseTex(LW, LH, { seed: 's14wear', scale: 90, octaves: 4, res: 0.25, contrast: 2.2, ramp: [[0, 'rgba(255,255,255,0)'], [0.42, 'rgba(255,255,255,0)'], [0.75, 'rgba(255,255,255,1)']] }), 0, 0);
-  g.globalAlpha = 0.5; g.drawImage(wear, -PAD, -PAD);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   const r = L.rng('s14azur'), s = a.span(PAD + 60);
-  for (let i = 0; i < 1100; i++) {
+  for (let i = 0; i < 240; i++) {
+    const dr = -r.range(4, 84), t0 = r.range(-s, s), len = r.range(0.06, 0.26), n = Math.ceil((len * a.R) / 9), drift = r.range(-3, 3), pts = [];
+    for (let j = 0; j <= n; j++) { const q = a.pt(t0 + (len * j) / n, dr + (drift * j) / n + 1.2 * NZ.n2(j * 0.11 + i, i * 3.1)); pts.push([q.x, q.y]); }
+    const w = r.range(1.3, 2.6), col = r.chance(0.5) ? L.rgba(C.b2, r.range(0.08, 0.2)) : L.rgba(C.b5, r.range(0.1, 0.24));
+    brush(g, pts, w, { raw: true, head: 0, tin: 0.25, tail: 0.35, wob: 0.4, turn: 0, col });
+  }
+  for (let i = 0; i < 700; i++) {
     const q = a.pt(r.range(-s, s), -r.range(3, 84));
-    const pale = r.chance(0.35), al = r.range(0.12, 0.3), rx = r.range(0.7, 1.3), ry = r.range(0.6, 1.0), rot = r.range(0, Math.PI);
+    const light = r.chance(0.35), al = r.range(0.1, 0.26), rx = r.range(0.7, 1.3), ry = r.range(0.6, 1.0), rot = r.range(0, Math.PI);
     if (NZ.n2(q.x / 70, q.y / 70 + 40) < r.range(-0.7, 0.6)) continue;
-    g.globalAlpha = al; g.fillStyle = pale ? C.b1 : C.b5;
+    g.globalAlpha = al; g.fillStyle = light ? C.b1 : C.b5;
     g.beginPath(); g.ellipse(q.x, q.y, rx, ry, rot, 0, L.TAU); g.fill();
   }
   g.restore();
@@ -495,7 +491,7 @@ export default {
     ground(P, a);
     platform(P, a);
     // the row of flasks
-    const f1 = flask(P, a, { s: -772, dr: 20, w: 116, h: 258, tilt: -0.02, seed: 'a' });
+    const f1 = flask(P, a, { s: -752, dr: 20, w: 116, h: 258, tilt: -0.02, seed: 'a' });
     const f2 = flask(P, a, { s: -50, dr: 22, w: 124, h: 280, tilt: 0.012, seed: 'b' });
     const f3 = flask(P, a, { s: 668, dr: 18, w: 114, h: 254, tilt: 0.03, seed: 'c' });
     // the heat of the pour, washed in pale vermilion round the two gates that are being filled
@@ -508,27 +504,28 @@ export default {
     figure(P, a, { seed: 'D', s: 1050, hh: 492, near: 912, far: 1160, lean: 0.05, dye: 0.3, tunic: { sash: true } });
     const hC = figure(P, a, { seed: 'C', s: 398, hh: 506, near: 318, far: 470, drNear: 5, drFar: 30, lean: 0.03, dye: -0.22, tunic: {} });
     const hB = figure(P, a, { seed: 'B', s: -330, hh: 470, near: -214, far: -478, drNear: 7, drFar: 26, lean: 0.1, dye: 0.12, tunic: {} });
-    const hA = figure(P, a, { seed: 'A', s: -1052, hh: 488, near: -960, far: -1172, lean: 0.08, dye: -0.1, tunic: { sash: true } });
+    const hA = figure(P, a, { seed: 'A', s: -1014, hh: 488, near: -926, far: -1150, lean: 0.08, dye: -0.1, tunic: { sash: true } });
     // ladles
     ladle(P, { seed: 'A', k: SC, bowl: [f1.gate[0] - 30, f1.gate[1] - 150], from: [hA[0] + 118, hA[1] - 330], tilt: 0.1 });
     ladle(P, { seed: 'Bb', k: SC, bowl: [f2.gate[0] - 62, f2.gate[1] - 112], from: [hB[0] + 150, hB[1] - 260], tilt: 0.52, target: f2.gate });
     ladle(P, { seed: 'Cc', k: SC, bowl: [f3.gate[0] - 58, f3.gate[1] - 128], from: [hC[0] + 120, hC[1] - 300], tilt: 0.44, target: f3.gate });
 
-    const silk = buildSilk(a);
-    pigmentTexture(P, env, silk);
+    pigmentTexture(P, env);
 
-    // the leaf: browned silk, the painting on it, the weave through everything
+    // the leaf: browned paper and its fibres, the painting on it, the longest fibres still showing through the colour
+    const paper = buildPaper(a);
     const base = L.makeCanvas(LW, LH), bg = base.getContext('2d');
-    bg.fillStyle = C.silk; bg.fillRect(0, 0, LW, LH);
-    bg.globalCompositeOperation = 'multiply'; bg.drawImage(silk.tone, 0, 0);
-    bg.globalCompositeOperation = 'source-over'; bg.drawImage(P.layer, 0, 0);
-    const sheet = L.blurred(base, 0.5), sg = sheet.getContext('2d');      // the ink has sunk into the threads
-    sg.globalCompositeOperation = 'multiply'; sg.drawImage(silk.weave, 0, 0);
-    sg.globalCompositeOperation = 'source-over';
+    bg.fillStyle = C.paper; bg.fillRect(0, 0, LW, LH);
+    bg.globalCompositeOperation = 'multiply'; bg.drawImage(paper.tone, 0, 0);
+    bg.globalCompositeOperation = 'source-over';
+    bg.drawImage(paper.fibre, 0, 0);
+    bg.drawImage(P.layer, 0, 0);
+    bg.globalAlpha = 0.3; bg.drawImage(paper.fibre, 0, 0); bg.globalAlpha = 1;
+    const sheet = L.blurred(base, 0.5), sg = sheet.getContext('2d');      // the ink has sunk into the sheet
     // copy-stand lens: sharp round the crest, losing the corners
-    const soft = L.blurred(sheet, 4.2), fg = soft.getContext('2d');
+    const soft = L.blurred(sheet, 3.6), fg = soft.getContext('2d');
     fg.globalCompositeOperation = 'destination-in';
-    fg.fillStyle = L.radial(fg, a.cx + PAD, a.crestY + PAD - 20, 560, 1350, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    fg.fillStyle = L.radial(fg, a.cx + PAD, a.crestY + PAD - 20, 700, 1500, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
     fg.fillRect(0, 0, LW, LH);
     sg.drawImage(soft, 0, 0);
     sheet._pad = PAD;

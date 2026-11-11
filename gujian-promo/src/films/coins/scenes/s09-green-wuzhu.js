@@ -166,9 +166,9 @@ function buildCoin(env) {
     return out;
   };
   const veins = veinCurves(a);
-  const strokeVeins = (g, wk, wmin) => {
+  const strokeVeins = (g, wk, wmin, grey = '#fff') => {
     g.save(); a.clipBelow(g, -(RIMW - 14));
-    g.strokeStyle = '#fff'; g.lineCap = 'round';
+    g.strokeStyle = grey; g.lineCap = 'round';
     for (const v of veins) {
       for (let i = 1; i < v.pts.length; i++) {
         g.lineWidth = Math.max(wmin, 0.5 * (v.ws[i - 1] + v.ws[i]) * wk);
@@ -177,7 +177,8 @@ function buildCoin(env) {
     }
     g.restore();
   };
-  const Vc = mask((g) => strokeVeins(g, 0.86, 2.6), 1.8);         // the fissure itself: a pale, shallow groove
+  // the fissure itself, a pale shallow groove: its full width at 60 %, the middle third at 100 %
+  const Vc = mask((g) => { strokeVeins(g, 1, 2.8, '#999'); strokeVeins(g, 0.4, 1.7); }, 1.5);
   const Vw = mask((g) => strokeVeins(g, 5.4, 26), 17);            // the broad valley it sits in (the crust pillows up between fissures)
   const soilShape = (g) => {                                      // burial soil: a diagonal patch centre-right, broken in two
     const nz = L.makeNoise('s09soilshape'), r = L.rng('s09soil');
@@ -219,7 +220,7 @@ function buildCoin(env) {
   const B = (s) => { const a0 = s[bk], a1 = s[bk + 1], b0 = s[bk + cw], b1 = s[bk + cw + 1]; return (a0 + (a1 - a0) * btx) * (1 - bty) + (b0 + (b1 - b0) * btx) * bty; };
 
   const GREEN = lut([[0, '#0d3a23'], [0.2, '#1c5f3c'], [0.46, '#2f9a5f'], [0.63, '#4aae66'], [0.82, '#84c877'], [1, '#bbe292']]);
-  const SOIL = lut([[0, '#5f4018'], [0.22, '#8f6a28'], [0.5, '#c39c46'], [0.74, '#d6b665'], [1, '#ecd9a2']]);
+  const SOIL = lut([[0, '#5f4018'], [0.22, '#93702a'], [0.5, '#c9a24a'], [0.76, '#d9b95f'], [1, '#ead390']]);
 
   // ── pass 1: height (full, and without the finest grain), albedo, occlusion, gloss ──
   const Hh = new Float32Array(N), Hs = new Float32Array(N), Hr = new Float32Array(N), Ao = new Float32Array(N), Gs = new Float32Array(N), Gl = new Float32Array(N);
@@ -239,7 +240,7 @@ function buildCoin(env) {
       // corrosion crust: big pillowy plates split by crackle grooves, a pebbly skin, a little sugar on top
       const g1 = nA.n2(x / 5.5, y / 5.5), g2 = nB.n2(x / 2.6 + 50, y / 2.6);
       const w1 = nA.n2(x / 24 + 80, y / 24), w2 = nB.n2(x / 24 - 20, y / 24 + 60);       // wiggle: no ruler-straight cracks
-      cell(x / 122 + wx * 0.4 + w1 * 0.05, y / 122 + wy * 0.4 + w2 * 0.05);
+      cell(x / 122 + wx * 0.4 + w1 * 0.036, y / 122 + wy * 0.4 + w2 * 0.036);
       const e1 = Math.sqrt(cD2) - Math.sqrt(cD1), id1 = cId;
       const crack = 1 - sstep(0.008, 0.05 + 0.04 * id1, e1 + 0.008 * g1);
       const dome1 = sstep(0, 0.42, e1);
@@ -290,7 +291,8 @@ function buildCoin(env) {
       // ── burial soil: thick, pale and cracked in the middle of the patch; toward its margin it thins to clods lying
       // between the pebbles (whose tops stay green), then to loose crumbs, then to a stain in the crust ──
       const sb = Sm[k] / 255, halo = Sw[k] / 255, cor = B(cCor);
-      let sm = sb * 1.3 * (1 - 0.7 * rimIn) + 0.42 * sn + 0.14 * mid + 0.03 * g1;
+      const nearK = Math.min(1, halo * 8 + foot * 1.2);             // 0 well away from any soil: no stray specks out there
+      let sm = sb * 1.3 * (1 - 0.7 * rimIn) + (0.42 * sn + 0.14 * mid + 0.03 * g1) * (0.5 + 0.5 * nearK);
       if (foot > 0 || rimIn > 0) {                                  // soil packed here and there into the corner under the rim
         const corner = foot * (1 - rimIn) * sstep(0.35, 0.95, foot);
         sm = Math.max(sm, corner * (0.2 + 0.75 * cor) + 0.3 * sn + 0.08 * mid);
@@ -298,12 +300,15 @@ function buildCoin(env) {
       const soilNear = halo > 0.012 || foot > 0.02 || sm > 0.3;
       let clod = 0, clodId = 0.5;
       if (soilNear) { cell(x / 10.5 + 3 + w1 * 0.3, y / 10.5 + 9 + w2 * 0.3); clod = 1 - Math.min(1, cD1 * 3); clodId = cId; }
-      const film = sm + 0.32 * (0.42 - peb) + 0.1 * groove2 + 0.16 * crack + 0.1 * (clodId - 0.5) + 0.06 * (clod - 0.5);
+      const film = sm + 0.32 * (0.42 - peb) + 0.16 * crack + (0.1 * groove2 + 0.1 * (clodId - 0.5) + 0.06 * (clod - 0.5)) * nearK;
       const thick = sstep(0.6, 0.92, sm);
       let soil = sstep(0.42, 0.58, film) * (0.84 + 0.16 * thick), crumb = 0;
       if (soilNear && soil < 0.9) {                                 // crumbs: single clods lying loose around the patch, fewer the further out
-        const far = Math.min(1, halo * 3.2 + foot * 0.9 * Math.max(0, cor + 0.15));
-        if (clodId > 1 - 0.15 * far * far) { crumb = 0.9 * sstep(0.42 + 0.9 * (1 - clodId), 0.74, clod); if (crumb > soil) soil = crumb; else crumb = 0; }
+        const far = Math.min(1, halo * 3.2);
+        if (clodId > 1 - 0.08 * far * far) {                        // (ragged little lumps, not discs)
+          crumb = 0.9 * sstep(0.44 + 1.6 * (1 - clodId), 0.76, clod + 0.22 * g1 + 0.12 * (0.5 - peb));
+          if (crumb > soil) soil = crumb; else crumb = 0;
+        }
       }
       let sand = 0, sandId = 0.5, mc = 0;
       if (soil > 0.02) {
@@ -323,7 +328,8 @@ function buildCoin(env) {
       let vc = 0;
       if (vraw > 0.01) {
         const along = sstep(-0.35, 0.25, pw + 0.5 * mid);
-        vc = sstep(0.16, 0.7, vraw * (0.72 + 0.4 * along) + 0.34 * (0.45 - peb) * Math.min(1, vraw * 3)) * fld * (0.6 + 0.4 * along);
+        const flank = sstep(0.1, 0.44, vraw * (0.84 + 0.34 * along) + 0.22 * (0.45 - peb) * Math.min(1, vraw * 4));
+        vc = (0.56 * flank + 0.44 * sstep(0.66, 0.92, vraw)) * fld * (0.74 + 0.26 * along);
       }
       const pit = id2 > 0.972 && lump + 0.6 * mid < 0.05 ? peb : 0, crys = id2 < 0.045 ? peb : 0;
 
@@ -358,14 +364,14 @@ function buildCoin(env) {
       const ck = det * crack * cs * (0.4 - 0.22 * rimIn) * (1 - 0.8 * seep);
       cr += (146 - cr) * ck; cg += (206 - cg) * ck; cb += (124 - cb) * ck;
       // fissures: pale tender green, the powdery bloom that fills a crack
-      const vk = Math.min(1, vc * 1.25) * 0.76 * (1 - 0.7 * soil);
+      const vk = Math.min(1, vc * 1.25) * (0.82 + 0.1 * g1 + 0.1 * (peb - 0.5)) * (1 - 0.7 * soil);
       cr += (164 - cr) * vk; cg += (218 - cg) * vk; cb += (134 - cb) * vk;
       // the green yellows around the soil, a brown seep where it has run, then the soil itself
       if (stain > 0) { const s1 = stain * 0.6; cr += (168 - cr) * s1; cg += (184 - cg) * s1; cb += (72 - cb) * s1; }
-      if (seep > 0) { const s2 = seep * (0.6 + 0.25 * mid); cr += (118 - cr) * s2; cg += (84 - cg) * s2; cb += (30 - cb) * s2; }
+      if (seep > 0) { const s2 = seep * (0.46 + 0.2 * mid); cr += (128 - cr) * s2; cg += (96 - cg) * s2; cb += (40 - cb) * s2; }
       if (soil > 0) {
-        let ts = 0.46 + 0.3 * thick + 0.2 * sn + 0.14 * mid + 0.1 * (clod - 0.4) + 0.1 * (clodId - 0.5) + 0.05 * g1 - 0.3 * crack - 0.4 * mc
-          - 0.22 * (gather - 0.25) * (1 - thick);                                                         // damper, browner where it has seeped
+        let ts = 0.43 + 0.3 * thick + 0.2 * sn + 0.14 * mid + 0.1 * (clod - 0.4) + 0.1 * (clodId - 0.5) + 0.05 * g1 - 0.3 * crack - 0.4 * mc
+          - 0.14 * (gather - 0.25) * (1 - thick) + 0.14 * crumb;                                          // damper, browner where it has seeped; loose crumbs are dry and pale
         if (sandId > 0.9) ts += 0.28 * sand; else if (sandId < 0.07) ts -= 0.4 * sand;                  // a few pale grains, a few dark ones
         ts = ts < 0 ? 0 : ts > 1 ? 1 : ts; li = ((ts * 255) | 0) * 3;
         cr += (SOIL[li] - cr) * soil; cg += (SOIL[li + 1] - cg) * soil; cb += (SOIL[li + 2] - cb) * soil;
@@ -380,7 +386,7 @@ function buildCoin(env) {
       d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = cov * 255;
       Ao[k] = 1 - 0.1 * foot - 0.1 * dk;
       Gs[k] = peb * (id2 > 0.55 ? 1 : 0.16) * (1 - 0.9 * soil) * (1 - 0.5 * rimIn) * (1 - facet) + 0.5 * crys + (sandId > 0.9 ? 0.5 * sand * soil : 0);
-      Gl[k] = (0.2 + 0.8 * sstep(0.3, 0.62, id1 + 0.3 * lump)) * (1 - 0.92 * soil) * (0.55 + 0.45 * zone) * (1 - 0.8 * facet) * (1 - 0.55 * vw);   // some plates are waxy, some chalky
+      Gl[k] = (0.2 + 0.8 * sstep(0.3, 0.62, id1 + 0.3 * lump)) * (1 - 0.92 * soil) * (0.55 + 0.45 * zone) * (1 - 0.8 * facet) * (1 - 0.3 * vw);   // some plates are waxy, some chalky
     }
   }
   // the outline as an image (white, alpha = coverage): the shadow on the paper is made from it
@@ -476,42 +482,52 @@ function buildShadow(env, sil, Y0) {
   for (const [blur, dx, dy, alpha] of [[44, 0, 0, 0.2], [22, 60, 4, 0.14], [9, 0, 0, 0.15], [2, 0.5, 0, 0.4]]) {
     g.filter = `blur(${blur}px)`; g.globalAlpha = alpha; g.drawImage(tint, dx, dy);
   }
+  // …and a whisper of green bounced off the coin onto the sheet
+  tg.globalCompositeOperation = 'source-in'; tg.fillStyle = 'rgb(70,150,84)'; tg.fillRect(0, 0, w, hh);
+  g.filter = 'blur(30px)'; g.globalAlpha = 0.07; g.drawImage(tint, 0, 0);
   g.filter = 'none'; g.globalAlpha = 1;
   return { shadow: c, YS };
 }
 
-/** cream xuan paper (cropped: only the part above the coin is ever seen) */
+/**
+ * Cream xuan paper (cropped: only the part above the coin is ever seen). At this magnification a sheet is a felt of long
+ * bast fibres; it lies a coin's thickness behind the plane of focus, so the felt is soft. Clean and even: the only
+ * texture is that mat of fibres, a few of them lying proud with a hair of shadow on the side away from the light.
+ */
 function buildPaper(env) {
   const a = env.arc;
   const pw = W + PAD * 2, ph = Math.ceil(a.yAt(-PAD, 0)) + 60 + PAD;
   const c = L.makeCanvas(pw, ph), g = c.getContext('2d');
-  g.drawImage(L.paperTex(pw, ph, { base: '#f3e7d0', seed: 's09paper', tone: '#b79c6c', fiber: 0.42, stain: 0.16, grain: 0.2 }), 0, 0);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.2;                                  // cloudy formation of the pulp
-  g.drawImage(L.noiseTex(pw, ph, { seed: 's09cloud', scale: 26, octaves: 3, gain: 0.6, res: 0.5, contrast: 1.3 }), 0, 0);
-  // the felted tooth of the sheet
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.26;
+  g.drawImage(L.paperTex(pw, ph, { base: '#f1e5cc', seed: 's09paper', tone: '#b79c6c', fiber: 0, stain: 0.07, grain: 0.12 }), 0, 0);
+  // the felt: broad, pale, overlapping fibres (and some that lie in shade between them)
+  const felt = L.makeCanvas(pw, ph), fg = felt.getContext('2d');
+  const r = L.rng('s09fibre');
+  fg.lineCap = 'round';
+  const fibre = (len, wid, lift) => {
+    const x = r.range(-40, pw + 40), y = r.range(-40, ph + 40), ang = r.range(0, Math.PI), bend = r.range(-0.9, 0.9);
+    const mx = x + Math.cos(ang + bend) * len * 0.5, my = y + Math.sin(ang + bend) * len * 0.5, ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
+    const line = (dx, dy) => { fg.beginPath(); fg.moveTo(x + dx, y + dy); fg.quadraticCurveTo(mx + dx, my + dy, ex + dx, ey + dy); fg.stroke(); };
+    fg.lineWidth = wid;
+    if (lift > 0) { fg.strokeStyle = L.rgba('#9c8250', lift * 0.4); line(0.9, 1); fg.strokeStyle = L.rgba('#fff6e0', lift); line(0, 0); }
+    else if (r.chance(0.62)) { fg.strokeStyle = L.rgba('#fff6e0', r.range(0.05, 0.13)); line(0, 0); }
+    else { fg.strokeStyle = L.rgba('#a28a58', r.range(0.01, 0.026)); line(0, 0); }
+  };
+  for (let i = 0; i < 3200; i++) fibre(r.range(24, 120), r.range(2.2, 4.6), 0);
+  for (let i = 0; i < 70; i++) fibre(r.range(30, 110), r.range(1.4, 2.2), r.range(0.06, 0.11));
+  g.drawImage(L.blurred(felt, 1.3), 0, 0);
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.16;                                 // the tooth of the sheet
   g.fillStyle = g.createPattern(L.noiseTex(512, 512, { seed: 's09tooth', scale: 3.6, octaves: 2, res: 1, contrast: 1.5 }), 'repeat');   // grain this fine can tile unseen
   g.fillRect(0, 0, pw, ph);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   g.translate(PAD, PAD);
-  L.speckle(g, { seed: 's09speck', count: 520, x: -PAD, y: -PAD, w: pw, h: ph, rMin: 0.5, rMax: 1.7, colors: ['#a88c56', '#8f7646', '#fffaf0'], alpha: [0.1, 0.34] });
-  // a few long loose fibres
-  const r = L.rng('s09fibre');
-  g.lineCap = 'round';
-  for (let i = 0; i < 80; i++) {
-    const x = r.range(-PAD, W + PAD), y = r.range(-PAD, ph - PAD), len = r.range(40, 140), ang = r.range(0, Math.PI), bend = r.range(-0.5, 0.5);
-    g.strokeStyle = r.chance(0.6) ? L.rgba('#fffaf0', r.range(0.12, 0.28)) : L.rgba('#a58a56', r.range(0.05, 0.12));
-    g.lineWidth = r.range(0.6, 1.5);
-    g.beginPath(); g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.cos(ang + bend) * len * 0.5, y + Math.sin(ang + bend) * len * 0.5, x + Math.cos(ang) * len, y + Math.sin(ang) * len);
-    g.stroke();
-  }
+  // a very few flecks of bark left in the pulp
+  L.speckle(g, { seed: 's09speck', count: 120, x: -PAD, y: -PAD, w: pw, h: ph, rMin: 0.8, rMax: 1.8, colors: ['#a88c56', '#8f7646'], alpha: [0.08, 0.22] });
   // soft, bright light pooled left of centre, falling off into the corners
   g.globalCompositeOperation = 'multiply';
   g.fillStyle = L.radial(g, 880, 330, 300, 1560, [[0, '#ffffff'], [0.5, '#faf5ea'], [1, '#ece2d0']]);
   g.fillRect(-PAD, -PAD, pw, ph);
   g.globalCompositeOperation = 'source-over';
-  // the sheet falls a little out of focus toward the far corners, like the coin
+  // the sheet falls further out of focus toward the far corners, like the coin
   const fx = 930 + PAD, fy = a.crestY + 130 + PAD;
   mixIn(c, L.blurred(c, 2.4), focusMask(pw, ph, fx, fy, 700, 1300, 0.62));
   return c;

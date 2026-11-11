@@ -10,8 +10,9 @@
 //           candle-light ramp: deep crimson → vermilion → orange → flame. The flame sits behind the bundle near the crest,
 //           so every disc is hottest on the flank that faces it and the string dims and softens toward the frame edges;
 //   silk  → polar coordinates (s = distance along the arc, v = depth below it): an analytic height field of a few soft
-//           folds gathering toward the circle centre is lit from the upper left with a broad satin sheen, then fine weft
-//           ribs that ride over the folds, and slubs, are laid on at full resolution.
+//           folds and many fine gathers drawn toward the circle centre is lit from the upper left with a broad satin
+//           sheen, then fine weft ribs that ride over the folds, and slubs, are laid on at full resolution. The focus
+//           falls off toward the bottom of the frame and its two sides.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
@@ -32,9 +33,9 @@ const COINS = [
   { s: -1194, r: 112, k: 0.50, tilt: 0.05, ga: 0.50, hue: 0.50, gain: 0.80, mot: 1.0 },
   { s: -918, r: 104, k: 0.50, tilt: -0.10, ga: -0.35, hue: 0.30, gain: 0.90, mot: 0.9 },
   { s: -700, r: 74, k: 0.62, tilt: 0.16, ga: 0.62, hue: 0.85, gain: 0.80, mot: 1.5 },
-  { s: -484, r: 128, k: 0.46, tilt: -0.06, ga: 0.20, hue: 0.20, gain: 1.00, mot: 0.8 },
+  { s: -484, r: 128, k: 0.46, tilt: -0.06, ga: 0.20, hue: 0.20, gain: 1.00, mot: 0.95 },
   { s: -222, r: 90, k: 0.58, tilt: 0.21, ga: -0.60, hue: 0.75, gain: 0.84, mot: 1.6 },
-  { s: 110, r: 150, k: 0.52, tilt: -0.04, ga: 0.42, hue: 0.00, gain: 1.08, mot: 0.7 },
+  { s: 110, r: 150, k: 0.52, tilt: -0.04, ga: 0.42, hue: 0.00, gain: 1.08, mot: 0.88 },
   { s: 350, r: 72, k: 0.66, tilt: -0.17, ga: -0.20, hue: 0.60, gain: 0.94, mot: 1.2 },
   { s: 568, r: 110, k: 0.48, tilt: 0.09, ga: 0.75, hue: 0.40, gain: 1.02, mot: 1.0 },
   { s: 826, r: 98, k: 0.56, tilt: -0.07, ga: -0.50, hue: 0.90, gain: 0.82, mot: 1.5 },
@@ -56,7 +57,7 @@ function layout(a) {
     const vx = CANDLE.s - c.s, vy = c.k * c.r + CANDLE.below, vm = Math.hypot(vx, vy);
     const side = c.s <= FOCUS ? 1 : -1;
     return { ...c, i, th, x: p.x, y: p.y, seed: 3.7 + i * 11.3, cdx: vx / vm, cdy: vy / vm,
-      rw: rr.range(0.105, 0.14), hs: rr.range(0.262, 0.298), iw: rr.range(0.06, 0.078), hotx: rr.range(-0.12, 0.12),
+      rw: rr.range(0.1, 0.15), hs: rr.range(0.25, 0.305), iw: rr.range(0.058, 0.078), hotx: rr.range(-0.12, 0.12),
       // the back of the hole seen past the front of it: the coin leans back on the bundle and is seen a little from the side
       wx: side * c.r * rr.range(0.024, 0.044), wy: c.r * rr.range(0.05, 0.07),
       blur: defocus(c.s), hidden: p.x + c.r < -24 || p.x - c.r > W + 24 };
@@ -128,7 +129,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
         const hot = Math.exp(-((lx - hot0x) * (lx - hot0x) + (ly - hot0y) * (ly - hot0y)) * hotS);
         const lightF = (0.52 + 0.74 * hot) * (1 - 0.2 * sstep(0, 1, -(lx * cdx + ly * cdy) / r));
         // metal thickness → how much candle light comes through; grime gathers at the foot of both rims
-        let t = 0.6 - 0.28 * rimO - 0.24 * rimI - 0.1 * sstep(r * 0.95, r, rho), gold = 0;
+        let t = 0.6 - 0.28 * rimO - 0.3 * rimI - 0.1 * sstep(r * 0.95, r, rho), gold = 0;
         if (rho < rIn) t -= 0.11 * Math.exp(-(rIn - rho) / grime);
         if (sdI > 0) t -= 0.11 * Math.exp(-sdI / grime) * (1 - rimO);
         // relief of the rims and of the rounded edge
@@ -167,7 +168,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
         const sc = nA.cell(gx / 13 + sd, gy / 13 - sd), spark = sc.id > 0.93 ? 1 - sstep(0.08, 0.22, sc.d) : 0;
         t *= 1 - 0.12 * (cov - 0.36) + 0.05 * slub;
         t += 0.2 * spark * lightF * (1 - 0.6 * rimO);
-        t *= gain;
+        t *= gain * (1 - 0.2 * Math.exp(-(dr > 0 ? dr : 0) / 6));     // the cloth presses against the foot of the coin and shades it
         const li = ((cl01(t) * 511) | 0) * 3;
         let bR = lutV[li] + (lutC[li] - lutV[li]) * hue, bG = lutV[li + 1] + (lutC[li + 1] - lutV[li + 1]) * hue, bB = lutV[li + 2] + (lutC[li + 2] - lutV[li + 2]) * hue;
         // gold where the fill light catches a bevel
@@ -184,8 +185,8 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
           const cxh = hx - core0x, cyh = hy - core0y;
           const core = cl01(1.08 * Math.exp(-(cxh * cxh + cyh * cyh) / (hs * hs * 0.62)) - 0.12 * Math.exp(sdB / 5));
           const gz = 1 - 0.04 * (cov - 0.36);
-          const wT = cl01(0.68 - 0.5 * cl01(sdB / wallW) + 0.07 * n2), wi = ((wT * 511) | 0) * 3;
-          const hR = lutG[wi] + (255 * gz - lutG[wi]) * thru, hG = lutG[wi + 1] + ((206 + 40 * core) * gz - lutG[wi + 1]) * thru, hB = lutG[wi + 2] + ((122 + 102 * core) * gz - lutG[wi + 2]) * thru;
+          const wT = cl01(0.62 - 0.5 * cl01(sdB / wallW) + 0.07 * n2), wi = ((wT * 511) | 0) * 3;
+          const hR = lutG[wi] + (255 * gz - lutG[wi]) * thru, hG = lutG[wi + 1] + ((204 + 36 * core) * gz - lutG[wi + 1]) * thru, hB = lutG[wi + 2] + ((118 + 88 * core) * gz - lutG[wi + 2]) * thru;
           bR += (hR - bR) * hole; bG += (hG - bG) * hole; bB += (hB - bB) * hole;
         }
         cr = bR * disc + frR * (1 - disc); cgn = bG * disc + frG * (1 - disc); cb = bB * disc + frB * (1 - disc);
@@ -252,6 +253,12 @@ function ropeSprite(A, B) {
       g.beginPath(); g.moveTo(bx, by); g.quadraticCurveTo(m.x, m.y, tx, ty); g.stroke();
     }
   }
+  // the gold thread glints once or twice along the way
+  for (let l = l0 + 16 + rr.range(0, 14); l < l1 - 14; l += rr.range(26, 60)) {
+    const p = at(Math.round(l / 14.1) * 14.1 + 4.7), gx = p.x + p.nx * 1.5, gy = p.y + p.ny * 1.5, gr = rr.range(1.8, 2.8);
+    g.fillStyle = L.radial(g, gx, gy, 0, gr, [[0, 'rgba(255,246,206,0.95)'], [0.5, 'rgba(255,224,150,0.5)'], [1, 'rgba(255,200,110,0)']]);
+    g.beginPath(); g.arc(gx, gy, gr, 0, L.TAU); g.fill();
+  }
   // stray fibres standing off the cord, lit from behind
   g.lineWidth = 1.3;
   for (let l = l0 + 6; l < l1 - 4; l += rr.range(7, 19)) {
@@ -288,7 +295,7 @@ function buildCoins(env, coins) {
     for (const c of coins) {
       if (c.hidden) continue;
       const rad = c.r * 0.82;
-      g.fillStyle = L.radial(g, c.x, c.y, c.hs * c.r * 0.6, rad, [[0, 'rgba(255,200,128,0.22)'], [0.45, 'rgba(255,124,64,0.08)'], [1, 'rgba(255,80,40,0)']]);
+      g.fillStyle = L.radial(g, c.x, c.y, c.hs * c.r * 0.6, rad, [[0, 'rgba(255,200,128,0.15)'], [0.45, 'rgba(255,124,64,0.07)'], [1, 'rgba(255,80,40,0)']]);
       g.beginPath(); g.arc(c.x, c.y, rad, 0, L.TAU); g.fill();
     }
   });
@@ -331,9 +338,22 @@ function buildSilk(env, coins) {
       return f.amp * grow * (Math.exp(-x * x) - 0.5 * Math.exp(-xv * xv / 0.8));
     });
   }
-  // a slow swell under everything, and the fine crinkle of thin silk: long shallow creases running toward the gathering
+  // … and many fine gathers between them, shallow and soft, each running its own length
+  for (let s = -SMAX; s < SMAX;) {
+    s += rf.range(28, 84);
+    const q = { s0: s, v0: rf.range(30, 380), len: rf.range(140, 420), w0: rf.range(8, 13), amp: rf.range(0.9, 1.8), bend: rf.range(-0.09, 0.09), side: rf.sign(), wa: rf.range(2, 6), wl: rf.range(60, 130), ph: rf.range(0, 6.28) };
+    const span = Math.abs(q.bend) * q.len + q.wa + q.w0 * 1.6 * 4.2;
+    splat(q.s0 - span, q.s0 + span, q.v0, q.v0 + q.len, (s2, v) => {
+      const k = v - q.v0, w = q.w0 * (1 + k / 600);
+      const x = (s2 - (q.s0 + q.bend * k + q.wa * Math.sin(k / q.wl + q.ph))) / w;
+      if (x * x > 14) return 0;
+      const xv = x - q.side * 1.75;
+      return q.amp * sstep(0, 90, k) * (1 - sstep(q.len * 0.55, q.len, k)) * (Math.exp(-x * x) - 0.5 * Math.exp(-xv * xv / 0.8));
+    });
+  }
+  // a slow swell under everything, and the faint crinkle of thin silk
   splat(-SMAX, SMAX, 0, VMAX + GS, (s, v) => 2.4 * nD.fbm(s / 300, v / 700 + 3.3, 2) * sstep(10, 160, v)
-    + (0.9 * nD.fbm(s / 42 + 5, v / 190, 3) + 0.55 * (nD.ridged(s / 30 + 11, v / 140 - 5, 2) - 0.55)) * sstep(4, 70, v));
+    + (0.3 * nD.fbm(s / 55 + 5, v / 260, 2) + 0.16 * (nD.ridged(s / 34 + 11, v / 170 - 5, 2) - 0.55)) * sstep(4, 70, v));
   // every coin presses a shallow dent into the cushion and pulls short wrinkles out of it
   for (const c of coins) {
     const chord = c.r * Math.sqrt(1 - c.k * c.k);
@@ -398,13 +418,14 @@ function buildSilk(env, coins) {
       const gx = hs * q * cosT - hv * sinT, gy = hs * q * sinT + hv * cosT;
       const lam = -(gx * LX + gy * LY) * KL, lamS = lam / (1 + 2 * Math.abs(lam));
       const sp = (lam - 0.13) / 0.11, spec = Math.exp(-sp * sp);        // the satin sheen sits on the shoulder of a fold that faces the light
-      const deep = sstep(40, 620, vp);
+      const dv = sstep(40, 620, vp), dy = 0.75 * sstep(620, 1150, Y0 + j), deep = dv > dy ? dv : dy;
       const rimK = (rimA[i0] + (rimA[i0 + 1] - rimA[i0]) * tx) * (1 - 0.5 * (shA[i0] + (shA[i0 + 1] - shA[i0]) * tx));
       const bv = (vp - 130) / 100;
       let tone = 0.47 - 0.21 * deep - 0.04 * (s - FOCUS) * (s - FOCUS) * 1e-6
         + rimK * (0.36 * Math.exp(-vp / 6) + 0.26 * Math.exp(-vp * (rwA[i0] + (rwA[i0 + 1] - rwA[i0]) * tx)) + 0.08 * Math.exp(-vp / 80))    // the back light soaking through the edge
-        + 0.07 * Math.exp(-bv * bv) * (bandA[i0] + (bandA[i0 + 1] - bandA[i0]) * tx);                  // the bulge turning toward the lens
-      tone += sstep(2, 44, vp) * (0.7 * lamS + 0.16 * spec * (1 - 0.5 * deep) + 0.005 * h);
+        + 0.07 * Math.exp(-bv * bv) * (bandA[i0] + (bandA[i0 + 1] - bandA[i0]) * tx)                   // the bulge turning toward the lens
+        - 0.045 * Math.exp(-(vp - 36) * (vp - 36) / 500);                                              // … after rolling over, darker, just under the glowing edge
+      tone += sstep(2, 44, vp) * (0.7 * lamS + 0.12 * spec * (1 - 0.5 * deep) + 0.005 * h);
       // weave: the weft lies along the arc as fine ribs that ride over the folds and show more in one place than another;
       // a slub thickens a thread here and there; the warp is only just there
       const vv = v + 1.2 * h + 1.1 * nS.n2(s * 0.011, v * 0.05);
@@ -445,8 +466,8 @@ function buildSilk(env, coins) {
   L.overlayOn(layer, spill, { blend: 'screen', alpha: 0.8 });
 
   // 5) the back light blooms a little way over the rim
-  g.save(); a.clipAbove(g, -1);
-  g.fillStyle = L.radial(g, cx, cy, R - 2, R + 62, [[0, 'rgba(255,150,200,0.4)'], [0.08, 'rgba(255,84,160,0.2)'], [0.32, 'rgba(232,40,128,0.07)'], [1, 'rgba(194,24,106,0)']]);
+  g.save(); a.clipAbove(g, -7);
+  g.fillStyle = L.radial(g, cx, cy, R - 7, R + 62, [[0, 'rgba(255,150,200,0.4)'], [0.1, 'rgba(255,150,200,0.4)'], [0.18, 'rgba(255,84,160,0.2)'], [0.4, 'rgba(232,40,128,0.07)'], [1, 'rgba(194,24,106,0)']]);
   g.globalCompositeOperation = 'destination-over';
   g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   g.restore();
@@ -515,7 +536,7 @@ export default {
     const fl = (c) => 0.5 + 0.5 * Math.sin(L.TAU * (p * 1.15 - c.i * 0.19) + 0.6);
     L.cam(ctx, env, { rot }, () => {
       ctx.globalCompositeOperation = 'lighter';
-      for (const c of S.coins) { if (c.hidden) continue; ctx.globalAlpha = 0.03 + 0.22 * fl(c); ctx.drawImage(c.sprite, c.ox, c.oy); }
+      for (const c of S.coins) { if (c.hidden) continue; ctx.globalAlpha = 0.02 + 0.16 * fl(c); ctx.drawImage(c.sprite, c.ox, c.oy); }
     });
     L.blit(ctx, env, S.silk, { rot });
     // … and so does the glow each one sheds on the silk beneath it
