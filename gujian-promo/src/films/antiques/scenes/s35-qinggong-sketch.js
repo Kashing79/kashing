@@ -1,6 +1,7 @@
 // s35 — 清供白描稿. A brush line-drawing study (白描画稿) on apricot-yellow old paper.
-// The arc is ONE pull of scorched ink (焦墨): the lip of a big porcelain vat — pressed, lifted, run dry into flying-white (飞白),
-// re-charged and set down again, with a thinner second line under its left half. Below it, dashed off at speed: a sheaf of
+// The arc is a line of scorched ink (焦墨): the lip of a big porcelain vat — pressed, lifted, run dry into flying-white (飞白),
+// re-charged and set down again, with a thinner second line under its left half. The stroke's UPPER edge is what rides
+// env.arc (pressure only swells the line downward). Below it, dashed off at speed: a sheaf of
 // cut plum branches and bamboo standing in the vat (twig tips only just butting the rim), a small-mouthed vase in a few strokes
 // on the left, a pot of sweet-flag (菖蒲) and a Buddha's-hand citron (佛手) on the right. Above the rim: nothing but old paper.
 // Lines only, no colour or wash. Everything is drawn once in init() (paper → pale ink → scorched ink → wormholes) and
