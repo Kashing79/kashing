@@ -22,7 +22,7 @@ const HOOPS = [
 
 // ── brightness model: lit from above/behind → the limb glows, the face turned to us sinks into ochre shadow ──
 const IMAX = 1.25;
-const BASE = [[0, 0.9], [0.05, 0.86], [0.14, 0.8], [0.26, 0.7], [0.4, 0.55], [0.54, 0.39], [0.68, 0.25], [0.8, 0.16], [1, 0.09]];
+const BASE = [[0, 0.92], [0.05, 0.88], [0.14, 0.8], [0.26, 0.67], [0.4, 0.49], [0.54, 0.33], [0.68, 0.21], [0.8, 0.14], [1, 0.08]];
 // falloff curve as a smoothed lookup table (piecewise-linear stops, then relaxed so no band shows at the knots)
 const BASE_LUT = (() => {
   const n = 513; let t = new Float32Array(n);
@@ -42,7 +42,7 @@ function baseI(Z) { const f = L.clamp(Z) * 512, i = f | 0; return i >= 512 ? BAS
 // along the limb: a broad key-light zone left of the crest + a specular hot spot where the key glances off the limb
 const KEY = -0.2;   // where the key light lands (radians from the crest; left of the caption)
 const hotAt = (th, Z) => Math.exp(-Math.pow((th - KEY) / 0.17, 2)) * Math.exp(-Z / 0.22);
-const azI = (th, Z) => 0.72 + 0.28 * Math.exp(-Math.pow((th - KEY) / 0.42, 2)) + 0.42 * hotAt(th, Z);
+const azI = (th, Z) => 0.72 + 0.28 * Math.exp(-Math.pow((th - KEY) / 0.42, 2)) + 0.62 * hotAt(th, Z);
 // hoop shading at a latitude: hl = ± light on the upper / lower flank, sh = the thin shadow it throws below, hb = height
 let hl = 0, sh = 0, hb = 0;
 function hoopAt(lat) {
@@ -63,8 +63,12 @@ function surfI(Z, th) {
   return baseI(Z) * azI(th, Z) * (1 - sh) * (1 + 0.6 * hl);
 }
 
-const GOLD_STOPS = [[0, '#050301'], [0.08, '#1a0d03'], [0.18, '#402207'], [0.28, '#6a4410'], [0.4, '#a2620f'], [0.52, '#cc8a1c'],
-  [0.64, '#e9b949'], [0.76, '#f5d06c'], [0.88, '#fff3c0'], [1, '#fffdf0']];
+// two-tone gold over a copper body: white-hot highlight → pale red-gold → 库金 → ochre gold → the copper showing in the shadows
+const GOLD_STOPS = [[0, '#040201'], [0.08, '#1e0906'], [0.18, '#4c160a'], [0.28, '#80330f'], [0.4, '#b56813'], [0.52, '#d99a1c'],
+  [0.64, '#ecb93c'], [0.76, '#f5d870'], [0.88, '#fff4c8'], [1, '#fffef4']];
+// the glitter lies in drifts: one noise field (in sphere coords) shared by the metal underneath and by every layer of flakes
+const NZP = L.makeNoise('s27patch');
+const patchAt = (th, Z, R) => 0.62 * NZP.fbm(th * R / 120, Z * R / 120, 3) + 0.38 * NZP.fbm(th * R / 340 + 5.3, Z * R / 340 - 2.1, 2);
 
 /** the smooth gilded ball under the glitter: satin gold, burnishing streaks along the latitudes, mottling, fine grain, hoops */
 function buildBase(env) {

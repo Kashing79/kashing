@@ -28,9 +28,9 @@ const B2_TOP = FZ1 - LINE;          // lower band
 const BEAD2 = B2_TOP - BAND;
 
 const COL = {
-  b: { deep: '#1a43a2', mid: '#4278d8', light: '#a6c4f5' },
-  g: { deep: '#0d7a57', mid: '#33b086', light: '#a6ead0' },
-  white: '#f3efe3', ink: '#090d1d', ground: '#0b1738', strip: '#07080f', jitter: true,
+  b: { deep: '#14309c', mid: '#2a58d2', light: '#8db2f4' },
+  g: { deep: '#078a62', mid: '#1fc08a', light: '#a4f0cc' },
+  white: '#f6f2e6', ink: '#070b1c', ground: '#0a1436', strip: '#07080f', jitter: true,
 };
 // the same drawing in greys = a height map (white 粉 lines stand proud, ink lines sit low)
 const HGT = {
@@ -79,34 +79,46 @@ function cell(x, y) {
 
 // ───────────────────────── the painted pattern (colour or height palette) ─────────────────────────
 /** one 旋瓣 / pearl-like disc with 退晕: ink outline → white 粉 line → light → mid → deep core */
-function petal(g, P, pal, x, y, r, tone, jr) {
-  const ox = jr ? jr.range(-1.6, 1.6) : 0, oy = jr ? jr.range(-1.6, 1.6) : 0;
-  const t = jr ? jr.range(-0.07, 0.07) : 0;
+function petal(g, P, pal, x, y, r, tone, jr, ft = 0) {
+  const ox = jr ? jr.range(-2.2, 2.2) : 0, oy = jr ? jr.range(-2.2, 2.2) : 0;
+  const t = ft + (jr ? jr.range(-0.08, 0.08) : 0);
+  const j = jr ? jr.range(-0.014, 0.014) : 0, j2 = jr ? jr.range(-0.012, 0.012) : 0;   // hand-laid 退晕 steps wander
   const grd = g.createRadialGradient(x + ox, y + oy, 0, x, y, r);
   const deep = tone(pal.deep, t), mid = tone(pal.mid, t), light = tone(pal.light, t);
-  grd.addColorStop(0, deep); grd.addColorStop(0.575, deep);
-  grd.addColorStop(0.595, mid); grd.addColorStop(0.73, mid);
-  grd.addColorStop(0.75, light); grd.addColorStop(0.86, light);
+  grd.addColorStop(0, deep); grd.addColorStop(0.57 + j, deep);
+  grd.addColorStop(0.6 + j, mid); grd.addColorStop(0.725 + j2, mid);
+  grd.addColorStop(0.755 + j2, light); grd.addColorStop(0.86, light);
   grd.addColorStop(0.875, P.white); grd.addColorStop(0.945, P.white);
   grd.addColorStop(0.96, P.ink); grd.addColorStop(1, P.ink);
   g.fillStyle = grd; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill();
 }
 
 /** a whole 旋花 at the local origin (−y = outward) */
-function xuanhua(g, P, outer, inner, tone, jr) {
+function xuanhua(g, P, outer, inner, tone, jr, gr) {
   disc(g, 0, 0, RW, P.ground);
-  // every petal is tucked under the next one round the ring → the whirl (旋) that gives the pattern its name
+  const ft = jr ? jr.range(-0.06, 0.06) : 0;               // every flower is mixed from a slightly different pot
+  // every petal is tucked under the next one round the ring → the whirl (旋) that gives the pattern its name.
+  // `gr` wobbles each petal by a couple of px (set out by hand, not by compass); it is seeded the same for the colour and
+  // the height pass so the relief still registers with the paint.
   const ring = (n, rc, rd, pal, phase) => {
+    const ps = [];
     for (let k = 0; k < n; k++) {
-      const v = phase + (k * TAU) / n, w = phase + ((k + 1) * TAU) / n;
+      const v = phase + (k * TAU) / n + gr.range(-0.022, 0.022), c = rc * gr.range(0.982, 1.014);
+      ps.push([c * Math.sin(v), -c * Math.cos(v), rd * gr.range(0.965, 1.03)]);
+    }
+    for (let k = 0; k < n; k++) {
+      const p = ps[k], q = ps[(k + 1) % n];
       g.save();
-      g.beginPath(); g.rect(-RW * 1.2, -RW * 1.2, RW * 2.4, RW * 2.4); g.arc(rc * Math.sin(w), -rc * Math.cos(w), rd, 0, TAU); g.clip('evenodd');
-      petal(g, P, pal, rc * Math.sin(v), -rc * Math.cos(v), rd, tone, jr);
+      g.beginPath(); g.rect(-RW * 1.2, -RW * 1.2, RW * 2.4, RW * 2.4); g.arc(q[0], q[1], q[2], 0, TAU); g.clip('evenodd');
+      petal(g, P, pal, p[0], p[1], p[2], tone, jr, ft);
       g.restore();
     }
   };
-  ring(12, RW * 0.652, RW * 0.338, outer, 0);              // 头路瓣
-  ring(8, RW * 0.365, RW * 0.218, inner, TAU / 16);        // 二路瓣
+  const ph = gr.range(-0.05, 0.05);
+  g.save(); g.beginPath(); g.arc(0, 0, RW, 0, TAU); g.clip();
+  ring(12, RW * 0.652, RW * 0.338, outer, ph);                                  // 头路瓣
+  ring(8, RW * 0.365, RW * 0.218, inner, TAU / 16 + ph + gr.range(-0.05, 0.05)); // 二路瓣
+  g.restore();
   disc(g, 0, 0, RW * 0.262, P.ink); disc(g, 0, 0, RW * 0.24, P.white);   // collar of the 旋眼 (the eye itself is gold)
 }
 
@@ -117,9 +129,10 @@ function bandStripes(g, a, top, P, pal, pearl, s, tone, jr) {
   const dr = top - 40;
   a.along({ spacing: 38, dr, t0: -s, t1: s }, (q) => {
     a.at(g, q.theta, dr, () => {
-      const t = jr ? jr.range(-0.08, 0.08) : 0;
+      const t = jr ? jr.range(-0.1, 0.1) : 0;
       if (P.jitter) {
-        disc(g, 0, 0, 14, tone(pearl.deep, t)); disc(g, -0.8, -1, 10, tone(pearl.light, t)); disc(g, -2.8, -3.4, 4.5, P.white);
+        const k = jr.range(0.9, 1.08), px = jr.range(-1.4, 1.4), py = jr.range(-1.2, 1.2);
+        disc(g, px, py, 14 * k, tone(pearl.deep, t)); disc(g, px - 0.8, py - 1, 10 * k, tone(pearl.light, t)); disc(g, px - 2.8, py - 3.4, 4.5 * k, P.white);
       } else {
         g.fillStyle = L.radial(g, 0, 0, 0, 14, [[0, '#b4b4b4'], [0.6, '#9c9c9c'], [1, '#7a7a7a']]); g.beginPath(); g.arc(0, 0, 14, 0, TAU); g.fill();
       }
@@ -129,7 +142,7 @@ function bandStripes(g, a, top, P, pal, pearl, s, tone, jr) {
 
 function drawPattern(g, env, P) {
   const a = env.arc, s = a.span(PAD + 320);
-  const jr = P.jitter ? L.rng('s17jit') : null;
+  const jr = P.jitter ? L.rng('s17jit') : null, gr = L.rng('s17geo');
   const tone = (c, t) => (t ? L.shade(c, t) : c);
   g.save(); a.clipBelow(g, 0);
   a.fillBelow(g, P.ground, 2);
@@ -139,7 +152,7 @@ function drawPattern(g, env, P) {
   g.save(); a.clipBand(g, FZ0 + 0.5, FZ1 - 0.5, -s, s);
   eachFlower(a, (th, dr, r, kind) => a.at(g, th, dr, () => {
     g.scale(r / RW, r / RW);
-    if (kind === 'W') xuanhua(g, P, P.b, P.g, tone, jr); else xuanhua(g, P, P.g, P.b, tone, jr);
+    if (kind === 'W') xuanhua(g, P, P.b, P.g, tone, jr, gr); else xuanhua(g, P, P.g, P.b, tone, jr, gr);
   }));
   g.restore();
   bandStripes(g, a, B2_TOP, P, P.g, P.b, s, tone, jr);
@@ -336,9 +349,8 @@ function paintLacquer(g, env) {
 
 function buildMain(env) {
   const a = env.arc, B = botRect(a);
-  let T0 = performance.now(); const tick = (n) => { const t = performance.now(); console.warn('TIME ' + n + ' ' + (t - T0).toFixed(0)); T0 = t; };
-  const gold = buildGold(env); tick('gold');
-  const { crack, flake } = buildAging(env); tick('aging');
+  const gold = buildGold(env);
+  const { crack, flake } = buildAging(env);
   const grain = L.grainTex(FW >> 1, FH >> 1, { seed: 's17pg', amount: 0.85 });
 
   // height map → relief light
@@ -355,11 +367,9 @@ function buildMain(env) {
     g.save(); a.clipAbove(g, 0); g.globalAlpha = 0.22; g.drawImage(crack, -PAD, -PAD); g.restore();
   });
 
-  tick('height');
   // NB: with white = high, bumpLight's angle 45 is what lights raised detail from the upper left
   const bump = L.bumpLight(height, { angle: 45, strength: 3.2, blur: 0.7, res: 0.6 });
 
-  tick('bump');
   // the bare 地仗 ground that shows where paint has flaked
   const chips = L.makeLayer(PAD, (g) => {
     g.drawImage(L.noiseTex(FW >> 1, FH >> 1, { seed: 's17ground', scale: 22, octaves: 3, res: 0.5, contrast: 1.6, ramp: [[0, '#372b22'], [0.5, '#6a5846'], [1, '#a08c6c']] }), -PAD, -PAD, FW, FH);
@@ -368,10 +378,9 @@ function buildMain(env) {
     g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(46,10,6,0.62)'; a.pathAbove(g, 0); g.fill();
   });
 
-  tick('chips');
   const main = L.makeLayer(PAD, (g) => {
-    paintLacquer(g, env); tick('lacquer');
-    drawPattern(g, env, COL); tick('pattern');
+    paintLacquer(g, env);
+    drawPattern(g, env, COL);
     // mineral pigment: uneven density, brush drag, coarse crystals, grime
     g.save(); a.clipBelow(g, 0);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
@@ -387,7 +396,6 @@ function buildMain(env) {
     g.drawImage(rectNoise(env, B, { seed: 's17grime', scale: 250, octaves: 4, warp: 0.8, res: 0.14, contrast: 1.5, ramp: [[0, '#6f5d40'], [0.55, '#ffffff'], [1, '#ffffff']] }), B.x, B.y);
     g.restore();
 
-    tick('pigment');
     // gilding stands proud of the paint
     g.save(); g.shadowColor = 'rgba(3,5,18,0.7)'; g.shadowBlur = 5; g.shadowOffsetX = 2.5; g.shadowOffsetY = 3.5;
     g.drawImage(gold, -PAD, -PAD);
@@ -405,8 +413,7 @@ function buildMain(env) {
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 250, [[0, 'rgba(8,8,26,0.45)'], [1, 'rgba(8,8,26,0)']]);
     a.pathBelow(g, -200); g.fill();
   });
-  tick('compose'); const fm = L.filtered(main, 'saturate(1.2) contrast(1.06)'); fm.getContext('2d').getImageData(0,0,1,1); tick('filtered');
-  return { main: fm, gold };
+  return { main: L.filtered(main, 'saturate(1.2) contrast(1.06)'), gold };
 }
 
 function flare(ctx, x, y, size, alpha) {
@@ -436,9 +443,7 @@ export default {
     [-0.31, -0.118, 0.052, 0.236].forEach((th, i) => { const q = a.pt(th, -4); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 20 }); });
     // everything drawn per frame is baked into ImageBitmaps: plain images blit cheaply, whereas using the canvases
     // themselves (built from thousands of small draws) as sources forced a slow synchronous flush on every frame
-    let T1 = performance.now();
     const [mainB, sparkA, sparkB] = await Promise.all([main, buildSpark(env, gold, 's17spA'), buildSpark(env, gold, 's17spB')].map((c) => createImageBitmap(c)));
-    console.warn('TIME bitmaps+spark ' + (performance.now() - T1).toFixed(0));
     S = { main: mainB, sparkA, sparkB, bx: B.x, by: B.y, glints };
   },
   draw(ctx, env, p) {
