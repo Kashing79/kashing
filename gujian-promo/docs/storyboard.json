@@ -1,7 +1,7 @@
 {
   "note": "分镜任务单。ref = 参考片对应镜头的画面（只借构图/质感/明暗，不照抄内容）。beat: 0 无文字；1「一道弧线」；2「藏着」；3「千年」。research = 资料核实文件（存在就读其中相关题材的 depiction / pitfalls）。",
-  "refDir": "/tmp/claude-0/-home-user-kashing/82b55bb9-0385-5108-b6bb-ac0899659655/scratchpad/ref/analog",
-  "researchDir": "/tmp/claude-0/-home-user-kashing/82b55bb9-0385-5108-b6bb-ac0899659655/scratchpad/research",
+  "refDir": "(reference stills are not kept in the repository)",
+  "researchDir": "docs/research",
   "shots": [
     {
       "id": "s03",
