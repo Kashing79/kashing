@@ -33,22 +33,28 @@ function worley(x, y, seed) {
 }
 
 // layout down the wall (px below the rim)
-const LIP = 11;        // the rounded lip
-const FRONT = 214;     // mean depth of the thick glaze roll
-const WR = 36;         // width of the roll's shoulder
-const HR = 15;         // extra glaze height below the roll
-const PEB = 8.5;       // orange-peel grain
-const C1 = 150, C2 = 56; // craze: primary plates, and the finer cracks that stop at their borders
+const TOP = 44;        // head-room above the crest for the lens bloom
+const LIP = 12;        // the rounded lip
+const FRONT = 258;     // depth of the thick glaze roll under the crest …
+const TILT = 0.125;    // … which climbs toward the rim on the left and sinks out of frame on the right
+const WR = 64;         // width of the roll's shoulder
+const HR = 9;          // extra glaze height below the roll
+const PEB = 26;        // orange-peel grain of the glass skin (noise period; the flecks come out ≈ 20–40 px)
+const C1 = 230, C2 = 88; // craze: primary plates, and the finer cracks that stop at their borders
 // wall profile: elevation of the surface normal above the view axis (radians)
-const B0 = 0.47, K1 = 0.00227, K2 = 0.0013;
-const baseBeta = (s) => (s < LIP ? 1.5 + (B0 - 1.5) * Math.pow(s / LIP, 0.8) : s < FRONT ? B0 - K1 * (s - LIP) : B0 - K1 * (FRONT - LIP) - K2 * (s - FRONT));
-// key softbox (elevation, half height, azimuth) and how far it travels during the shot
-const BK = 0.245, WK = 0.05, EK = 0.02, PK = -0.06, SPH = 0.36, DB = 0.03, DP = 0.05;
+const B0 = 0.47, K1 = 0.0005, K2 = 0.0011, SB = 300;
+const baseBeta = (s) => (s < LIP ? 1.5 + (B0 - 1.5) * Math.pow(s / LIP, 0.8) : s < SB ? B0 - K1 * (s - LIP) : B0 - K1 * (SB - LIP) - K2 * (s - SB));
+// key: a tall softbox standing upper left. Its lower edge sits just above the direction the smooth wall mirrors, so the
+// glass skin only catches it on the up-and-left-facing side of each pebble → a field of solid wet flecks, not a white sheet.
+// (lower edge, edge softness, upper edge, azimuth, azimuth spread, and how far it travels during the shot)
+const BKL = 0.485, EK = 0.085, BKH = 0.9, PK = -0.1, SPH = 0.25, DB = 0.02, DP = 0.05;
+const SKEY = 84;       // where the flecks are densest (px below the rim)
 const BLO = -1.2, BSPAN = 3.0, NB = 2048;
 
 function buildGlaze(env) {
+  const T0 = performance.now(), TT = [];
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
-  const X0 = -PAD, Y0 = Math.floor(a.crestY) - 2;
+  const X0 = -PAD, Y0 = Math.floor(a.crestY) - TOP;
   const RW = W + PAD * 2, RH = H + PAD - Y0, N = RW * RH;
   const nA = L.makeNoise('s16a'), nB = L.makeNoise('s16b');
 
@@ -57,21 +63,25 @@ function buildGlaze(env) {
   const tRim = new Float32Array(UT), tFade = new Float32Array(UT), tFront = new Float32Array(UT);
   for (let k = 0; k < UT; k++) {
     const U = k - UMAX;
-    tRim[k] = Math.max(5.5, 10.5 + 3.2 * nA.n2(U / 130, 3.1) + 1.6 * nA.n2(U / 34, 8.7));           // bare white lip
-    tFade[k] = 19 + 6 * nB.n2(U / 210, 5.5);                                                       // how fast the red comes in below it
-    tFront[k] = FRONT + 0.03 * U + 32 * nA.n2(U / 560 + 0.6, 11.3) + 15 * nB.n2(U / 200, 2.2) + 5 * nB.n2(U / 96, 7.9);
+    // bare white lip: a thin, uneven wick — never a painted border
+    tRim[k] = Math.max(3.2, 7.6 + 4.4 * nA.n2(U / 270, 3.1) + 2.3 * nA.n2(U / 62, 8.7) + 1.1 * nB.n2(U / 17, 1.9));
+    tFade[k] = 17 + 9 * nB.n2(U / 210, 5.5);                                                        // how fast the red comes in below it
+    tFront[k] = Math.max(96, FRONT + TILT * U + 52 * nA.n2(U / 700 + 0.6, 11.3) + 13 * nB.n2(U / 260, 2.2) + 3 * nB.n2(U / 95, 7.9));
   }
 
   // 2) slow fields on a coarse grid
   const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2;
-  const cMot = new Float32Array(cw * ch), cUnd = new Float32Array(cw * ch), cFlow = new Float32Array(cw * ch), cWx = new Float32Array(cw * ch), cWy = new Float32Array(cw * ch);
+  const mk = () => new Float32Array(cw * ch);
+  const cMot = mk(), cUnd = mk(), cFlow = mk(), cWx = mk(), cWy = mk(), cVis = mk(), cClu = mk();
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const ddx = X0 + i * CS - cx, ddy = cy - (Y0 + j * CS), rr = Math.hypot(ddx, ddy);
     const U = Math.atan2(ddx, ddy) * R, s = R - rr, k = j * cw + i;
     cMot[k] = nA.fbm(U / 190, s / 150, 3, 2, 0.55);
     cFlow[k] = nB.fbm(U / 46 + 9, s / 520, 3);
-    cUnd[k] = nA.n2(U / 46 + 40, s / 36 - 7);
+    cUnd[k] = nA.n2(U / 74 + 40, s / 56 - 7);
     cWx[k] = nB.n2(U / 170 + 5, s / 170); cWy[k] = nB.n2(U / 170 - 31, s / 170 + 19);
+    cVis[k] = nB.n2(U / 310 + 3.3, s / 310 + 8.1);      // where the craze shows and where it sinks out of sight
+    cClu[k] = nA.n2(U / 120 - 12.4, s / 120 + 4.2);     // bubbles come in swarms
   }
   const bil = (src, i, j) => {
     const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * cw + i0;
@@ -81,7 +91,7 @@ function buildGlaze(env) {
 
   // 3) height field + optical depth of the glaze, at full resolution
   const Hh = new Float32Array(N), Tau = new Float32Array(N), Mu = new Float32Array(N), Bub = new Float32Array(N), Gl = new Float32Array(N), Al = new Float32Array(N);
-  const Gid = new Uint8Array(N);
+  const Gid = new Uint8Array(N), Thk = new Uint8Array(N);
   for (let j = 0; j < RH; j++) {
     const ddy = cy - (Y0 + j);
     for (let i = 0; i < RW; i++) {
@@ -92,56 +102,69 @@ function buildGlaze(env) {
       const U = Math.atan2(ddx, ddy) * R;
       let ku = (U + UMAX + 0.5) | 0; ku = ku < 0 ? 0 : ku >= UT ? UT - 1 : ku;
       const d = s - tFront[ku];
-      let P = 0; if (d > 0) { const x = d / WR; P = x < 1 ? 1 - Math.pow(1 - x, 2.2) : 1; }
-      const streak = nB.n2(U / 9.5, s / 320 + 3);          // 牛毛纹: hair-fine runs down the wall
+      // the roll: a rounded shoulder with a soft crease (no knife-cut line where it starts)
+      let P = 0; if (d > 0) { const x = d / WR, xs = (x * x) / (x + 0.12); P = xs < 1 ? 1 - Math.pow(1 - xs, 2.2) : 1; }
+      const streak = nB.n2(U / 12.5, s / 320 + 3) + 0.4 * nA.n2(U / 5.2 + 7, s / 240);   // 牛毛纹: hair-fine runs down the wall
       const mot = bil(cMot, i, j), fl = bil(cFlow, i, j), wx = bil(cWx, i, j), wy = bil(cWy, i, j);
-      const rimT = sstep(0, 1, (s - tRim[ku] - 1.7 * (streak + 1) - 3 * (fl + 0.7)) / tFade[ku]);   // 0 = bare lip, 1 = full glaze
+      const rimT = sstep(0, 1, (s - tRim[ku] - 2.2 * (streak + 1) - 3.4 * (fl + 0.7)) / tFade[ku]);   // 0 = bare lip, 1 = full glaze
       let h = HR * P, tau = 0, mu = 1, bub = 0;
+      const thickK = sstep(-8, 30, d);
+      Thk[k] = thickK * 255;
       if (rimT > 0.01) {
-        const thickK = sstep(-8, 26, d);
-        const amp = rimT * (1 - 0.66 * thickK) * (0.4 + 0.6 * sstep(14, 60, s));
-        // the glass skin: slow liquid undulation, a little orange peel on top
-        worley(U / PEB + 0.3 * wx, s / PEB + 0.3 * wy, 1013);
-        const hp = (1 - wD1 * 2.3) * (0.55 + 0.9 * wId);
-        h += amp * (0.3 * bil(cUnd, i, j) + 0.03 * nA.n2(U / 15, s / 15 + 9) + 0.03 * hp + 0.006 * nA.n2(U / 4.6 + 40, s / 4.6));
-        // small bubbles in the glass
-        worley(U / 10.5 + 7.7, s / 10.5 + 3.3, 2027);
-        if (wId < 0.5 + 0.22 * mot) {
-          const rb = 1.1 + 1.9 * ((wId * 37.7) % 1), q2 = (wD1 * 110.25) / (rb * rb);
+        const amp = rimT * (1 - 0.9 * thickK) * (0.3 + 0.7 * sstep(12, 72, s));
+        // the glass skin: slow liquid undulation under a pebbled orange peel — this is what breaks the key light into flecks
+        worley(U / 26 + 0.5 * wx, s / 26 + 0.5 * wy, 1013);
+        const dome = Math.exp(-3.2 * wD1) * (0.2 + 1.0 * wId * wId);   // round pebbles, a few tall, most of them low
+        h += amp * (0.9 * bil(cUnd, i, j)
+          + 0.9 * nA.n2(U / PEB + 0.4 * wx, s / PEB + 9 + 0.4 * wy)
+          + 0.07 * nB.n2(U / 7 + 40, s / 7)
+          + 2.3 * dome);
+        // bubbles in the glass, in swarms, no two the same size
+        worley(U / 15 + 7.7, s / 15 + 3.3, 2027);
+        if (wId < 0.09 + 0.44 * sstep(-0.25, 0.6, bil(cClu, i, j) + 0.5 * mot)) {
+          const f = (wId * 37.7) % 1, rb = 1.2 + 3.6 * f * f, q2 = (wD1 * 225) / (rb * rb);
           if (q2 < 1) {
-            const dome = 1 - q2; h += 0.3 * rb * dome * rimT; bub = dome * rimT;
+            const dm = 1 - q2; h += 0.3 * rb * dm * rimT; bub = dm * rimT;
             // every bubble is a tiny mirror ball: a pin-point of the key light sits on its upper-left shoulder
-            const gr = Math.max(0.85, 0.55 * rb), gx = -wAx * 10.5 + 0.3 * rb, gy = -wAy * 10.5 + 0.34 * rb, g2 = (gx * gx + gy * gy) / (gr * gr);
+            const gr = Math.max(0.85, 0.5 * rb), gx = -wAx * 15 + 0.3 * rb, gy = -wAy * 15 + 0.34 * rb, g2 = (gx * gx + gy * gy) / (gr * gr);
             if (g2 < 1) { Gl[k] = (1 - g2) * rimT; Gid[k] = (wId * 9973) & 255; }
           }
         }
-        // crazing: borders of big voronoi plates, then finer cracks inside each plate that stop dead at its border
-        worley((U + 24 * wx) / C1, (s + 24 * wy) / C1, 3041);
+        // crazing: tall plates following the run of the glaze, finer cracks inside some of them that stop dead at the border;
+        // the network fades in and out of sight instead of netting the whole wall
+        const vis = (0.45 + 0.55 * sstep(-0.3, 0.35, bil(cVis, i, j))) * (1 - 0.5 * thickK);
+        worley((U + 26 * wx) / C1, (s + 26 * wy) / (C1 * 1.45), 3041);
         const id1 = wId;
         const bd1 = ((wD2 - wD1) / (2 * Math.sqrt((wBx - wAx) * (wBx - wAx) + (wBy - wAy) * (wBy - wAy)) + 1e-6)) * C1;
-        worley((U + 10 * wy) / C2 + id1 * 37.1, (s - 10 * wx) / C2 + id1 * 91.7, 4099);
-        const bd2 = ((wD2 - wD1) / (2 * Math.sqrt((wBx - wAx) * (wBx - wAx) + (wBy - wAy) * (wBy - wAy)) + 1e-6)) * C2;
-        h -= (0.34 * (1 - sstep(0.2, 2.4, bd1)) + 0.16 * (1 - sstep(0.2, 1.7, bd2))) * rimT;
-        mu *= (1 - 0.44 * (1 - sstep(0.45, 1.5, bd1)) * rimT) * (1 - 0.25 * (1 - sstep(0.3, 1.15, bd2)) * rimT);
-        tau = rimT * (0.44 + 0.2 * sstep(16, 190, s) + 0.12 * mot + 0.06 * fl + 0.07 * streak + 0.04 * (id1 - 0.5))
-          + 0.25 * P + 0.3 * sstep(0, 300, d);
-        if (d > -12) {
-          if (d > 0) { const e = (d - 19) / 12; tau -= 0.2 * Math.exp(-e * e); }   // light gathered inside the roll's shoulder
-          const e2 = (d + 1.5) / 3.2; mu *= 1 - 0.45 * Math.exp(-e2 * e2);          // the crease where thin glaze meets the roll
+        let cr1 = 1 - sstep(0.2, 2.3, bd1), cs1 = 1 - sstep(0.4, 1.9, bd1), cr2 = 0, cs2 = 0;
+        if (id1 < 0.58) {
+          worley((U + 9 * wy) / C2 + id1 * 37.1, (s - 9 * wx) / (C2 * 1.2) + id1 * 91.7, 4099);
+          const bd2 = ((wD2 - wD1) / (2 * Math.sqrt((wBx - wAx) * (wBx - wAx) + (wBy - wAy) * (wBy - wAy)) + 1e-6)) * C2;
+          cr2 = 1 - sstep(0.2, 1.6, bd2); cs2 = 1 - sstep(0.3, 1.1, bd2);
+        }
+        h -= (0.3 * cr1 + 0.14 * cr2) * rimT * vis;
+        mu *= (1 - 0.36 * cs1 * rimT * vis) * (1 - 0.2 * cs2 * rimT * vis);
+        const thin = 1 - 0.65 * thickK;
+        tau = rimT * (0.43 + 0.17 * sstep(16, 200, s) + 0.13 * mot + 0.11 * fl * thin + 0.06 * streak * thin + 0.04 * (id1 - 0.5))
+          + 0.1 * P + 0.3 * sstep(0, 380, d);
+        if (d > -16) {
+          if (d > 0) { const e = (d - 24) / 17; tau -= 0.17 * Math.exp(-e * e); }   // light gathered inside the roll's shoulder
+          const e2 = (d + 1) / 7; mu *= 1 - 0.26 * Math.exp(-e2 * e2);              // soft contact shadow where thin glaze meets the roll
         }
       }
       Hh[k] = h; Tau[k] = tau; Mu[k] = mu; Bub[k] = bub;
     }
   }
 
+  TT.push(performance.now() - T0);
   // 4) a scatter of larger bubbles, mostly down in the thick glaze
   const rb = L.rng('s16bub');
   const span = a.span(PAD + 20);
-  for (let n = 0; n < 150; n++) {
-    const th0 = rb.range(-span, span), deep = rb.chance(0.74);
+  for (let n = 0; n < 84; n++) {
+    const th0 = rb.range(-span, span), deep = rb.chance(0.78);
     let ku = (th0 * R + UMAX + 0.5) | 0; ku = ku < 0 ? 0 : ku >= UT ? UT - 1 : ku;
-    const s0 = deep ? tFront[ku] + 16 + Math.pow(rb(), 1.3) * 340 : rb.range(42, tFront[ku] - 14);
-    const rp = deep ? rb.range(3, 6.6) * (rb.chance(0.08) ? 1.5 : 1) : rb.range(2.2, 4);
+    const s0 = deep ? tFront[ku] + 20 + Math.pow(rb(), 1.3) * 330 : rb.range(46, Math.max(60, tFront[ku] - 16));
+    const rp = deep ? rb.range(3.2, 7.4) * (rb.chance(0.12) ? 1.6 : 1) : rb.range(2.4, 4.6);
     const rr0 = R - s0, px = cx + rr0 * Math.sin(th0) - X0, py = cy - rr0 * Math.cos(th0) - Y0, e = Math.ceil(rp) + 1;
     for (let j = Math.max(1, Math.floor(py - e)); j <= Math.min(RH - 2, Math.ceil(py + e)); j++) {
       for (let i = Math.max(1, Math.floor(px - e)); i <= Math.min(RW - 2, Math.ceil(px + e)); i++) {
@@ -150,7 +173,7 @@ function buildGlaze(env) {
         if (q2 >= 1) continue;
         const q = Math.sqrt(q2);
         Hh[k] += 0.45 * rp * (1 - q2);
-        Mu[k] *= 1 - 0.38 * sstep(0.6, 0.92, q);
+        Mu[k] *= 1 - 0.34 * sstep(0.6, 0.92, q);
         Bub[k] = Math.max(Bub[k], 0.85 * (1 - q2));
         const gx = i - px + 0.32 * rp, gy = j - py + 0.36 * rp, g2 = (gx * gx + gy * gy) / (0.2 * rp * rp);
         if (g2 < 1) { Gl[k] = Math.max(Gl[k], 1 - g2); Gid[k] = (n * 53) & 255; }
@@ -167,14 +190,14 @@ function buildGlaze(env) {
   const box = (c, w, e, b) => sstep(c - w - e, c - w + e, b) * (1 - sstep(c + w - e, c + w + e, b));
   const KL = [-1, 0, 1].map((v) => {
     const t = new Float32Array(NB);
-    for (let i = 0; i < NB; i++) { const b = BLO + (i / (NB - 1)) * BSPAN; t[i] = box(BK + v * DB, WK, EK, b); }
+    for (let i = 0; i < NB; i++) { const b = BLO + (i / (NB - 1)) * BSPAN, lo = BKL - v * DB; t[i] = sstep(lo, lo + EK, b) * (1 - sstep(BKH, BKH + 0.12, b)); }
     return t;
   });
   const FL = new Float32Array(NB), SK = new Float32Array(NB);
   for (let i = 0; i < NB; i++) {
     const b = BLO + (i / (NB - 1)) * BSPAN;
-    FL[i] = 0.23 * box(-0.17, 0.09, 0.1, b);   // a big dim window low in the room → a soft sheen lying in the thick glass
-    SK[i] = 0.45 * sstep(0.62, 1.25, b);         // grazing light from above → lip, bubble tops, the roll's outer edge
+    FL[i] = 0.13 * box(0.2, 0.1, 0.12, b);   // a big dim window low in the room → a soft sheen lying in the thick glass
+    SK[i] = 0.45 * sstep(0.62, 1.25, b);         // grazing light from above → the lip and the tops of bubbles
   }
   const SL = new Uint8ClampedArray(256 * 3);   // specular intensity → warm white (orange-red while still faint)
   for (let i = 0; i < 256; i++) { const v = i / 255; SL[i * 3] = 255 * v; SL[i * 3 + 1] = 246 * Math.pow(v, 1.45); SL[i * 3 + 2] = 236 * Math.pow(v, 1.7); }
@@ -193,29 +216,33 @@ function buildGlaze(env) {
       const hx = (Hh[k + 1] - Hh[k - 1]) * 0.5, hy = (Hh[k + RW] - Hh[k - RW]) * 0.5;
       const ht = hx * cs + hy * sn, hv = -hx * sn + hy * cs;      // slope along the rim / down the wall
       const mot = bil(cMot, i, j);
-      const beta = baseBeta(s) + hv + 0.02 * mot, phi = ddx / 3000 - ht;
+      const beta = baseBeta(s) + 0.96 * hv + 0.26 * ht + 0.07 * mot, phi = ddx / 3000 - ht;
       let bi = ((beta - BLO) * bScale) | 0; bi = bi < 0 ? 0 : bi >= NB ? NB - 1 : bi;
       // body colour
       let t = Tau[k] / TMAX; t = t < 0 ? 0 : t > 1 ? 1 : t;
       const li = ((t * (NC - 1)) | 0) * 3;
       let cr = CL[li], cg = CL[li + 1], cb = CL[li + 2];
       const bub = Bub[k];
-      if (bub > 0) { const m = 0.26 * bub; cr += (255 - cr) * m; cg += (128 - cg) * m; cb += (112 - cb) * m; }
+      if (bub > 0) { const m = 0.24 * bub; cr += (255 - cr) * m; cg += (128 - cg) * m; cb += (112 - cb) * m; }
       let rel = (hv * 0.85 + ht * 0.5) * KR; rel = rel < -0.5 ? -0.5 : rel > 0.7 ? 0.7 : rel;
       const glazed = Tau[k] > 0.3 ? 1 : Tau[k] / 0.3;
-      const slow = (1.02 - 0.1 * (ddx / 1000)) * (1 - 0.37 * sstep(230, 620, s)) * (1 - 0.09 * sstep(4, LIP + 3, s) * (1 - glazed));
+      const thick = Thk[k] / 255;
+      // the key stands upper left: the wall falls off toward the right and down into the thick glass
+      const slow = (1.0 - 0.2 * (ddx / 1000)) * (1 - 0.37 * sstep(230, 620, s)) * (1 - 0.09 * sstep(4, LIP + 3, s) * (1 - glazed));
       const sh = slow * (1 + rel * glazed) * Mu[k];
       cr *= sh; cg *= sh; cb *= sh;
-      const ff = FL[bi] * glazed, sk = SK[bi];
+      const ff = FL[bi] * glazed, sk = SK[bi] * (1 - 0.8 * sstep(22, 64, s) * (1 - bub));
       cr += 255 * ff + 255 * sk; cg += 46 * ff + 236 * sk; cb += 44 * ff + 218 * sk;
       const o = k * 4;
       d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = al * 255;
       // key light, three positions; the bubbles' pin-points take turns flaring as it moves
-      const gl = Gl[k], ge = gl > 0 ? gl * (0.3 + 0.7 * Math.exp(-((s - 111) / 100) * ((s - 111) / 100))) : 0;
+      const gl = Gl[k], az0 = (ddx / 3000 - PK) / SPH;
+      const ge = gl > 0 ? gl * (0.25 + 0.75 * Math.exp(-((s - SKEY) / 120) * ((s - SKEY) / 120))) * (0.35 + 0.65 * Math.exp(-az0 * az0)) : 0;
+      const kAtt = (0.35 + 0.65 * glazed) * (1 - 0.5 * thick);
       for (let v = 0; v < 3; v++) {
         const kv = KL[v][bi];
         let I = 0;
-        if (kv >= 0.004) { const e = (phi - (PK + (v - 1) * DP)) / SPH; I = kv * (0.25 + 0.75 * Math.exp(-e * e)) * (0.35 + 0.65 * glazed); }
+        if (kv >= 0.004) { const e = (phi - (PK + (v - 1) * DP)) / SPH; I = kv * (0.2 + 0.7 * Math.exp(-e * e)) * kAtt; }
         if (ge > 0) { const ph = Math.cos((Gid[k] / 255 + v * 0.31) * L.TAU), g = ge * (0.2 + 0.8 * ph * ph); if (g > I) I = g; }
         if (I < 0.004) continue;
         const si = (I >= 1 ? 255 : (I * 255) | 0) * 3, q = sp[v].data;
@@ -223,23 +250,45 @@ function buildGlaze(env) {
       }
     }
   }
+  TT.push(performance.now() - T0);
   const toCanvas = (im) => { const c = L.makeCanvas(RW, RH); c.getContext('2d').putImageData(im, 0, 0); return c; };
   const body = toCanvas(img);
 
-  // 7) lens: the wall bulges toward the camera lower down → shallow depth of field melts the bottom of frame
+  // 7) lens: a macro lens focused just under the crest — the wall melts out of focus toward both sides and down the frame
+  const FX = cx - 70 - X0, FY = a.crestY + 96 - Y0;
+  const ring = (r0, r1) => {
+    const m = L.makeCanvas(RW, RH), g = m.getContext('2d');
+    g.translate(FX, FY); g.scale(1.28, 0.6);
+    g.fillStyle = L.radial(g, 0, 0, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    g.fillRect(-4000, -4000, 8000, 8000);
+    return m;
+  };
+  // wide blurs are done at half size (nobody can tell, and they cost a quarter)
+  const blurHalf = (c, px) => {
+    const hw = Math.ceil(RW / 2), hh = Math.ceil(RH / 2), sm = L.makeCanvas(hw, hh);
+    sm.getContext('2d').drawImage(c, 0, 0, hw, hh);
+    const sb = L.blurred(sm, px / 2), out = L.makeCanvas(RW, RH), g = out.getContext('2d');
+    g.imageSmoothingQuality = 'high'; g.drawImage(sb, 0, 0, hw * 2, hh * 2);
+    return out;
+  };
+  const LENS = [[ring(350, 770), 2.3], [ring(720, 1180), 6]];
   const dof = (c) => {
-    const b = L.blurred(c, 3.2), g = b.getContext('2d');
-    g.globalCompositeOperation = 'destination-in';
-    g.fillStyle = L.radial(g, cx - X0, cy - Y0, R - 610, R - 330, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
-    g.fillRect(0, 0, RW, RH);
-    c.getContext('2d').drawImage(b, 0, 0);
-    return c;
+    const out = L.makeCanvas(RW, RH), g = out.getContext('2d');
+    g.drawImage(c, 0, 0);
+    for (const [m, px] of LENS) {
+      const b = px > 4 ? blurHalf(c, px) : L.blurred(c, px), bg = b.getContext('2d');
+      bg.globalCompositeOperation = 'destination-in'; bg.drawImage(m, 0, 0);
+      g.globalCompositeOperation = 'destination-out'; g.drawImage(m, 0, 0);
+      g.globalCompositeOperation = 'lighter'; g.drawImage(b, 0, 0);
+    }
+    g.globalCompositeOperation = 'source-over';
+    return out;
   };
   // highlights: sharp core + a tight halo + a wide ruby glow (light scattered inside the glass, back off the white body)
   const spec = sp.map((im) => {
     const sharp = toCanvas(im);
     const out = L.makeCanvas(RW, RH), g = out.getContext('2d');
-    const glowC = L.blurred(sharp, 17), gg = glowC.getContext('2d');
+    const glowC = blurHalf(sharp, 17), gg = glowC.getContext('2d');
     gg.globalCompositeOperation = 'multiply'; gg.fillStyle = '#ff3526'; gg.fillRect(0, 0, RW, RH);
     g.fillStyle = '#000'; g.fillRect(0, 0, RW, RH);
     g.globalCompositeOperation = 'lighter';
@@ -250,7 +299,13 @@ function buildGlaze(env) {
     g.globalCompositeOperation = 'source-over';
     return dof(out);
   });
-  return { body: dof(body), spec, X0, Y0 };
+  // the body, with a breath of lens bloom spilling off the pale lip onto the black
+  const bodyD = dof(body);
+  const fin = L.makeCanvas(RW, RH), fg = fin.getContext('2d');
+  fg.globalAlpha = 0.34; fg.drawImage(blurHalf(bodyD, 11), 0, 0);
+  fg.globalAlpha = 1; fg.drawImage(bodyD, 0, 0);
+  TT.push(performance.now() - T0); console.warn('s16 timing ' + TT.map((v) => v | 0).join(' '));
+  return { body: fin, spec, X0, Y0 };
 }
 
 export default {

@@ -1,277 +1,469 @@
-// s02 — 黄琉璃瓦檐口. Looking down across an imperial yellow-glazed roof to its far eave (we see the tiles' backs):
-// ridges of round tiles (筒瓦) alternate with troughs of pan tiles (板瓦); at the eave every ridge ends in a 勾头 (its
-// wadang faces away from us, only the raised back-rim shows) with one domed nail cap (钉帽) on its back, and every trough
-// ends in the concave lip of a 滴水 → the eave reads as a scalloped "string of beads" lying on the arc.
-// EXEMPLAR SCENE: shows the standard recipe → build static layers once in init(), then blit them with a small camera move.
+// s02 — 黄琉璃瓦檐口 · 微距. A macro shot looking down a yellow-glazed roof to its far eave: only eight or nine big
+// tile heads sit on the arc. Every ridge of round tiles (筒瓦) ends in a 勾头 — we see its back: the raised rim of the
+// wadang disc and one domed nail cap (钉帽) — and every trough between them ends in the rolled lip of a 滴水.
+// Focus lies on the eave; the roof behind the heads melts into out-of-focus gold; beyond the eave there is only night and dust.
+//
+// How it is made: nothing is drawn with gradients. init() builds a HEIGHT FIELD of the roof (tile backs, rims, domes,
+// joints, pan-tile laps, glaze runs, chips) plus a glaze-thickness map, then shades it per pixel like a photograph:
+// a near key light upper-left (a strip soft-box → shaped highlights), a cool kicker from beyond the eave (rim light),
+// cast shadows, cavity occlusion, glaze colour by thickness (thin = straw, pooled = amber), crazing, dust.
+// Depth of field is three blurred copies blended in by depth below the eave. draw() only blits layers.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 260;       // extra canvas around the frame so the camera can drift without showing edges
-const PITCH = 104;     // spacing of tile ridges along the arc (px)
-const HALF = 30;       // half-width of a round tile (筒瓦) → 60 px tile, 44 px trough (走水当)
-const GAP = PITCH / 2 - HALF;   // half-width of the pan-tile trough at the eave
-const SEG = 126;       // one round tile is about twice as long as it is wide …
-const HEAD = 110;      // … the eave tile (勾头) a little shorter
-const LAP = 42;        // exposed length of one pan tile (压七露三 → roughly three laps per round tile)
-const DEPTH = 1150;
-const DY = 1.5;        // the eave silhouette runs −6…+6 px around the layer's arc (勾头 crown / 滴水 dip), its mean ≈ −1.5 px → tiny nudge
+const PAD = 120;                 // the camera only drifts ~30 px, so a small margin is enough
+const LW = W + PAD * 2, LH = H + PAD * 2;
+const PITCH = 232;               // one ridge + one trough along the arc → 8½ tile heads across the frame
+const S0 = -38;                  // the tile nearest the crest sits a little left of centre (nothing is symmetric)
 let S = null;
 
-function ridgeAngles(a) {
-  const s = a.span(PAD + 120);
-  const n = Math.ceil((s * a.R) / PITCH);
-  const out = [];
-  for (let i = -n; i <= n; i++) out.push((i * PITCH) / a.R);
-  return out;
-}
-/** how far a ridge has converged toward the roof's centre at depth d below the eave */
-const conv = (a, d) => (a.R - d) / a.R;
+const sstep = (a, b, x) => { let t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
 
-// glaze, not metal: a broad saturated yellow middle, dark only at the two flanks (light from the upper left)
-const GLAZE = {
-  std: ['#c48a10', '#ffd83a', '#f5c518', '#d99a12'],
-  fresh: ['#d39a14', '#ffe45c', '#ffd84a', '#e6ac20'],   // replacement tiles are a touch brighter …
-  old: ['#a9740d', '#dba51a', '#c48a10', '#a8720c'],     // … and the oldest ones have gone ochre
-};
-function glazeStops(kind, tone) {
-  const [rise, lit, body, turn] = GLAZE[kind];
-  return [[0, '#6e3d08'], [0.12, rise], [0.3, lit], [0.5, body], [0.78, turn], [0.93, '#8a520a'], [1, '#3a1e04']].map(([t, c]) => [t, L.shade(c, tone)]);
-}
-// across a trough: the ridge on the left drops its shadow on the left third, the far side catches a little light
-const CONCAVE = [[0, 'rgba(28,12,2,0.88)'], [0.36, 'rgba(28,12,2,0.42)'], [0.6, 'rgba(255,204,80,0.22)'], [0.88, 'rgba(60,30,4,0.5)'], [1, 'rgba(28,12,2,0.8)']];
-
-/** the troughs: pan tiles (板瓦), concave side up, yellow glaze lying in shadow; each trough ends in a drip-tile lip */
-function buildPan(env) {
-  const a = env.arc;
-  return L.makeLayer(PAD, (g) => {
-    const angles = ridgeAngles(a), r = L.rng('s02pan');
-    const base = L.makeRamp([[0, '#3a1e04'], [0.55, '#85500b'], [0.92, '#a8680c'], [1, '#b8860f']]);   // shadowed glaze turns amber, never olive
-    const P2 = PITCH / 2, kEnd = conv(a, DEPTH);
-    for (let i = 0; i < angles.length - 1; i++) {
-      a.at(g, (angles[i] + angles[i + 1]) / 2, 0, () => {
-        g.save();
-        // outline of one trough: its top edge is the drip tile's concave lip, so the night shows through between the ridges
-        g.beginPath();
-        g.moveTo(-P2, 14); g.lineTo(-GAP, 14); g.lineTo(-GAP, -2);
-        g.ellipse(0, -2, GAP, 8, 0, Math.PI, 0, true);
-        g.lineTo(GAP, 14); g.lineTo(P2, 14); g.lineTo(P2 * kEnd, DEPTH); g.lineTo(-P2 * kEnd, DEPTH); g.closePath();
-        g.clip();
-        // the pan tiles, eave first: each one further up the slope lies on top of the one below it
-        let d0 = -2, d1 = 34 + r.range(-6, 6);
-        for (let j = 0; d0 < DEPTH; j++) {
-          const k = conv(a, Math.max(0, d0)), w = GAP * k, sag = j ? 7 : 8, pk = P2 * k + 2;
-          const lip = () => { g.beginPath(); g.ellipse(0, d0, w, sag, 0, Math.PI, 0, true); };
-          if (j) {   // the shadow this tile's lower edge drops on the tile below it (toward the eave)
-            g.strokeStyle = 'rgba(30,14,2,0.55)'; g.lineWidth = 4;
-            g.beginPath(); g.ellipse(0, d0 - 3, w, sag, 0, Math.PI, 0, true); g.stroke();
-          }
-          g.beginPath(); g.moveTo(-pk, d0); g.lineTo(-w, d0); g.ellipse(0, d0, w, sag, 0, Math.PI, 0, true); g.lineTo(pk, d0);
-          g.lineTo(pk, d1 + 12); g.lineTo(-pk, d1 + 12); g.closePath();
-          g.fillStyle = L.shade(L.css(base(L.clamp(1 - (d0 + d1 + 4) / 1160))), r.range(-0.08, 0.04)); g.fill();
-          g.fillStyle = L.linear(g, -w, 0, w, 0, CONCAVE); g.fill();
-          g.fillStyle = L.linear(g, 0, d0 + sag, 0, d1 + 8, [[0, 'rgba(255,220,110,0.10)'], [0.4, 'rgba(40,18,2,0)'], [1, 'rgba(40,18,2,0.32)']]); g.fill();
-          if (j) {   // bright glazed edge of the lap, strongest where the trough turns toward the light
-            g.strokeStyle = L.linear(g, -w, 0, w, 0, [[0, 'rgba(255,232,154,0.08)'], [0.3, 'rgba(255,232,154,0.3)'], [0.62, 'rgba(255,232,154,0.6)'], [1, 'rgba(255,232,154,0.3)']]);
-            g.lineWidth = 1.5; lip(); g.stroke();
-          } else {   // the 滴水: a thick rolled lip (its ruyi tongue hangs on the far side, out of sight)
-            g.beginPath(); g.ellipse(0, -2, GAP, 8, 0, Math.PI, 0, true); g.ellipse(0, -2, GAP + 5, 13, 0, 0, Math.PI, false); g.closePath();
-            g.fillStyle = L.linear(g, 0, -2, 0, 11, [[0, '#ffe27a'], [1, '#b9720e']]); g.fill();
-            g.fillStyle = L.linear(g, -GAP, 0, GAP, 0, [[0, 'rgba(60,28,2,0.55)'], [0.3, 'rgba(60,28,2,0.1)'], [0.6, 'rgba(255,246,208,0.18)'], [1, 'rgba(60,28,2,0.3)']]); g.fill();
-            g.strokeStyle = 'rgba(42,20,3,0.6)'; g.lineWidth = 3;
-            g.beginPath(); g.ellipse(0, -2, GAP + 6.5, 14.5, 0, Math.PI, 0, true); g.stroke();
-            g.strokeStyle = 'rgba(255,246,208,0.7)'; g.lineWidth = 1.2;
-            g.beginPath(); g.ellipse(0, -1.4, GAP, 8, 0, Math.PI, 0, true); g.stroke();
-          }
-          d0 = d1; d1 += LAP;
-        }
-        g.restore();
-      });
+/** every tile head is its own object: width, lean, overhang, crown height, glaze age, dust, nail cap, damage */
+function makeTiles(a) {
+  const r = L.rng('s02-heads-b');
+  const n = Math.ceil((a.span(PAD + 80) * a.R) / PITCH) + 1;
+  const T = [];
+  for (let i = -n; i <= n; i++) {
+    const w = r.range(85, 103);
+    const t = {
+      i, s: i * PITCH + S0 + r.range(-9, 9), w, tilt: r.range(-0.024, 0.024), e: r.range(-2.6, 1.6), arch: r.range(9, 14),
+      hc: r.range(0.62, 0.82) * w, tone: r.range(-0.1, 0.08), hue: r.range(-0.05, 0.04), age: r.range(-0.12, 0.2), dust: r.range(0.25, 0.9),
+      capR: r.range(36, 47), capU: r.range(-11, 11), capV: r.range(72, 96), capH: r.range(0.7, 0.95), noCap: 0, drips: [],
+      j1: r.range(292, 368), jl: r.range(350, 395), ph: r.range(0, 6.28), ph2: r.range(0, 6.28), seed: r.range(0, 60),
+      craze: r.chance(0.35) ? r.range(0.5, 1) : 0, cs: r.range(15, 21),
+      // the trough to the right of this tile
+      lipE: r.range(-1.6, 1.4), lapLen: r.range(92, 120), lapPh: r.range(22, 60), chips: [],
+    };
+    // damage: small flakes off the rim bead, the odd flake on the back
+    const nc = r.int(0, 3);
+    for (let c = 0; c < nc; c++) {
+      const onRim = r.chance(0.7);
+      t.chips.push({ u: r.range(-0.82, 0.82) * w, v: onRim ? r.range(1, 9) : r.range(22, 140), r: onRim ? r.range(4, 9) : r.range(3, 7), seed: r.range(0, 50), bite: 0 });
     }
-  });
-}
-
-/** the ridges: round tiles (筒瓦) laid tile by tile, plus a separate layer holding only their specular highlights */
-function buildTiles(env) {
-  const a = env.arc, angles = ridgeAngles(a), r = L.rng('s02');
-  const tiles = L.makeLayer(PAD), spec = L.makeLayer(PAD);
-  const g = tiles.getContext('2d'), s = spec.getContext('2d');
-  g.lineCap = 'butt'; s.lineCap = 'round';
-  for (const th of angles) {
-    a.at(g, th, 0, () => a.at(s, th, 0, () => {
-      const joints = [0];
-      for (let d = HEAD + r.range(-8, 8); d < DEPTH + SEG; d += SEG) joints.push(d);
-      // 夹垄灰: the ochre-red mortar bead where each ridge meets the troughs
-      g.strokeStyle = 'rgba(138,58,28,0.6)'; g.lineWidth = 2;
-      for (const side of [-1, 1]) {
-        g.beginPath();
-        for (let d = 12; d <= DEPTH; d += 24) { const x = side * (HALF * conv(a, d) + 1) + r.range(-0.7, 0.7); if (d === 12) g.moveTo(x, d); else g.lineTo(x, d); }
-        g.stroke();
-      }
-      // one tile at a time, eave first, so each tile further up the slope overlaps the top of the one below it
-      for (let j = 0; j < joints.length - 1; j++) {
-        const d0 = joints[j], d1 = joints[j + 1], len = d1 - d0;
-        const hw0 = HALF * conv(a, d0), hw1 = HALF * conv(a, d1);
-        const m = j ? hw0 + 1.5 : HALF, arch = j ? 0.4 * hw0 : 9, top = j ? d0 : 6;   // the mouth stands 1.5 px proud of the tile below
-        const roll = r(), tone = r.range(-0.06, 0.06);
-        const stops = glazeStops(roll < 0.08 ? 'fresh' : roll < 0.14 ? 'old' : 'std', tone);
-        const mouth = (c, grow = 0) => { c.beginPath(); c.ellipse(0, top, m + grow, arch + grow, 0, Math.PI, 0); };
-        const body = () => { mouth(g); g.lineTo(hw1, d1 + 2); g.lineTo(-hw1, d1 + 2); g.closePath(); };
-        if (j) {   // c. the raised mouth shades the tile below it
-          g.save(); g.beginPath(); g.rect(-m, d0 - arch - 16, m * 2, arch + 16); g.clip();
-          g.lineWidth = 2.6;
-          for (let q = 0; q < 11; q++) { g.strokeStyle = `rgba(40,18,2,${(0.2 * Math.pow(1 - q / 11, 1.3)).toFixed(3)})`; mouth(g, 2.2 + q); g.stroke(); }
-          g.restore();
-        }
-        body();
-        g.fillStyle = L.linear(g, -m, 0, m, 0, stops); g.fill();
-        // glaze pools toward the upslope end of every tile
-        g.fillStyle = L.linear(g, 0, top - arch, 0, d1, [[0, 'rgba(150,84,8,0)'], [0.3, 'rgba(150,84,8,0.03)'], [1, 'rgba(150,84,8,0.35)']]); g.fill();
-        // cool skylight on the shaded flank — the tell-tale of a glassy glaze
-        const q0 = d0 + len * r.range(0.14, 0.38), q1 = q0 + len * 0.5;
-        g.strokeStyle = L.rgba('#7fb2e6', r.range(0.18, 0.28)); g.lineWidth = 2; g.lineCap = 'round';
-        g.beginPath(); g.moveTo(0.55 * HALF * conv(a, q0), q0); g.lineTo(0.55 * HALF * conv(a, q1), q1); g.stroke(); g.lineCap = 'butt';
-
-        // ── highlights (on their own layer so the light pool can dim them away from the sun's reflection) ──
-        const jit = r.range(-3, 3), hx = (y) => (-0.34 * HALF + jit) * conv(a, y);
-        const lipY = top - arch * 0.94;                       // where the mouth's lip sits at the highlight's x
-        const nextArch = 0.4 * hw1;
-        if (j) {
-          // b. mortar in the joint (捉节灰), a. the thick glazed lip of the mouth
-          g.strokeStyle = 'rgba(138,58,28,0.8)'; g.lineWidth = 2; mouth(g, 1); g.stroke();
-          g.strokeStyle = L.linear(g, -m, 0, m, 0, [[0, 'rgba(255,232,154,0.35)'], [0.28, 'rgba(255,232,154,0.62)'], [0.6, 'rgba(255,232,154,0.5)'], [1, 'rgba(255,232,154,0.18)']]);
-          g.lineWidth = 3; mouth(g, -1.5); g.stroke();
-          s.strokeStyle = 'rgba(255,240,190,0.6)'; s.lineWidth = 2.6;
-          s.beginPath(); s.ellipse(0, top, m - 1.5, arch - 1.5, 0, Math.PI + 0.3, Math.PI + 1.75); s.stroke();
-          // soft sheen
-          const b0 = lipY + 9, b1 = Math.min(b0 + len * r.range(0.7, 0.9) - 9, d1 - nextArch - 6);
-          s.strokeStyle = 'rgba(255,241,176,0.38)'; s.lineWidth = 8;
-          s.beginPath(); s.moveTo(hx(b0), b0); s.lineTo(hx(b1), b1); s.stroke();
-          // crisp cold-white core: a tapered streak that wavers with the glaze and stops well short of the next joint
-          const c0 = lipY + 12, c1 = c0 + len * r.range(0.35, 0.65), cm = L.lerp(c0, c1, 0.36), bend = r.range(-1.5, 1.5) * 2;
-          s.fillStyle = L.rgba('#f4faff', r.range(0.55, 0.95));
-          s.beginPath(); s.moveTo(hx(c0) - 1.1, c0); s.quadraticCurveTo(hx(cm) + bend - 3.3, cm, hx(c1), c1); s.quadraticCurveTo(hx(cm) + bend + 3.3, cm, hx(c0) + 1.1, c0);
-          s.arc(hx(c0), c0, 1.1, 0, Math.PI, true); s.fill();
-          // the glint where the lip rolls over
-          s.fillStyle = 'rgba(255,255,255,0.9)';
-          s.beginPath(); s.ellipse(hx(d0) * (m / hw0), lipY + 1.6, 3.5, 1.5, -0.15, 0, L.TAU); s.fill();
-        } else {
-          // ── the 勾头: we see the back of its wadang as a raised rim around the tile's end, and one nail cap on its back ──
-          g.lineCap = 'round';
-          g.strokeStyle = L.linear(g, -24, -8, 26, 12, [[0, '#ffe27a'], [0.45, '#f0c030'], [1, '#c8901a']]); g.lineWidth = 6;
-          g.beginPath(); g.moveTo(-HALF + 1, 10); g.lineTo(-HALF + 1, 6); g.ellipse(0, 6, HALF - 1, 9, 0, Math.PI, 0); g.lineTo(HALF - 1, 10); g.stroke();
-          g.lineCap = 'butt';
-          g.strokeStyle = 'rgba(92,48,10,0.9)'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(0, 6.5, HALF - 4.2, 5.6, 0, Math.PI, 0); g.stroke();
-          // sheen along the tile's back, either side of the nail cap
-          s.strokeStyle = 'rgba(255,241,176,0.38)'; s.lineWidth = 8;
-          s.beginPath(); s.moveTo(hx(14), 14); s.lineTo(hx(d1 - nextArch - 8), d1 - nextArch - 8); s.stroke();
-          const c0 = 9, c1 = 38, bend = r.range(-1.2, 1.2) * 2;
-          s.fillStyle = L.rgba('#f4faff', r.range(0.6, 0.95));
-          s.beginPath(); s.moveTo(hx(c0) - 1.1, c0); s.quadraticCurveTo(hx(20) + bend - 3.3, 20, hx(c1), c1); s.quadraticCurveTo(hx(20) + bend + 3.3, 20, hx(c0) + 1.1, c0);
-          s.arc(hx(c0), c0, 1.1, 0, Math.PI, true); s.fill();
-          s.strokeStyle = 'rgba(255,250,222,0.5)'; s.lineWidth = 3.4;
-          s.beginPath(); s.ellipse(0, 6, HALF - 1, 9, 0, Math.PI + 0.32, Math.PI + 1.45); s.stroke();
-          s.strokeStyle = 'rgba(255,255,255,0.9)'; s.lineWidth = 1.6;
-          s.beginPath(); s.ellipse(0, 6, HALF + 0.5, 10.5, 0, Math.PI + 0.5, Math.PI + 1.2); s.stroke();
-          // nail cap (钉帽): a glazed half-dome sitting on the tile, its shadow kept on the tile's back
-          const cy = 54, cr = 12;
-          g.save(); body(); g.clip();
-          g.fillStyle = 'rgba(40,20,2,0.35)'; g.beginPath(); g.ellipse(5, cy + 6, 13, 8, 0.6, 0, L.TAU); g.fill();
-          g.restore();
-          g.fillStyle = L.radial(g, -4, cy - 5, 0.5, cr * 1.42, [[0, '#f8fbff'], [0.22, '#ffd83a'], [0.65, '#e0a416'], [1, '#8a520a']]);
-          g.beginPath(); g.arc(0, cy, cr, 0, L.TAU); g.fill();
-          g.strokeStyle = 'rgba(74,38,6,0.7)'; g.lineWidth = 1.5; g.beginPath(); g.arc(0, cy, cr + 0.3, 0, L.TAU); g.stroke();
-          g.strokeStyle = L.rgba('#7fb2e6', 0.3); g.lineWidth = 1.6; g.beginPath(); g.arc(0, cy, cr - 2.6, -0.1, 0.9); g.stroke();
-          s.save(); s.globalCompositeOperation = 'destination-out'; s.beginPath(); s.arc(0, cy, cr + 1.5, 0, L.TAU); s.fill(); s.restore();
-          s.fillStyle = 'rgba(255,255,255,0.95)'; s.beginPath(); s.ellipse(-4.2, cy - 5.2, 3, 2, -0.6, 0, L.TAU); s.fill();
-        }
-      }
-    }));
+    // glaze that ran to the end of the tile in the kiln and froze as beads on the rim (积釉)
+    const nd = r.int(0, 2);
+    for (let c = 0; c < nd; c++) t.drips.push({ u: r.range(-0.75, 0.75) * w, v: r.range(4, 13), r: r.range(5, 9), h: r.range(3, 5.5) });
+    T.push(t);
   }
-  // light pool: the sun's reflection sits on the eave left of the crest — highlights are full strength there, ×0.35 elsewhere
-  const pc = a.pt(-0.05, -150);
-  s.globalCompositeOperation = 'destination-in';
-  s.fillStyle = L.radial(s, pc.x, pc.y, 110, 640, [[0, 'rgba(0,0,0,1)'], [0.45, 'rgba(0,0,0,0.82)'], [1, 'rgba(0,0,0,0.35)']]);
-  s.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-  g.globalCompositeOperation = 'source-atop'; g.drawImage(spec, -PAD, -PAD); g.globalCompositeOperation = 'source-over';
-  return tiles;
+  for (let i = 1; i < T.length; i++) T[i].tilt = L.clamp(T[i].tilt, T[i - 1].tilt - 0.03, T[i - 1].tilt + 0.03);   // neighbours never lean into each other
+  // hand-set the heads nearest the crest so the frame has clear characters: a fresh bright replacement, an old crazed amber one, a bitten rim
+  const at = (i) => T[i + n];
+  Object.assign(at(0), { tone: 0.05, hue: 0.03, age: -0.12, dust: 0.25, craze: 0 });
+  Object.assign(at(-1), { tone: -0.05, hue: -0.03, age: 0.16, dust: 0.7, craze: 1, cs: 18 });
+  Object.assign(at(1), { tone: -0.01, age: 0.05, craze: 0.45 });
+  at(1).chips.push({ u: 0.34 * at(1).w, v: 1.5, r: 15, seed: 3.3, bite: 7 });
+  Object.assign(at(2), { tone: -0.04, age: 0.12, dust: 0.9 });
+  Object.assign(at(-2), { tone: 0.03, age: -0.05, craze: 0 });
+  at(-2).chips.push({ u: at(-2).capU + at(-2).capR * 0.74, v: at(-2).capV + at(-2).capR * 0.5, r: 10, seed: 8.1, bite: 0 });
+  at(-3).chips.push({ u: -0.5 * at(-3).w, v: 2, r: 12, seed: 5.2, bite: 5 });
+  Object.assign(at(3), { tone: 0.04, age: -0.08, craze: 0.8, cs: 20, noCap: 1, capR: 40 });   // this one has lost its nail cap
+  for (const t of T) for (const c of t.chips) c.rr = (c.r * 1.25) * (c.r * 1.25);
+  return { T, n };
 }
 
-/** colour layer: the glazed roof */
+/** a coarse scalar field over (s = px along the arc, d = px below it), sampled bilinearly in the pixel loop */
+function polarField(s0, s1, d0, d1, ds, dd, fn) {
+  const w = Math.ceil((s1 - s0) / ds) + 2, h = Math.ceil((d1 - d0) / dd) + 2, A = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) A[j * w + i] = fn(s0 + i * ds, d0 + j * dd);
+  const ids = 1 / ds, idd = 1 / dd, mx = w - 1.001, my = h - 1.001;
+  return (s, d) => {
+    let fx = (s - s0) * ids, fy = (d - d0) * idd;
+    fx = fx < 0 ? 0 : fx > mx ? mx : fx; fy = fy < 0 ? 0 : fy > my ? my : fy;
+    const ix = fx | 0, iy = fy | 0, o = iy * w + ix; fx -= ix; fy -= iy;
+    const p = A[o] + (A[o + 1] - A[o]) * fx, q = A[o + w] + (A[o + w + 1] - A[o + w]) * fx;
+    return p + (q - p) * fy;
+  };
+}
+
+/** crackle: distance between the two nearest feature points of a jittered grid → thin lines where it is ~0 */
+function crack(px, py) {
+  const xi = Math.floor(px), yi = Math.floor(py);
+  let d1 = 9, d2 = 9;
+  for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+    const cx = xi + ox, cy = yi + oy;
+    let h = Math.imul(cx, 374761393) ^ Math.imul(cy, 668265263);
+    h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
+    const fx = cx + (h & 1023) / 1023 - px, fy = cy + ((h >>> 10) & 1023) / 1023 - py;
+    const dd = fx * fx + fy * fy;
+    if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd;
+  }
+  return Math.sqrt(d2) - Math.sqrt(d1);
+}
+
+function boxBlur(A, w, h, rad) {
+  const B = new Float32Array(A.length), inv = 1 / (rad * 2 + 1);
+  for (let y = 0; y < h; y++) {
+    let acc = 0; const o = y * w;
+    for (let x = -rad; x <= rad; x++) acc += A[o + (x < 0 ? 0 : x >= w ? w - 1 : x)];
+    for (let x = 0; x < w; x++) { B[o + x] = acc * inv; const a0 = x - rad, a1 = x + rad + 1; acc += A[o + (a1 >= w ? w - 1 : a1)] - A[o + (a0 < 0 ? 0 : a0)]; }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -rad; y <= rad; y++) acc += B[(y < 0 ? 0 : y >= h ? h - 1 : y) * w + x];
+    for (let y = 0; y < h; y++) { A[y * w + x] = acc * inv; const a0 = y - rad, a1 = y + rad + 1; acc += B[(a1 >= h ? h - 1 : a1) * w + x] - B[(a0 < 0 ? 0 : a0) * w + x]; }
+  }
+  return A;
+}
+
+/** the glazed roof: height field → per-pixel shading → depth of field. Returns { roof, glare, y0 } (canvases LW × RH, top row at layer y = y0) */
 function buildRoof(env) {
-  const a = env.arc;
-  // 1–2) the troughs, with rain-wash stains that stay in the troughs
-  const roof = buildPan(env);
-  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02dirt', scale: 240, octaves: 4, warp: 0.6, res: 0.25, ramp: [[0, '#6a4210'], [0.5, '#ffffff'], [1, '#ffffff']] }), { blend: 'multiply', alpha: 0.4 });
-  // 3) the round-tile ridges on top
+  const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
+  const nz = L.makeNoise('s02-glaze');
+  const { T, n } = makeTiles(a);
+  const sMax = a.span(PAD + 40) * R + 30, dMax = LH - PAD - a.crestY + 40;
+  // glaze fields: broad mottling, runs that flowed down the tile in the kiln (流釉), settled dust
+  const mott = polarField(-sMax, sMax, -20, dMax, 10, 10, (s, d) => nz.fbm(s / 150, d / 190, 3));
+  const runs = polarField(-sMax, sMax, -20, dMax, 2.5, 9, (s, d) => sstep(0.26, 0.6, nz.fbm(s / 23 + 40, d / 260, 2) + 0.4 * nz.n2(s / 70, d / 420 + 9)));
+  const dustF = polarField(-sMax, sMax, -20, dMax, 4, 4, (s, d) => nz.fbm(s / 80 + 7, d / 80 - 3, 4));
+
+  const y0 = Math.max(0, Math.floor(a.crestY + PAD - 84)) & ~1, RH = LH - y0, N = LW * RH;
+  const Z = new Float32Array(N).fill(-40), TH = new Float32Array(N), AL = new Float32Array(N), DU = new Float32Array(N), CR = new Float32Array(N);
+  const MAT = new Uint8Array(N), TI = new Uint8Array(N);   // MAT: 0 none · 1 glaze · 2 mortar (夹垄灰 / 捉节灰) · 3 bare body where the glaze has flaked
+  const FAR = 236, R2F = (R - FAR) * (R - FAR);   // deeper than this the roof is out of focus anyway → shade 2×2 blocks
+
+  // ───────── pass 1: geometry ─────────
+  for (let j = 0; j < RH; j++) {
+    const y = j + y0 - PAD + 0.5, dyc = cy - y;
+    for (let i = 0; i < LW; i++) {
+      const x = i - PAD + 0.5, dxc = x - cx;
+      // far zone: only the even/even anchor of each 2×2 block is computed
+      const xa = (i & ~1) - PAD + 0.5 - cx, ya = cy - ((j & ~1) + y0 - PAD + 0.5), far = xa * xa + ya * ya < R2F;
+      if (far && ((i | j) & 1)) continue;
+      const d = R - Math.sqrt(dxc * dxc + dyc * dyc);
+      if (d < -8) continue;
+      const s = Math.atan2(dxc, dyc) * R;
+      let k = Math.round((s - S0) / PITCH) + n; k = k < 1 ? 1 : k > 2 * n - 1 ? 2 * n - 1 : k;
+      const u0 = s - T[k].s - T[k].tilt * d;
+      const kL = u0 >= 0 ? k : k - 1, TL = T[kL], TR = T[kL + 1];
+      const uL = s - TL.s - TL.tilt * d, uR = s - TR.s - TR.tilt * d;
+      // does one of the two neighbouring round tiles cover this pixel?
+      let Tt = null, u = 0, v = 0, bit = 0;
+      for (let side = 0; side < 2 && !Tt; side++) {
+        const Tc = side ? TR : TL, uc = side ? uR : uL, wr = Tc.w + 3;
+        if (uc > -wr && uc < wr) {
+          const q = uc / wr;
+          let vc = d + Tc.e + 4 - Tc.arch * (1 - Math.sqrt(1 - q * q));
+          if (vc < 30) vc += 1.1 * nz.n2(uc * 0.045 + Tc.seed, 3.1) + 0.5 * nz.n2(uc * 0.16 + Tc.seed, 8.4);   // a hand-pressed edge is never a clean curve
+          let bt = 0;
+          if (vc < 24) for (const c of Tc.chips) if (c.bite) { const e = 1 - ((uc - c.u) * (uc - c.u)) / (c.r * c.r); if (e > 0) { bt = c.bite * Math.sqrt(e) * (0.8 + 0.3 * nz.n2(uc * 0.2 + c.seed, 1.7)); } }
+          vc -= bt;
+          if (vc > -0.5) {
+            const hw = vc < 13 ? wr : Tc.w + 1.3 * Math.sin(vc * 0.021 + Tc.ph);
+            if (uc > -hw && uc < hw) { Tt = Tc; u = uc; v = vc; bit = bt; }
+          }
+        }
+      }
+      const o = j * LW + i;
+      const mo = mott(s, d);
+      let z, th, du = 0, mat = 1, al = 1, cr = 0;
+      if (Tt) {
+        // ── the back of a round tile ──
+        const hw = v < 13 ? Tt.w + 3 : Tt.w + 1.3 * Math.sin(v * 0.021 + Tt.ph);
+        let aq = u / hw; aq = aq < 0 ? -aq : aq; if (aq > 1) aq = 1;
+        const prof = Math.pow(1 - Math.pow(aq, 2.3), 0.435);
+        z = Tt.hc * prof * (1 + 0.04 * Math.sin(v * 0.014 + Tt.ph2) + 0.022 * Math.sin(v * 0.037 + Tt.ph));
+        th = 0.4 + Tt.age + 0.24 * mo + 0.5 * sstep(0.7, 1, aq);
+        al = v < 0.5 ? v + 0.5 : 1;
+        // the wadang's back rim: a rounded bead across the tile's end, then a groove where glaze pooled
+        const vb = v + bit;
+        if (vb < 13) {
+          const bt = (vb - 6.5) / 6.5, bd = Math.sqrt(bt * bt < 1 ? 1 - bt * bt : 0);
+          z += 6 * bd * (0.5 + 0.5 * prof); th -= 0.24 * bd;
+          if (vb < 7) { const e2 = vb < 0 ? 1 : 1 - vb / 7; z *= 0.8 + 0.2 * Math.sqrt(1 - e2 * e2); }
+        }
+        const g1 = Math.exp(-((vb - 18.5) * (vb - 18.5)) / 18);
+        z -= 2.6 * g1; th += 0.62 * g1; du += 0.45 * g1;
+        // beads of glaze frozen on the rim
+        if (vb < 26) for (const c of Tt.drips) {
+          const e = 1 - ((u - c.u) * (u - c.u) + (vb - c.v) * (vb - c.v) * 0.55) / (c.r * c.r);
+          if (e > 0) { z += c.h * Math.sqrt(e); th += 0.5 * e; }
+        }
+        // the nail cap: a glazed dome with a fillet of pooled glaze round its foot
+        const cu = u - Tt.capU, cv = v - Tt.capV, cr2 = Tt.capR, rc = Math.sqrt(cu * cu + cv * cv);
+        if (rc < cr2 + 18) {
+          if (Tt.noCap) {   // the cap is gone: a ring of old bedding mortar and the head of the iron tile nail
+            if (rc < 7.5) { z += 3.5 * Math.sqrt(1 - (rc * rc) / 56.25); mat = 4; }
+            else if (rc < cr2 * 0.74 + 3 * nz.n2(cu * 0.09, cv * 0.09)) { z += 1.2 + 0.9 * nz.n2(x * 0.3, y * 0.3); mat = 2; du += 0.5; }
+            else if (rc < cr2 * 0.74 + 6) th += 0.3;
+          } else if (rc < cr2) { const t = rc / cr2; z += Tt.capH * cr2 * Math.pow(1 - Math.pow(t, 2.5), 0.47) + 3; th = 0.3 + Tt.age + 0.16 * mo + 0.42 * t * t * t * t; }
+          else { const f = Math.exp(-(rc - cr2) / 4.2); z += 3.2 * f; th += 0.66 * f; du += (cv > 0 ? 0.55 : 0.25) * f; }
+        }
+        // joints: the mouth of the next tile up the slope, pointed with mortar
+        const vj = v - Tt.j1 - Tt.arch * 0.9 * (1 - Math.sqrt(1 - aq * aq));
+        if (vj > -24) {
+          let m = Math.round(vj / Tt.jl); if (m < 0) m = 0;
+          const jd = vj - m * Tt.jl;
+          if (jd > -2.8 && jd < 2.8) { z -= 2.2 * (1 - (jd * jd) / 7.84); mat = 2; }
+          else if (jd >= 2.8 && jd < 44) { const f = Math.exp(-(jd - 2.8) / 10); z += 2.8 * f; th -= 0.22 * f; }
+          else if (jd < -2.8 && jd > -24) { const f = Math.exp((jd + 2.8) / 5); z -= 1.3 * f; th += 0.3 * f; du += 0.3 * f; }
+        }
+        // glaze runs stand a little proud and are thicker → deeper amber, and they catch the light
+        const st = runs(s + Tt.seed * 7, d);
+        z += 1.1 * st; th += 0.34 * st;
+        if (!far) z += 0.2 * nz.n2(x * 0.085, y * 0.085) + 0.5 * nz.n2(x * 0.021 + 3, y * 0.021);
+        // flaked glaze
+        if (v < 150) for (const c of Tt.chips) {
+          const cu2 = u - c.u, cv2 = v + bit - c.v, dd = cu2 * cu2 + cv2 * cv2;
+          if (dd < c.rr) {
+            const e = c.r * (0.8 + 0.3 * nz.n2(cu2 * 0.17 + c.seed, cv2 * 0.17 - c.seed)) - Math.sqrt(dd);
+            if (e > 0) { mat = 3; z -= (e < 2.2 ? e : 2.2) + 0.5 * nz.n2(x * 0.45, y * 0.45); } else if (e > -1.8) th += 0.4;
+          }
+        }
+        // crazing (开片) on the older tiles, in patches
+        if (Tt.craze > 0 && mat === 1 && !far) {
+          const m = sstep(-0.25, 0.3, mo + (Tt.craze - 0.6));
+          if (m > 0.02) {
+            const wx = 0.35 * nz.n2(u * 0.02 + Tt.seed, v * 0.02);
+            cr = (1 - sstep(0.012, 0.06, crack(u / Tt.cs + Tt.seed + wx, v / Tt.cs + wx))) * m;
+          }
+        }
+        du += Tt.dust * (0.4 * dustF(s, d) + 0.05) + 0.15 * (1 - prof) * Tt.dust;
+        TI[o] = Tt.i + n;
+      } else {
+        // ── the trough: pan tiles, concave side up; the first one is the 滴水 with its rolled lip ──
+        const eL = uL - TL.w, eR = -uR - TR.w;
+        let g = (eL + eR) * 0.5; if (g < 8) g = 8;
+        const up = eL - (eL + eR) * 0.5;
+        let c2 = (up * up) / (g * g); if (c2 > 1) c2 = 1;
+        const vp = d - (4.6 + TL.lipE + 1.8 * (1 - c2));
+        if (vp < -0.5) continue;
+        al = vp < 0.5 ? vp + 0.5 : 1;
+        let t2 = up / (g + 22); t2 *= t2; if (t2 > 1) t2 = 1;
+        z = -5 - 14 * (1 - t2);
+        th = 0.74 + TL.age * 0.5 + 0.2 * mo + 0.2 * (1 - c2);
+        if (vp < 12) { const b = (vp - 6) / 6; z += 5 * Math.sqrt(b * b < 1 ? 1 - b * b : 0); th -= 0.4 * (1 - b * b); }
+        const vl = vp - TL.lapPh - 6 * c2;
+        if (vl > 0) { let f = vl / TL.lapLen; f -= Math.floor(f); z += 4.4 * (1 - f); th += 0.2 * sstep(0.86, 1, f) - 0.25 * sstep(0.1, 0, f); du += 0.4 * sstep(0.8, 1, f); }
+        const m = eL < eR ? eL : eR;
+        if (m < 9 && vp > 3) { const f = 1 - m / 9; z += 6 * f * f; if (m < 3 + 1.6 * nz.n2(x * 0.06, y * 0.06)) mat = 2; }
+        if (!far) z += 0.25 * nz.n2(x * 0.085, y * 0.085);
+        du += 0.12 + 0.3 * (1 - c2) + 0.3 * dustF(s, d);
+        TI[o] = TL.i + n;
+      }
+      du = du < 0 ? 0 : du > 1 ? 1 : du;
+      Z[o] = z; TH[o] = th; AL[o] = al; DU[o] = du; CR[o] = cr; MAT[o] = mat;
+      if (far && i + 1 < LW && j + 1 < RH) {
+        const TIo = TI[o];
+        for (let c = 1; c < 4; c++) { const oo = o + (c & 1) + (c >> 1) * LW; Z[oo] = z; TH[oo] = th; AL[oo] = al; DU[oo] = du; MAT[oo] = mat; TI[oo] = TIo; }
+      }
+    }
+  }
+
+  // cavity occlusion: how far a point sits below its blurred surroundings (troughs, grooves, the foot of a dome)
+  const qw = Math.ceil(LW / 4), qh = Math.ceil(RH / 4), ZB = new Float32Array(qw * qh);
+  for (let j = 0; j < qh; j++) for (let i = 0; i < qw; i++) { const zz = Z[Math.min(RH - 1, j * 4 + 2) * LW + Math.min(LW - 1, i * 4 + 2)]; ZB[j * qw + i] = zz > -20 ? zz : -20; }
+  boxBlur(boxBlur(ZB, qw, qh, 4), qw, qh, 4);
+
+  // glaze colour by thickness: thin = pale straw, normal = imperial yellow, pooled = amber → burnt umber
+  const ramp = L.makeRamp([[0, [255, 238, 150]], [0.18, [255, 224, 84]], [0.36, [255, 207, 38]], [0.52, [249, 187, 20]], [0.68, [233, 156, 12]], [0.82, [198, 116, 8]], [0.92, [150, 80, 7]], [1, [104, 52, 8]]]);
+  const lr = new Float32Array(256), lg = new Float32Array(256), lb = new Float32Array(256);
+  for (let i = 0; i < 256; i++) { const c = ramp(i / 255); lr[i] = c[0] / 255; lg[i] = c[1] / 255; lb[i] = c[2] / 255; }
+  const tone = T.map((t) => 1 + t.tone), hueG = T.map((t) => 1 + t.hue);
+
+  // ───────── pass 2: light ─────────
+  const PLx = cx - 400, PLy = a.crestY - 250, PLz = 700, REF = 860;
+  let k2x = 0.1, k2y = -0.78, k2z = 0.62; { const m = Math.hypot(k2x, k2y, k2z); k2x /= m; k2y /= m; k2z /= m; }
+  const img = new ImageData(LW, RH), px = img.data, gim = new ImageData(LW, RH), gp = gim.data;
+  const A1 = 0.48, A2 = 0.2;
+  for (let j = 2; j < RH - 2; j++) {
+    const y = j + y0 - PAD + 0.5, dyc = cy - y;
+    for (let i = 2; i < LW - 2; i++) {
+      const o = j * LW + i, al = AL[o];
+      if (al <= 0) continue;
+      const xa = (i & ~1) - PAD + 0.5 - cx, ya = cy - ((j & ~1) + y0 - PAD + 0.5), far = xa * xa + ya * ya < R2F;
+      if (far && ((i | j) & 1)) continue;
+      const x = i - PAD + 0.5, zc = Z[o];
+      const d = R - Math.sqrt((x - cx) * (x - cx) + dyc * dyc);
+      let gx, gy;
+      if (far) { gx = (Z[o + 2] - Z[o - 2]) * 0.25; gy = (Z[o + 2 * LW] - Z[o - 2 * LW]) * 0.25; } else { gx = (Z[o + 1] - Z[o - 1]) * 0.5; gy = (Z[o + LW] - Z[o - LW]) * 0.5; }
+      const gm = gx * gx + gy * gy; if (gm > 6.25) { const q = 2.5 / Math.sqrt(gm); gx *= q; gy *= q; }
+      const inv = 1 / Math.sqrt(1 + gx * gx + gy * gy), nx = -gx * inv, ny = -gy * inv, nzz = inv;
+      // key light (near, so every tile sees it from its own angle)
+      let lx = PLx - x, ly = PLy - y, lz = PLz - zc;
+      const lh = Math.sqrt(lx * lx + ly * ly), ld = Math.sqrt(lh * lh + lz * lz);
+      const hx = lx / lh, hy = ly / lh, slope = lz / lh;
+      lx /= ld; ly /= ld; lz /= ld;
+      let lam = nx * lx + ny * ly + nzz * lz; if (lam < 0) lam = 0;
+      const att = Math.pow(REF / ld, 1.5);
+      // cast shadow: march toward the light across the height field
+      let sh = 1;
+      for (let q = 1; q <= 13; q++) {
+        const t = q * 7, sx = (i + hx * t + 0.5) | 0, sy = (j + hy * t + 0.5) | 0;
+        if (sx < 0 || sx >= LW || sy < 0 || sy >= RH) break;
+        const ex = Z[sy * LW + sx] - (zc + slope * t + 1.5);
+        if (ex > 0) { const oo = 1 - ex / 7; if (oo < sh) { sh = oo; if (sh <= 0) { sh = 0; break; } } }
+      }
+      // occlusion
+      let fx = i / 4 - 0.5, fy = j / 4 - 0.5; fx = fx < 0 ? 0 : fx > qw - 1.001 ? qw - 1.001 : fx; fy = fy < 0 ? 0 : fy > qh - 1.001 ? qh - 1.001 : fy;
+      const ix = fx | 0, iy = fy | 0, qo = iy * qw + ix; fx -= ix; fy -= iy;
+      const zb = (ZB[qo] + (ZB[qo + 1] - ZB[qo]) * fx) * (1 - fy) + (ZB[qo + qw] + (ZB[qo + qw + 1] - ZB[qo + qw]) * fx) * fy;
+      let ao = 1 + (zc - zb) / 34; ao = ao < 0.3 ? 0.3 : ao > 1.12 ? 1.12 : ao;
+      // behind the plane of focus the folds of the roof flatten into one field of gold: lift the shadows with depth
+      const deep = sstep(170, 470, d);
+      sh += (1 - sh) * 0.5 * deep; ao += (1 - ao) * 0.55 * deep;
+      // material
+      const mat = MAT[o], du = DU[o], cr = CR[o];
+      let ar, ag, ab, gloss;
+      if (mat === 1) {
+        let t = TH[o] + 0.22 * (1 - ao) * (1 - deep); t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const li = (t * 255) | 0, tn = tone[TI[o]];
+        ar = lr[li] * tn; ag = lg[li] * tn * hueG[TI[o]]; ab = lb[li] * tn; gloss = 1;
+        if (cr > 0) { const c = 1 - 0.36 * cr; ar *= c; ag *= c * 0.94; ab *= c * 0.8; gloss *= 1 - 0.4 * cr; }
+        const dd = du * 0.3; ar += (0.88 - ar) * dd; ag += (0.76 - ag) * dd; ab += (0.46 - ab) * dd; gloss *= 1 - 0.75 * du;
+      } else if (mat === 2) { ar = 0.42; ag = 0.25; ab = 0.12; gloss = 0.04; ar += 0.26 * du; ag += 0.22 * du; ab += 0.14 * du; }
+      else if (mat === 3) { const q = 0.9 + 0.1 * Math.sin(x * 1.7 + y * 2.3); ar = 0.86 * q; ag = 0.72 * q; ab = 0.52 * q; gloss = 0.03; }
+      else { ar = 0.30; ag = 0.15; ab = 0.07; gloss = 0.12; }
+      // reflection of the strip soft-box, the kicker beyond the eave, and a little blue sky on the flanks that face away
+      const rx = 2 * nzz * nx, ry = 2 * nzz * ny, rz = 2 * nzz * nzz - 1;
+      let spec = 0, sheen = 0;
+      const rl = rx * lx + ry * ly + rz * lz;
+      if (rl > 0.3) {
+        const m1 = 1 / Math.sqrt(1 - ly * ly), t1x = -ly * lx * m1, t1y = (1 - ly * ly) * m1, t1z = -ly * lz * m1;
+        const t2x = ly * t1z - lz * t1y, t2y = lz * t1x - lx * t1z, t2z = lx * t1y - ly * t1x;
+        const dx2 = rx - lx, dy2 = ry - ly, dz2 = rz - lz;
+        let a1 = dx2 * t1x + dy2 * t1y + dz2 * t1z, a2 = dx2 * t2x + dy2 * t2y + dz2 * t2z;
+        const bar = a1 > -0.2 && a1 < -0.07 ? 1 - sstep(0.035, 0.065, a1 < -0.135 ? -0.135 - a1 : a1 + 0.135) : 0;   // the window's glazing bar
+        a1 = a1 < 0 ? -a1 : a1; a2 = a2 < 0 ? -a2 : a2;
+        spec = (1 - sstep(A1 - 0.12, A1 + 0.08, a1)) * (1 - sstep(A2 - 0.02, A2 + 0.03, a2)) * (1 - 0.85 * bar);
+        sheen = rl > 0.8 ? Math.pow((rl - 0.8) * 5, 3) : 0;
+      }
+      const kd = (rx - k2x) * (rx - k2x) * 2.2 + ((ry - k2y) * (ry - k2y) + (rz - k2z) * (rz - k2z)) * 55;
+      const kick = kd < 8 ? Math.exp(-kd) : 0;
+      const fres = (1 - nzz) * (1 - nzz);
+      const sky = fres * sstep(0.1, 0.75, nx) * 0.7 + fres * sstep(0.2, 0.8, -ny) * 0.3;
+      const key = lam * sh * att;
+      const shs = 0.25 + 0.75 * sh;
+      let k2d = nx * k2x + ny * k2y + nzz * k2z; k2d = k2d < 0 ? 0 : k2d * 0.12;
+      const sp = (spec * 1.0 + sheen * 0.2) * gloss * shs * (att > 1.15 ? 1.15 : att);
+      const kk = kick * gloss * 0.95;
+      let cr_ = ar * (1.06 * key + 0.27 * ao + 0.7 * k2d) + sp * 0.97 + kk * 0.78 + sky * gloss * 0.14;
+      let cg_ = ag * (1.03 * key + 0.205 * ao + 0.85 * k2d) + sp * 0.985 + kk * 0.9 + sky * gloss * 0.34;
+      let cb_ = ab * (0.9 * key + 0.08 * ao + 1.0 * k2d) + sp * 1.0 + kk * 1.0 + sky * gloss * 0.8;
+      // soft shoulder so highlights roll off like film instead of clipping
+      if (cr_ > 0.82) cr_ = 0.82 + 0.18 * (1 - Math.exp(-(cr_ - 0.82) / 0.18));
+      if (cg_ > 0.82) cg_ = 0.82 + 0.18 * (1 - Math.exp(-(cg_ - 0.82) / 0.18));
+      if (cb_ > 0.82) cb_ = 0.82 + 0.18 * (1 - Math.exp(-(cb_ - 0.82) / 0.18));
+      const p4 = o * 4, R8 = cr_ * 255, G8 = cg_ * 255, B8 = cb_ * 255, A8 = al * 255;
+      px[p4] = R8; px[p4 + 1] = G8; px[p4 + 2] = B8; px[p4 + 3] = A8;
+      const gv = sp * 0.9 + kk * 0.6, GA = gv > 0.02 ? (gv > 1 ? 1 : gv) * al * 255 : 0;
+      if (GA) { gp[p4] = 255; gp[p4 + 1] = 244; gp[p4 + 2] = 214; gp[p4 + 3] = GA; }
+      if (far) for (let c = 1; c < 4; c++) {
+        const q4 = p4 + ((c & 1) + (c >> 1) * LW) * 4;
+        px[q4] = R8; px[q4 + 1] = G8; px[q4 + 2] = B8; px[q4 + 3] = A8;
+        if (GA) { gp[q4] = 255; gp[q4 + 1] = 244; gp[q4 + 2] = 214; gp[q4 + 3] = GA; }
+      }
+    }
+  }
+
+  const sharp = L.makeCanvas(LW, RH);
+  const sg = sharp.getContext('2d');
+  sg.putImageData(img, 0, 0);
+  // the small stuff a macro lens always finds: pinholes in the glaze, iron spots, grit, a couple of lint fibres
+  sg.save(); sg.translate(PAD, PAD - y0); sg.globalCompositeOperation = 'source-atop';
+  const r = L.rng('s02-grit');
+  for (const t of T) {
+    const th = t.s / R;
+    a.at(sg, th, 0, () => {
+      sg.rotate(-t.tilt);
+      for (let q = 0; q < 14; q++) {   // pinholes / iron spots
+        const u = r.range(-0.8, 0.8) * t.w, v = r.range(18, 200), rad = r.range(0.6, 1.8);
+        sg.fillStyle = `rgba(96,50,6,${r.range(0.3, 0.6).toFixed(2)})`; sg.beginPath(); sg.ellipse(u, v, rad, rad * r.range(0.7, 1), r() * 3, 0, L.TAU); sg.fill();
+        if (rad > 1.1) { sg.fillStyle = 'rgba(255,248,214,0.5)'; sg.beginPath(); sg.arc(u - rad * 0.5, v - rad * 0.6, rad * 0.4, 0, L.TAU); sg.fill(); }
+      }
+      for (let q = 0; q < 22 * t.dust + 5; q++) {   // grit
+        const u = r.range(-1.2, 1.2) * t.w, v = r.range(2, 190), rad = r.range(0.5, 1.4);
+        sg.fillStyle = `rgba(255,240,200,${r.range(0.2, 0.55).toFixed(2)})`; sg.beginPath(); sg.arc(u, v, rad, 0, L.TAU); sg.fill();
+      }
+      if (r.chance(0.45)) {   // lint
+        const u = r.range(-0.7, 0.7) * t.w, v = r.range(20, 150), len = r.range(16, 40), ang = r.range(0, 3.14);
+        sg.strokeStyle = `rgba(255,246,222,${r.range(0.3, 0.5).toFixed(2)})`; sg.lineWidth = r.range(0.8, 1.3); sg.lineCap = 'round';
+        sg.beginPath(); sg.moveTo(u, v);
+        sg.bezierCurveTo(u + Math.cos(ang) * len * 0.3 + r.range(-8, 8), v + Math.sin(ang) * len * 0.3 + r.range(-8, 8), u + Math.cos(ang) * len * 0.7 + r.range(-8, 8), v + Math.sin(ang) * len * 0.7 + r.range(-8, 8), u + Math.cos(ang) * len, v + Math.sin(ang) * len);
+        sg.stroke();
+      }
+    });
+  }
+  sg.restore();
+
+  // depth of field: razor-sharp heads on the eave, the roof behind them dissolving into soft gold.
+  // (the widest blurs are done at half size: same look, a quarter of the work)
+  const half = L.makeCanvas(LW / 2, RH / 2), hg = half.getContext('2d');
+  hg.imageSmoothingQuality = 'high'; hg.drawImage(sharp, 0, 0, LW / 2, RH / 2);
+  const roof = L.makeCanvas(LW, RH);
   const g = roof.getContext('2d');
-  g.drawImage(buildTiles(env), -PAD, -PAD);
-  // 4) glaze mottling in soft clouds (no lengthwise streaks) + pinholes; everything lands on existing pixels only
-  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 70, sx: 1, sy: 1.4, octaves: 3, gain: 0.45, contrast: 1.5, res: 0.4, ramp: [[0, '#6e4a12'], [0.5, '#b89a48'], [1, '#fff0a0']] }), { blend: 'soft-light', alpha: 0.3 });
-  // the light pool on the eave left of the crest: glaze lifts inside it, the roof turns amber toward the far corners
-  const pc = a.pt(-0.05, -150);
-  L.overlayOn(roof, L.makeLayer(PAD, (c) => {
-    c.fillStyle = L.radial(c, pc.x, pc.y, 60, 640, [[0, 'rgba(255,232,120,0.85)'], [0.5, 'rgba(255,226,100,0.4)'], [1, 'rgba(255,226,100,0)']]);
-    c.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-  }), { blend: 'soft-light', alpha: 1 });
-  L.overlayOn(roof, L.makeLayer(PAD, (c) => {
-    c.fillStyle = L.radial(c, pc.x, pc.y, 430, 1480, [[0, 'rgba(176,112,30,0)'], [1, 'rgba(176,112,30,0.85)']]);
-    c.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-  }), { blend: 'multiply', alpha: 1 });
-  g.globalCompositeOperation = 'source-atop';
-  L.speckle(g, { seed: 's02pin', count: 1700, x: -PAD, y: 480, w: W + PAD * 2, h: H + PAD - 480, rMin: 0.4, rMax: 1.3, colors: ['#7a4a0a', '#fff6c8'], alpha: [0.15, 0.5] });
-  // 5) depth: the roof sinks into deep amber toward the bottom of frame, only the eave band stays bright
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 620, a.R - 160, [[0, 'rgba(60,28,2,0.88)'], [0.45, 'rgba(60,28,2,0.6)'], [1, 'rgba(60,28,2,0)']]);
-  g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-  g.globalCompositeOperation = 'source-over';
-  // 6) depth of field: sharpest in the 260 px under the eave, softening toward the bottom of frame
-  const soft = L.blurred(roof, 6), sg = soft.getContext('2d');
-  sg.globalCompositeOperation = 'destination-in';
-  sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 600, a.R - 250, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
-  sg.fillRect(0, 0, soft.width, soft.height);
-  g.drawImage(soft, -PAD, -PAD);
-  return roof;
+  g.filter = 'blur(0.6px)'; g.drawImage(sharp, 0, 0); g.filter = 'none';
+  const ocx = cx + PAD, ocy = cy + PAD - y0;
+  for (const [bpx, d0, d1] of [[3.5, 104, 180], [9, 165, 270], [20, 250, 400], [38, 380, 600]]) {
+    const b = L.makeCanvas(LW, RH), bg = b.getContext('2d');
+    if (bpx < 12) { bg.filter = `blur(${bpx}px)`; bg.drawImage(sharp, 0, 0); bg.filter = 'none'; } else { bg.imageSmoothingQuality = 'high'; bg.drawImage(L.blurred(half, bpx / 2), 0, 0, LW, RH); }
+    bg.globalCompositeOperation = 'destination-in';
+    bg.fillStyle = L.radial(bg, ocx, ocy, R - d1, R - d0, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+    bg.fillRect(0, 0, LW, RH);
+    g.drawImage(b, 0, 0);
+  }
+  // glare: the highlights bloom a little, and spill a thin halo over the eave into the dark
+  const gl = L.makeCanvas(LW, RH); gl.getContext('2d').putImageData(gim, 0, 0);
+  const glare = L.makeCanvas(LW, RH);
+  const gg = glare.getContext('2d');
+  gg.filter = 'blur(6px)'; gg.drawImage(gl, 0, 0); gg.filter = 'none';
+  const hgl = L.makeCanvas(LW / 2, RH / 2); hgl.getContext('2d').drawImage(gl, 0, 0, LW / 2, RH / 2);
+  gg.globalAlpha = 0.8; gg.drawImage(L.blurred(hgl, 13), 0, 0, LW, RH); gg.globalAlpha = 1;
+  return { roof, glare, y0 };
 }
 
-/** background: pure night, a few out-of-focus lights — azurite blue, and yellow bounced up from the tiles near the eave */
+const softDot = (g, x, y, rad, col, al, ring = 0.5) => {
+  g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(col, al * (1 - ring * 0.4))], [0.62, L.rgba(col, al)], [1, L.rgba(col, 0)]]);
+  g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
+};
+
+/** beyond the eave: night */
 function buildBack(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
-    g.fillStyle = L.linear(g, 0, -PAD, 0, a.crestY + 180, [[0, '#040506'], [1, '#05070b']]);
-    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-    const r = L.rng('s02bokeh');
-    for (let i = 0; i < 18; i++) {
-      const warm = i >= 14, pale = i >= 11 && !warm;
-      let x, y;
-      if (warm) { const p = a.pt([-0.2, -0.11, 0.05, 0.17][i - 14] + r.range(-0.02, 0.02), r.range(40, 105)); x = p.x; y = p.y; } else { x = r.range(-PAD * 0.4, W + PAD * 0.4); y = r.range(-60, 470); }
-      const rad = warm ? r.range(11, 22) : r.range(30, 90), c = warm ? '#ffcf3a' : pale ? '#7fb2e6' : '#2b5fae';
-      const al = warm ? r.range(0.13, 0.21) : pale ? r.range(0.05, 0.08) : r.range(0.10, 0.18);
-      g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(c, al * 0.8)], [0.66, L.rgba(c, al)], [0.84, L.rgba(c, al * 0.7)], [1, L.rgba(c, 0)]]);
-      g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
-    }
+    g.fillStyle = L.linear(g, 0, -PAD, 0, a.crestY + 240, [[0, '#030405'], [0.7, '#05070a'], [1, '#080a0d']]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+    const r = L.rng('s02-far');
+    for (let i = 0; i < 9; i++) softDot(g, r.range(-80, W + 80), r.range(-40, 430), r.range(50, 130), i % 3 ? '#27466f' : '#55697f', r.range(0.03, 0.06), 0);
   });
 }
-/** drifting dust: sparse up in the dark, thick as gold powder in the 200 px above the eave where the tiles light it */
+/** dust hanging in the light. Not a star field: it drifts in loose clouds, most of it is out of focus, sizes differ wildly */
 function buildDust(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
-    L.speckle(g, { seed: 's02dust', count: 300, y: -PAD, h: 820 + PAD, rMin: 0.5, rMax: 2.2, colors: ['#fff3c4', '#ffd86a', '#cfe6ff'], alpha: [0.08, 0.55], test: (x, y) => a.drAt(x, y) > 6 });
-    const pick = L.rng('s02band');
-    L.speckle(g, {
-      seed: 's02gold', count: 6400, x: -PAD, y: 300, w: W + PAD * 2, h: 640, rMin: 0.5, rMax: 2.4, colors: ['#fff3c4', '#ffd86a', '#ffd86a', '#cfe6ff'], alpha: [0.2, 0.9],
-      test: (x, y) => { const dr = a.drAt(x, y); return dr > 3 && dr < 200 && pick() < Math.pow(1 - dr / 200, 2.1); },
-    });
-    const r = L.rng('s02mote');   // a few motes close to the lens, out of focus
-    for (let i = 0; i < 34; i++) {
-      const p = a.pt(r.range(-0.42, 0.42), 8 + 190 * Math.pow(r(), 1.8)), rad = r.range(2.5, 6.5), al = r.range(0.07, 0.22);
-      g.fillStyle = L.radial(g, p.x, p.y, 0, rad, [[0, L.rgba('#ffd86a', al)], [0.6, L.rgba('#ffd86a', al * 0.8)], [1, L.rgba('#ffd86a', 0)]]);
-      g.beginPath(); g.arc(p.x, p.y, rad, 0, L.TAU); g.fill();
+    const r = L.rng('s02-dust'), nz = L.makeNoise('s02-drift');
+    const cols = ['#e9f1ff', '#fff3c4', '#ffe29a', '#c9dcf5', '#fff8e6'];
+    const cloud = (x, y) => L.clamp(0.5 + 0.9 * nz.fbm(x / 420, y / 300, 3)) * (0.5 + 0.5 * sstep(1300, 200, Math.hypot(x - (a.cx - 300), y - 140)));
+    let k = 0;
+    for (let i = 0; i < 2600 && k < 520; i++) {
+      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, a.crestY + 230);
+      const dr = a.drAt(x, y);
+      if (dr < 8 || r() > cloud(x, y)) continue;
+      k++;
+      const t = Math.pow(r(), 2.6);   // 0 = in focus (small, crisp, bright) … 1 = near the lens (big, soft, faint)
+      if (t < 0.25) {
+        g.globalAlpha = r.range(0.25, 0.9); g.fillStyle = r.pick(cols);
+        g.beginPath(); g.arc(x, y, L.lerp(0.5, 1.5, r()), 0, L.TAU); g.fill(); g.globalAlpha = 1;
+      } else softDot(g, x, y, L.lerp(1.6, 13, t * t), r.pick(cols), L.lerp(0.34, 0.05, Math.sqrt(t)) * r.range(0.6, 1.2), 0.8);
     }
-    // the dust is brightest above the light pool and thins out toward the corners
-    const pc = a.pt(-0.05, 40);
-    g.globalCompositeOperation = 'destination-in';
-    g.fillStyle = L.radial(g, pc.x, pc.y, 160, 1150, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0.4)']]);
-    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-    g.globalCompositeOperation = 'source-over';
+    // gold motes lifted off the tiles, thickest just above the lit part of the eave
+    for (let i = 0; i < 300; i++) {
+      const p = a.pt(r.range(-0.46, 0.46), 6 + 190 * Math.pow(r(), 2.2)), w = 0.3 + 0.7 * sstep(0.3, 0.02, Math.abs(p.x - (a.cx - 200)) / 2400);
+      const t = Math.pow(r(), 2.2), col = r.pick(['#ffd86a', '#fff3c4', '#ffc94a']);
+      if (t < 0.4) { g.globalAlpha = r.range(0.25, 0.9) * w; g.fillStyle = col; g.beginPath(); g.arc(p.x, p.y, L.lerp(0.5, 1.6, r()), 0, L.TAU); g.fill(); g.globalAlpha = 1; }
+      else softDot(g, p.x, p.y, L.lerp(1.8, 8, t * t), col, 0.3 * w * (1.2 - t), 0.8);
+    }
+  });
+}
+/** a few motes right in front of the lens: big, soft, drifting faster than everything else */
+function buildMotes(env) {
+  const a = env.arc;
+  return L.makeLayer(PAD, (g) => {
+    const r = L.rng('s02-motes');
+    for (let i = 0; i < 12; i++) {
+      const x = r.range(-60, W + 60), y = r.range(40, H - 40), rad = r.range(18, 50);
+      softDot(g, x, y, rad, a.drAt(x, y) > 0 ? '#c9d8ee' : '#fff0c0', r.range(0.03, 0.07), 1);
+    }
   });
 }
 
@@ -279,38 +471,30 @@ export default {
   name: '黄琉璃瓦檐口',
   tone: 'light',            // tagline colour if this shot carries text: 'light' on dark backgrounds, 'dark' on light ones
   init(env) {
-    S = { roof: buildRoof(env), back: buildBack(env), dust: buildDust(env), angles: ridgeAngles(env.arc) };
+    const t0 = performance.now();
+    const roof = buildRoof(env);
+    const t1 = performance.now();
+    S = { roof: roof.roof, glare: roof.glare, y0: roof.y0, back: buildBack(env), dust: buildDust(env), motes: buildMotes(env) };
+    console.warn('s02 init: roof ' + (t1 - t0).toFixed(0) + ' ms, rest ' + (performance.now() - t1).toFixed(0) + ' ms');
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    // camera: detail slides along the arc (rot) and we creep closer (zoom); foreground moves more than background → parallax
+    // camera: the heads slide along the arc (rot) while we creep closer (zoom); dust nearer the lens moves more → parallax
     const rot = L.lerp(-0.010, 0.010, p), zoom = L.lerp(1.0, 1.025, p);
-    L.blit(ctx, env, S.back, { rot: rot * 0.3, zoom: 1 + (zoom - 1) * 0.3 });
-    L.blit(ctx, env, S.dust, { rot: rot * 0.6, zoom, dy: -10 * p, alpha: 0.9 });
-    // a little warm bounce hugging the eave (kept low so the night above stays black)
-    L.glow(ctx, a.cx - 180, a.crestY + 40, 260, '#ffb53a', 0.10);
-    const dy = DY + 2 * p;   // zoom pivots on the crest and lifts the far ends of the arc ~5 px: settle the layer 2 px to split the error
-    L.blit(ctx, env, S.roof, { rot, zoom, dy });   // the light pool is baked into the roof, so it rides along with rot
-    // sun glint travelling along the eave: it only lifts the glaze, never fogs the black above
-    const glT = L.lerp(-0.16, 0.02, p), gl = a.pt(glT, -30);
-    ctx.save(); a.clipBelow(ctx, 10);
-    L.glow(ctx, gl.x, gl.y, 150, '#fff2c0', 0.3, 'soft-light');
-    ctx.restore();
-    // … and the nail caps it passes over flare one after another (drawn in the roof's own moving frame)
+    L.blit(ctx, env, S.back, { rot: rot * 0.25, zoom: 1 + (zoom - 1) * 0.3 });
+    L.blit(ctx, env, S.dust, { rot: rot * 0.55, zoom: 1 + (zoom - 1) * 0.6, dy: -8 * p });
+    const dy = 2 * p;   // zoom pivots on the crest and lifts the far ends of the arc ~5 px: settle the layer 2 px to split the error
     L.cam(ctx, env, { rot, zoom, dy }, () => {
-      for (const th of S.angles) {
-        const k = 1 - Math.abs(th + rot - glT) / 0.075;
-        if (k <= 0) continue;
-        const e = k * k * (3 - 2 * k);
-        a.at(ctx, th, 0, () => {
-          L.glow(ctx, -4.2, 48.8, 7 + 13 * e, '#fffbe6', 0.9 * e);
-          ctx.globalCompositeOperation = 'screen'; ctx.lineCap = 'round'; ctx.lineWidth = 1.3;
-          ctx.strokeStyle = L.rgba('#f4faff', 0.75 * e);
-          ctx.beginPath(); ctx.moveTo(-4.2 - 6 - 13 * e, 48.8); ctx.lineTo(-4.2 + 6 + 13 * e, 48.8); ctx.stroke();
-          L.glow(ctx, -13, -2.5, 4 + 7 * e, '#fffbe6', 0.7 * e);
-        });
-      }
+      ctx.drawImage(S.roof, -PAD, S.y0 - PAD);
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.42;
+      ctx.drawImage(S.glare, -PAD, S.y0 - PAD);
     });
-    L.vignette(ctx, { strength: 0.35 });
+    // the light creeps along the eave: a soft pool that only lifts the glaze, never fogs the night above
+    const gl = a.pt(L.lerp(-0.2, -0.04, p), -70);
+    ctx.save(); a.clipBelow(ctx, 6);
+    L.glow(ctx, gl.x, gl.y, 330, '#fff0b0', 0.3, 'soft-light');
+    ctx.restore();
+    L.blit(ctx, env, S.motes, { rot: rot * 1.9, zoom: 1 + (zoom - 1) * 1.6, dy: -14 * p });
+    L.vignette(ctx, { strength: 0.3 });
   },
 };

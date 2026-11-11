@@ -1,33 +1,29 @@
-// s15 — 建盏兔毫. Macro of a black-glazed Jian tea bowl: the arc is the lip of the bowl, and below it the wall,
-// where thousands of hair-fine gold-brown and silver streaks ("hare's fur") run down from the thin rust-brown rim
-// into glaze that pools thicker and blacker. A hairline of violet→cyan iridescence rides the lip; above it, pure black.
+// s15 — 建盏兔毫. Macro of a black-glazed Jian tea bowl seen from just above its mouth: the arc is the lip, and inside
+// it the wall falls away toward the well. Where the glaze runs thin under the lip it is iron-rust brown and the "hare's
+// fur" is so dense it fuses into one warm tawny mass; further down the streaks part, taper and sink into glaze that
+// pools thicker and blacker. A soft window reflection lies across the wall, a violet→cyan film of iridescence rides the
+// lip, and beyond the lip there is only warm darkness.
 //
-// Recipe: the glaze is painted once in "unwrapped" space (x = distance along the rim, y = depth below it), where
-// every streak is simply a vertical hair, then bent onto the arc per pixel in init() — so the streaks are exactly
-// radial and `rot` slides them along the rim without ever disturbing the arc. The lighting (a soft window
-// reflection lying across the glaze, the iridescent rim light) stays put while the fur slides beneath it.
+// Recipe: the glaze is a small per-pixel shader evaluated in "unwrapped" coordinates (u = distance along the rim,
+// v = depth below it). The fur is the part of a strongly stretched noise field that stands above a threshold which
+// rises with depth — so streaks fuse near the lip, split and taper lower down, and no two are alike. Because the
+// field lives in (u, v) the streaks are exactly radial and `rot` slides them along the rim without ever disturbing
+// the arc. Light (the window reflection, the lip glint, the iridescent rim) stays put while the fur slides beneath it.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
-const PAD = 120;
+const PAD = 72;
 let S = null;
 
-// each streak of fur is pale down its spine and rusty at its feathered edges
-const FUR = {
-  gold: { core: ['#e6b05c', '#d79d4c', '#f2c474'], mid: ['#b07a3c', '#c48b44'], edge: ['#8a5420', '#7a3b1c', '#9c6429'] },
-  silver: { core: ['#ccd6e1', '#dde6f0', '#b6c2d0'], mid: ['#9aa3ad', '#9aabc0'], edge: ['#6f7a86', '#7b6a5a', '#8a5420'] },
-  brown: { core: ['#b07a3c', '#a06a30'], mid: ['#8c5a28'], edge: ['#6a3d18', '#7a3b1c'] },
-};
-const RUST = ['#7a3b1c', '#8c451f', '#6a3116', '#9a4f22'];
+const sstep = (a, b, x) => { const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a); return t * t * (3 - 2 * t); };
 
 function geometry(env) {
   const a = env.arc;
   const X0 = -PAD, Y0 = Math.floor(a.crestY) - 4;
   const RW = W + PAD * 2, RH = H + PAD - Y0;
-  // the unwrapped strip must reach the deepest / widest pixel of the padded frame (its bottom corners and bottom centre)
-  const UMAX = Math.ceil(Math.atan2(W / 2 + PAD, a.cy - (H + PAD)) * a.R) + 12;
-  const TH = Math.ceil(a.R - (a.cy - (H + PAD))) + 12;
-  return { X0, Y0, RW, RH, UMAX, TW: UMAX * 2, TH };
+  // u must reach the widest pixel of the padded frame (its bottom corners), plus room for the sway of the streaks
+  const UMAX = Math.ceil(Math.atan2(W / 2 + PAD, a.cy - (H + PAD)) * a.R) + 48;
+  return { X0, Y0, RW, RH, UMAX, TW: UMAX * 2 };
 }
 
 /** a canvas covering only part of the frame; draw into it with frame coordinates */
@@ -40,237 +36,261 @@ function region(x0, y0, w, h, draw) {
 }
 const put = (ctx, c) => ctx.drawImage(c, c._x, c._y);
 
-/** the glaze in unwrapped space: x → along the rim, y → down the wall (0 = lip) */
-function buildFur(geo) {
-  const { TW, TH } = geo;
-  const c = L.makeCanvas(TW, TH), g = c.getContext('2d');
-  const nz = L.makeNoise('s15dens');
-
-  // how thick the fur grows along the rim: clumps and thinner gaps, never even
-  const dens = new Float32Array(TW), dens2 = new Float32Array(TW);
-  const clump = (x) => 0.66 + 0.3 * nz.n2(x / 170, 1.7) + 0.22 * nz.n2(x / 41, 7.3);
-  // slide the pattern so a thick clump, not a gap, sits under the crest (where the eye lands first)
-  let shift = 0, best = -1e9;
-  for (let sft = 0; sft < 3000; sft += 25) {
-    let m = 0;
-    for (let x = TW / 2 - 170; x <= TW / 2 + 170; x += 10) m += clump(x + sft);
-    if (m > best) { best = m; shift = sft; }
-  }
-  for (let x = 0; x < TW; x++) {
-    dens[x] = L.clamp(clump(x + shift) + 0.12 * nz.n2(x / 11, 3.1), 0.16, 1);
-    dens2[x] = Math.pow(L.clamp(0.4 + 0.75 * nz.n2(x / 280 + 40, 9.9) + 0.22 * nz.n2(x / 60, 5.5)), 1.5);
-  }
-  const strip = (profile) => {
-    const s = L.makeCanvas(TW, 1), img = new ImageData(TW, 1);
-    for (let x = 0; x < TW; x++) img.data[x * 4 + 3] = profile[x] * 255;
-    s.getContext('2d').putImageData(img, 0, 0);
-    return s;
-  };
-  /** keep `cv` only where the fur is dense (profile along x) and shallow (alpha stops down y) */
-  const maskBy = (cv, profile, stops) => {
-    const m = L.makeCanvas(TW, TH), mg = m.getContext('2d');
-    mg.fillStyle = L.linear(mg, 0, 0, 0, TH, stops.map(([t, al]) => [t, `rgba(0,0,0,${al})`]));
-    mg.fillRect(0, 0, TW, TH);
-    if (profile) { mg.globalCompositeOperation = 'destination-in'; mg.drawImage(strip(profile), 0, 0, TW, 1, 0, 0, TW, TH); }
-    const cg = cv.getContext('2d');
-    cg.globalCompositeOperation = 'destination-in'; cg.drawImage(m, 0, 0); cg.globalCompositeOperation = 'source-over';
-    return cv;
-  };
-  /** one hair: fades in under its head, trails off slowly */
-  const hair = (sg, x, y0, len, w, col, al, head = 0.06) => {
-    const gr = sg.createLinearGradient(0, y0, 0, y0 + len);
-    gr.addColorStop(0, L.rgba(col, 0)); gr.addColorStop(head, L.rgba(col, al));
-    gr.addColorStop(0.42, L.rgba(col, al * 0.74)); gr.addColorStop(1, L.rgba(col, 0));
-    sg.fillStyle = gr; sg.fillRect(x - w / 2, y0, w, len);
-  };
-  /** one streak of fur = a bundle of hairs: long and pale down its spine, short and rusty at its feathered edges → it tapers as it runs */
-  const streak = (sg, r, x, y0, len, w, fam, al) => {
-    const n = Math.max(1, Math.round(w / 1.1));
-    for (let k = 0; k < n; k++) {
-      const t = n === 1 ? 0 : (k / (n - 1)) * 2 - 1;
-      const core = 1 - t * t, cj = core + r.range(-0.22, 0.22);
-      const col = r.pick(cj > 0.62 ? fam.core : cj > 0.28 ? fam.mid : fam.edge);
-      hair(sg, x + t * w * 0.5 + r.range(-0.45, 0.45), y0 + r.range(0, 16) * (1 - core * 0.6), len * (0.4 + 0.6 * core) * r.range(0.78, 1.05),
-        r.range(1.05, 1.75), col, al * (0.42 + 0.58 * core) * r.range(0.7, 1), 0.1);
-    }
-  };
-
-  // 1) the ground: brown-black glaze, a touch warmer where it runs thin under the lip
-  g.fillStyle = L.linear(g, 0, 0, 0, TH, [[0, '#32180b'], [0.06, '#24120a'], [0.2, '#1a0f0a'], [0.6, '#150c08'], [1, '#0d0806']]);
-  g.fillRect(0, 0, TW, TH);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.35;
-  g.drawImage(L.noiseTex(TW, TH, { seed: 's15mott', scale: 150, sx: 0.5, sy: 3.2, octaves: 3, res: 0.2, contrast: 1.5, ramp: [[0, '#000000'], [0.5, '#6a5548'], [1, '#c79a6c']] }), 0, 0);
-  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-
-  // 2) the rust of the thin rim bleeding down in short frayed tongues
-  const rr = L.rng('s15rust');
-  for (let i = 0; i < 2600; i++) {
-    const x = rr() * TW;
-    hair(g, x, -4, 26 + 130 * Math.pow(rr(), 2.4), 1.4 + 5 * Math.pow(rr(), 2), rr.pick(RUST), rr.range(0.3, 0.85), 0.02);
-  }
-
-  // 3) a brown woolly haze close under the lip, where countless hairs are too fine to tell apart
-  const furA = L.noiseTex(TW, TH, { seed: 's15furA', scale: 44, sx: 0.09, sy: 9, octaves: 3, gain: 0.6, ridged: true, contrast: 2.6, bias: -0.34, res: 0.75,
-    ramp: [[0, 'rgba(122,59,28,0)'], [0.4, 'rgba(122,59,28,0)'], [0.62, 'rgba(140,84,34,0.5)'], [0.82, 'rgba(176,122,60,0.8)'], [1, 'rgba(214,160,86,0.95)']] });
-  maskBy(furA, dens, [[0, 0.78], [0.12, 0.6], [0.3, 0.26], [0.55, 0.08], [1, 0.02]]);
-  g.globalCompositeOperation = 'screen'; g.drawImage(furA, 0, 0); g.globalCompositeOperation = 'source-over';
-
-  // noise that bites gaps into the fur so the hairs are not ruled lines
-  const bite = (seed, k, sx, sy, res) => L.noiseTex(TW, TH, { seed, scale: 22, sx, sy, octaves: 2, contrast: 2.4, res,
-    ramp: [[0, `rgba(0,0,0,${0.9 * k})`], [0.4, `rgba(0,0,0,${0.25 * k})`], [0.58, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] });
-
-  // 4) the fur proper: tapering streaks of gold-brown, silver and plain brown, each a bundle of hairs
-  const fur = L.makeCanvas(TW, TH), fg0 = fur.getContext('2d');
-  const r = L.rng('s15fur');
-  for (let i = 0; i < 1750; i++) {
-    const x = r() * TW, dn = dens[x | 0];
-    if (r() > dn) continue;
-    const pickFam = r();
-    const fam = pickFam < dens2[x | 0] * 0.6 ? FUR.silver : pickFam > 0.84 ? FUR.brown : FUR.gold;
-    const loose = r.chance(0.12);
-    const y0 = loose ? r.range(50, 330) : 5 + Math.pow(r(), 1.7) * 44;
-    const len = loose ? r.range(60, 210) : 90 + 500 * Math.pow(r(), 1.7);
-    const w = 1.4 + 13 * Math.pow(r(), 3.1) * (loose ? 0.5 : 1);
-    streak(fg0, r, x, y0, len, w, fam, r.range(0.5, 1));
-  }
-  // … and whisper-thin single hairs filling in between them
-  for (let i = 0; i < 2600; i++) {
-    const x = r() * TW;
-    if (r() > dens[x | 0]) continue;
-    const fam = r() < dens2[x | 0] * 0.5 ? FUR.silver : FUR.gold;
-    hair(fg0, x, 4 + Math.pow(r(), 1.6) * 150, 50 + 330 * Math.pow(r(), 1.8), r.range(0.8, 1.4), r.pick(r.chance(0.4) ? fam.core : fam.mid), r.range(0.25, 0.7), 0.1);
-  }
-  fg0.globalCompositeOperation = 'destination-out';
-  fg0.drawImage(bite('s15bite', 0.36, 0.085, 7.5, 0.8), 0, 0);     // hair by hair
-  fg0.drawImage(bite('s15biteW', 0.5, 0.36, 6.5, 0.5), 0, 0);      // whole streaks thinning and thickening as they run
-  g.drawImage(fur, 0, 0);
-  // the streaks glow a little into the glaze around them
-  g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.32;
-  g.drawImage(L.blurred(fur, 4), 0, 0);
-  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-
-  // 5) the lip itself: glaze at its thinnest — a line of iron rust with a rounded highlight
-  g.fillStyle = L.linear(g, 0, 0, 0, 40, [[0, 'rgba(126,61,28,0.96)'], [0.3, 'rgba(122,59,28,0.62)'], [1, 'rgba(122,59,28,0)']]);
-  g.fillRect(0, 0, TW, 40);
-  g.fillStyle = L.linear(g, 0, 0, 0, 12, [[0, '#8a3f1a'], [0.26, '#cf6f2c'], [0.55, '#9a4a1f'], [1, 'rgba(122,59,28,0)']]);
-  g.fillRect(0, 0, TW, 12);
-
-  // 6) deeper down the glaze pools thick: everything sinks toward black
-  g.globalCompositeOperation = 'multiply';
-  g.fillStyle = L.linear(g, 0, 0, 0, TH, [[0, '#ffffff'], [0.32, '#f4ebe2'], [0.55, '#c4b2a2'], [0.8, '#8a7768'], [1, '#5e4e44']]);
-  g.fillRect(0, 0, TW, TH);
-  g.globalCompositeOperation = 'source-over';
-
-  // 7) shallow focus: the wall softens as it falls away from the lip
-  const soft = L.blurred(c, 3.2), fg = soft.getContext('2d');
-  fg.globalCompositeOperation = 'destination-in';
-  fg.fillStyle = L.linear(fg, 0, 0, 0, TH, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0)'], [0.92, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']]);
-  fg.fillRect(0, 0, TW, TH);
-  g.drawImage(soft, 0, 0);
-  return c;
+function lut(stops) {
+  const f = L.makeRamp(stops), t = new Float32Array(256 * 3);
+  for (let i = 0; i < 256; i++) { const c = f(i / 255); t[i * 3] = c[0]; t[i * 3 + 1] = c[1]; t[i * 3 + 2] = c[2]; }
+  return t;
 }
 
-/** bend the unwrapped glaze onto the arc (bilinear), letting the streaks sway a little with the flow of the glaze */
-function wrapOntoArc(env, tex, geo) {
+/** the glazed wall, shaded pixel by pixel straight onto the arc */
+function buildWall(env, geo) {
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
-  const { X0, Y0, RW, RH, UMAX, TW, TH } = geo;
-  const src = tex.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, TW, TH).data;
-  const out = new ImageData(RW, RH), d = out.data;
-  // sway field on a coarse grid: zero at the lip, growing with depth
-  const nz = L.makeNoise('s15flow');
-  const GS = 16, gw = Math.ceil(TW / GS) + 2, gh = Math.ceil(TH / GS) + 2;
-  const sway = new Float32Array(gw * gh);
-  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
-    const u = i * GS, v = j * GS;
-    sway[j * gw + i] = L.smooth(v / 110) * (7.5 * nz.n2(u / 230, v / 360) + 2.8 * nz.n2(u / 64 + 9, v / 200 - 4));
+  const { X0, Y0, RW, RH, UMAX, TW } = geo;
+  const nf = L.makeNoise('s15fur').n2, nw = L.makeNoise('s15flow').n2, nz = L.makeNoise('s15zone').n2;
+
+  // each streak of fur is rusty at its feathered edge and pale down its spine
+  const GOLD = lut([[0, '#3a170a'], [0.2, '#6e3014'], [0.4, '#9a5626'], [0.6, '#b47434'], [0.78, '#cf8e44'], [0.92, '#e4ae68'], [1, '#f0c78c']]);
+  const SILV = lut([[0, '#30241f'], [0.2, '#574b47'], [0.4, '#7d7b7e'], [0.6, '#9aa3ad'], [0.78, '#b3bcc7'], [0.92, '#cbd3dc'], [1, '#dbe1e8']]);
+
+  // 1-D character along the rim: how deep the fur runs (clumps and thin gaps), where it turns silver, how wide the rust is
+  const clump = new Float32Array(TW), silver = new Float32Array(TW), rustD = new Float32Array(TW), coarse = new Float32Array(TW);
+  const clmp = (x) => 0.5 + 0.6 * nz(x / 250, 1.7) + 0.32 * nz(x / 70, 7.3) + 0.12 * nz(x / 17, 3.1);
+  const silv = (x) => 0.5 + 0.62 * nz(x / 560 + 3.3, 0.7) + 0.2 * nz(x / 150, 4.1);
+  // slide the pattern so a silver passage lies left of the crest, under the window light, and gold takes the right
+  let shift = 0, best = -1e9;
+  for (let sft = 0; sft < 5000; sft += 40) {
+    let m = 0;
+    for (let x = -560; x <= -120; x += 40) m += silv(x + sft);
+    for (let x = 160; x <= 760; x += 40) m -= 0.8 * silv(x + sft);
+    if (m > best) { best = m; shift = sft; }
   }
-  const xMax = TW - 1.002, yMax = TH - 1.002;
-  const GRADE = new Float32Array(256);
-  for (let i = 0; i < 256; i++) { const t = i / 255; GRADE[i] = i === 0 ? 1 : (Math.pow(t, 1.1) * 1.22 * (1 - 0.1 * t)) / t; }
+  // … and a thick clump of fur, not a bald gap, runs down under the crest where the eye lands first
+  let cshift = 0; best = -1e9;
+  for (let sft = 0; sft < 5000; sft += 40) {
+    let m = 0;
+    for (let x = -220; x <= 220; x += 20) m += clmp(x + sft);
+    if (m > best) { best = m; cshift = sft; }
+  }
+  for (let x = 0; x < TW; x++) {
+    const u = x - UMAX;
+    clump[x] = L.clamp(clmp(u + cshift));
+    coarse[x] = 0.3 + 0.22 * nz(u / 380 + 11, 6.6);              // here broad bundles, there nothing but fine hairs
+    silver[x] = silv(u + shift);
+    rustD[x] = 70 + 44 * nz(u / 190, 12.5) + 20 * nz(u / 37, 9.9) + 8 * nz(u / 9, 2.2);
+  }
+
+  const out = new ImageData(RW, RH), d = out.data;
+  const kx = cx - 190, ky = a.crestY + 130;                    // where the key light falls fullest
   for (let j = 0; j < RH; j++) {
-    const ddy = cy - (Y0 + j + 0.5);
+    const py = Y0 + j + 0.5, ddy = cy - py;
     for (let i = 0; i < RW; i++) {
-      const ddx = X0 + i + 0.5 - cx;
-      const v = R - Math.sqrt(ddx * ddx + ddy * ddy);
+      const px = X0 + i + 0.5, ddx = px - cx;
+      let v = R - Math.sqrt(ddx * ddx + ddy * ddy);
       if (v < -0.5) continue;
-      const cov = v + 0.5 > 1 ? 1 : v + 0.5;                // anti-aliased lip
-      let tx = Math.atan2(ddx, ddy) * R + UMAX, ty = v < 0 ? 0 : v;
-      if (ty > yMax) ty = yMax;
-      const fx = tx / GS, fy = ty / GS, i0 = fx | 0, j0 = fy | 0, ax = fx - i0, ay = fy - j0, gk = j0 * gw + i0;
-      tx += (sway[gk] + (sway[gk + 1] - sway[gk]) * ax) * (1 - ay) + (sway[gk + gw] + (sway[gk + gw + 1] - sway[gk + gw]) * ax) * ay;
-      if (tx < 0) tx = 0; else if (tx > xMax) tx = xMax;
-      const x0 = tx | 0, y0 = ty | 0, bx = tx - x0, by = ty - y0;
-      const k = (y0 * TW + x0) * 4, k2 = k + TW * 4, o = (j * RW + i) * 4;
-      const w00 = (1 - bx) * (1 - by), w10 = bx * (1 - by), w01 = (1 - bx) * by, w11 = bx * by;
-      const cr = src[k] * w00 + src[k + 4] * w10 + src[k2] * w01 + src[k2 + 4] * w11;
-      const cg = src[k + 1] * w00 + src[k + 5] * w10 + src[k2 + 1] * w01 + src[k2 + 5] * w11;
-      const cb = src[k + 2] * w00 + src[k + 6] * w10 + src[k2 + 2] * w01 + src[k2 + 6] * w11;
-      // grade: blacks stay black, the fur lifts and its colour deepens
-      const lum = cr * 0.3 + cg * 0.59 + cb * 0.11, gain = GRADE[lum | 0];
-      d[o] = (lum + (cr - lum) * 1.18) * gain; d[o + 1] = (lum + (cg - lum) * 1.18) * gain; d[o + 2] = (lum + (cb - lum) * 1.18) * gain;
-      d[o + 3] = cov * 255;
+      const cov = v + 0.5 > 1 ? 1 : v + 0.5;                   // anti-aliased lip
+      if (v < 0) v = 0;
+      const u = Math.atan2(ddx, ddy) * R;
+      // the streaks sway a little with the flow of the glaze: not at all at the lip, more with depth
+      const dp = v < 140 ? sstep(0, 140, v) : 1;
+      const us = u + dp * (5.5 * nw(u / 320, v / 560) + 1.8 * nw(u / 84 + 9, v / 280 - 4));
+      let ui = (us + UMAX) | 0; if (ui < 0) ui = 0; else if (ui >= TW) ui = TW - 1;
+
+      // fur "height": noise drawn out along the fall line, coarse bundles down to single hairs
+      const fib = nf(us / 3 + 300, v / 70 + 7);                // hair-fine fibres
+      const hn = (coarse[ui] * nf(us / 52, v / 2400 + 3.1) + 0.34 * nf(us / 17 + 40, v / 1200 + 11.7) + 0.22 * nf(us / 7 + 80, v / 620 + 5.3) + 0.1 * nf(us / 3.2 + 120, v / 280)) * 3.86 + 0.3 * fib;
+      // the threshold it must clear climbs with depth (sooner in the thin gaps, later in the clumps)
+      const ve = v * (0.62 + 0.8 * (1 - clump[ui]));
+      const q = ve >= 1000 ? 0 : 1 - ve / 1000, td = 1 - q * q;
+      const thz = -1.85 + 2.95 * td, e = 0.2 + 0.3 * td;
+      const fur = sstep(thz - e, thz + e, hn);
+      const core = sstep(thz + 0.1, thz + 1.6, hn);
+
+      const blot = nz(us / 31 + 20, v / 120 + 5);              // slow unevenness along a streak
+      const patch = nz(us / 540 + 7, v / 340 + 1.5);           // broad passages, paler here and rustier there
+      let tone = 0.42 + 0.13 * hn + 0.2 * core + 0.07 * fib + 0.05 * blot + 0.1 * patch;
+      tone = tone < 0 ? 0 : tone > 1 ? 1 : tone;
+      const ti = ((tone * 255) | 0) * 3;
+      // gold-brown where it leaves the lip; here and there, as it runs down into thicker glaze, it cools to silver
+      const sv = 0.6 * sstep(0.54, 0.98, silver[ui] + 0.3 * nz(us / 36 + 50, v / 1300 + 2)) * sstep(80, 340, v);
+      const fade = (1 - 0.4 * sstep(160, 680, v)) * (1 + 0.13 * fib + 0.1 * blot);
+      const fr = (GOLD[ti] + (SILV[ti] - GOLD[ti]) * sv) * fade;
+      const fg = (GOLD[ti + 1] + (SILV[ti + 1] - GOLD[ti + 1]) * sv) * fade;
+      const fb = (GOLD[ti + 2] + (SILV[ti + 2] - GOLD[ti + 2]) * sv) * fade;
+
+      // the glaze itself: iron rust where it runs thin under the lip, brown-black below, blue-black where it pools;
+      // the deepest slits between the streaks go dark first
+      const slit = 0.3 + 0.42 * (1 - sstep(70, 280, v));
+      const rz = (1 - sstep(rustD[ui], rustD[ui] + 290, v)) * (slit + (1 - slit) * sstep(thz - 2.1, thz - 0.3, hn));
+      const deep = sstep(120, 560, v);
+      const gk = rz * (0.84 + 0.16 * fib);
+      let r = 25 - 15 * deep + (106 - 25) * gk, g = 14 - 6 * deep + (49 - 14) * gk, b = 10 + (21 - 10) * gk;
+      const fa = fur * 0.95;
+      r += (fr - r) * fa; g += (fg - g) * fa; b += (fb - b) * fa;
+
+      // the lip: the glaze at its thinnest, a rounded bead of rust
+      if (v < 24) {
+        const bt = (v - 6.5) / 3.8, k = (1 - sstep(9, 24, v)) * 0.85;
+        const lv = (0.76 + 0.5 * Math.exp(-bt * bt)) * (0.9 + 0.2 * blot + 0.1 * fib);
+        r += (130 * lv - r) * k; g += (61 * lv - g) * k; b += (27 * lv - b) * k;
+      }
+
+      // light: fullest left of the crest, falling away along the rim and down into the bowl
+      const dk = Math.sqrt((px - kx) * (px - kx) + (py - ky) * (py - ky));
+      const lit = 1.04 * (1 - 0.34 * sstep(300, 1500, dk)) * (1 - 0.3 * sstep(260, 680, v));
+      r *= lit; g *= lit; b *= lit;
+      const o = (j * RW + i) * 4;
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = cov * 255;
     }
   }
-  const cnv = L.makeCanvas(RW, RH);
-  cnv.getContext('2d').putImageData(out, 0, 0);
+  const cnv = L.makeCanvas(RW, RH), cg = cnv.getContext('2d');
+  cg.putImageData(out, 0, 0);
   cnv._x = X0; cnv._y = Y0;
+  // pinholes where bubbles broke through the glaze in the kiln: a dark pit, a prick of light on its far wall
+  cg.save();
+  cg.translate(-X0, -Y0);
+  cg.globalCompositeOperation = 'source-atop';
+  const r = L.rng('s15pits'), sp = a.span(PAD);
+  for (let i = 0; i < 40; i++) {
+    const th = r.range(-sp, sp), v = 34 + Math.pow(r(), 0.75) * 430, rad = r.range(1.1, 2.6) * (r.chance(0.12) ? 1.6 : 1), sq = r.range(1, 1.5);
+    a.at(cg, th, -v, () => {
+      cg.fillStyle = 'rgba(40,18,8,0.45)'; cg.beginPath(); cg.ellipse(0, 0, rad * 1.5, rad * 1.5 * sq, 0, 0, L.TAU); cg.fill();
+      cg.fillStyle = 'rgba(12,6,4,0.8)'; cg.beginPath(); cg.ellipse(0, 0, rad, rad * sq, 0, 0, L.TAU); cg.fill();
+      cg.fillStyle = 'rgba(255,226,184,0.42)'; cg.beginPath(); cg.arc(rad * 0.3, rad * 0.5 * sq, rad * 0.3, 0, L.TAU); cg.fill();
+    });
+  }
+  cg.restore();
   return cnv;
 }
 
-/**
- * The soft reflection lying across the glaze (a long window light), concentric with the lip and rounded off at both ends.
- * Two passes: a wide soft band used with colour-dodge, so the fur blazes where the light crosses it (black = no change),
- * and a slimmer cool veil used with screen — the shine of the glassy black glaze itself.
- */
-function buildSheen(env, geo) {
+/** shallow focus: sharp around the crest, softening along the rim toward both sides and down into the bowl */
+function pullFocus(env, geo, wall) {
   const a = env.arc, { X0, Y0, RW, RH } = geo;
-  const white = (al) => `rgba(255,255,255,${al})`;
-  const band = (rIn, rOut, stops, extra) => region(X0, Y0, RW, RH, (g) => {
-    g.fillStyle = L.radial(g, a.cx, a.cy, rIn, rOut, stops.map(([t, al]) => [t, white(al)]));
+  const mask = (xin, xout, vin, vout) => region(X0, Y0, RW, RH, (g) => {
+    const t = (xout - xin) / (2 * xout);
+    g.fillStyle = L.linear(g, a.cx - xout, 0, a.cx + xout, 0, [[0, 'rgba(0,0,0,1)'], [t * 0.5, 'rgba(0,0,0,0.5)'], [t, 'rgba(0,0,0,0)'], [1 - t, 'rgba(0,0,0,0)'], [1 - t * 0.5, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,1)']]);
     g.fillRect(X0, Y0, RW, RH);
-    if (extra) extra(g);
-    // brightest left of centre, rounding off toward both ends
-    g.globalCompositeOperation = 'destination-in';
-    g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(0,0,0,0.05)'], [0.1, 'rgba(0,0,0,0.12)'], [0.2, 'rgba(0,0,0,0.6)'], [0.3, 'rgba(0,0,0,1)'], [0.52, 'rgba(0,0,0,0.9)'], [0.66, 'rgba(0,0,0,0.5)'], [0.78, 'rgba(0,0,0,0.14)'], [1, 'rgba(0,0,0,0.05)']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - vout, a.R - vin, [[0, 'rgba(0,0,0,1)'], [0.5, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]);
     g.fillRect(X0, Y0, RW, RH);
   });
-  const tint = (shape, bg, col) => region(X0, Y0, RW, RH, (g) => {
-    g.fillStyle = col; g.fillRect(X0, Y0, RW, RH);
-    g.globalCompositeOperation = 'destination-in'; g.drawImage(shape, X0, Y0);
-    if (bg) { g.globalCompositeOperation = 'destination-over'; g.fillStyle = bg; g.fillRect(X0, Y0, RW, RH); }
-  });
-  const wide = band(a.R - 288, a.R - 128, [[0, 0], [0.14, 0.06], [0.3, 0.3], [0.44, 0.74], [0.55, 1], [0.66, 0.74], [0.8, 0.3], [0.92, 0.06], [1, 0]], (g) => {
-    // a hair-thin glint just under the lip where the wall turns
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 66, a.R - 46, [[0, white(0)], [0.5, white(0.3)], [1, white(0)]]);
-    g.fillRect(X0, Y0, RW, RH);
-  });
-  const slim = band(a.R - 268, a.R - 148, [[0, 0], [0.2, 0.07], [0.36, 0.26], [0.46, 0.72], [0.53, 1], [0.6, 0.72], [0.7, 0.26], [0.86, 0.07], [1, 0]]);
-  return { dodge: tint(wide, '#000', '#9c8f80'), veil: tint(slim, null, 'rgba(150,190,255,0.3)') };
+  const blend = (base, px, m) => {
+    const soft = L.blurred(base, px), sg = soft.getContext('2d');
+    sg.globalCompositeOperation = 'destination-in'; sg.drawImage(m, 0, 0);
+    const bg = base.getContext('2d');
+    bg.globalCompositeOperation = 'destination-out'; bg.drawImage(m, 0, 0);
+    bg.globalCompositeOperation = 'lighter'; bg.drawImage(soft, 0, 0);
+    bg.globalCompositeOperation = 'source-over';
+    return base;
+  };
+  blend(wall, 2.4, mask(330, 800, 210, 430));
+  blend(wall, 6.5, mask(640, 1100, 360, 600));
+  // halation: the brightest fur bleeds a little light into the glaze around it and over the lip
+  const hot = L.makeCanvas(RW, RH), hg = hot.getContext('2d');
+  hg.drawImage(wall, 0, 0); hg.globalCompositeOperation = 'multiply'; hg.drawImage(wall, 0, 0);
+  hg.globalCompositeOperation = 'destination-in'; hg.drawImage(wall, 0, 0);
+  const wg = wall.getContext('2d');
+  wg.globalCompositeOperation = 'screen'; wg.globalAlpha = 0.34; wg.drawImage(L.blurred(hot, 15), 0, 0);
+  wg.globalCompositeOperation = 'source-over'; wg.globalAlpha = 1;
+  return wall;
 }
 
-/** the iridescent rim light: blue-violet over the crest, sliding to cyan toward both sides */
-function buildIris(env) {
-  const a = env.arc;
-  const x0 = -PAD, y0 = Math.floor(a.crestY) - 60, w = W + PAD * 2, h = Math.ceil(a.yAt(-PAD)) + 60 - y0;
-  const hue = (g, k, lift = 0) => L.linear(g, -PAD, 0, W + PAD, 0, [
-    [0, L.rgba(L.shade('#58c8d8', lift), 0.5 * k)], [0.2, L.rgba(L.shade('#58c8d8', lift), 0.85 * k)], [0.36, L.rgba(L.shade('#5f96ee', lift), k)],
-    [0.5, L.rgba(L.shade('#6a5cff', lift), k)], [0.64, L.rgba(L.shade('#5f96ee', lift), k)], [0.8, L.rgba(L.shade('#58c8d8', lift), 0.85 * k)], [1, L.rgba(L.shade('#58c8d8', lift), 0.5 * k)]]);
-  const halo = region(x0, y0, w, h, (g) => { g.strokeStyle = hue(g, 1); g.lineWidth = 9; a.stroke(g, 4); });
-  const soft = L.blurred(halo, 7);
-  // the light spills a little way down onto the wall under the lip
+/**
+ * The window reflection lying on the glaze, concentric with the lip: a broad soft patch left of the crest with a wavering
+ * edge and the faint orange-peel of a real glaze surface. Returned twice: for colour-dodge, so the fur blazes where the
+ * light crosses it (black = no change), and as a cool veil for screen — the shine of the glassy black glaze itself.
+ */
+function buildSheen(env, geo) {
+  const a = env.arc, R = a.R, cx = a.cx, cy = a.cy, { X0, Y0, RW, RH } = geo, Q = 2;
+  const w = Math.ceil(RW / Q), h = Math.ceil(RH / Q);
+  const img = new ImageData(w, h), d = img.data, n = L.makeNoise('s15sheen').n2;
+  for (let j = 0; j < h; j++) {
+    const ddy = cy - (Y0 + (j + 0.5) * Q);
+    for (let i = 0; i < w; i++) {
+      const ddx = X0 + (i + 0.5) * Q - cx;
+      const v = R - Math.sqrt(ddx * ddx + ddy * ddy);
+      if (v < 0) continue;
+      const u = Math.atan2(ddx, ddy) * R;
+      const vv = v + 9 * n(u / 13 + 40, 2.2) + 4 * n(u / 7, 9.1);   // its edge frays along the relief of the streaks
+      const v0 = 152 + 20 * n(u / 430, 1.3) + 6 * n(u / 95, 7.7);
+      const body = sstep(v0 - 104, v0 - 30, vv) * (1 - sstep(v0 + 4, v0 + 136, vv));
+      const ends = sstep(-880, -430, u) * (1 - sstep(-170, 640, u));   // fullest left of the crest, a long tail to the right
+      const peel = 0.8 + 0.2 * n(u / 52 + 3, v / 36);
+      const s = body * ends * peel;
+      const o = (j * w + i) * 4;
+      d[o] = d[o + 1] = d[o + 2] = 255; d[o + 3] = (s > 1 ? 1 : s) * 255;
+    }
+  }
+  const small = L.makeCanvas(w, h); small.getContext('2d').putImageData(img, 0, 0);
+  const tint = (bg, col) => region(X0, Y0, RW, RH, (g) => {
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(small, X0, Y0, w * Q, h * Q);
+    g.globalCompositeOperation = 'source-in'; g.fillStyle = col; g.fillRect(X0, Y0, RW, RH);
+    if (bg) { g.globalCompositeOperation = 'destination-over'; g.fillStyle = bg; g.fillRect(X0, Y0, RW, RH); }
+  });
+  return { dodge: tint('#000', '#584f47'), veil: tint(null, 'rgba(244,230,214,0.27)') };
+}
+
+/**
+ * Light on the lip itself (drawn with screen): the thin film of iridescence — blue-violet over the crest, sliding to
+ * cyan toward both sides, never the same strength twice — and, left of the words, the hot glint where the window
+ * catches the rounded bead.
+ */
+function buildRim(env) {
+  const a = env.arc, n = L.makeNoise('s15rim').n2;
+  const x0 = -PAD, y0 = Math.floor(a.crestY) - 90, w = W + PAD * 2, h = Math.ceil(a.yAt(-PAD)) + 70 - y0;
+  // strength along the rim: breathing, with a couple of near-gaps
+  const hue = (g, k, lift = 0, seed = 0) => {
+    const stops = [];
+    for (let i = 0; i <= 48; i++) {
+      const t = i / 48, x = -PAD + t * w, m = Math.abs(t - 0.5) * 2;
+      const col = m < 0.34 ? L.mix('#6a5cff', '#5f96ee', m / 0.34) : L.mix('#5f96ee', '#58c8d8', L.clamp((m - 0.34) / 0.4));
+      const al = L.clamp(0.62 + 0.5 * n(x / 330 + seed, 2.2) + 0.22 * n(x / 70, 8.8 + seed)) * (1 - 0.45 * L.smooth((m - 0.55) / 0.45));
+      stops.push([t, L.rgba(L.shade(col, lift), al * k)]);
+    }
+    return L.linear(g, -PAD, 0, W + PAD, 0, stops);
+  };
+  const halo = L.blurred(region(x0, y0, w, h, (g) => { g.strokeStyle = hue(g, 1, 0, 0); g.lineWidth = 12; a.stroke(g, 1.5); }), 9);
+  const line = region(x0, y0, w, h, (g) => {
+    g.strokeStyle = hue(g, 0.95, 0.1, 5); g.lineWidth = 2.6; a.stroke(g, 0.2);
+    g.strokeStyle = hue(g, 0.5, 0.45, 9); g.lineWidth = 1.1; a.stroke(g, 0.5);
+  });
+  // out toward both sides the line goes out of focus with the rest of the picture
+  const lineSoft = L.blurred(line, 3.2);
+  const sides = (g) => L.linear(g, 0, 0, W, 0, [[0, 'rgba(0,0,0,1)'], [0.14, 'rgba(0,0,0,1)'], [0.3, 'rgba(0,0,0,0)'], [0.7, 'rgba(0,0,0,0)'], [0.86, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,1)']]);
+  const lg = line.getContext('2d'); lg.globalCompositeOperation = 'destination-out'; lg.fillStyle = sides(lg); lg.fillRect(x0, y0, w, h);
+  const sg = lineSoft.getContext('2d'); sg.translate(-x0, -y0); sg.globalCompositeOperation = 'destination-in'; sg.fillStyle = sides(sg); sg.fillRect(x0, y0, w, h);
+  // the glint on the bead: a broken, tapering lick of warm white
+  const t0 = a.thetaAtX(a.cx - 590), t1 = a.thetaAtX(a.cx - 356);
+  const glint = region(x0, y0, w, h, (g) => {
+    const gx0 = a.cx - 590, gx1 = a.cx - 356;
+    g.lineCap = 'round';
+    g.strokeStyle = L.linear(g, gx0, 0, gx1, 0, [[0, 'rgba(255,236,206,0)'], [0.2, 'rgba(255,236,206,0.75)'], [0.48, 'rgba(255,246,228,1)'], [0.56, 'rgba(255,240,214,0.5)'], [0.62, 'rgba(255,246,228,0.95)'], [0.86, 'rgba(255,232,196,0.5)'], [1, 'rgba(255,232,196,0)']]);
+    g.lineWidth = 4.2; a.stroke(g, -4.6, t0, t1);
+    g.lineWidth = 2; a.stroke(g, -8.5, L.lerp(t0, t1, 0.3), L.lerp(t0, t1, 0.74));
+  });
+  // the film of iridescence spills a little way onto the bead itself
   const spill = region(x0, y0, w, h, (g) => {
-    g.fillStyle = hue(g, 1); a.pathBand(g, 1, -46); g.fill();
+    g.fillStyle = hue(g, 1, 0, 3); a.pathBand(g, 1, -26); g.fill();
     g.globalCompositeOperation = 'destination-in';
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 46, a.R + 1, [[0, 'rgba(0,0,0,0)'], [0.6, 'rgba(0,0,0,0.08)'], [1, 'rgba(0,0,0,0.26)']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 26, a.R + 1, [[0, 'rgba(0,0,0,0)'], [0.55, 'rgba(0,0,0,0.1)'], [1, 'rgba(0,0,0,0.34)']]);
     g.fillRect(x0, y0, w, h);
   });
   return region(x0, y0, w, h, (g) => {
-    g.drawImage(soft, x0, y0);
+    g.drawImage(halo, x0, y0);
     g.globalCompositeOperation = 'lighter';
     g.drawImage(spill, x0, y0);
-    g.strokeStyle = hue(g, 1, 0.06); g.lineWidth = 3; a.stroke(g, 1.7);
-    g.strokeStyle = hue(g, 0.55, 0.35); g.lineWidth = 1.2; a.stroke(g, 1.9);
+    g.drawImage(line, x0, y0); g.drawImage(lineSoft, x0, y0);
+    g.globalAlpha = 0.55; g.drawImage(L.blurred(glint, 13), x0, y0);
+    g.globalAlpha = 0.8; g.drawImage(L.blurred(glint, 3.5), x0, y0);
+    g.globalAlpha = 1; g.drawImage(L.blurred(glint, 0.8), x0, y0);
   });
+}
+
+/** beyond the lip: darkness with a breath of warmth in it, not a dead black — calm and even behind the words */
+function buildBack(env) {
+  const a = env.arc, c = L.makeCanvas(W, H), g = c.getContext('2d');
+  g.fillStyle = L.radial(g, a.cx - 120, a.crestY + 60, 80, 1250, [[0, '#151211'], [0.3, '#110e0e'], [0.62, '#0c0a0a'], [1, '#070606']]);
+  g.fillRect(0, 0, W, H);
+  return c;
 }
 
 export default {
@@ -278,26 +298,22 @@ export default {
   tone: 'light',
   init(env) {
     const geo = geometry(env);
-    const wall = wrapOntoArc(env, buildFur(geo), geo);
+    const wall = pullFocus(env, geo, buildWall(env, geo));
     const sheen = buildSheen(env, geo);
-    S = { geo, wall, dodge: sheen.dodge, veil: sheen.veil, iris: buildIris(env) };
+    S = { geo, wall, dodge: sheen.dodge, veil: sheen.veil, rim: buildRim(env), back: buildBack(env) };
   },
   draw(ctx, env, p) {
-    const a = env.arc;
     ctx.save();
-    ctx.fillStyle = '#020101'; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(S.back, 0, 0);
     const rot = L.lerp(-0.013, 0.013, p), zoom = L.lerp(1.0, 1.012, p);
     L.cam(ctx, env, { zoom }, () => {
       // the glaze slides along the rim …
       L.cam(ctx, env, { rot }, () => put(ctx, S.wall));
-      // … under light that stays where it is: the wall turns away from the key toward both ends of the rim
-      ctx.globalCompositeOperation = 'multiply';
-      ctx.fillStyle = L.radial(ctx, a.cx - 130, a.crestY + 170, 240, 1320, [[0, '#ffffff'], [0.45, '#e2d2c2'], [0.75, '#a48e7c'], [1, '#6a584b']]);
-      ctx.fillRect(-PAD, a.crestY - 10, W + PAD * 2, H - a.crestY + PAD);
+      // … under light that stays where it is
       ctx.globalCompositeOperation = 'color-dodge'; put(ctx, S.dodge);
       ctx.globalCompositeOperation = 'screen'; put(ctx, S.veil);
-      // the iridescent hairline creeps along the lip
-      L.cam(ctx, env, { rot: L.lerp(-0.018, 0.022, p) }, () => put(ctx, S.iris));
+      // the iridescent film creeps along the lip
+      L.cam(ctx, env, { rot: L.lerp(-0.006, 0.008, p) }, () => put(ctx, S.rim));
       ctx.globalCompositeOperation = 'source-over';
     });
     ctx.restore();

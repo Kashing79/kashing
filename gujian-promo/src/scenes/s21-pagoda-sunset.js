@@ -1,7 +1,8 @@
 // s21 — 古塔夕照. The arc is a wooded ridge at sundown: a near-black hill whose rim is a fuzz of tree crowns,
 // a seven-storey pavilion-style pagoda (楼阁式塔) standing on it in front of the half-set sun, a tiny pavilion
-// far along the ridge, a few birds going home. Sky: ember orange hugging the ridge → crimson → dark plum.
-// Layers: sky (per-pixel "heat" field + sun) / lit cirrus / dark horizon streaks / birds (live) / hill + buildings.
+// far along the ridge, a few birds going home. Sky: a thin ember line hugging the ridge → rouge → night purple.
+// Layers: sky (per-pixel height field + sun) / lit cirrus / dark horizon streaks / birds (live) / hill + buildings,
+// then two optical passes: the ember line's halation over the ridge, and the sun's bloom over the pagoda.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -20,7 +21,7 @@ const SKY = [
   [260, '#8e1d48'], [370, '#661d56'], [470, '#451c50'], [640, '#26123a'],
 ];
 const HMAX = 720;
-const SKY_BOTTOM = 900;   // no sky is ever seen below this row (the ridge at the far end of the padded layer)
+const SKY_BOTTOM = 900, EMBER_TOP = 480;   // no sky is ever seen below this row (the ridge at the far end of the padded layer)
 
 // ───────────────────────── sky ─────────────────────────
 function buildSky(env) {
@@ -33,28 +34,41 @@ function buildSky(env) {
   for (let i = 0; i < NL; i++) { const c = ramp(i / 4); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const nz = L.makeNoise('s21sky');
   const img = new ImageData(cw, ch); const d = img.data;
+  const eimg = new ImageData(cw, ch); const ed = eimg.data;     // the ember line on its own, for the halation pass
   let k = 0;
   for (let j = 0; j < ch; j++) {
     const y = (j + 0.5) / res - PAD;
     for (let i = 0; i < cw; i++) {
       const x = (i + 0.5) / res - PAD;
-      const dr = Math.max(0, a.drAt(x, y));
+      const raw = a.drAt(x, y), dr = Math.max(0, raw);
       const up = L.smooth((dr - 40) / 220);                 // 0 inside the ember line, 1 in the open sky
       // the ember line: its thickness breathes, and away from the sun it cools from yellow to orange
       let h1 = dr;
-      if (up < 1) h1 = dr * (1 + 0.2 * nz.n2(x / 230, 3.3)) + 12 * L.smooth((Math.abs(x - sun.x) - 320) / 1100);
+      if (up < 1) {
+        const calm = Math.exp(-(((x - a.cx) / 420) ** 2));      // under the tagline the line is at its thinnest and steadiest
+        h1 = dr * (1 + 0.2 * (1 - 0.85 * calm) * nz.n2(x / 230, 3.3) + 0.16 * calm) + 12 * L.smooth((Math.abs(x - sun.x) - 320) / 1100);
+        if (raw >= 0 && h1 < 28) {
+          const e = 1 - h1 / 28, ei = Math.min(NL - 1, ((h1 + 9) * 4) | 0) * 3;   // a shade redder than the line itself, so it never goes olive on black
+          ed[k] = lut[ei]; ed[k + 1] = lut[ei + 1]; ed[k + 2] = lut[ei + 2]; ed[k + 3] = 255 * e * e;
+        }
+      }
       // the open sky: purple comes a little lower on the side away from the sun; slow breathing so it is not a clean gradient
       if (up > 0) h1 = L.lerp(h1, dr * (0.94 + 0.26 * L.smooth((x - 200) / 1900)) * (1 + 0.09 * nz.fbm(x / 820, y / 240, 3)), up);
       // the sun's aureole, as a "height" of its own: hot against the disc, back to the plain sky ~130 px out
       const ds = Math.max(0, Math.hypot((x - sun.x) / 1.15, y - sun.y) - sun.r * 0.96);
-      const h2 = 11 + 0.36 * ds * (1 + (ds * ds) / 78000);
+      const h2 = 12 + 0.27 * ds * (1 + (ds * ds) / 60000);
       const h = Math.pow(Math.pow(h1 + 0.5, -1.5) + Math.pow(h2 + 0.5, -1.5), -1 / 1.5);
       const li = Math.min(NL - 1, Math.max(0, (h * 4) | 0)) * 3;
       d[k++] = lut[li]; d[k++] = lut[li + 1]; d[k++] = lut[li + 2]; d[k++] = 255;
     }
   }
   const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
-  return L.makeLayer(PAD, (g) => {
+  // halation: the ember line, blurred, to be screened back over the ridge so its glow bleeds a few px into the silhouette
+  const esmall = L.makeCanvas(cw, ch); esmall.getContext('2d').putImageData(eimg, 0, 0);
+  const ember = L.makeCanvas(LW, SKY_BOTTOM - EMBER_TOP), eg = ember.getContext('2d');
+  eg.imageSmoothingEnabled = true; eg.imageSmoothingQuality = 'high';
+  eg.filter = 'blur(4.5px)'; eg.drawImage(esmall, 0, -(EMBER_TOP + PAD), LW, LH); eg.filter = 'none';
+  const sky = L.makeLayer(PAD, (g) => {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, -PAD, -PAD, LW, LH);
     // the disc: soft-edged, a little flattened and reddened toward its foot by the thick air
@@ -71,13 +85,14 @@ function buildSky(env) {
     g.drawImage(disc, sun.x - DS / 2, sun.y - DS / 2);
     // bars of cloud lying across it
     g.save(); g.filter = 'blur(2.6px)';
-    const bars = [[-70, 2.6, 170, 0.6, 40], [-58, 1.3, 120, 0.4, -60], [-12, 1.5, 150, 0.36, 70], [22, 6, 250, 0.72, -10], [36, 1.8, 180, 0.5, 60]];
+    const bars = [[-70, 2.6, 170, 0.6, 40], [-58, 1.3, 120, 0.4, -60], [-12, 1.5, 150, 0.36, 70], [22, 5, 210, 0.6, -10], [36, 1.8, 180, 0.5, 60]];
     for (const [dy, ry, rx, al, ox] of bars) {
       g.fillStyle = L.rgba('#b3243c', al);
       g.beginPath(); g.ellipse(sun.x + ox, sun.y + dy, rx, ry, -0.01, 0, L.TAU); g.fill();
     }
     g.restore();
   });
+  return { sky, ember };
 }
 
 /** the light the bloom pass spreads over whatever stands in front of the sun: the disc and the tight glare round it */
@@ -107,7 +122,7 @@ function buildClouds(env) {
     const c = L.makeCanvas(LW, LH), g = c.getContext('2d');
     g.translate(LW / 2, LH / 2); g.rotate(tilt);
     g.drawImage(mk(seed, scale, sx), -(LW + MX) / 2, -(LH + MY) / 2);
-    g.globalAlpha = 0.5; g.drawImage(mk(seed + 'fine', scale * 0.48, sx * 1.35), -(LW + MX) / 2, -(LH + MY) / 2);
+    g.globalAlpha = 0.35; g.drawImage(mk(seed + 'fine', scale * 0.48, sx * 1.35), -(LW + MX) / 2, -(LH + MY) / 2);
     g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
     return c;
   };
@@ -139,10 +154,10 @@ function buildClouds(env) {
   const dark = fibres('s21streak', 58, 26, 0.8, 0.42, 0.74, 0.012);
   g = dark.getContext('2d');
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = '#3d1238'; g.fillRect(0, 0, LW, LH);
+  g.fillStyle = '#7a3a62'; g.fillRect(0, 0, LW, LH);            // multiplied over the sky: the same hue, a step down in value
   gather(g, [[1640, 512, 400, 30, 0.85], [40, 552, 400, 30, 0.4], [330, 432, 330, 20, 0.5], [1900, 650, 330, 26, 0.8], [-80, 690, 300, 26, 0.7], [1380, 468, 190, 12, 0.5]]);
   dark._pad = PAD;
-  return { lit: L.blurred(lit, 0.4), dark: L.blurred(dark, 1.1) };
+  return { lit: L.blurred(lit, 1.0), dark: L.blurred(dark, 1.1) };
 }
 
 // ───────────────────────── buildings ─────────────────────────
@@ -460,7 +475,8 @@ export default {
     const occ = L.makeCanvas(CW, CH);
     occ.getContext('2d').drawImage(hill, cx0 + PAD, cy0 + PAD, CW, CH, 0, 0, CW, CH);
     const BN = BLOOM_R / 2;                              // bloom buffers at quarter size
-    S = { sky: buildSky(env), lit: clouds.lit, dark: clouds.dark, hill, sunLight: buildSunLight(env), occ, occX: cx0, occY: cy0,
+    const sk = buildSky(env);
+    S = { sky: sk.sky, ember: sk.ember, lit: clouds.lit, dark: clouds.dark, hill, sunLight: buildSunLight(env), occ, occX: cx0, occY: cy0,
       b0: L.makeCanvas(BN, BN), b1: L.makeCanvas(BN, BN) };
   },
   draw(ctx, env, p) {
@@ -470,13 +486,18 @@ export default {
     L.blit(ctx, env, S.sky, { rot: skyRot, zoom: skyZoom });
     // cloud parallax: the high cirrus barely moves, the low streaks slide the other way
     L.blit(ctx, env, S.lit, { dx: L.lerp(6, -6, p), zoom: 1 + (zoom - 1) * 0.4, blend: 'screen', alpha: 0.55 });
-    L.blit(ctx, env, S.dark, { dx: L.lerp(-13, 13, p), zoom: 1 + (zoom - 1) * 0.6, alpha: 0.85 });
+    L.blit(ctx, env, S.dark, { dx: L.lerp(-13, 13, p), zoom: 1 + (zoom - 1) * 0.6, blend: 'multiply', alpha: 0.85 });
     // birds heading home toward the pagoda
     ctx.save(); ctx.fillStyle = INK; ctx.globalAlpha = 0.92;
     for (const [x, y, s, ph] of BIRDS) drawBird(ctx, x - 16 * p * (0.6 + s * 0.5), y - 3 * p + Math.sin(ph + p * 4) * 1.5, s * 1.25, Math.sin(ph + p * 9));
     ctx.restore();
     // hill, trees, pagoda: slide along the ridge
     L.blit(ctx, env, S.hill, { rot, zoom });
+    // halation: the ember line bleeds a few px over the edge of the ridge
+    L.cam(ctx, env, { rot: skyRot, zoom: skyZoom }, () => {
+      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.5;
+      ctx.drawImage(S.ember, -PAD, EMBER_TOP);
+    });
 
     // bloom: the sun's light, minus whatever stands in front of it, spread and laid back over the frame — so the disc
     // eats into the edges of the pagoda, the doorways flare, and the black lifts to a warm brown inside the glare
@@ -492,7 +513,11 @@ export default {
     ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
     for (const [blur, alpha] of [[1.8, 0.4], [8, 0.22]]) {
       g1.setTransform(1, 0, 0, 1, 0, 0); g1.clearRect(0, 0, S.b1.width, S.b1.height);
+      g1.globalCompositeOperation = 'source-over';
       g1.filter = `blur(${blur}px)`; g1.drawImage(S.b0, 0, 0); g1.filter = 'none';
+      if (blur > 4) {                                        // the wide spread goes red, as glare does away from its source
+        g1.globalCompositeOperation = 'source-atop'; g1.fillStyle = 'rgba(255,84,40,0.6)'; g1.fillRect(0, 0, S.b1.width, S.b1.height);
+      }
       ctx.globalAlpha = alpha; ctx.drawImage(S.b1, x0, y0, N, N);
     }
     ctx.restore();

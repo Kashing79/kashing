@@ -21,10 +21,10 @@ const FRET_H = 54;            // key-fret band between frame and rail
 const FB = 6.8, FQ = 14;      // fret bar width / pitch
 const RAIL_W = 10;
 const RAILC = -(FRAME_W + FRET_H + RAIL_W / 2);   // centre line of the inner rail
-const BAR = 9.2;              // ice-crack bar width (each bar is planed by hand: ± a little)
+const BAR = 9.8;              // ice-crack bar width (each bar is planed by hand: ± a little)
 const FLW = 17;               // blossom radius
 const EXT = 4.6;              // thickness showing under every lattice bar
-const TARGET = 4300;          // typical area of one ice-crack cell (px²)
+const TARGET = 4200;          // typical area of one ice-crack cell (px²)
 
 // ───────────────────────── geometry ─────────────────────────
 function buildGeometry(a) {
@@ -83,7 +83,7 @@ function buildGeometry(a) {
   const bars = [], seams = [];
   /** look for a good crack across one cell; `lax` loosens the rules for cells that would otherwise stay too big */
   const search = (poly, near, A, lax) => {
-    const SIN_MIN = Math.sin(L.deg(lax ? 33 : 40)), MINJ = lax ? 17 : 25, MINCELL = TARGET * (lax ? 0.24 : 0.3), QMIN = lax ? 0.42 : 0.5, WMIN = lax ? 21 : 24;
+    const SIN_MIN = Math.sin(L.deg(lax ? 33 : 40)), MINJ = lax ? 18 : 26, MINCELL = TARGET * (lax ? 0.24 : 0.3), QMIN = lax ? 0.43 : 0.52, WMIN = lax ? 22 : 27;
     const m = poly.length;
     const len = [], cum = []; let tot = 0;
     for (let i = 0; i < m; i++) { const u = poly[i], v = poly[(i + 1) % m]; const l = Math.hypot(v.x - u.x, v.y - u.y); len.push(l); tot += l; cum.push(tot); }
@@ -128,11 +128,14 @@ function buildGeometry(a) {
       const p1 = perim(pa), p2 = perim(pb);
       if ((2 * B1) / p1 < WMIN || (2 * B2) / p2 < WMIN) continue;
       const q1 = (4 * Math.PI * B1) / (p1 * p1), q2 = (4 * Math.PI * B2) / (p2 * p2);
-      if ((A1 < TARGET * 0.62 && q1 < QMIN) || (A2 < TARGET * 0.62 && q2 < QMIN)) continue;
+      // no slivers: a finished cell must be reasonably compact, and even a big one may not be a long thin wedge
+      if ((!hid1 && q1 < (A1 < TARGET * 1.75 ? QMIN : 0.34)) || (!hid2 && q2 < (A2 < TARGET * 1.75 ? QMIN : 0.34))) continue;
       // ice-crack never repeats a direction: mark down bars that run parallel to a side of their own cell
       let par = 0;
       for (let e = 0; e < m; e++) { if (len[e] < 30 || e === i || e === j) continue; const u = poly[e], v = poly[(e + 1) % m]; if (Math.abs(((v.x - u.x) * ux + (v.y - u.y) * uy) / len[e]) > COS_PAR) { par = 1; break; } }
-      const score = Math.min(q1, q2) + r() * 0.16 - par * 0.3;
+      // mostly four- and five-sided plates; a finished cell that comes out as a triangle is marked down
+      const tri = (B1 < TARGET * 1.5 && pa.reduce((s, v) => s + (v.c ? 1 : 0), 0) <= 3 ? 1 : 0) + (B2 < TARGET * 1.5 && pb.reduce((s, v) => s + (v.c ? 1 : 0), 0) <= 3 ? 1 : 0);
+      const score = Math.min(q1, q2) + r() * 0.16 - par * 0.3 - tri * 0.13;
       found++;
       if (!best || score > best.score) best = { score, P, Q, pa, pb, e1x, e1y, e2x, e2y, ux, uy };
     }
@@ -145,7 +148,7 @@ function buildGeometry(a) {
     const poly = stack.pop();
     const near = medsNear(poly);
     const A0 = area(poly), A = A0 < TARGET * 8 ? visArea(poly, A0, near) : A0;
-    if (A < TARGET * r.range(0.62, 1.45)) continue;
+    if (A < TARGET * r.range(0.55, 1.75)) continue;
     let best = search(poly, near, A, false);
     if (!best && A > TARGET * 1.3) best = search(poly, near, A, true);
     if (!best) continue;
@@ -173,9 +176,9 @@ function buildGeometry(a) {
 function medallion(g, m, shrink) {
   const R = m.R;
   g.lineJoin = 'round'; g.lineCap = 'butt';
-  g.lineWidth = (m.kind === 'bubu' ? 14.5 : 13) - 2 * shrink;
+  g.lineWidth = (m.kind === 'bubu' ? 15.5 : 14) - 2 * shrink;
   g.beginPath(); g.arc(0, 0, R, 0, L.TAU); g.stroke();
-  g.lineWidth = (m.kind === 'bubu' ? 10 : 9.6) - 2 * shrink;
+  g.lineWidth = (m.kind === 'bubu' ? 10.6 : 10.2) - 2 * shrink;
   if (m.kind === 'bubu') {
     // 步步锦: rectangles stepping inward, each tied to the next by short staggered bars
     const s1 = (R - 2) / Math.SQRT2, s2 = s1 * 0.655, s3 = s1 * 0.31, o = s2 * 0.52;
@@ -290,6 +293,13 @@ function buildLattice(env, geo) {
         g.stroke();
       }
     }
+    {
+      const fr = L.rng('s24fret');
+      fretUnits(a, geo, (theta, mir) => {
+        const k = fr();
+        a.at(g, theta, -FRAME_W, () => { g.scale(mir, 1); g.fillStyle = L.rgba(GREY, 0.26 * k * k); g.fillRect(-FB / 2, FRAME_EXT, 4 * FQ, FRET_H - FRAME_EXT - 1); });
+      });
+    }
     // joinery: a hair-thin seam where each bar butts into the one it stops against
     g.strokeStyle = 'rgba(70,66,58,0.42)'; g.lineWidth = 1;
     g.beginPath();
@@ -310,10 +320,7 @@ function buildLattice(env, geo) {
     // soft, broad unevenness of old paint
     g.globalAlpha = 0.6;
     g.drawImage(L.noiseLayer(PAD, { seed: 's24tone', scale: 210, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.26)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.4)']] }), -PAD, -PAD);
-    // where the paint has thinned: a few irregular patches a tone greyer (never a second hue)
     g.globalAlpha = 1;
-    g.drawImage(L.noiseLayer(PAD, { seed: 's24thin', scale: 46, octaves: 3, gain: 0.55, res: 0.25, warp: 0.5, contrast: 1.25,
-      ramp: [[0, 'rgba(150,145,134,0)'], [0.69, 'rgba(150,145,134,0)'], [0.75, 'rgba(150,145,134,0.34)'], [1, 'rgba(126,121,111,0.5)']] }), -PAD, -PAD);
     // a few chips straight through the paint
     g.fillStyle = chipPattern(g, 'sparse'); g.fillRect(-PAD, -PAD, LW, LH);
   });
@@ -343,7 +350,17 @@ function buildLattice(env, geo) {
 
 function buildFrame(env) {
   const a = env.arc;
-  const mask = L.makeLayer(PAD, (g) => { g.fillStyle = '#fff'; a.pathBand(g, 0, -FRAME_W); g.fill(); });
+  const mask = L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#fff'; a.pathBand(g, 0, -FRAME_W); g.fill();
+    // old timber: a scatter of small dings along the outer arris (shallow — the arc stays the arc)
+    const nr = L.rng('s24nick'), sp = a.span(PAD + 60);
+    g.globalCompositeOperation = 'destination-out';
+    const N = 15;
+    for (let i = 0; i < N; i++) {
+      const th = L.lerp(-sp, sp, (i + nr.range(0.1, 0.9)) / N), len = nr.range(2.5, 9), dep = nr.range(0.8, 2.1);
+      a.at(g, th, 1, () => { g.beginPath(); g.ellipse(0, 0, len, dep + 1, 0, 0, L.TAU); g.fill(); });
+    }
+  });
   // moulding profile as a height map across the band (t = 0 inner edge … 1 outer edge)
   const T = (dr) => (FRAME_W + dr) / FRAME_W;
   const height = L.makeLayer(PAD, (g) => {
@@ -426,7 +443,7 @@ export default {
     // halation: a breath of glow around the white timber, baked under it
     const out = L.makeCanvas(LW, LH); out._pad = PAD;
     const g = out.getContext('2d');
-    g.globalAlpha = 0.2; g.drawImage(L.blurred(win, 12), 0, 0);
+    g.globalAlpha = 0.15; g.drawImage(L.blurred(win, 12), 0, 0);
     g.globalAlpha = 1; g.drawImage(win, 0, 0);
     S = { win: lensFalloff(env, out) };
   },
@@ -437,7 +454,12 @@ export default {
     L.blit(ctx, env, S.win, { rot, zoom });
     // a pool of light drifting along the frame (falls off into shade; the black ground stays black)
     const lp = a.pt(L.lerp(-0.075, 0.045, p), -140);
-    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1350, [[0, 'rgba(0,0,0,0)'], [0.3, 'rgba(0,0,0,0.02)'], [0.62, 'rgba(0,0,0,0.2)'], [1, 'rgba(0,0,0,0.5)']]);
+    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1400, [[0, 'rgba(0,0,0,0)'], [0.32, 'rgba(0,0,0,0.02)'], [0.64, 'rgba(0,0,0,0.13)'], [1, 'rgba(0,0,0,0.38)']]);
     ctx.fillRect(0, 0, W, H);
+    // where the key light lands the paint burns out to clean white (the black ground is untouched)
+    ctx.globalCompositeOperation = 'color-dodge';
+    ctx.fillStyle = L.radial(ctx, lp.x, lp.y + 60, 0, 1000, [[0, '#262626'], [0.45, '#191919'], [1, '#000']]);
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
   },
 };

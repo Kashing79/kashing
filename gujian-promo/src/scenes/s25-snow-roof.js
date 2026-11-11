@@ -1,182 +1,66 @@
-// s25 — 雪后金瓦. A round yellow-glazed roof after snowfall, at dusk.
-// Above the arc: one flat sheet of magenta dusk sky (the tagline sits here).
-// The arc = the top of a fat, rounded snow cornice (雪檐) catching a thread of gold sunset light.
-// Below: the snow has slid off the tube-tile ridges (筒瓦垄) in radial strips of every length, baring wet golden glaze
-// (ridges, lapped pan tiles in the troughs, the row of nail caps under the snow lip); drip-shaped lobes and small icicles
-// hang where snow meets tile.
-// Recipe: the tiles are drawn as vector half-cylinders; the snow is a real height field (computed per pixel in polar
-// coordinates at reduced resolution, in init) that is lit, tinted and composited over them, then everything is blit with a small rot.
+// s25 — 雪后金瓦. A macro of a yellow-glazed tile roof after snowfall, at dusk.
+// Above the arc: one flat sheet of rose-magenta dusk sky (the tagline sits here).
+// The arc = the top of a fat, rounded snow cornice (雪檐) whose crown catches a band of gold sunset light.
+// Below: only four or five BIG tile ridges (筒瓦垄, ~200 px wide) emerge from under the snow, lapped pan tiles (板瓦) in the
+// troughs between them; the snow hangs down the troughs in drip-shaped tongues and throws violet shadows on the wet glaze.
+// Recipe: nothing is drawn with vector shapes. Tiles and snow are one height field (computed per pixel in the roof's polar
+// coordinates, in init), lit by a low sun with marched soft shadows, ambient occlusion, a glossy glaze shader (streak highlight,
+// sky reflections on the flanks) and a soft snow shader; then a shallow depth of field is baked in (sharp at the crest,
+// falling out of focus toward the sides and the bottom) and the whole layer is blit with a small rot.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 240;
-const PITCH = 112;        // spacing of tile ridges along the arc (px)
-const HALF = 31;          // half-width of a tube tile (筒瓦) at the arc
-const TILE = 140;         // length of one tube tile between joints
-const RES = 0.6;          // resolution of the per-pixel snow pass
-const HS = 13;            // thickness of the snow sheet lying on the roof (height units = px)
-const CAP_D = 112;        // depth of the row of nail caps (钉帽) below the arc
-const CAP_R = 17;
-const KN = 700;           // depth samples (2 px apart) of the per-ridge melt profile
-const C = { sky: '#8a2f7f', snow: '#f4f1f6', shade: '#b9b3d6', gold: '#e0a81f', sun: '#ffcf7a' };   // the brief's palette
+const PAD = 64;           // the layer only ever slides ~10 px (small rot), so a small margin is plenty
+const RES = 0.75;         // resolution of the per-pixel pass
+const NI = 5;             // ridges / troughs are indexed −NI … NI
+const PITCH = 420;        // ridge spacing along the arc (px) → four full ridges across the frame
+const HALF = 100;         // half-width of a tube tile (筒瓦)
+const HT = 84;            // its height above the trough
+const PD = 26;            // depth of the concave pan tiles (板瓦) in the trough
+const WT = PITCH / 2 - HALF + 14;   // half-width of the pan-tile channel (it runs under the tube tiles)
+const TLEN = 452;         // length of one tube tile between joints
+const LAP = 128;          // exposed length of each lapped pan tile
+const PLC = 112, PLT = 64;    // level of the snow slab near the arc: over a ridge crown / over a trough (soft ribs show through)
+const EDGE = 18;          // extra thickness the snow gains right at its edge (a rounded lip instead of a feather edge)
+const FLOOR = 0;          // height the cornice rolls down to at the silhouette
+const C = { sky: '#a02a84' };
 let S = null;
 
 const sm = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+const hsh = (a, b) => { let h = (Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263)) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
-// ───────────────────────── the plan: where the snow lies ─────────────────────────
-/**
- * Everything is described in the roof's own polar coordinates: theta along the arc, d = depth below the arc (px).
- * Ridges sit at theta = (i + 0.5)·PITCH/R ("底瓦坐中": a trough, not a ridge, lies on the centre line).
- * Snow sheet field  S = T + K:  T = −cos across one pitch (−1 on a ridge crown, +1 in a trough: snow lingers in troughs),
- * K(ridge, d) = how buried that ridge is at depth d (−1.8 bare band under the cornice … ≈0 a bare strip one tile wide … +1.7 buried).
- * Snow lies where S > 0.
- */
+// light: the sun low in the upper left (direction TOWARD the light), the camera looks straight at the roof
+const LXH = -0.85, LYH = -0.527, ELEV = 0.96;
+const LX = LXH * Math.cos(ELEV), LY = LYH * Math.cos(ELEV), LZ = Math.sin(ELEV), TANE = Math.tan(ELEV);
+const HN = Math.hypot(LX, LY, LZ + 1), HX = LX / HN, HY = LY / HN, HZ = (LZ + 1) / HN;   // half vector
+
+// ───────────────────────── the plan: tiles and where the snow lies ─────────────────────────
 function makePlan(env) {
-  const a = env.arc, R = a.R;
-  const sMax = Math.atan2(W / 2 + PAD, a.cy - (H + PAD)) + 0.08;
-  const n = Math.ceil((sMax * R) / PITCH) + 2;
-  const nz = L.makeNoise('s25plan');
-  const r = L.rng('s25plan');
-  // lookup tables over theta
-  const NL = 8192, TH0 = -sMax, LS = (NL - 1) / (2 * sMax);
-  const topL = new Float32Array(NL);   // undulation of the cornice's top edge about the arc (dr, px)
-  const cL = new Float32Array(NL);     // depth of the cornice's lower edge
-  const hcL = new Float32Array(NL);    // cornice thickness (height)
-  const lobes = [];                    // drip lobes hanging off the cornice, one slot per trough
-  for (let j = -n - 2; j <= n + 2; j++) lobes.push(r.chance(0.55) ? { j, amp: r.range(12, 40), sig: r.range(9, 17), off: r.range(-16, 16) } : null);
+  const R = env.arc.R;
+  const r = L.rng('s25plan'), nz = L.makeNoise('s25plan');
+  const troughs = [], ridges = [];
+  // trough j lies on theta = j·PITCH/R ("底瓦坐中": a trough, not a ridge, on the centre line); ridge i between troughs i and i+1
+  for (let j = -NI; j <= NI + 1; j++) troughs.push({ j, TL: r.range(42, 54), e: r.range(260, 520), tip: r.range(95, 135), lap0: r.range(0, LAP), lap: LAP * r.range(0.92, 1.1), tilt: r.range(-0.035, 0.035) });
+  for (let i = -NI; i <= NI; i++) ridges.push({ i, hw: HALF * r.range(0.96, 1.04), ht: HT * r.range(0.95, 1.05), j0: r.range(0, TLEN), tl: TLEN * r.range(0.94, 1.06), m: r.range(100, 170), off: r.range(-6, 6), wob: r.range(0, 50) });
+  const T = (j, o) => Object.assign(troughs[j + NI], o), Rg = (i, o) => Object.assign(ridges[i + NI], o);
+  // art direction for what the frame actually shows. TL = level of the snow tongue left in that trough, e = depth where it ends.
+  T(-3, { e: 430 }); T(-2, { TL: 50, e: 300, tip: 110 }); T(-1, { TL: 54, e: 560, tip: 130 });
+  T(0, { TL: 48, e: 330, tip: 120 }); T(1, { TL: 44, e: 250, tip: 95 }); T(2, { TL: 52, e: 470, tip: 130 }); T(3, { e: 300 });
+  // m = depth below the arc at which the crown of that ridge melts out of the snow
+  Rg(-3, { m: 135 }); Rg(-2, { m: 152 }); Rg(-1, { m: 104, j0: 150, tl: 450 }); Rg(0, { m: 148, j0: 60, tl: 462 }); Rg(1, { m: 112 }); Rg(2, { m: 140 });
+  // look-ups over theta
+  const sMax = Math.asin((W / 2 + PAD + 60) / R) + 0.03;
+  const NL = 4096, TH0 = -sMax, LS = (NL - 1) / (2 * sMax);
+  const topL = new Float32Array(NL), cL = new Float32Array(NL), wcL = new Float32Array(NL), roL = new Float32Array(NL), rimL = new Float32Array(NL);
   for (let k = 0; k < NL; k++) {
-    const th = TH0 + k / LS, sa = th * R;
-    const s = sa / PITCH - 0.5, j = Math.floor(s), f = s - j;
-    const T = -Math.cos(L.TAU * f);
-    topL[k] = L.clamp(3.1 * nz.fbm(sa / 170, 3.3, 2) + 1.5 * nz.n2(sa / 46, 8.1), -4.5, 4.5);
-    let c = 70 + 13 * nz.fbm(sa / 400, 1.7, 2) + 5 * nz.n2(sa / 80, 9.2) + 6 * T;
-    const lb = lobes[j + n + 2];
-    if (lb) { const x = (f - 0.5) * PITCH - lb.off; c += lb.amp * Math.exp(-(x * x) / (2 * lb.sig * lb.sig)); }
-    cL[k] = c;
-    hcL[k] = 28 + 6 * nz.fbm(sa / 260, 5.9, 2);
+    const sa = (TH0 + k / LS) * R;
+    topL[k] = L.clamp(3.1 * nz.fbm(sa / 170, 3.3, 2) + 1.5 * nz.n2(sa / 46, 8.1), -4.5, 4.5);   // the top edge undulates ±4.5 px about the arc
+    cL[k] = 62 + 16 * nz.fbm(sa / 460 + 2.2, 1.7, 2);                                            // where the slab starts thinning
+    wcL[k] = 170 + 30 * nz.fbm(sa / 300, 6.4, 2);                                                // … and over what depth
+    roL[k] = 40 + 12 * nz.fbm(sa / 280, 4.9, 2);                                                 // radius of the roll at the silhouette
+    rimL[k] = L.clamp(0.62 + 0.75 * nz.fbm(sa / 120, 7.7, 2), 0.08, 1) * L.lerp(1, 0.4, L.clamp(sa / 2000 + 0.5));   // the gold rim swells, thins, and fades to the right
   }
-  const lut = (arr, th) => arr[L.clamp(Math.round((th - TH0) * LS), 0, NL - 1)];
-  // per-ridge melt profile
-  const NR = 2 * n + 4;
-  const Klut = new Float32Array(NR * KN);
-  const ridges = [];
-  for (let i = -n - 2; i <= n + 1; i++) {
-    const theta = ((i + 0.5) * PITCH) / R;
-    const c = lut(cL, theta);
-    const u = r();
-    const rd = {
-      i, theta, c,
-      bridged: r.chance(0.05),                      // snow never slid off this ridge near the cornice
-      band: r.range(30, 95), tr: r.range(50, 100),    // fully bare band right under the cornice, then the troughs fill with snow
-      k: r.range(-0.7, 0.15),                       // width bias of the bare strip (negative = wider)
-      len: u < 0.24 ? r.range(160, 240) : u < 0.58 ? r.range(240, 360) : u < 0.83 ? r.range(360, 480) : 5000,
-      tip: r.range(16, 44),
-      hole: null,
-      tone: r.range(-0.06, 0.06),
-      jit: r.range(-6, 6),
-    };
-    if (rd.bridged) { if (r.chance(0.65)) { const d0 = c + r.range(60, 200); rd.hole = [d0, r.chance(0.5) ? 5000 : d0 + r.range(140, 380)]; } }
-    else if (rd.len < 1000 && r.chance(0.28)) { const d0 = rd.len + rd.tip + r.range(50, 150); rd.hole = [d0, d0 + r.range(70, 260)]; }
-    ridges.push(rd);
-    const base = (i + n + 2) * KN;
-    for (let q = 0; q < KN; q++) {
-      const d = q * 2;
-      let K = 1.7;
-      if (!rd.bridged) K = L.lerp(1.7, rd.k, 1 - sm((d - rd.len) / rd.tip));
-      if (rd.hole) K = L.lerp(K, rd.k - 0.08, sm((d - rd.hole[0]) / 46) * (1 - sm((d - rd.hole[1]) / 60)));
-      if (!rd.bridged) K = L.lerp(K, -1.8, 1 - sm((d - (c + rd.band)) / rd.tr));
-      Klut[base + q] = K;
-    }
-  }
-  return { n, sMax, NL, TH0, LS, topL, cL, hcL, lut, lobes, ridges, Klut };
-}
-
-// ───────────────────────── golden glazed tiles ─────────────────────────
-function buildTiles(env, P) {
-  const a = env.arc, R = a.R;
-  const DEPTH = 1120;
-  return L.makeLayer(PAD, (g) => {
-    const r = L.rng('s25tile');
-    // 1) pan tiles (板瓦) in the troughs: deep amber, densely lapped ("压七露三": only a narrow lip of each shows)
-    g.save(); a.clipBelow(g, 16);
-    g.fillStyle = L.radial(g, a.cx, a.cy, R - 950, R + 16, [[0, '#3e2002'], [0.55, '#704305'], [1, '#9c6408']]);
-    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-    g.restore();
-    for (let i = 0; i < P.ridges.length - 1; i++) {
-      const mid = (P.ridges[i].theta + P.ridges[i + 1].theta) / 2;
-      a.at(g, mid, 0, () => {
-        const w0 = PITCH / 2 - HALF + 4;
-        // the trough is a shallow gutter: lighter down its middle
-        g.fillStyle = L.linear(g, -w0, 0, w0, 0, [[0, 'rgba(255,200,80,0)'], [0.45, 'rgba(255,200,80,0.3)'], [0.6, 'rgba(255,200,80,0.24)'], [1, 'rgba(255,200,80,0)']]);
-        g.beginPath(); g.moveTo(-w0, -24); g.lineTo(w0, -24); g.lineTo((w0 * (R - DEPTH)) / R, DEPTH); g.lineTo((-w0 * (R - DEPTH)) / R, DEPTH); g.closePath(); g.fill();
-        for (let d = 18 + r.range(-3, 3); d < DEPTH; d += 40) {
-          const w = (w0 * (R - d)) / R;
-          g.strokeStyle = 'rgba(40,20,2,0.7)'; g.lineWidth = 5;
-          g.beginPath(); g.moveTo(-w, d - 5); g.quadraticCurveTo(0, d + 8, w, d - 5); g.stroke();
-          g.strokeStyle = 'rgba(255,226,130,0.6)'; g.lineWidth = 2;
-          g.beginPath(); g.moveTo(-w, d); g.quadraticCurveTo(0, d + 13, w, d); g.stroke();
-        }
-      });
-    }
-    // 2) tube tiles (筒瓦): glazed half-cylinders, one tile at a time, sun low on the left
-    for (const rd of P.ridges) {
-      a.at(g, rd.theta, 0, () => {
-        const hwAt = (d) => (HALF * (R - d)) / R;
-        const far = hwAt(DEPTH);
-        // shadow thrown into the trough on the right, a thinner occlusion on the left
-        g.fillStyle = L.linear(g, HALF - 3, 0, HALF + 22, 0, [[0, 'rgba(24,10,0,0.85)'], [1, 'rgba(24,10,0,0)']]);
-        g.beginPath(); g.moveTo(HALF - 3, -24); g.lineTo(HALF + 22, -24); g.lineTo(far + 14, DEPTH); g.lineTo(far - 3, DEPTH); g.closePath(); g.fill();
-        g.fillStyle = L.linear(g, -HALF - 8, 0, -HALF + 2, 0, [[0, 'rgba(24,10,0,0)'], [1, 'rgba(24,10,0,0.55)']]);
-        g.beginPath(); g.moveTo(-HALF - 8, -24); g.lineTo(-HALF + 2, -24); g.lineTo(-far + 2, DEPTH); g.lineTo(-far - 6, DEPTH); g.closePath(); g.fill();
-        let d0 = -24, d1 = 44 + rd.jit;
-        while (d0 < DEPTH) {
-          const h0 = hwAt(d0), h1 = hwAt(d1), hm = (h0 + h1) / 2;
-          const tone = rd.tone + r.range(-0.06, 0.06);
-          g.fillStyle = L.linear(g, -hm, 0, hm, 0, [
-            [0, L.shade('#6e3f04', tone)], [0.1, L.shade('#d08a08', tone)], [0.22, L.shade('#ffd43a', tone)], [0.3, L.shade('#ffec9a', tone)], [0.38, L.shade('#f9bf1e', tone)],
-            [0.55, L.shade('#e6a40f', tone)], [0.74, L.shade('#b06a06', tone)], [0.9, L.shade('#693803', tone)], [1, L.shade('#341c02', tone)]]);
-          g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
-          // each tile swells very slightly and darkens toward the end tucked under its neighbour
-          g.fillStyle = L.linear(g, 0, d0, 0, d1, [[0, 'rgba(60,30,0,0.18)'], [0.1, 'rgba(60,30,0,0)'], [0.85, 'rgba(255,236,150,0)'], [1, 'rgba(255,236,150,0.08)']]);
-          g.beginPath(); g.moveTo(-h0, d0); g.lineTo(h0, d0); g.lineTo(h1, d1); g.lineTo(-h1, d1); g.closePath(); g.fill();
-          // glaze: a broad soft sheen, a hard wet streak, a second faint reflection
-          g.lineCap = 'round';
-          g.strokeStyle = 'rgba(255,244,190,0.3)'; g.lineWidth = hm * 0.36;
-          g.beginPath(); g.moveTo(-h0 * 0.42, d0 + 10); g.lineTo(-h1 * 0.42, d1 - 10); g.stroke();
-          g.strokeStyle = 'rgba(255,254,240,0.95)'; g.lineWidth = 3;
-          g.beginPath(); g.moveTo(-h0 * 0.46, d0 + 13); g.lineTo(-h1 * 0.46, d1 - r.range(12, 40)); g.stroke();
-          g.strokeStyle = 'rgba(255,250,220,0.5)'; g.lineWidth = 1.2;
-          g.beginPath(); g.moveTo(-h0 * 0.16, d0 + r.range(14, 40)); g.lineTo(-h1 * 0.16, d1 - 16); g.stroke();
-          // the magenta sky mirrored in the shadow flank
-          g.strokeStyle = 'rgba(214,96,176,0.42)'; g.lineWidth = 2.4;
-          g.beginPath(); g.moveTo(h0 * 0.8, d0 + 9); g.lineTo(h1 * 0.8, d1 - 9); g.stroke();
-          // joint with the next tile: a fine seam and the lit lip of the tile below
-          g.lineCap = 'butt';
-          g.strokeStyle = 'rgba(44,22,2,0.7)'; g.lineWidth = 2;
-          g.beginPath(); g.moveTo(-h1, d1 - 1); g.quadraticCurveTo(0, d1 + 3, h1, d1 - 1); g.stroke();
-          g.strokeStyle = 'rgba(255,240,176,0.55)'; g.lineWidth = 1.4;
-          g.beginPath(); g.moveTo(-h1 * 0.9, d1 + 1.8); g.quadraticCurveTo(0, d1 + 5.6, h1 * 0.55, d1 + 1.8); g.stroke();
-          d0 = d1; d1 += TILE;
-        }
-        // the nail cap (钉帽) near the eave end of every ridge: a glazed dome, half lost under the snow lip
-        const cr = CAP_R;
-        g.fillStyle = 'rgba(30,14,0,0.6)'; g.beginPath(); g.ellipse(5, CAP_D + 8, cr * 1.08, cr * 0.85, 0, 0, L.TAU); g.fill();
-        g.fillStyle = L.radial(g, -cr * 0.36, CAP_D - cr * 0.4, 1, cr * 1.3, [[0, '#fff2b0'], [0.22, '#ffd03a'], [0.6, '#d48e0a'], [0.86, '#8a5206'], [1, '#4a2803']]);
-        g.beginPath(); g.arc(0, CAP_D, cr, 0, L.TAU); g.fill();
-        g.strokeStyle = 'rgba(214,96,176,0.5)'; g.lineWidth = 2; g.beginPath(); g.arc(0, CAP_D, cr - 2.2, -0.5, 0.9); g.stroke();
-        g.fillStyle = 'rgba(255,255,244,0.95)'; g.beginPath(); g.ellipse(-cr * 0.38, CAP_D - cr * 0.42, cr * 0.24, cr * 0.15, -0.6, 0, L.TAU); g.fill();
-      });
-    }
-    // 3) glaze mottling that runs down the slope, a little grime
-    g.save(); a.clipBelow(g, 16);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.42;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25glaze', scale: 30, sx: 1, sy: 7, octaves: 3, contrast: 1.5, res: 0.25 }), -PAD, -PAD);
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.25;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's25dirt', scale: 230, octaves: 3, warp: 0.5, res: 0.14, ramp: [[0, '#7a4a1a'], [0.5, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
-    g.restore();
-    // richer, deeper gold: the layer overlaid on itself (a cheap contrast + saturation lift)
-    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.55; g.drawImage(g.canvas, 0, 0); g.restore();
-  });
+  return { troughs, ridges, NL, TH0, LS, topL, cL, wcL, roL, rimL };
 }
 
 /** in-place separable box blur of a Float32Array field (radius r, in grid px) */
@@ -196,288 +80,243 @@ function boxBlur(f, w, h, r) {
   }
 }
 
-// ───────────────────────── snow: height field → light ─────────────────────────
-function buildSnow(env, P) {
+// ───────────────────────── height field → light ─────────────────────────
+function buildRoof(env, P) {
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
-  const LW = W + PAD * 2, LH = H + PAD * 2;
-  const gw = Math.round(LW * RES), gh = Math.round(LH * RES), N = gw * gh;
-  const hS = new Float32Array(N), aS = new Float32Array(N), slS = new Float32Array(N); // sheet: height, solid alpha, slush alpha
-  const hC = new Float32Array(N), aC = new Float32Array(N);                             // cornice: height, alpha
-  const dD = new Float32Array(N);
-  const nz = L.makeNoise('s25snow');
-  const { TH0, LS, NL, cL, hcL, Klut, n } = P;
-  const inv = 1 / RES, NRm = 2 * n + 2;
-  // pass 1: the cornice, and the raw sheet field S (= T + K, snow where S > 0)
-  const SS = new Float32Array(N).fill(1.2), TT = new Float32Array(N), live = new Uint8Array(N);
+  const y0 = Math.floor(a.crestY - 12);
+  const LW = W + PAD * 2, LH = H + PAD - y0;
+  const gw = Math.round(LW * RES), gh = Math.round(LH * RES), N = gw * gh, inv = 1 / RES;
+  const tH = new Float32Array(N);                 // tile surface
+  const Hh = new Float32Array(N).fill(FLOOR);     // final surface (snow where it lies)
+  const th = new Float32Array(N);                 // raw snow thickness (≤ 0: bare glaze)
+  const aTop = new Float32Array(N);               // silhouette alpha
+  const tone = new Float32Array(N), hue = new Float32Array(N), mort = new Float32Array(N), pool = new Float32Array(N), rimW = new Float32Array(N);
+  const live = new Uint8Array(N);
+  const nz = L.makeNoise('s25');
+  const { troughs, ridges, NL, TH0, LS, topL, cL, wcL, roL, rimL } = P;
+  const NR = ridges.length - 1;
+
+  // pass 1: geometry
   for (let gy = 0; gy < gh; gy++) {
-    const Y = (gy + 0.5) * inv - PAD, ddy = cy - Y;
+    const Y = (gy + 0.5) * inv + y0, ddy = cy - Y;
     for (let gx = 0; gx < gw; gx++) {
       const X = (gx + 0.5) * inv - PAD, ddx = X - cx;
       const d = R - Math.sqrt(ddx * ddx + ddy * ddy);
-      if (d < -18) continue;
+      if (d < -7) continue;
       const i = gy * gw + gx;
-      const th = Math.atan2(ddx, ddy);
-      let li = ((th - TH0) * LS + 0.5) | 0; if (li < 0) li = 0; else if (li >= NL) li = NL - 1;
-      const c = cL[li];
-      dD[i] = d; live[i] = 1;
-      // the cornice: a fat roll of snow between the arc and its scalloped lower edge
-      const Sc = (c - d) / 14;
-      if (Sc > -0.3) {
-        aC[i] = sm((Sc + 0.05) / 0.14);
-        const m = (d + 13) / (c + 13);
-        if (m > 0 && m < 1) {
-          const q = Math.abs(2 * m - 1);
-          let h = hcL[li] * Math.sqrt(1 - q * q * q);             // a fat roll: broad crown, steep underside
-          h *= 1 + 0.15 * nz.fbm(X / 120, Y / 70, 2);
-          hC[i] = h + 0.2 * nz.n2(X / 13, Y / 13);
+      const theta = Math.atan2(ddx, ddy), sa = theta * R;
+      let li = ((theta - TH0) * LS + 0.5) | 0; if (li < 0) li = 0; else if (li >= NL) li = NL - 1;
+      const dd = d - topL[li];
+      const at = dd / 1.3 + 0.5;
+      if (at <= 0) continue;
+      aTop[i] = at > 1 ? 1 : at; live[i] = 1;
+      // which ridge, which troughs
+      const q = sa / PITCH; let ii = Math.floor(q); const f = q - ii - 0.5, x = f * PITCH;
+      let ri = ii + NI; if (ri < 0) ri = 0; else if (ri > NR) ri = NR;
+      const rd = ridges[ri], trL = troughs[ri], trR = troughs[ri + 1];
+      // tube tile: a glazed half-cylinder, one tile at a time (each a hair different in girth, seat and line)
+      const dj = (d + rd.j0) / rd.tl, kt = Math.floor(dj), v = dj - kt;
+      const h1 = hsh(ii * 7 + 3, kt), h2 = hsh(ii * 13 + 5, kt * 3 + 1), h3 = hsh(ii * 5 + 11, kt * 7 + 2);
+      const rs = 1 + 0.04 * (h1 - 0.5) + 0.028 * v;
+      const xx = x - rd.off - 3.2 * nz.n2(d / 280 + rd.wob, 3.1) - (h2 - 0.5) * 5;
+      const hwk = rd.hw * rs;
+      let hT = -1e3, mo = 0;
+      if (xx > -hwk && xx < hwk) {
+        const u = xx / hwk;
+        hT = rd.ht * rs * Math.sqrt(1 - u * u) + (h3 - 0.5) * 3 + 0.7 * nz.n2(xx / 50, d / 210 + ii * 3.3);   // + glaze waviness
+        const de = (v < 0.5 ? v : 1 - v) * rd.tl;
+        if (de < 9) { const g = Math.exp(-(de * de) / 7); hT -= 4.5 * g; mo = g; }    // the joint, pointed with mortar
+      }
+      // pan tiles in the trough: concave, lapped like shingles ("压七露三")
+      const tj = f < 0 ? trL : trR, xt = f < 0 ? x + PITCH / 2 : x - PITCH / 2;
+      const un = xt / WT, un2 = un * un;
+      const dl = (d - tj.lap0 - 22 * (1 - un2) + tj.tilt * xt + 1.6 * nz.n2(xt / 70 + tj.j * 5.1, d / 110)) / tj.lap;
+      const m = Math.floor(dl), fr = dl - m;
+      const p1 = hsh(tj.j * 17 + 1, m), p2 = hsh(tj.j * 29 + 7, m * 5 + 3);
+      const hP = -PD * (1 - un2) + 9 * fr - 4.5 + (p1 - 0.5) * 2;
+      const tube = hT > hP;
+      const tileH = tube ? hT : hP;
+      tH[i] = tileH;
+      tone[i] = tube ? h1 - 0.5 : p1 - 0.5; hue[i] = tube ? h3 - 0.5 : p2 - 0.5; mort[i] = tube ? mo : -1;   // mort < 0 flags a pan tile
+      pool[i] = tube ? Math.pow(Math.abs(xx) / hwk, 4) : 0.25 + 0.5 * fr * fr;
+      // snow: a level surface D (measured from the trough). Over each ridge crown it thins until the glaze melts out (at depth m)
+      // in a tall arch; in each trough a tongue lingers (to depth e) and ends in a rounded, drip-like tip.
+      const c = cL[li], wc = wcL[li];
+      const ws = 1 - sm((d - c) / wc);
+      let t0 = trL.TL + (PLT - trL.TL) * ws, t1 = trR.TL + (PLT - trR.TL) * ws;
+      t0 -= (t0 + 38) * sm((d - (trL.e - trL.tip)) / trL.tip); t1 -= (t1 + 38) * sm((d - (trR.e - trR.tip)) / trR.tip);
+      const Lt = t0 + (t1 - t0) * sm(f + 0.5);
+      const ez = Math.exp(2 * ((rd.m - d) / 110 + 0.38)), Lc = 68 + 44 * (ez - 1) / (ez + 1);
+      const xr = xx / (PITCH / 2), wr = xr <= -1 || xr >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * xr);
+      let D = Lt + (Lc - Lt) * wr + 7 * xr * (1 - wr);     // (snow lingers a little longer on the flank away from the sun)
+      D += 8 * nz.fbm(sa / 230 + 4.1, d / 230 + 1.7, 2) + 3.5 * nz.n2(sa / 75, d / 75 + 9) + 3 * nz.n2(sa / 34 + 3, d / 34);
+      const t = D - tileH;
+      th[i] = t;
+      if (t > 0) {
+        const lump = (4 * nz.fbm(X / 190, Y / 190, 2) + 1.5 * nz.n2(X / 60, Y / 60) + 0.22 * nz.n2(X / 8, Y / 8)) * sm(t / 12);
+        let hs = tileH + t + EDGE * (1 - Math.exp(-t / 4)) + lump;
+        const ro = roL[li];
+        if (dd < ro) { const u = dd <= 0 ? 1 : 1 - dd / ro; hs = FLOOR + (hs - FLOOR) * Math.sqrt(1 - u * u); rimW[i] = rimL[li]; }
+        else if (dd < ro + 30) rimW[i] = rimL[li];
+        Hh[i] = hs;
+      } else Hh[i] = tileH;
+    }
+  }
+
+  // ambient occlusion from the blurred field; soft cast shadows marched toward the sun
+  const Hb = Hh.slice(); boxBlur(Hb, gw, gh, 9); boxBlur(Hb, gw, gh, 9);
+  let HMAX = 0; for (let i = 0; i < N; i++) if (Hh[i] > HMAX) HMAX = Hh[i];
+  const shadow = new Float32Array(N).fill(1);
+  const STEP = 2.2, sdx = LXH * STEP, sdy = LYH * STEP, rise = STEP * inv * TANE;
+  for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
+    const i = gy * gw + gx; if (!live[i]) continue;
+    let h = Hh[i] + 0.8, fx = gx + 0.5, fy = gy + 0.5, s = 1;
+    for (let k = 1; k < 96; k++) {
+      fx += sdx; fy += sdy; h += rise;
+      if (h > HMAX || fx < 0 || fy < 0) break;
+      const df = h - Hh[(fy | 0) * gw + (fx | 0)];
+      if (df <= 0) { s = 0; break; }
+      const pen = df / (0.36 * k + 1.2);
+      if (pen < s) s = pen;
+    }
+    shadow[i] = s * s * (3 - 2 * s);
+  }
+  boxBlur(shadow, gw, gh, 1);
+
+  // pass 2: shading
+  const snowRamp = L.makeRamp([[0, '#866ac2'], [0.3, '#aa91d8'], [0.5, '#c9b4e7'], [0.66, '#e8dff3'], [0.78, '#faf7fb'], [0.9, '#fffdf8'], [1, '#fff5e2']]);
+  const SN = 512, sLut = new Float32Array(SN * 3);
+  for (let k = 0; k < SN; k++) { const c = snowRamp(k / (SN - 1)); sLut[k * 3] = c[0] / 255; sLut[k * 3 + 1] = c[1] / 255; sLut[k * 3 + 2] = c[2] / 255; }
+  const img = new ImageData(gw, gh), o = img.data;
+  const glow = new ImageData(gw, gh), og = glow.data;
+  const sparkC = [], glintC = [];
+  for (let gy = 1; gy < gh - 1; gy++) {
+    const Y = (gy + 0.5) * inv + y0, ddy = cy - Y;
+    for (let gx = 1; gx < gw - 1; gx++) {
+      const i = gy * gw + gx;
+      const aT = aTop[i]; if (aT <= 0) continue;
+      const X = (gx + 0.5) * inv - PAD, ddx = X - cx;
+      const t = th[i], aS = t <= 0 ? 0 : t >= 3.5 ? 1 : sm(t / 3.5);
+      const sh = shadow[i];
+      const conc = Hb[i] - Hh[i];                       // > 0 in hollows, < 0 on crests
+      let cr = 0, cg = 0, cb = 0, bloom = 0;
+      if (aS < 1) {
+        // ── glazed tile ──
+        const hx = (tH[i + 1] - tH[i - 1]) * 0.5 * RES, hy = (tH[i + gw] - tH[i - gw]) * 0.5 * RES;
+        const il = 1 / Math.sqrt(hx * hx + hy * hy + 1), nx = -hx * il, ny = -hy * il, nzz = il;
+        const ndl = nx * LX + ny * LY + nzz * LZ;
+        let diff = ndl > 0 ? ndl / 0.95 : 0;
+        const ao = conc > 0 ? 1 - 0.55 * (conc > 45 ? 1 : conc / 45) : 1 + 0.06 * (conc < -30 ? 1 : -conc / 30);
+        // glaze colour: kiln differences from tile to tile, runs and mottling down the slope, deeper amber where the glaze pooled,
+        // the odd iron spot; the troughs sit deeper and dirtier
+        const mott = nz.fbm(X / 70, Y / 170, 2), run = nz.fbm(X / 13 + 5.5, Y / 300, 2), tn = tone[i], hu = hue[i], pl = pool[i], mo = mort[i];
+        const tubeK = mo >= 0 ? 1 : 0;
+        let val = 1 + 0.26 * tn + 0.07 * mott + 0.07 * run;
+        const spot = nz.n2(X / 6.5 + 31, Y / 6.5); if (spot > 0.8) val *= 1 - 1.6 * (spot - 0.8);
+        let aR = 0.95 * val, aG = 0.75 * val * (1 + 0.16 * hu + 0.05 * mott - 0.13 * pl), aB = 0.11 * val * (1 - 0.4 * pl);
+        if (mo > 0) { const w = mo * 0.8; aR += (0.84 - aR) * w; aG += (0.76 - aG) * w; aB += (0.6 - aB) * w; }
+        if (mo < 0) { aR *= 0.9; aG *= 0.82; aB *= 0.8; }
+        const dsh = diff * sh;
+        cr = aR * (0.62 * ao + 0.44 * dsh); cg = aG * (0.47 * ao + 0.5 * dsh); cb = aB * (0.47 * ao + 0.48 * dsh);
+        // the streak highlight of a glazed cylinder (anisotropic along the ridge), swelling and breaking as the glaze flows
+        const rr = Math.sqrt(ddx * ddx + ddy * ddy), ax = -ddx / rr, ay = ddy / rr;
+        const ha = HX * ax + HY * ay, hpx = HX - ha * ax, hpy = HY - ha * ay;
+        const ndh = (nx * hpx + ny * hpy + nzz * HZ) / Math.sqrt(hpx * hpx + hpy * hpy + HZ * HZ);
+        let spec = 0;
+        if (ndh > 0.5) {
+          const flow = 0.6 + 0.4 * nz.n2(X / 60 + 7.1, Y / 230);
+          spec = (Math.pow(ndh, 240) * (0.4 + 0.9 * flow) + Math.pow(ndh, 26) * 0.1) * (0.15 + 0.85 * sh) * (mo > 0 ? 1 - 0.8 * mo : 1);
         }
+        // the sky mirrored in the glaze: warm afterglow on the sunward flank, rose-magenta on the far one, the roof itself at grazing angles
+        const rx = 2 * nzz * nx, ry = 2 * nzz * ny, rz = 2 * nzz * nzz - 1;
+        const sd = rx * LXH + ry * LYH, hz = 1 - rz * rz;
+        const F = (0.05 + 0.5 * (1 - nzz) * (1 - nzz)) * ao * (mo > 0 ? 1 - 0.7 * mo : 1);
+        let er, eg, eb;
+        if (sd > 0) { er = 1.0 * sd * hz; eg = 0.8 * sd * hz; eb = 0.5 * sd * hz; } else { er = -0.72 * sd * hz; eg = -0.24 * sd * hz; eb = -0.52 * sd * hz; }
+        if (rz > 0) { er += 0.26 * rz; eg += 0.1 * rz; eb += 0.28 * rz; } else { const gk = 1 + rz * 1.6; const g2 = gk < 0 ? 0 : gk; er = er * g2 + 0.3 * (1 - g2); eg = eg * g2 + 0.15 * (1 - g2); eb = eb * g2 + 0.02 * (1 - g2); }
+        cr += F * er + spec; cg += F * eg + spec * 0.97; cb += F * eb + spec * 0.86;
+        bloom = spec;
+        if (spec > 0.95 && hsh(gx, gy) > 0.97) glintC.push([X, Y, spec]);
       }
-      // the sheet lying on the roof
-      const sa = th * R, s = sa / PITCH - 0.5, j = Math.floor(s), f = s - j;
-      // snow drifts a little to one side of a ridge or the other
-      const T = -Math.cos(L.TAU * (f + 0.1 * nz.n2(sa / 330 + 11.3, d / 150 - 4.2)));
-      let dq = d * 0.5; if (dq < 0) dq = 0; else if (dq > KN - 2) dq = KN - 2;
-      const di = dq | 0, df = dq - di;
-      let jj = j + n + 2; if (jj < 0) jj = 0; else if (jj > NRm) jj = NRm;
-      const b = jj * KN + di;
-      const fs = f * f * (3 - 2 * f);
-      const k0 = Klut[b] + (Klut[b + 1] - Klut[b]) * df, k1 = Klut[b + KN] + (Klut[b + KN + 1] - Klut[b + KN]) * df;
-      let K = k0 + (k1 - k0) * fs;
-      K += 0.24 * nz.fbm(sa / 62, d / 105, 2) + 0.28 * nz.n2(sa / 340 + 5.1, d / 460 + 1.3);
-      // here and there a whole slab has slid off, baring ridges and troughs together
-      if (d < 520) K -= 1.9 * sm((nz.fbm(sa / 520 + 2.2, d / 360 + 7.7, 2) - 0.3) / 0.3) * (1 - sm((d - 300) / 220));
-      SS[i] = T + K; TT[i] = T;
+      if (aS > 0) {
+        // ── snow ──
+        const hx = (Hh[i + 1] - Hh[i - 1]) * 0.5 * RES, hy = (Hh[i + gw] - Hh[i - gw]) * 0.5 * RES;
+        const il = 1 / Math.sqrt(hx * hx + hy * hy + 1);
+        const ndl = (-hx * LX - hy * LY + LZ) * il;
+        let k = (ndl + 0.1) / 1.12; if (k < 0) k = 0;
+        k *= 0.16 + 0.84 * sh;
+        if (k > 1) k = 1;
+        const q = ((k * (SN - 1)) | 0) * 3;
+        let sr = sLut[q], sg = sLut[q + 1], sb = sLut[q + 2];
+        // hollows sink into violet
+        if (conc > 0) { const w = 0.55 * (conc > 50 ? 1 : conc / 50); sr += (0.5 - sr) * w; sg += (0.38 - sg) * w; sb += (0.72 - sb) * w; }
+        // the band of sunset gold along the crown of the cornice
+        const rw = rimW[i];
+        if (rw > 0) {
+          const d = R - Math.sqrt(ddx * ddx + ddy * ddy);
+          const g1 = Math.exp(-Math.max(0, d) / (4 + 13 * rw)) * rw * (0.3 + 0.7 * sh);
+          sr += (1.0 - sr) * g1 * 0.9; sg += (0.8 - sg) * g1 * 0.9; sb += (0.44 - sb) * g1 * 0.9;
+          const g0 = Math.exp(-Math.max(0, d) / 2.4) * (0.5 + 0.5 * rw);
+          sr += (1.0 - sr) * g0; sg += (0.96 - sg) * g0; sb += (0.83 - sb) * g0;
+          bloom += 0.5 * g1 + 0.4 * g0;
+        }
+        if (aS >= 1 && k > 0.86 && hsh(gx * 3 + 1, gy * 7 + 2) > 0.9991) sparkC.push([X, Y]);
+        cr += (sr - cr) * aS; cg += (sg - cg) * aS; cb += (sb - cb) * aS;
+        bloom *= aS < 1 ? 1 : 1;
+      }
+      const k4 = i * 4;
+      o[k4] = cr * 255; o[k4 + 1] = cg * 255; o[k4 + 2] = cb * 255; o[k4 + 3] = aT * 255;
+      if (bloom > 0.02) { const b = bloom > 1 ? 1 : bloom; og[k4] = 255; og[k4 + 1] = 240; og[k4 + 2] = 205; og[k4 + 3] = b * aT * 255; }
     }
   }
-  // melt the field a little: a small blur rounds every corner into a soft, drip-like lobe
-  boxBlur(SS, gw, gh, 3); boxBlur(SS, gw, gh, 2);
-  // pass 2: sheet coverage and height from the melted field
-  for (let gy = 0; gy < gh; gy++) {
-    const Y = (gy + 0.5) * inv - PAD;
-    for (let gx = 0; gx < gw; gx++) {
-      const i = gy * gw + gx, Ss = SS[i];
-      if (Ss <= -0.5 || !live[i] || (aC[i] >= 1 && dD[i] < 30)) continue; // nothing here, or buried deep under the cornice
-      aS[i] = sm((Ss + 0.05) / 0.13);
-      slS[i] = 0.2 * sm((Ss + 0.3) / 0.25);
-      if (Ss > 0) {
-        const X = (gx + 0.5) * inv - PAD;
-        const e = Ss > 0.85 ? 1 : Ss / 0.85;
-        hS[i] = HS * Math.sqrt(e) + e * (8 * nz.fbm(X / 210, Y / 210, 2) - 3.2 * TT[i] + 1.6 * nz.n2(X / 47, Y / 47) + 0.18 * nz.n2(X / 12, Y / 12));
-      }
-    }
-  }
-  // light: low sun from the upper left; shadows take the violet of the sky
-  const lx = -0.22, ly = -0.74, lz = 0.635;
-  const ramp = L.makeRamp([[0, '#7a71b4'], [0.24, '#9a92cb'], [0.44, C.shade], [0.6, '#e4e0f1'], [0.7, '#fbfafd'], [0.82, '#fffefb'], [1, '#fff4e0']]);
-  const lutN = 512, lutC = new Uint8ClampedArray(lutN * 3);
-  for (let k = 0; k < lutN; k++) { const c = ramp(k / (lutN - 1)); lutC[k * 3] = c[0]; lutC[k * 3 + 1] = c[1]; lutC[k * 3 + 2] = c[2]; }
-  const rj = L.rng('s25grain');
-  const shadeRGB = L.parseColor('#aea7d2');
-  const colorize = (hgt, alpha, slush, isCornice) => {
-    const img = new ImageData(gw, gh), o = img.data;
-    for (let y = 1; y < gh - 1; y++) {
-      const Y = (y + 0.5) * inv - PAD;
-      for (let x = 1; x < gw - 1; x++) {
-        const i = y * gw + x;
-        const solid = alpha[i], al = slush ? Math.max(solid, slush[i]) : solid;
-        if (al < 0.004) continue;
-        const hx = (hgt[i + 1] - hgt[i - 1]) * RES * 0.5, hy = (hgt[i + gw] - hgt[i - gw]) * RES * 0.5;
-        const t = (-hx * lx - hy * ly + lz) / Math.sqrt(hx * hx + hy * hy + 1);
-        let u = (t + 0.25) / 1.25; u = u < 0 ? 0 : u > 1 ? 1 : u;
-        const q = ((u * (lutN - 1)) | 0) * 3;
-        let cr = lutC[q], cg = lutC[q + 1], cb = lutC[q + 2];
-        // broad, soft violet shadow patches and a slow fall into shade down the roof
-        const X = (x + 0.5) * inv - PAD, d = dD[i];
-        let cool = isCornice ? 0 : 0.08 * sm((d - 220) / 650) + 0.15 * sm(0.1 + 1.1 * nz.n2(X / 300 + 3.7, Y / 210 - 1.9)) * sm((d - 90) / 120);
-        if (cool > 0) { cr += (shadeRGB[0] - cr) * cool; cg += (shadeRGB[1] - cg) * cool; cb += (shadeRGB[2] - cb) * cool; }
-        // crystalline grain, the odd sparkle on lit snow
-        const rv = rj();
-        const jit = (rv - 0.5) * 7;
-        cr += jit; cg += jit; cb += jit;
-        if (rv > 0.9978 && t > 0.6) { cr = 255; cg = 254; cb = 248; }
-        // translucent slush / ice skirt where the snow thins out over the glaze
-        if (solid < 1) { const w = 1 - solid; cr += (214 - cr) * w; cg += (206 - cg) * w; cb += (238 - cb) * w; }
-        const k = i * 4;
-        o[k] = cr; o[k + 1] = cg; o[k + 2] = cb; o[k + 3] = al * 255;
-      }
-    }
-    const c = L.makeCanvas(gw, gh);
-    c.getContext('2d').putImageData(img, 0, 0);
-    return c;
+  const small = L.makeCanvas(gw, gh); small.getContext('2d').putImageData(img, 0, 0);
+  const smallG = L.makeCanvas(gw, gh); smallG.getContext('2d').putImageData(glow, 0, 0);
+  const roof = L.makeCanvas(LW, LH), g = roof.getContext('2d');
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.drawImage(small, 0, 0, LW, LH);
+  // bloom: the highlights bleed a little, as they do through a lens
+  const bl = L.makeCanvas(LW, LH), bg = bl.getContext('2d');
+  bg.filter = 'blur(7px)'; bg.drawImage(smallG, 0, 0, LW, LH); bg.filter = 'none';
+  bg.globalCompositeOperation = 'destination-in'; bg.drawImage(roof, 0, 0);
+  g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.35; g.drawImage(bl, 0, 0); g.restore();
+
+  // shallow depth of field: sharp around the crest, falling away toward the sides and the bottom
+  const fx = cx + PAD, fy = a.crestY + 120 - y0;
+  const defocus = (px, r0, r1) => {
+    const b = L.blurred(roof, px), bgx = b.getContext('2d');
+    const mask = (c2, op) => {
+      c2.save(); c2.globalCompositeOperation = op; c2.translate(fx, fy); c2.scale(1, 0.72);
+      c2.fillStyle = L.radial(c2, 0, 0, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+      c2.fillRect(-4000, -4000, 8000, 8000); c2.restore();
+    };
+    mask(g, 'destination-out'); mask(bgx, 'destination-in');
+    g.save(); g.globalCompositeOperation = 'lighter'; g.drawImage(b, 0, 0); g.restore();
   };
-  const sheet = colorize(hS, aS, slS, false);
-  const cornice = colorize(hC, aC, null, true);
-  // look-ups for dressing the roof afterwards: is this frame point bare glaze / solid snow?
-  const at = (X, Y) => {
-    const gx = Math.round((X + PAD) * RES - 0.5), gy = Math.round((Y + PAD) * RES - 0.5);
-    if (gx < 2 || gy < 2 || gx >= gw - 2 || gy >= gh - 2) return null;
-    const i = gy * gw + gx;
-    return { S: SS[i], sheet: aS[i], cornice: aC[i], d: dD[i], h: hS[i] };
-  };
-  // sparkle sites: lit, solid snow
+  defocus(2.6, 400, 760);
+  defocus(7, 720, 1250);
+
+  // sites for the live twinkles
   const rs = L.rng('s25spark');
   const sparks = [];
-  let guard = 0;
-  while (sparks.length < 110 && guard++ < 6000) {
-    const X = rs.range(-40, W + 40), Y = rs.range(a.crestY - 10, H + 20);
-    const q = at(X, Y); if (!q) continue;
-    const onC = q.cornice > 0.98 && q.d > 6 && q.d < 40, onS = q.sheet > 0.98 && q.cornice < 0.01 && q.h > HS * 0.9;
-    if (!onC && !onS) continue;
-    const p = a.polar(X, Y);
-    sparks.push({ theta: p.theta, dr: p.dr, size: rs.range(0.7, 1.7) * (onC ? 1.15 : 1), ph: rs.int(0, 3), warm: rs.chance(0.45) });
-  }
-  return { sheet, cornice, gw, gh, sparks, at };
-}
-
-/** silhouette of a (low-res) snow canvas pushed down the roof and blurred → a cast shadow (still low-res; upscale when compositing) */
-function castShadow(env, src, { push, dx, blur, color }) {
-  const a = env.arc;
-  const small = L.makeCanvas(src.width, src.height), sg = small.getContext('2d');
-  const k = (a.R - push) / a.R, ccx = (a.cx + PAD) * RES, ccy = (a.cy + PAD) * RES;
-  sg.filter = `blur(${blur * RES}px)`;
-  sg.translate(ccx + dx * RES, ccy); sg.scale(k, k); sg.translate(-ccx, -ccy);
-  sg.drawImage(src, 0, 0);
-  sg.setTransform(1, 0, 0, 1, 0, 0); sg.filter = 'none';
-  sg.globalCompositeOperation = 'source-in'; sg.fillStyle = color; sg.fillRect(0, 0, small.width, small.height);
-  return small;
-}
-
-function drawIcicle(g, len, w, r) {
-  const bend = r.range(-0.07, 0.07) * len;
-  g.beginPath();
-  g.moveTo(-w / 2, -8);
-  g.quadraticCurveTo(-w * 0.3, len * 0.5, bend, len);
-  g.quadraticCurveTo(w * 0.34, len * 0.5, w / 2, -8);
-  g.closePath();
-  g.fillStyle = L.linear(g, -w / 2, 0, w / 2, 0, [[0, 'rgba(255,255,255,0.96)'], [0.28, 'rgba(232,228,248,0.82)'], [0.62, 'rgba(176,168,220,0.7)'], [1, 'rgba(122,110,184,0.85)']]);
-  g.fill();
-  g.lineCap = 'round';
-  g.strokeStyle = 'rgba(255,255,255,0.92)'; g.lineWidth = Math.max(1, w * 0.14);
-  g.beginPath(); g.moveTo(-w * 0.2, 0); g.quadraticCurveTo(-w * 0.12, len * 0.45, bend * 0.8, len * 0.84); g.stroke();
-  // the drop gathering at the tip, lit by the sunset
-  g.fillStyle = 'rgba(255,232,180,0.95)';
-  g.beginPath(); g.arc(bend, len + 1.2, Math.max(1.6, w * 0.2), 0, L.TAU); g.fill();
-}
-
-// ───────────────────────── assemble the roof layer ─────────────────────────
-function buildRoof(env, P, snow) {
-  const a = env.arc, R = a.R;
-  const LW = W + PAD * 2, LH = H + PAD * 2;
-  const sEdge = a.span(PAD + 220);
-  const topOf = (th) => P.lut(P.topL, th);
-  const edge = [];
-  { const nE = Math.ceil((2 * sEdge * R) / 3); for (let i = 0; i <= nE; i++) { const th = L.lerp(-sEdge, sEdge, i / nE); edge.push([th, topOf(th)]); } }
-  const traceEdge = (g, off) => { edge.forEach(([th, dr], i) => { const p = a.pt(th, dr + off); if (i === 0) g.moveTo(p.x, p.y); else g.lineTo(p.x, p.y); }); };
-
-  const roof = buildTiles(env, P);
-  const g = roof.getContext('2d');
-  g.setTransform(1, 0, 0, 1, PAD, PAD);
-  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
-  const full = (c, op = 'source-over', alpha = 1) => { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = op; g.globalAlpha = alpha; g.drawImage(c, 0, 0, LW, LH); g.restore(); };
-  // thin shadow of the snow sheet on the glaze, then the sheet
-  full(castShadow(env, snow.sheet, { push: 8, dx: 4, blur: 5, color: 'rgba(66,26,40,0.5)' }), 'multiply');
-  full(snow.sheet);
-  // crumbs of snow left behind on the bare glaze near the melting edges
-  const rc = L.rng('s25crumb');
-  for (let k = 0; k < 1700; k++) {
-    const X = rc.range(-PAD, W + PAD), Y = rc.range(a.crestY, H + PAD), rad = 0.9 + 2.6 * Math.pow(rc(), 3);
-    const q = snow.at(X, Y);
-    if (!q || q.cornice > 0.01 || q.S > -0.12 || q.S < -0.42) continue;
-    const sq = rc.range(0.5, 0.9), ang = rc.range(0, 3.14);
-    g.fillStyle = 'rgba(60,26,40,0.32)'; g.beginPath(); g.ellipse(X + rad * 0.45, Y + rad * 0.6, rad * 1.05, rad * sq, ang, 0, L.TAU); g.fill();
-    g.fillStyle = rc.chance(0.5) ? '#f4f1f8' : '#dedaf0'; g.beginPath(); g.ellipse(X, Y, rad, rad * sq, ang, 0, L.TAU); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.ellipse(X - rad * 0.25, Y - rad * 0.25, rad * 0.5, rad * sq * 0.5, ang, 0, L.TAU); g.fill();
-  }
-  // the cornice throws a long violet shadow down the roof (dark gold on tile, blue-violet on snow)
-  full(castShadow(env, snow.cornice, { push: 36, dx: 8, blur: 12, color: 'rgba(82,54,134,0.8)' }), 'multiply');
-  full(castShadow(env, snow.cornice, { push: 10, dx: 2, blur: 5, color: 'rgba(54,26,70,0.55)' }), 'multiply');
-  // icicles hanging from the drip lobes
-  const r = L.rng('s25ice');
-  for (const lb of P.lobes) {
-    if (!lb || lb.amp < 14 || !r.chance(0.8)) continue;
-    const th = ((lb.j + 1) * PITCH + lb.off) / R;
-    const c = P.lut(P.cL, th);
-    a.at(g, th, -(c - 8), () => drawIcicle(g, 22 + lb.amp * r.range(1.1, 2.4), r.range(8.5, 13.5), r));
-    if (r.chance(0.6)) { const o = r.range(11, 24) * r.sign(); const th2 = th + o / R; a.at(g, th2, -(P.lut(P.cL, th2) - 8), () => drawIcicle(g, r.range(18, 46), r.range(5.5, 9), r)); }
-  }
-  full(snow.cornice);
-  // warm sunset wash over the crown of the cornice
-  g.save(); g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 46, R + 6, [[0, L.rgba(C.sun, 0)], [0.45, L.rgba(C.sun, 0.14)], [0.72, L.rgba(C.sun, 0.42)], [1, L.rgba(C.sun, 0.9)]]);
-  a.pathBand(g, 8, -46, -sEdge, sEdge); g.fill();
-  g.restore();
-  // the low sun rakes in from the left: a warm breath there, the far side sinking into violet
-  g.save(); g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,230,190,0.24)'], [0.4, 'rgba(255,230,190,0)'], [0.6, 'rgba(96,70,170,0)'], [1, 'rgba(96,70,170,0.24)']]);
-  g.fillRect(-PAD, -PAD, LW, LH);
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 760, R - 260, [[0, 'rgba(70,48,130,0.3)'], [1, 'rgba(70,48,130,0)']]);
-  g.fillRect(-PAD, -PAD, LW, LH);
-  g.restore();
-  // cut the silhouette: everything above the (gently undulating) top edge goes
-  g.save(); g.globalCompositeOperation = 'destination-in';
-  g.beginPath(); traceEdge(g, 0);
-  g.lineTo(a.pt(sEdge, 0).x + 400, H + PAD + 900); g.lineTo(a.pt(-sEdge, 0).x - 400, H + PAD + 900); g.closePath();
-  g.fillStyle = '#000'; g.fill();
-  g.restore();
-  // the thread of gold light on the very top of the snow (it thins and swells along the edge)
-  const rim = L.makeLayer(PAD, (rg) => {
-    rg.lineJoin = 'round'; rg.lineCap = 'round';
-    rg.strokeStyle = '#ffc45e'; rg.lineWidth = 8; rg.beginPath(); traceEdge(rg, -4); rg.stroke();
-    rg.strokeStyle = '#fff1cc'; rg.lineWidth = 2.6; rg.beginPath(); traceEdge(rg, -1.6); rg.stroke();
-    rg.globalCompositeOperation = 'destination-in';
-    rg.imageSmoothingEnabled = true; rg.imageSmoothingQuality = 'high';
-    rg.drawImage(L.noiseTex(480, 4, { seed: 's25rim', scale: 22, octaves: 2, res: 1, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.5, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), -PAD, -PAD, LW, LH);
-  });
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop'; g.drawImage(rim, 0, 0); g.restore();
-  // … and its halo against the dusk, tucked behind the roof in the same layer (one blit per frame instead of two)
-  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-over'; g.globalAlpha = 0.8; g.drawImage(L.blurred(rim, 9), 0, 0); g.restore();
-  // glint sites: on the wet highlight of bare, sunlit tube tiles
-  const rg2 = L.rng('s25glint');
+  for (const [X, Y] of sparkC) { if (sparks.length >= 70) break; if (!rs.chance(0.6)) continue; const p = a.polar(X, Y); sparks.push({ theta: p.theta, dr: p.dr, size: rs.range(0.8, 1.7), ph: rs.int(0, 3), warm: rs.chance(0.45) }); }
   const glints = [];
-  for (let k = 0; k < 400 && glints.length < 12; k++) {
-    const rd = P.ridges[rg2.int(0, P.ridges.length - 1)], d = rg2.range(rd.c + 80, 500);
-    const hw = (HALF * (R - d)) / R, theta = rd.theta - (0.46 * hw) / (R - d);
-    const pt = a.pt(theta, -d);
-    if (pt.x < -30 || pt.x > W + 30 || pt.y > H + 10) continue;
-    const q = snow.at(pt.x, pt.y);
-    if (!q || q.S > -0.75 || q.cornice > 0.01) continue;
-    if (glints.some((o) => Math.hypot(o.x - pt.x, o.y - pt.y) < 150)) continue;
-    glints.push({ x: pt.x, y: pt.y, theta, dr: -d, size: rg2.range(0.7, 1.25), ph: rg2.int(0, 2) });
+  glintC.sort((p, q) => q[2] - p[2]);
+  for (const [X, Y] of glintC) {
+    if (glints.length >= 5) break;
+    if (X < 60 || X > W - 60 || Y > H - 40) continue;
+    if (glints.some((o2) => Math.hypot(o2.x - X, o2.y - Y) < 260)) continue;
+    const p = a.polar(X, Y); glints.push({ x: X, y: Y, theta: p.theta, dr: p.dr, size: rs.range(0.8, 1.2), ph: rs.int(0, 2) });
   }
-  // keep only the rows that can hold anything (the top of the layer is empty sky): cheaper to blit every frame
-  const y0 = Math.floor(a.crestY - 64);
-  const crop = L.makeCanvas(LW, LH - (y0 + PAD));
-  crop.getContext('2d').drawImage(roof, 0, -(y0 + PAD));
-  return { roof: crop, roofY: y0, glints };
+  return { roof, y0, sparks, glints };
 }
 
 // ───────────────────────── sky ─────────────────────────
-function buildSky(env) {
-  const a = env.arc;
+function buildSky() {
   const c = L.makeCanvas(W, H), g = c.getContext('2d');
-  g.fillStyle = C.sky; g.fillRect(0, 0, W, H);
-  // all but flat: a breath of afterglow where it meets the roof, a breath deeper toward the top
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 560, [[0, 'rgba(255,128,176,0.10)'], [0.4, 'rgba(255,128,176,0.03)'], [1, 'rgba(255,128,176,0)']]);
-  g.fillRect(0, 0, W, H);
-  g.fillStyle = L.linear(g, 0, 0, 0, 430, [[0, 'rgba(46,6,70,0.16)'], [1, 'rgba(46,6,70,0)']]);
-  g.fillRect(0, 0, W, H);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.13;
-  g.drawImage(L.noiseTex(W, H, { seed: 's25sky', scale: 460, octaves: 3, res: 0.15 }), 0, 0);
-  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.6;
-  g.drawImage(L.grainTex(W, H, { seed: 's25sky', amount: 0.13, size: 2 }), 0, 0);
+  g.fillStyle = C.sky; g.fillRect(0, 0, W, H);      // one flat sheet of colour; only a breath of paper grain
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5;
+  g.drawImage(L.grainTex(W, H, { seed: 's25sky', amount: 0.1, size: 2 }), 0, 0);
   return c;
-}
-
-/** a small four-point glint of sun on wet glaze */
-function star(ctx, x, y, rad, al) {
-  ctx.fillStyle = L.radial(ctx, x, y, 0, rad, [[0, `rgba(255,252,236,${al})`], [0.18, `rgba(255,232,160,${al * 0.5})`], [1, 'rgba(255,220,140,0)']]);
-  ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  for (const [sx, sy] of [[1, 0.07], [0.07, 1]]) {
-    ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy);
-    ctx.fillStyle = L.radial(ctx, 0, 0, 0, rad * 2.1, [[0, `rgba(255,255,246,${al})`], [0.3, `rgba(255,240,190,${al * 0.55})`], [1, 'rgba(255,230,160,0)']]);
-    ctx.fillRect(-rad * 2.1, -rad * 2.1, rad * 4.2, rad * 4.2);
-    ctx.restore();
-  }
 }
 
 export default {
@@ -485,21 +324,19 @@ export default {
   tone: 'light',
   init(env) {
     const P = makePlan(env);
-    const snow = buildSnow(env, P);
-    const { roof, roofY, glints } = buildRoof(env, P, snow);
-    S = { sky: buildSky(env), roof, roofY, sparks: snow.sparks, glints };
+    const { roof, y0, sparks, glints } = buildRoof(env, P);
+    S = { sky: buildSky(), roof, y0, sparks, glints };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.0038, 0.0038, p);
     ctx.drawImage(S.sky, 0, 0);
     // the roof slides a few px along the arc (rotation about the arc's centre), the sky holds still
-    L.cam(ctx, env, { rot }, () => ctx.drawImage(S.roof, -PAD, S.roofY));
-    // a sheen of low sun sliding along the cornice (kept on the roof so the sky stays flat)
+    L.cam(ctx, env, { rot }, () => ctx.drawImage(S.roof, -PAD, S.y0));
+    // a breath of low sun sliding along the cornice (kept on the roof so the sky stays flat)
     ctx.save(); a.clipBelow(ctx, 5);
-    const gl = a.pt(L.lerp(-0.2, -0.1, p), -24);
-    L.glow(ctx, gl.x, gl.y, 330, '#ffdca0', 0.2, 'soft-light');
-    L.glow(ctx, gl.x, gl.y, 150, '#fff0cc', 0.16, 'screen');
+    const gl = a.pt(L.lerp(-0.2, -0.1, p), -40);
+    L.glow(ctx, gl.x, gl.y, 360, '#ffdca0', 0.2, 'soft-light');
     ctx.restore();
     L.cam(ctx, env, { rot }, () => {
       ctx.globalCompositeOperation = 'lighter';
@@ -510,14 +347,13 @@ export default {
         const q = a.pt(sp.theta, sp.dr), al = k === 0 ? 0.95 : 0.5, rad = 4.5 * sp.size;
         ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, rad, [[0, L.rgba(sp.warm ? '#ffe9bd' : '#ffffff', al)], [0.25, L.rgba(sp.warm ? '#ffd58c' : '#e6e2ff', al * 0.35)], [1, 'rgba(255,255,255,0)']]);
         ctx.fillRect(q.x - rad, q.y - rad, rad * 2, rad * 2);
-        ctx.fillStyle = L.rgba('#ffffff', al);
-        ctx.fillRect(q.x - 0.9 * sp.size, q.y - 0.9 * sp.size, 1.8 * sp.size, 1.8 * sp.size);
       }
-      // sun glinting off the wet glaze: each glint swells and dies within three frames
+      // the wet glaze flaring where the sun catches it: each bloom swells and dies within three frames
       for (const gt of S.glints) {
         const k = (env.frame + gt.ph) % 3;
-        const q = a.pt(gt.theta, gt.dr);
-        star(ctx, q.x, q.y, 17 * gt.size * (k === 0 ? 1 : k === 1 ? 0.72 : 0.45), k === 0 ? 0.95 : k === 1 ? 0.7 : 0.4);
+        const q = a.pt(gt.theta, gt.dr), rad = 46 * gt.size * (k === 0 ? 1 : k === 1 ? 0.8 : 0.6), al = k === 0 ? 0.6 : k === 1 ? 0.42 : 0.25;
+        ctx.fillStyle = L.radial(ctx, q.x, q.y, 0, rad, [[0, `rgba(255,250,228,${al})`], [0.3, `rgba(255,226,150,${al * 0.4})`], [1, 'rgba(255,210,120,0)']]);
+        ctx.fillRect(q.x - rad, q.y - rad, rad * 2, rad * 2);
       }
     });
   },

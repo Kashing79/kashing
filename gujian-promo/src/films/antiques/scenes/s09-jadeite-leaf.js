@@ -1,32 +1,36 @@
-// s09 — 翡翠雕叶. The arc is the rounded outer margin of a leaf carved from jadeite, lying on beige silk twill (绫).
-// Below the arc: saturated, watery green — thin and glowing at the rim, deep toward the heart of the leaf — with an
-// incised midrib and side veins, cloudy / thread-like colour, and one smear of honey-yellow jadeite (黄翡) on the right.
+// s09 — 翡翠雕叶. A macro photograph of a leaf carved from jadeite, lying on beige silk twill (绫).
+// The arc is the leaf's rounded outer margin. Below it: saturated, watery green — thin and glowing at the rim, deep toward
+// the heart of the leaf — with a broad carved midrib and a few bold side veins, cloudy / wispy colour, and a drift of
+// honey-yellow jadeite (黄翡) that reaches the rim on the right. Above it: the silk, in focus by the rim, dissolving upward.
 //
-// The stone is shaded per pixel in init():
-//   optical depth τ = thickness (grows inward from the rim) × colour concentration (warped wisps and blotches)
-//   → looked up in a green ramp and a yellow ramp; the carved relief (vein grooves, the shallow valleys they sit in,
-//   a slow polish undulation) is a height field whose slopes pick up a soft-box reflection, lit / shaded groove walls
-//   and a little bounce from the silk. Everything is baked into one layer; draw() only slides it and moves the light.
+// The stone is shaded per pixel in init(), like a tiny renderer:
+//   relief   = pillowy lobes between the veins + U-shaped grooves + a rolled rim + slow polish undulation (a height field)
+//   colour   = optical depth τ (thickness from the rim inward × colour concentration) looked up in a green and a yellow ramp
+//   light    = one soft-box (upper left) mirrored by every slope that leans toward it, a narrow kicker (upper right),
+//              soft form shading that keeps its saturation, and a broad sheen
+// then the whole still gets a tilted depth of field (sharp along the rim, soft toward the bottom, the top and the sides).
+// draw() only slides the baked picture and lets a window of light travel across the highlights.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
-const PAD = 100;
+const PAD = 40;
 let S = null;
 
-const sstep = (a, b, v) => { const t = L.clamp((v - a) / (b - a)); return t * t * (3 - 2 * t); };
+const sstep = (a, b, v) => { let t = (v - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
 
-function quad(P0, C, P1, n, t1 = 1) {
+function quad(P0, C, P1, n) {
   const out = [];
   for (let i = 0; i <= n; i++) {
-    const t = (i / n) * t1, m = 1 - t;
+    const t = i / n, m = 1 - t;
     out.push([m * m * P0[0] + 2 * m * t * C[0] + t * t * P1[0], m * m * P0[1] + 2 * m * t * C[1] + t * t * P1[1]]);
   }
   return out;
 }
 
-/** midrib + alternate side veins. Upper veins leave the midrib steeply and sweep forward (toward the tip, off-frame right), stopping short of the rim. */
+/** midrib + side veins, cut by hand: uneven spacing, each with its own bow, reach and stopping point. */
 function buildVeins(a) {
-  const mid = L.smoothPath([[-460, 1196], [150, 1068], [640, 980], [1150, 918], [1680, 884], [2320, 872]], 8);
+  const r = L.rng('s09veins-c');
+  const mid = L.smoothPath([[-470, 1226], [130, 1098], [620, 1008], [1130, 946], [1670, 912], [2330, 898]], 8);
   const cum = [0];
   for (let i = 1; i < mid.length; i++) cum.push(cum[i - 1] + Math.hypot(mid[i][0] - mid[i - 1][0], mid[i][1] - mid[i - 1][1]));
   const total = cum[cum.length - 1];
@@ -36,31 +40,40 @@ function buildVeins(a) {
     const tx = p1[0] - p0[0], ty = p1[1] - p0[1], m = Math.hypot(tx, ty) || 1;
     return { x: L.lerp(p0[0], p1[0], k), y: L.lerp(p0[1], p1[1], k), tx: tx / m, ty: ty / m };
   };
-  const upper = (s, t1 = 1) => {
+  const wobble = (pts, amp) => {            // the cutting wheel never runs perfectly true
+    const ph = r.range(0, 6), f = r.range(0.16, 0.26), n = pts.length;
+    return pts.map(([x, y], i) => {
+      const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n - 1, i + 1)];
+      let nx = -(q[1] - p[1]), ny = q[0] - p[0]; const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
+      const w = amp * Math.sin(i * f + ph) * Math.sin(Math.PI * Math.min(1, i / (n - 1) * 1.15));
+      return [x + nx * w, y + ny * w];
+    });
+  };
+  const veins = [{ pts: mid, w0: 36, w1: 20, depth: 1 }];
+  let s = 54;
+  while (s < total - 40) {
+    // upper side vein: leaves the midrib steeply, sweeps forward (toward the tip, off-frame right), stops short of the rim
     const m = at(s), g = -a.drAt(m.x, m.y);
-    if (g < 90) return null;
-    const nx = m.ty, ny = -m.tx;                       // outward (toward the rim)
-    const C = [m.x + m.tx * 0.4 * g + nx * 0.62 * g, m.y + m.ty * 0.4 * g + ny * 0.62 * g];
-    const pol = a.polar(m.x, m.y), e = a.pt(pol.theta + (1.02 * g) / a.R, -(44 + 0.07 * g));
-    return { pts: quad([m.x, m.y], C, [e.x, e.y], 30, t1), g };
-  };
-  const lower = (s) => {
-    const m = at(s), g = 330, nx = -m.ty, ny = m.tx;   // the far half of the leaf
-    const C = [m.x + m.tx * 0.4 * g + nx * 0.62 * g, m.y + m.ty * 0.4 * g + ny * 0.62 * g];
-    const E = [m.x + m.tx * 1.05 * g + nx * 0.86 * g, m.y + m.ty * 1.05 * g + ny * 0.86 * g];
-    return { pts: quad([m.x, m.y], C, E, 26), g };
-  };
-  const veins = [{ pts: mid, w0: 18, w1: 9, depth: 1 }];
-  const SP = 236;
-  for (let s = 40; s < total - 40; s += SP) {
-    const u = upper(s);
-    if (u) veins.push({ pts: u.pts, w0: 10 * L.clamp(u.g / 300, 0.6, 1), w1: 2, depth: 0.7 });
-    const lo = lower(s + SP * 0.5);
-    veins.push({ pts: lo.pts, w0: 9.5, w1: 2, depth: 0.7 });
+    const lead = r.range(0.32, 0.46), bow = r.range(0.55, 0.69), run = r.range(0.88, 1.16), stop = r.range(42, 82);
+    if (g > 110) {
+      const nx = m.ty, ny = -m.tx;
+      const C = [m.x + m.tx * lead * g + nx * bow * g, m.y + m.ty * lead * g + ny * bow * g];
+      const pol = a.polar(m.x, m.y), e = a.pt(pol.theta + (run * g) / a.R, -(stop + 0.05 * g));
+      const pts = wobble(quad([m.x, m.y], C, [e.x, e.y], 36), 2.4);
+      const w0 = r.range(20, 25) * L.clamp(g / 300, 0.62, 1);
+      veins.push({ pts, w0, w1: 3.5, depth: r.range(0.8, 1) });
+    }
+    // the far half of the leaf: mostly out of frame and out of focus
+    const gap = r.range(214, 322);
+    const lo = at(s + gap * r.range(0.4, 0.6)), gl = r.range(300, 360), nlx = -lo.ty, nly = lo.tx;
+    veins.push({
+      pts: quad([lo.x, lo.y], [lo.x + lo.tx * 0.4 * gl + nlx * 0.62 * gl, lo.y + lo.ty * 0.4 * gl + nly * 0.62 * gl],
+        [lo.x + lo.tx * 1.05 * gl + nlx * 0.86 * gl, lo.y + lo.ty * 1.05 * gl + nly * 0.86 * gl], 26),
+      w0: r.range(18, 23), w1: 4, depth: 0.85,
+    });
+    s += gap;
   }
-  // centre line of the lobe that carries the yellow: built like a vein, run on past its end to the rim
-  const yel = upper(40 + SP * 6.5, 1.32).pts;
-  return { veins, yel };
+  return veins;
 }
 
 /** fill a tapering band along a polyline: width = lerp(w0, w1) * k + add */
@@ -69,7 +82,7 @@ function taperPoly(g, pts, w0, w1, k = 1, add = 0) {
   for (let i = 0; i < n; i++) {
     const p = pts[Math.max(0, i - 1)], q = pts[Math.min(n - 1, i + 1)];
     let nx = -(q[1] - p[1]), ny = q[0] - p[0]; const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
-    const hw = (L.lerp(w0, w1, Math.pow(i / (n - 1), 0.8)) * k + add) / 2;
+    const hw = (L.lerp(w0, w1, Math.pow(i / (n - 1), 0.85)) * k + add) / 2;
     A.push([pts[i][0] + nx * hw, pts[i][1] + ny * hw]); B.push([pts[i][0] - nx * hw, pts[i][1] - ny * hw]);
   }
   g.beginPath(); g.moveTo(A[0][0], A[0][1]);
@@ -78,15 +91,33 @@ function taperPoly(g, pts, w0, w1, k = 1, add = 0) {
   g.closePath(); g.fill();
 }
 
-function boxBlur(src, w, h) {
-  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const k = y * w + x; tmp[k] = (src[k - (x > 0 ? 1 : 0)] + src[k] + src[k + (x < w - 1 ? 1 : 0)]) / 3;
+/** separable box blur of radius r on a float field, repeated `passes` times (≈ gaussian) */
+function blurF(src, w, h, r, passes = 2) {
+  let a = src;
+  const inv = 1 / (2 * r + 1), b = new Float32Array(w * h);
+  for (let p = 0; p < passes; p++) {
+    for (let y = 0; y < h; y++) {
+      const o = y * w; let s = 0;
+      for (let x = -r; x <= r; x++) s += a[o + (x < 0 ? 0 : x >= w ? w - 1 : x)];
+      for (let x = 0; x < w; x++) {
+        b[o + x] = s * inv;
+        const xo = x - r, xi = x + r + 1;
+        s += a[o + (xi >= w ? w - 1 : xi)] - a[o + (xo < 0 ? 0 : xo)];
+      }
+    }
+    const c = new Float32Array(w * h);
+    for (let x = 0; x < w; x++) {
+      let s = 0;
+      for (let y = -r; y <= r; y++) s += b[(y < 0 ? 0 : y >= h ? h - 1 : y) * w + x];
+      for (let y = 0; y < h; y++) {
+        c[y * w + x] = s * inv;
+        const yo = y - r, yi = y + r + 1;
+        s += b[(yi >= h ? h - 1 : yi) * w + x] - b[(yo < 0 ? 0 : yo) * w + x];
+      }
+    }
+    a = c;
   }
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const k = y * w + x; out[k] = (tmp[k - (y > 0 ? w : 0)] + tmp[k] + tmp[k + (y < h - 1 ? w : 0)]) / 3;
-  }
-  return out;
+  return a;
 }
 
 const NL = 1024, TMAX = 1.6;
@@ -96,212 +127,223 @@ function lut(stops) {
   return out;
 }
 
-/** the carved jadeite: returns { leaf (padded layer, transparent above the arc), bloom (padded layer of highlights) } */
+/** the carved jadeite: returns { leaf, spec } — two canvases covering x ∈ [X0, X0+RW), y ∈ [Y0, Y0+RH) (frame coords) */
 function buildLeaf(env) {
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
-  const X0 = -PAD, Y0 = Math.floor(a.crestY) - 2;
+  const X0 = -PAD, Y0 = Math.floor(a.crestY) - 3;
   const RW = W + PAD * 2, RH = H + PAD - Y0, N = RW * RH;
-  const { veins, yel } = buildVeins(a);
+  const veins = buildVeins(a);
 
-  // ── incised grooves (full res): nested bands → a rounded U profile, 0..1 ──
+  // ── carved grooves (full res): two nested bands, blurred → a rounded U whose depth follows its width ──
   const sharp = L.makeCanvas(RW, RH), sg = sharp.getContext('2d');
   sg.fillStyle = '#000'; sg.fillRect(0, 0, RW, RH);
-  sg.translate(-X0, -Y0); sg.fillStyle = '#fff';
-  for (const v of veins) for (const [kf, al] of [[1, 0.22], [0.75, 0.487], [0.5, 0.625], [0.25, 0.867]]) {
-    sg.globalAlpha = Math.min(1, al * v.depth); taperPoly(sg, v.pts, v.w0, v.w1, kf);
-  }
+  sg.translate(-X0, -Y0); sg.fillStyle = '#fff'; sg.globalCompositeOperation = 'lighter';
+  for (const v of veins) { sg.globalAlpha = 0.5 * v.depth; taperPoly(sg, v.pts, v.w0, v.w1, 1); taperPoly(sg, v.pts, v.w0, v.w1, 0.5); }
   const gc = L.makeCanvas(RW, RH), gg = gc.getContext('2d', { willReadFrequently: true });
   gg.fillStyle = '#000'; gg.fillRect(0, 0, RW, RH);
-  gg.filter = 'blur(1.3px)'; gg.drawImage(sharp, 0, 0); gg.filter = 'none';
+  gg.filter = 'blur(3px)'; gg.drawImage(sharp, 0, 0); gg.filter = 'none';
   const Gd = gg.getImageData(0, 0, RW, RH).data;
+  let G = new Float32Array(N);
+  for (let i = 0; i < N; i++) G[i] = Gd[i * 4] / 255;
+  G = blurF(G, RW, RH, 1, 1);                       // irons out the 8-bit steps so the gloss on the groove walls stays clean
 
-  // ── the shallow valleys the veins sit in (quarter res, smoothed in float so the 8-bit steps never show in the gloss) ──
-  const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2;
-  const vs = L.makeCanvas(cw, ch), vg = vs.getContext('2d');
+  // ── the lobes between the veins (quarter res, float): near blur = the flank by the groove, far blur = the long swell ──
+  const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2, CN = cw * ch;
+  const vs = L.makeCanvas(cw, ch), vg = vs.getContext('2d', { willReadFrequently: true });
   vg.fillStyle = '#000'; vg.fillRect(0, 0, cw, ch);
-  vg.scale(1 / CS, 1 / CS); vg.translate(-X0 + CS / 2, -Y0 + CS / 2); vg.fillStyle = '#fff';   // pixel centres sit on the coarse nodes
-  for (const v of veins) taperPoly(vg, v.pts, v.w0, v.w1, 3.2, 14);
-  const vb = L.makeCanvas(cw, ch), vbg = vb.getContext('2d', { willReadFrequently: true });
-  vbg.fillStyle = '#000'; vbg.fillRect(0, 0, cw, ch);
-  vbg.filter = `blur(${22 / CS}px)`; vbg.drawImage(vs, 0, 0); vbg.filter = 'none';
-  const vd = vbg.getImageData(0, 0, cw, ch).data;
-  let Vq = new Float32Array(cw * ch);
-  for (let i = 0; i < cw * ch; i++) Vq[i] = vd[i * 4] / 255;
-  Vq = boxBlur(boxBlur(Vq, cw, ch), cw, ch);
+  vg.save(); vg.scale(1 / CS, 1 / CS); vg.translate(-X0 + CS / 2, -Y0 + CS / 2); vg.fillStyle = '#fff';   // pixel centres sit on the coarse nodes
+  for (const v of veins) { vg.globalAlpha = 0.5 + 0.5 * v.depth; taperPoly(vg, v.pts, v.w0, v.w1, 2.1, 24 * v.depth); }
+  vg.restore();
+  const vd = vg.getImageData(0, 0, cw, ch).data;
+  const V0 = new Float32Array(CN);
+  for (let i = 0; i < CN; i++) V0[i] = vd[i * 4] / 255;
+  const Va = blurF(V0, cw, ch, 5, 2), Vb = blurF(V0, cw, ch, 17, 2);
+  const Vq = new Float32Array(CN);
+  for (let i = 0; i < CN; i++) Vq[i] = 0.5 * Va[i] + 0.5 * Vb[i];
 
   // ── slow fields on the coarse grid ──
   const nA = L.makeNoise('s09a'), nB = L.makeNoise('s09b');
-  const cC = new Float32Array(cw * ch), cY = new Float32Array(cw * ch), cU = new Float32Array(cw * ch), cK = new Float32Array(cw * ch);
-  const FC = Math.cos(-0.21), FS = Math.sin(-0.21);     // the "grain" of the stone runs along the leaf
+  const cC = new Float32Array(CN), cY = new Float32Array(CN), cK = new Float32Array(CN), cP = new Float32Array(CN), cT = new Float32Array(CN), Hs = new Float32Array(CN);
+  const FC = Math.cos(-0.24), FS = Math.sin(-0.24);     // the "grain" of the stone runs along the leaf
+  // the yellow drifts up along the grain and breaks the surface at the rim
+  const yel = L.smoothPath([[0.066, -196], [0.105, -128], [0.146, -74], [0.19, -36], [0.236, -16], [0.275, -12]].map(([t, dr]) => { const p = a.pt(t, dr); return [p.x, p.y]; }), 14);
   const ny1 = yel.length - 1;
+  const AP = 23;
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const x = X0 + i * CS, y = Y0 + j * CS, k = j * cw + i;
     const u = x * FC + y * FS, v = -x * FS + y * FC;
-    const wx = 0.35 * nA.fbm(x / 700, y / 700, 2), wy = 0.35 * nA.fbm(x / 700 + 31, y / 700 - 17, 2);
-    const blotch = nA.fbm(x / 640 + 4, y / 640, 2);                         // big soft clouds of colour
-    const drift = nB.fbm(u / 900 + wx + 9, v / 150 + wy, 3);                // soft drifts along the grain
-    const thr = Math.pow(nB.ridged(u / 1100 + wx, v / 110 + wy + 5, 2), 4); // a few deeper threads (色根)
-    const mott = nA.fbm(x / 95 + 60, y / 95 - 8, 2);                         // soft granular clouding
-    cC[k] = 0.46 + 0.34 * blotch + 0.3 * drift + 0.5 * thr + 0.07 * mott;
-    cK[k] = sstep(0.28, 0.72, nA.fbm(x / 150 + 77, y / 150 + 5, 3));          // pale cottony inclusions (棉)
-    cU[k] = nB.fbm(x / 270 + 5, y / 270 - 3, 2);
-    // yellow: distance to the lobe's centre line, with a ragged cloudy boundary
+    const wx = 0.4 * nA.fbm(x / 700, y / 700, 2), wy = 0.4 * nA.fbm(x / 700 + 31, y / 700 - 17, 2);
+    const blotch = nA.fbm(x / 600 + 4, y / 600, 2);                          // big soft clouds of colour
+    const drift = nB.fbm(u / 760 + wx + 9, v / 120 + wy, 3);                 // feathery drifts along the grain
+    const root = Math.pow(nB.ridged(u / 1000 + wx, v / 150 + wy + 5, 2), 3); // a few broad deeper streaks (色根)
+    const mott = nA.fbm(x / 64 + 60, y / 64 - 8, 2);                          // granular clouding
+    cC[k] = 0.24 + 0.38 * sstep(-0.5, 0.5, blotch) + 0.3 * drift + 0.34 * root + 0.1 * mott;
+    cT[k] = 1 / (100 * (1 + 0.5 * nA.fbm(x / 340 + 70, y / 340 - 20, 2)));   // how far in the blade stays thin
+    cK[k] = sstep(0.2, 0.7, nA.fbm(u / 300 + 77, v / 90 + 5, 3));             // pale cottony wisps (棉)
+    // relief: lobes + two scales of hand-polish undulation + the blade thickening toward the midrib
+    const dd = R - Math.hypot(x - cx, y - cy);
+    const lobe = 1 + 0.32 * nB.fbm(x / 520 + 2, y / 520 + 40, 2);
+    Hs[k] = -AP * lobe * Vq[k] + 2.2 * nB.fbm(x / 300 + 5, y / 300 - 3, 2) + 0.3 * nA.fbm(x / 84 - 9, y / 84 + 3, 2) + 34 * sstep(-40, 560, dd);
+    cP[k] = 0.1 + 0.9 * sstep(-0.42, 0.3, nB.fbm(x / 260 - 30, y / 260 + 12, 2));   // how well each patch of surface took its polish
+    // yellow: distance to the drift's centre line, ragged and cloudy
     let ym = 0;
-    const nn = nA.fbm(x / 150 + 11, y / 150 + 23, 2);
-    if (x > 960 && x < 1840) {
+    if (x > 1000 && x < 1900 && y < 960) {
+      const nn = nA.fbm(x / 175 + 11, y / 175 + 23, 2), feather = nB.fbm(u / 420 + 3, v / 110 + 8, 2);
       let best = 1e12, bt = 0;
       for (let q = 0; q < ny1; q++) {
         const ax = yel[q][0], ay = yel[q][1], vx = yel[q + 1][0] - ax, vy = yel[q + 1][1] - ay;
         let tt = ((x - ax) * vx + (y - ay) * vy) / (vx * vx + vy * vy); tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
-        const ex = x - ax - vx * tt, ey = y - ay - vy * tt, dd = ex * ex + ey * ey;
-        if (dd < best) { best = dd; bt = (q + tt) / ny1; }
+        const ex = x - ax - vx * tt, ey = y - ay - vy * tt, d2 = ex * ex + ey * ey;
+        if (d2 < best) { best = d2; bt = (q + tt) / ny1; }
       }
-      const hw = L.lerp(24, 72, sstep(0.08, 0.72, bt));
-      const feather = nB.fbm(u / 260 + 3, v / 34 + 8, 2);
-      ym = sstep(0.05, 0.3, bt) * sstep(1.15, 0.3, Math.sqrt(best) / (hw * (1 + 0.32 * nn + 0.4 * feather)));
-      // a fainter fleck drifting off to the right of it
-      const fx = x - 1668, fy = y - 706;
-      ym = Math.max(ym, 0.65 * sstep(1.1, 0.25, Math.hypot(fx * 0.8 + fy * 0.5, fy * 1.15 - fx * 0.3) / (44 * (1 + 0.5 * nn))));
+      const hw = L.lerp(30, 76, sstep(0.02, 0.55, bt)) * L.lerp(1, 0.7, sstep(0.7, 1, bt));
+      const field = 1.2 - Math.sqrt(best) / hw + 0.46 * nn + 0.36 * feather;      // > 0 inside the cloud
+      ym = sstep(0, 0.22, bt) * sstep(1.0, 0.93, bt) * sstep(-0.3, 0.5, field);
+      // a fainter fleck further along
+      const fx = x - 1716, fy = y - 742;
+      ym = Math.max(ym, 0.55 * sstep(1.3, 0.2, Math.hypot(fx * 0.75 + fy * 0.5, fy * 1.2 - fx * 0.3) / (40 * (1 + 0.5 * nn))));
     }
     cY[k] = ym;
   }
-  const bil = (src, i, j) => {
-    const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * cw + i0;
-    const a0 = src[k], a1 = src[k + 1], b0 = src[k + cw], b1 = src[k + cw + 1];
-    return (a0 + (a1 - a0) * tx) * (1 - ty) + (b0 + (b1 - b0) * tx) * ty;
-  };
-
-  // ── slopes of the smooth relief, taken on the coarse grid and interpolated (so the gloss has no facets) ──
-  const AP = 14, AG = 6, AU = 3;
-  const Hs = new Float32Array(cw * ch), SX = new Float32Array(cw * ch), SY = new Float32Array(cw * ch);
-  for (let k = 0; k < cw * ch; k++) Hs[k] = AU * cU[k] - AP * Vq[k];
+  const SX = new Float32Array(CN), SY = new Float32Array(CN);
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const k = j * cw + i;
     SX[k] = (Hs[k + (i < cw - 1 ? 1 : 0)] - Hs[k - (i > 0 ? 1 : 0)]) / (2 * CS);
     SY[k] = (Hs[k + (j < ch - 1 ? cw : 0)] - Hs[k - (j > 0 ? cw : 0)]) / (2 * CS);
   }
-  const GK = AG / 255 / 2;
 
-  // "orange peel" of the polish: a tiny wobble on the normal
-  const peel = L.noiseTex(RW, RH, { seed: 's09peel', scale: 30, octaves: 2, res: 0.5, contrast: 1.4 });
-  const Pd = peel.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, RW, RH).data;
-  const POFF = 37 + 11 * RW;
+  // fine field: crystal grain inside the stone (翠性) and the "orange peel" of the polish
+  const fine = L.noiseTex(RW, RH, { seed: 's09fine', scale: 13, octaves: 2, res: 0.5, contrast: 1.5 });
+  const Pd = fine.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, RW, RH).data;
+  const PO1 = (37 + 11 * RW) * 4, PO2 = (211 + 97 * RW) * 4, N4 = N * 4;
 
-  const GRN = lut([[0, '#d6fadc'], [0.1, '#90e7ac'], [0.2, '#56da8f'], [0.32, '#24c473'], [0.46, '#14ac60'], [0.6, '#109753'],
-    [0.78, '#0c7643'], [0.98, '#0a5833'], [1.2, '#084027'], [1.6, '#042616']]);
-  const YEL = lut([[0, '#fff6cc'], [0.1, '#fae48e'], [0.22, '#f2cf5e'], [0.36, '#e8bb46'], [0.5, '#e0b040'], [0.7, '#cf972c'],
-    [0.95, '#b47a1e'], [1.6, '#8a5614']]);
+  const GRN = lut([[0, '#e2fbe2'], [0.1, '#a9efb6'], [0.2, '#74e19c'], [0.32, '#38cc7e'], [0.46, '#18b166'], [0.6, '#119b57'],
+    [0.78, '#0c7c45'], [0.98, '#0a5f36'], [1.2, '#084629'], [1.6, '#052c1a']]);
+  const YEL = lut([[0, '#fff8d6'], [0.1, '#fbe9a0'], [0.22, '#f4d66e'], [0.36, '#eac250'], [0.5, '#e0b040'], [0.7, '#d29b30'],
+    [0.95, '#b98023'], [1.6, '#8f5c17']]);
 
   // ── shade ──
   const img = new ImageData(RW, RH), d = img.data;
   const sp = new ImageData(RW, RH), sd = sp.data;
   const LX = -0.6, LY = -0.8;                 // toward the key light (upper left)
-  const S0 = 0.17;                            // the tilt that mirrors the soft-box into the lens
+  const KX = 0.72, KY = -0.694;               // toward the kicker (upper right, further back)
+  const S0 = 0.21, S2 = 0.36;                 // the tilts that mirror each lamp into the lens
+  const KP = 0.0002;                         // the soft-box is close: its mirror tilt drifts across the stone
+  const RE = 25, RK = 0.72, AG = 7.5;         // rim roll-off: width, steepness; groove depth
+  const CSi = 1 / CS;
   for (let j = 0; j < RH; j++) {
-    const ddy = cy - (Y0 + j), jm = j > 0 ? -RW : 0, jp = j < RH - 1 ? RW : 0;
+    const y = Y0 + j, ddy = cy - y, jm = j > 0 ? -RW : 0, jp = j < RH - 1 ? RW : 0;
+    const fy = j * CSi, j0 = fy | 0, ty0 = fy - j0, rowK = j0 * cw;
     for (let i = 0; i < RW; i++) {
-      const ddx = X0 + i - cx, rr = Math.sqrt(ddx * ddx + ddy * ddy);
+      const x = X0 + i, ddx = x - cx, rr = Math.sqrt(ddx * ddx + ddy * ddy);
       let dd = R - rr;
       if (dd < -2) continue;
       if (dd < 0) dd = 0;
       const k = j * RW + i, o = k * 4;
-      const hx = bil(SX, i, j) - (Gd[o + (i < RW - 1 ? 4 : 0)] - Gd[o - (i > 0 ? 4 : 0)]) * GK;
-      const hy = bil(SY, i, j) - (Gd[o + jp * 4] - Gd[o + jm * 4]) * GK;
-      const p1 = (Pd[o] - 128) / 128, p2 = (Pd[((k + POFF) % N) * 4] - 128) / 128;
-      const nx = -hx + 0.004 * p1, ny = -hy + 0.004 * p2;
-      const grv = Gd[o] / 255, val = bil(Vq, i, j);
-      const ym = bil(cY, i, j), cot = bil(cK, i, j);
-      let C = bil(cC, i, j); C += (0.42 - C) * 0.65 * ym;                // the yellow is clearer, more even
-      const f = nx * LX + ny * LY;                                      // > 0: tilted toward the light
-      const lit = f > 0.22 ? 1 : f < -0.22 ? -1 : f / 0.22;
-      // optical depth
-      const rimT = 0.2 + 0.8 * Math.pow(sstep(0, 46, dd), 0.75);
-      const Tb = 0.3 + 0.9 * sstep(0, 440, dd);
-      let tau = Tb * (0.36 + C) * rimT + 0.34 * grv + 0.05 * val + 0.12 * lit;   // the side turned from the light glows from within
-      if (dd < 2.4) tau += 0.32 * (1 - dd / 2.4);                       // the limb itself: a fine darker line
+      // bilinear weights on the coarse grid
+      const fx = i * CSi, i0 = fx | 0, tx0 = fx - i0, kk = rowK + i0;
+      const w00 = (1 - tx0) * (1 - ty0), w10 = tx0 * (1 - ty0), w01 = (1 - tx0) * ty0, w11 = tx0 * ty0;
+      const sx = SX[kk] * w00 + SX[kk + 1] * w10 + SX[kk + cw] * w01 + SX[kk + cw + 1] * w11;
+      const sy = SY[kk] * w00 + SY[kk + 1] * w10 + SY[kk + cw] * w01 + SY[kk + cw + 1] * w11;
+      const val = Vq[kk] * w00 + Vq[kk + 1] * w10 + Vq[kk + cw] * w01 + Vq[kk + cw + 1] * w11;
+      const ym = cY[kk] * w00 + cY[kk + 1] * w10 + cY[kk + cw] * w01 + cY[kk + cw + 1] * w11;
+      const C0 = cC[kk] * w00 + cC[kk + 1] * w10 + cC[kk + cw] * w01 + cC[kk + cw + 1] * w11;
+      const cot = cK[kk] * w00 + cK[kk + 1] * w10 + cK[kk + cw] * w01 + cK[kk + cw + 1] * w11;
+      const pol = cP[kk] * w00 + cP[kk + 1] * w10 + cP[kk + cw] * w01 + cP[kk + cw + 1] * w11;
+      const thn = cT[kk] * w00 + cT[kk + 1] * w10 + cT[kk + cw] * w01 + cT[kk + cw + 1] * w11;
+      const grv = G[k];
+      const p0 = (Pd[o] - 128) / 128, p1 = (Pd[(o + PO1) % N4] - 128) / 128, p2 = (Pd[(o + PO2) % N4] - 128) / 128;
+      // which way the surface leans (−∇height): lobes, groove walls, the rolled rim, polish
+      let ro = 0;
+      if (dd < RE) { const u1 = 1 - dd / RE; ro = RK * u1 / Math.sqrt(1 - u1 * u1 + 0.03); }
+      const tx = -sx + (G[k + (i < RW - 1 ? 1 : 0)] - G[k - (i > 0 ? 1 : 0)]) * (AG / 2) + (ro * ddx) / rr + 0.0045 * p1;
+      const ty = -sy + (G[k + jp] - G[k + jm]) * (AG / 2) - (ro * ddy) / rr + 0.0045 * p2;
+      const f = tx * LX + ty * LY;            // > 0: leaning toward the key light
+      const fl = f / (0.26 + (f < 0 ? -f : f));
+      // optical depth → body colour
+      const C = C0 + (0.34 - C0) * 0.75 * ym;  // the yellow is clearer, more even
+      const Tb = 0.15 + 0.66 * (1 - Math.exp(-dd * thn)) + 0.62 * sstep(120, 520, dd);
+      let tau = Tb * (0.3 + C) * (1 - 1.1 * ym * (1 - ym)) + 0.3 * grv + 0.07 * val - 0.05 * fl;   // a paler seam where yellow meets green
+      if (dd < 3) tau += 0.34 * (1 - dd / 3);  // the limb itself: a fine deeper line
       if (tau < 0) tau = 0;
-      const li = (Math.min(TMAX, tau) / TMAX * (NL - 1) | 0) * 3, ly = (Math.min(0.66, tau * 0.64) / TMAX * (NL - 1) | 0) * 3;
+      const li = (Math.min(TMAX, tau) / TMAX * (NL - 1) | 0) * 3, ly = (Math.min(0.7, tau * 0.66) / TMAX * (NL - 1) | 0) * 3;
       let cr = GRN[li] + (YEL[ly] - GRN[li]) * ym, cg = GRN[li + 1] + (YEL[ly + 1] - GRN[li + 1]) * ym, cb = GRN[li + 2] + (YEL[ly + 2] - GRN[li + 2]) * ym;
-      const ck = 0.07 * cot * (1 - grv) * (1 - ym);
-      cr += (214 - cr) * ck; cg += (246 - cg) * ck; cb += (224 - cb) * ck;
-      // relief: soft form shading, groove walls lit / in shade
-      const wallS = sstep(0.3, 0.8, f), wallD = sstep(0.28, 0.85, -f);
-      const sh = (1 + 0.05 * lit) * (1 - 0.5 * wallD) * (1 - 0.2 * grv);
-      cr *= sh; cg *= sh; cb *= sh;
-      // gloss: every shoulder that leans toward the soft-box carries a streak of it; a wide sheen round that; the lit wall of each groove
-      const sl = Math.sqrt(nx * nx + ny * ny) + 1e-6, ca = f / sl, an = ca >= 1 ? 0 : Math.acos(ca);
-      const er = (Math.min(sl, S0) - S0) / 0.03, ea = an / 0.46;
-      const G = Math.exp(-er * er - ea * ea);
-      const inner = sstep(10, 40, dd);
-      let spec = (0.9 * sstep(0.5, 0.84, G) + 0.1 * G) * inner * (1 - 0.6 * wallS) + 0.72 * wallS;
-      // bounce from the silk on slopes facing away
-      const fx2 = nx - 0.1, fy2 = ny - 0.12, fill = 0.07 * Math.exp(-(fx2 * fx2 + fy2 * fy2) / 0.006) * inner;
-      cr += 233 * fill; cg += 223 * fill; cb += 198 * fill;
-      // the glassy line riding the rounded rim
-      const th = ddx / R, rz = (dd - 6.2) / 1.9;
-      const rim = Math.exp(-rz * rz) * (0.3 + 0.34 * Math.exp(-((th + 0.14) / 0.1) * ((th + 0.14) / 0.1)));
-      spec += rim;
+      const ck = 0.1 * cot * (1 - grv) * (1 - ym);
+      cr += (212 - cr) * ck; cg += (244 - cg) * ck; cb += (220 - cb) * ck;
+      // form shading: soft, and the shade keeps its colour (light scatters through the stone)
+      const dsh = (1 + 0.15 * fl) * (1 - 0.24 * grv) * (1 - 0.07 * val) * (1 + 0.05 * p0) - 1;
+      cr *= 1 + 1.25 * dsh; cg *= 1 + 0.85 * dsh; cb *= 1 + 1.12 * dsh;
+      // gloss: the soft-box (a window with one glazing bar) mirrored wherever a slope leans the right way
+      const qx = tx - (S0 * LX + KP * (x - 660)), qy = ty - (S0 * LY + KP * (y - 700));
+      const du = qx * LX + qy * LY, dv = -qx * LY + qy * LX;
+      const adu = du < 0 ? -du : du, adv = dv < 0 ? -dv : dv;
+      const deep = 1 - 0.8 * sstep(230, 480, dd), flat = 1 - sstep(0.03, 0.22, grv);
+      let w1 = 0;
+      if (adu < 0.09 && adv < 0.21) w1 = sstep(0.086, 0.018, adu) * sstep(0.2, 0.08, adv) * pol * deep * flat;
+      const wall = 0.5 * sstep(0.3, 0.78, f) * sstep(0.04, 0.3, grv) * (0.4 + 0.6 * pol) * deep;   // the lit wall of each groove
+      const sheen = Math.exp(-(du * du + 0.4 * dv * dv) / 0.016) * deep;
+      const q2x = tx - S2 * KX, q2y = ty - S2 * KY;
+      const du2 = q2x * KX + q2y * KY, dv2 = -q2x * KY + q2y * KX;
+      const w2 = Math.exp(-(du2 * du2) / 0.0022 - (dv2 * dv2) / 0.02);
+      let spec = 0.88 * w1 + wall + 0.4 * w2 * flat + 0.06 * sheen;
       if (spec > 1) spec = 1;
-      d[o] = cr + (255 - cr) * spec; d[o + 1] = cg + (255 - cg) * spec; d[o + 2] = cb + (250 - cb) * spec; d[o + 3] = 255;
-      sd[o] = 236; sd[o + 1] = 255; sd[o + 2] = 240; sd[o + 3] = 255 * spec;
+      d[o] = cr + (255 - cr) * spec; d[o + 1] = cg + (254 - cg) * spec; d[o + 2] = cb + (243 - cb) * spec; d[o + 3] = 255;
+      const sa = 0.88 * w1 + 0.6 * wall + 0.4 * w2 * flat;
+      sd[o] = 240; sd[o + 1] = 255; sd[o + 2] = 236; sd[o + 3] = 255 * (sa > 1 ? 1 : sa);
     }
   }
-  const cnv = L.makeCanvas(RW, RH); cnv.getContext('2d').putImageData(img, 0, 0);
-  const scv = L.makeCanvas(RW, RH); scv.getContext('2d').putImageData(sp, 0, 0);
-
-  const leaf = L.makeLayer(PAD, (g) => {
-    g.save(); a.clipBelow(g, 0);
-    g.drawImage(cnv, X0, Y0);
-    // crystalline grain inside the stone (翠性), very fine
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.1;
-    g.drawImage(L.noiseTex(RW, RH, { seed: 's09grain', scale: 6, octaves: 2, res: 0.5, contrast: 1.5 }), X0, Y0);
-    g.restore();
-  });
-  const bloom = L.makeLayer(PAD, (g) => {
-    g.save(); a.clipBelow(g, 0);
-    g.filter = 'blur(13px)'; g.drawImage(scv, X0, Y0); g.filter = 'none';
-    g.restore();
-  });
-  return { leaf, bloom };
+  const leaf = L.makeCanvas(RW, RH); leaf.getContext('2d').putImageData(img, 0, 0);
+  const spec = L.makeCanvas(RW, RH); spec.getContext('2d').putImageData(sp, 0, 0);
+  return { leaf, spec, X0, Y0, RW, RH };
 }
 
-/** beige silk twill: fine diagonal weave, long soft bands of lustre. Covers everything above the arc (plus a margin). */
+/**
+ * beige silk twill: diagonal ribs with uneven yarns, long soft bands of lustre, light falling off from the upper left,
+ * and the leaf's close green-tinged shadow hugging the rim. Covers everything above the arc (plus a margin).
+ */
 function buildSilk(env) {
-  const a = env.arc;
-  const X0 = -PAD, Y0 = -PAD, RW = W + PAD * 2, RH = Math.ceil(a.yAt(X0)) + 16 - Y0;
+  const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
+  const X0 = -PAD, Y0 = -PAD, RW = W + PAD * 2, RH = Math.ceil(a.yAt(X0)) + 10 - Y0;
   const nz = L.makeNoise('s09silk');
   const CS = 8, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2;
   const cS = new Float32Array(cw * ch), cF = new Float32Array(cw * ch);
   const CA = Math.cos(L.deg(33)), SA = Math.sin(L.deg(33));
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const x = X0 + i * CS, y = Y0 + j * CS, u = x * CA + y * SA, v = -x * SA + y * CA;
-    cS[j * cw + i] = nz.fbm(u / 3400 + 3, v / 170, 2);
-    cF[j * cw + i] = nz.fbm(x / 800 + 40, y / 620 - 7, 2);
+    cS[j * cw + i] = nz.fbm(u / 3000 + 3, v / 190, 2);
+    cF[j * cw + i] = nz.fbm(x / 900 + 40, y / 520 - 7, 2);
   }
-  const bil = (src, i, j) => {
-    const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * cw + i0;
-    const a0 = src[k], a1 = src[k + 1], b0 = src[k + cw], b1 = src[k + cw + 1];
-    return (a0 + (a1 - a0) * tx) * (1 - ty) + (b0 + (b1 - b0) * tx) * ty;
-  };
   // yarn irregularity along warp and weft
   const r = L.rng('s09yarn'), rowJ = new Float32Array(RH), colJ = new Float32Array(RW);
-  let pv = 0; for (let y = 0; y < RH; y++) { pv = pv * 0.55 + r.gauss() * 0.45; rowJ[y] = pv; }
-  pv = 0; for (let x = 0; x < RW; x++) { pv = pv * 0.55 + r.gauss() * 0.45; colJ[x] = pv; }
+  let pv = 0; for (let y = 0; y < RH; y++) { pv = pv * 0.6 + r.gauss() * 0.4; rowJ[y] = pv; }
+  pv = 0; for (let x = 0; x < RW; x++) { pv = pv * 0.6 + r.gauss() * 0.4; colJ[x] = pv; }
   const img = new ImageData(RW, RH), d = img.data;
-  const PITCH = 6.2;
+  const PITCH = 8.6, CSi = 1 / CS;
   for (let j = 0; j < RH; j++) {
-    const y = Y0 + j;
+    const y = Y0 + j, ddy = cy - y;
+    const fy = j * CSi, j0 = fy | 0, ty0 = fy - j0, rowK = j0 * cw;
     for (let i = 0; i < RW; i++) {
-      const x = X0 + i;
-      const lustre = sstep(-0.5, 0.5, bil(cS, i, j)), fold = bil(cF, i, j);
+      const x = X0 + i, ddx = x - cx;
+      const out = Math.sqrt(ddx * ddx + ddy * ddy) - R;      // > 0 above the rim
+      if (out < -4) continue;
+      const fx = i * CSi, i0 = fx | 0, tx0 = fx - i0, kk = rowK + i0;
+      const w00 = (1 - tx0) * (1 - ty0), w10 = tx0 * (1 - ty0), w01 = (1 - tx0) * ty0, w11 = tx0 * ty0;
+      const lustre = sstep(-0.55, 0.55, cS[kk] * w00 + cS[kk + 1] * w10 + cS[kk + cw] * w01 + cS[kk + cw + 1] * w11);
+      const fold = cF[kk] * w00 + cF[kk + 1] * w10 + cF[kk + cw] * w01 + cF[kk + cw + 1] * w11;
       const up = (-x * SA + y * CA) / PITCH, al = x * CA + y * SA;
-      const ridge = Math.sin(L.TAU * up), knot = Math.sin(al * 0.62 + Math.floor(up + 0.25) * 2.4);
-      const dl = 0.024 * lustre - 0.01 + 0.004 * fold
-        + ridge * (0.02 + 0.024 * lustre) * (0.72 + 0.28 * knot)
-        + rowJ[j] * 0.009 + colJ[i] * 0.007
-        + 0.03 - 0.05 * ((x / W) * 0.7 + (y / 760) * 0.3);
+      const ridge = Math.sin(L.TAU * up), knot = Math.sin(al * 0.46 + Math.floor(up + 0.25) * 2.4);
+      const dl = 0.02 * lustre - 0.008 + 0.024 * fold
+        + ridge * (0.024 + 0.026 * lustre) * (0.7 + 0.3 * knot)
+        + rowJ[j] * 0.011 + colJ[i] * 0.008
+        + 0.04 - 0.075 * ((x / W) * 0.62 + (y / 760) * 0.38);
+      let cr = 234 * (1 + dl), cg = 224 * (1 + 1.08 * dl), cb = 199 * (1 + 1.4 * dl);
+      if (out < 120) {
+        const side = sstep(-0.3, 0.36, ddx / R), dp = out < 0 ? 0 : out;     // the shadow opens out on the side away from the lamp
+        const sh = 0.36 * Math.exp(-dp / 4) + (0.08 + 0.2 * side) * Math.exp(-dp / (11 + 24 * side));
+        cr *= 1 - 0.66 * sh; cg *= 1 - 0.34 * sh; cb *= 1 - 0.62 * sh;
+      }
       const o = (j * RW + i) * 4;
-      d[o] = 233 * (1 + dl); d[o + 1] = 223 * (1 + 1.1 * dl); d[o + 2] = 198 * (1 + 1.45 * dl); d[o + 3] = 255;
+      d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = 255;
     }
   }
   const c = L.makeCanvas(RW, RH); c.getContext('2d').putImageData(img, 0, 0);
@@ -312,48 +354,72 @@ export default {
   name: '翡翠雕叶',
   tone: 'dark',
   init(env) {
+    const a = env.arc;
+    const T0 = performance.now();
     const silk = buildSilk(env);
-    const { leaf, bloom } = buildLeaf(env);
-    // light that has passed through the stone falls on the silk as a green (and, by the yellow, honey) shadow
-    const shWide = L.blurred(leaf, 20), shTight = L.blurred(leaf, 5);
-    const wg = shWide.getContext('2d');            // the key light is upper left → the cast colour gathers toward the right
-    wg.globalCompositeOperation = 'destination-in';
-    wg.fillStyle = L.linear(wg, PAD, 0, PAD + W, 0, [[0, 'rgba(0,0,0,0.3)'], [0.2, 'rgba(0,0,0,0.5)'], [0.36, 'rgba(0,0,0,0.34)'], [0.6, 'rgba(0,0,0,0.85)'], [0.8, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0.8)']]);
-    wg.fillRect(0, 0, shWide.width, shWide.height);
+    const T1 = performance.now();
+    const { leaf, spec, X0, Y0, RW, RH } = buildLeaf(env);
+    const T2 = performance.now();
+    // highlights bloom a little in the lens
+    const GW = RW >> 1, GH = RH >> 1;
+    const glint = L.makeCanvas(GW, GH), gl = glint.getContext('2d');
+    gl.imageSmoothingQuality = 'high';
+    gl.filter = 'blur(4.5px)'; gl.drawImage(spec, 0, 0, GW, GH); gl.filter = 'none';
     const base = L.makeLayer(PAD, (g) => {
       g.drawImage(silk, -PAD, -PAD);
-      g.globalCompositeOperation = 'multiply';
-      g.globalAlpha = 0.46; g.drawImage(shWide, -PAD + 9, -PAD - 11);
-      g.globalAlpha = 0.5; g.drawImage(shTight, -PAD + 1.5, -PAD - 3.5);
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-      g.drawImage(leaf, -PAD, -PAD);
-      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.5;
-      g.drawImage(bloom, -PAD, -PAD);
-      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+      g.save(); a.clipBelow(g, 0);
+      g.drawImage(leaf, X0, Y0);
+      g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.32;
+      g.drawImage(glint, X0, Y0, RW, RH);
+      g.restore();
     });
-    S = { base };
+    // ── depth of field: the plane of focus lies along the rim; the picture softens toward the bottom, the top and the sides ──
+    const bw = base.width, bh = base.height;
+    const mask = (src, stops, side) => {
+      const m = L.makeCanvas(bw, bh), g = m.getContext('2d');
+      const r0 = a.R - 560, r1 = a.R + 640;
+      g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, r0, r1, stops.map(([dr, al]) => [(a.R + dr - r0) / (r1 - r0), `rgba(0,0,0,${al})`]));
+      g.fillRect(0, 0, bw, bh);
+      g.fillStyle = L.linear(g, PAD, 0, PAD + W, 0, [[0, `rgba(0,0,0,${side})`], [0.2, 'rgba(0,0,0,0)'], [0.8, 'rgba(0,0,0,0)'], [1, `rgba(0,0,0,${side})`]]);
+      g.fillRect(0, 0, bw, bh);
+      g.globalCompositeOperation = 'source-in';
+      g.drawImage(src, 0, 0, bw, bh);
+      return m;
+    };
+    const half = L.makeCanvas(bw >> 1, bh >> 1), hg = half.getContext('2d');
+    hg.imageSmoothingQuality = 'high';
+    hg.filter = 'blur(4px)'; hg.drawImage(base, 0, 0, bw >> 1, bh >> 1); hg.filter = 'none';
+    const soft = mask(L.blurred(base, 2.6), [[-560, 1], [-430, 1], [-250, 0], [46, 0], [170, 1], [640, 1]], 0.55);
+    const far = mask(half, [[-560, 1], [-530, 0.9], [-350, 0], [150, 0], [330, 0.85], [640, 1]], 0.3);
+    const bg = base.getContext('2d');
+    bg.save(); bg.setTransform(1, 0, 0, 1, 0, 0);
+    bg.drawImage(soft, 0, 0); bg.drawImage(far, 0, 0);
+    bg.restore();
+    const scratch = L.makeCanvas(GW, GH);
+    S = { base, glint, scratch, sg: scratch.getContext('2d'), X0, Y0, RW, RH, GW, GH };
+    console.warn(`s09 timing: silk ${(T1 - T0) | 0}  leaf ${(T2 - T1) | 0}  comp ${(performance.now() - T2) | 0}`);
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.0042, 0.0042, p), zoom = L.lerp(1.0, 1.012, p);
     L.blit(ctx, env, S.base, { rot, zoom });
     const br = Math.sin(p * Math.PI);                 // the light inside swells, then settles
-    L.cam(ctx, env, { zoom }, () => {
+    // a window of light travels along the leaf: the highlights under it flare
+    const sg = S.sg, pk = L.lerp(0.22, 0.44, p);
+    sg.globalCompositeOperation = 'copy'; sg.drawImage(S.glint, 0, 0);
+    sg.globalCompositeOperation = 'destination-in';
+    sg.fillStyle = L.linear(sg, 0, 0, S.GW, 0, [[0, 'rgba(0,0,0,0)'], [Math.max(0, pk - 0.2), 'rgba(0,0,0,0.06)'], [pk, 'rgba(0,0,0,1)'], [pk + 0.22, 'rgba(0,0,0,0.08)'], [1, 'rgba(0,0,0,0)']]);
+    sg.fillRect(0, 0, S.GW, S.GH);
+    L.cam(ctx, env, { rot, zoom }, () => {
       ctx.save(); a.clipBelow(ctx, -0.5);
       ctx.globalCompositeOperation = 'screen';
+      ctx.globalAlpha = 0.75; ctx.drawImage(S.scratch, S.X0, S.Y0, S.RW, S.RH); ctx.globalAlpha = 1;
       // transmitted light pooling under the rim
-      a.at(ctx, L.lerp(-0.14, -0.05, p), -150, () => {
+      a.at(ctx, L.lerp(-0.13, -0.05, p), -130, () => {
         ctx.scale(2.7, 1);
-        ctx.fillStyle = L.radial(ctx, 0, 0, 0, 300, [[0, L.rgba('#7fe0a0', 0.06 + 0.1 * br)], [0.5, L.rgba('#3fd088', 0.03 + 0.05 * br)], [1, 'rgba(60,200,130,0)']]);
-        ctx.fillRect(-320, -320, 640, 640);
+        ctx.fillStyle = L.radial(ctx, 0, 0, 0, 290, [[0, L.rgba('#7fe0a0', 0.05 + 0.09 * br)], [0.5, L.rgba('#3fd088', 0.025 + 0.045 * br)], [1, 'rgba(60,200,130,0)']]);
+        ctx.fillRect(-310, -310, 620, 620);
       });
-      // the glassy highlight travelling along the rim
-      const pk = L.lerp(0.25, 0.4, p);
-      const grad = (al) => L.linear(ctx, 0, 0, W, 0, [[0, 'rgba(246,255,244,0)'], [Math.max(0, pk - 0.17), `rgba(246,255,244,${0.08 * al})`],
-        [pk, `rgba(246,255,244,${al})`], [pk + 0.2, `rgba(246,255,244,${0.1 * al})`], [1, 'rgba(246,255,244,0)']]);
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = grad(0.3); ctx.lineWidth = 13; a.stroke(ctx, -9);
-      ctx.strokeStyle = grad(0.95); ctx.lineWidth = 3.2; a.stroke(ctx, -6);
       ctx.restore();
     });
   },

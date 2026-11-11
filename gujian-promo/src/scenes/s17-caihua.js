@@ -6,9 +6,10 @@
 //                青/绿 alternate ring by ring and flower by flower; every 旋瓣 is tucked under the next one (the whirl
 //                that gives 旋子 its name) and steps deep → mid → light → white line (退晕);
 //                the 旋眼 and the little 菱角地 grounds left between the circles are gilded.
-//   above      : the vermilion-lacquered board (垫板) with fine 断纹 cracks — kept calm for the tagline
-// Everything is painted flat first, then aged: mineral-pigment grain, craquelure whose cells sometimes flake off to the
-// grey 地仗 ground, relief lighting from a height map (raised 沥粉 lines, thick white 粉 lines), gold-leaf glitter.
+//   above      : the vermilion-lacquered board (垫板): ONE even field of 朱 with hairline 断纹 — kept calm for the tagline
+// Everything is painted flat first, then aged: mineral-pigment grain, craquelure (a few cells flaked off to the pale 地仗
+// ground, only out toward the ends), relief lighting from a height map (raised 沥粉 lines, thick white 粉 lines), gold-leaf
+// glitter; finally a shallow depth of field — sharp round the crest, soft toward both ends and the corners.
 import * as L from '../lib/core.js';
 
 const { W, H, TAU } = L;
@@ -201,32 +202,49 @@ function tint(src, color) {
   return c;
 }
 
+const GAP = 8;    // dark ground left between a rosette's gilded rim and the gilded 菱角地 beside it
+
+/** the gilding, in two sheets: `raised` = 沥粉 lines, rims and 旋眼 (they stand proud); `flat` = the leaf laid on the 菱角地 */
 function buildGold(env) {
   const a = env.arc, s = a.span(PAD + 320), B = botRect(a);
-  return L.makeLayer(PAD, (g) => {
-    // 菱角地: gild whatever ground is left between the circles
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R + FZ1, a.R + FZ0, [[0, '#9c6a16'], [0.5, '#cb962b'], [1, '#deae3f']]);
-    a.pathBand(g, FZ0 + 1, FZ1 - 1, -s, s); g.fill();
+  const leaf = (g, seed, scale, alpha) => {
+    // gold leaf: uneven burnish, worn spots where the red bole shows, pin-point glitter
+    g.globalCompositeOperation = 'source-atop';
+    g.globalAlpha = alpha;
+    g.drawImage(rectNoise(env, B, { seed, scale, octaves: 3, res: 0.33, contrast: 1.8,
+      ramp: [[0, 'rgba(92,50,6,0.95)'], [0.4, 'rgba(190,130,30,0)'], [0.66, 'rgba(255,240,170,0)'], [1, 'rgba(255,249,206,0.9)']] }), B.x, B.y);
+    g.globalAlpha = 1;
+  };
+  const flat = L.makeLayer(PAD, (g) => {
+    // 菱角地: the little grounds left between the circles, gilded; each keeps a dark margin so the rosettes stay青绿-led
+    g.fillStyle = L.linear(g, 0, a.crestY, W, H + 200, [[0, '#f8d76c'], [0.45, '#e6b43e'], [1, '#b98422']]);
+    a.pathBand(g, FZ0 - GAP + 2, FZ1 + GAP - 2, -s, s); g.fill();
     g.globalCompositeOperation = 'destination-out';
-    eachFlower(a, (th, dr, r) => a.at(g, th, dr, () => disc(g, 0, 0, r - 1.5, '#000')));
-    g.globalCompositeOperation = 'source-over';
+    eachFlower(a, (th, dr, r) => a.at(g, th, dr, () => disc(g, 0, 0, r + GAP, '#000')));
+    leaf(g, 's17leafF', 62, 0.55);
+    L.speckle(g, { seed: 's17boleF', count: 420, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.8, rMax: 3.4, colors: ['#8a3413', '#6a2c0c', '#a2541a'], alpha: [0.2, 0.7] });
+    L.speckle(g, { seed: 's17glitF', count: 2600, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.5, rMax: 1.4, colors: ['#fffbe0', '#fff2ae', '#ffffff'], alpha: [0.3, 0.95] });
+  });
+  const raised = L.makeLayer(PAD, (g) => {
     // 沥粉 rims and gilded 旋眼
+    const br = L.rng('s17boss');
     g.save(); a.clipBand(g, FZ0 + 2, FZ1 - 2, -s, s);
-    eachFlower(a, (th, dr, r) => a.at(g, th, dr, () => { g.scale(r / RW, r / RW); goldRing(g, RW - 3.5, 7); goldBoss(g, RW * 0.2, 7); }));
+    eachFlower(a, (th, dr, r) => a.at(g, th, dr, () => {
+      g.scale(r / RW, r / RW); goldRing(g, RW - 3.5, 7);
+      g.translate(br.range(-2, 2), br.range(-2, 2)); g.rotate(br.range(-0.4, 0.4)); goldBoss(g, RW * 0.2 * br.range(0.93, 1.07), 7);
+    }));
     g.restore();
     goldBand(g, a, 0, BEAD, s);
     goldBand(g, a, B_TOP - BAND, LINE, s);
     goldBand(g, a, FZ1, LINE, s);
     goldBand(g, a, BEAD2, BEAD, s);
-    // gold leaf: uneven burnish, worn spots where the red bole shows, pin-point glitter
-    g.globalCompositeOperation = 'source-atop';
-    g.globalAlpha = 0.6;
-    g.drawImage(rectNoise(env, B, { seed: 's17leaf', scale: 30, octaves: 3, res: 0.33, contrast: 1.7,
-      ramp: [[0, 'rgba(96,52,6,0.95)'], [0.42, 'rgba(190,130,30,0)'], [0.68, 'rgba(255,240,170,0)'], [1, 'rgba(255,248,200,0.85)']] }), B.x, B.y);
-    g.globalAlpha = 1;
-    L.speckle(g, { seed: 's17bole', count: 3000, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.7, rMax: 3.2, colors: ['#8a3413', '#5d2a0c', '#a2541a'], alpha: [0.25, 0.8] });
-    L.speckle(g, { seed: 's17glit', count: 6500, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.5, rMax: 1.5, colors: ['#fffbe0', '#fff2ae', '#ffffff'], alpha: [0.35, 1] });
+    leaf(g, 's17leaf', 34, 0.62);
+    L.speckle(g, { seed: 's17bole', count: 2200, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.7, rMax: 3.0, colors: ['#8a3413', '#5d2a0c', '#a2541a'], alpha: [0.22, 0.75] });
+    L.speckle(g, { seed: 's17glit', count: 5000, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.5, rMax: 1.5, colors: ['#fffbe0', '#fff2ae', '#ffffff'], alpha: [0.35, 1] });
   });
+  const all = L.makeLayer(PAD);
+  const ag = all.getContext('2d'); ag.drawImage(flat, -PAD, -PAD); ag.drawImage(raised, -PAD, -PAD);
+  return { flat, raised, all };
 }
 
 /** glitter that only exists where there is gold; two of these cross-fade → the leaf twinkles. Covers botRect only. */
@@ -258,13 +276,12 @@ function blitAt(ctx, env, img, x0, y0, { rot = 0, zoom = 1, alpha = 1, blend = '
   ctx.restore();
 }
 
-// ───────────────────────── ageing: craquelure + flaked cells ─────────────────────────
+// ───────────────────────── ageing of the painted beam: craquelure + a few flaked cells ─────────────────────────
 function buildAging(env) {
   const a = env.arc, res = 0.7;
   const cw = Math.round(FW * res), ch = Math.round(FH * res);
   const nz = L.makeNoise('s17zone');
   const cImg = new ImageData(cw, ch), fImg = new ImageData(cw, ch), cd = cImg.data, fd = fImg.data;
-  const tzY = a.crestY - 135;
   // slow fields on a coarse grid
   const CS = 6, gw = Math.ceil(cw / CS) + 2, gh = Math.ceil(ch / CS) + 2;
   const zf = new Float32Array(gw * gh), wx = new Float32Array(gw * gh), wy = new Float32Array(gw * gh);
@@ -278,31 +295,25 @@ function buildAging(env) {
     const fx = x / CS, fy = y / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * gw + i0;
     return (src[k] + (src[k + 1] - src[k]) * tx) * (1 - ty) + (src[k + gw] + (src[k + gw + 1] - src[k + gw]) * tx) * ty;
   };
-  let i = 0;
-  for (let y = 0; y < ch; y++) {
+  const y0 = Math.max(0, Math.floor((a.crestY - 4 + PAD) * res));
+  let i = y0 * cw * 4;
+  for (let y = y0; y < ch; y++) {
     const fy = y / res - PAD;
     for (let x = 0; x < cw; x++, i += 4) {
       const fx = x / res - PAD, ddx = fx - a.cx, ddy = a.cy - fy;
-      const u = Math.atan2(ddx, ddy) * a.R, v = a.R - Math.sqrt(ddx * ddx + ddy * ddy);
+      const v = a.R - Math.sqrt(ddx * ddx + ddy * ddy);
+      if (v <= 0) continue;
+      const u = Math.atan2(ddx, ddy) * a.R;
       const m = L.clamp(0.5 + bil(zf, x, y) * 1.25), ux = bil(wx, x, y), uy = bil(wy, x, y);
-      let ci = 0, fl = 0;
-      if (v > 0) {
-        // paint on timber: cracks run mostly with the grain (along the arc); a few cells have dropped off
-        cell(u / 92 + ux * 0.5, v / 58 + uy * 0.5);
-        ci = (1 - sstep(0.0, 0.042, cE)) * (0.3 + 0.7 * m);
-        const keep = 0.15 + 0.85 * sstep(120, 620, Math.abs(u));
-        if (v > 34 && cId < (0.004 + 0.035 * sstep(0.66, 1, m)) * keep) fl = sstep(0.04, 0.1, cE);
-        cell(u / 33 + 9.5 + ux * 1.1, v / 23 + 5.5 + uy * 1.1);
-        ci = Math.max(ci, (1 - sstep(0.0, 0.07, cE)) * 0.55 * sstep(0.4, 0.9, m));
-        if (v > 34 && cId < (0.008 + 0.1 * sstep(0.62, 1, m)) * keep) fl = Math.max(fl, sstep(0.05, 0.14, cE));
-      } else {
-        // lacquer 断纹: long fine cracks that follow the board, joined by short cross-breaks; kept faint behind the tagline
-        const tz = sstep(0.85, 1.7, Math.hypot((fx - a.cx) / 460, (fy - tzY) / 215));
-        cell(u / 172 + 50.5 + ux * 0.22, v / 29 + 50.5 + uy * 0.5);
-        ci = (1 - sstep(0.0, 0.066, cE)) * (0.32 + 0.58 * m) * (0.3 + 0.7 * tz);
-        if (v < -16 && cId < 0.028 * sstep(0.72, 1, m) * tz) fl = sstep(0.06, 0.2, cE);
-      }
-      cd[i] = 16; cd[i + 1] = 9; cd[i + 2] = 8; cd[i + 3] = ci * 255;
+      // paint on timber: cracks run mostly with the grain (along the arc); out toward the ends a few cells have dropped off
+      cell(u / 92 + ux * 0.5, v / 58 + uy * 0.5);
+      let ci = (1 - sstep(0.0, 0.04, cE)) * (0.16 + 0.7 * m), fl = 0;
+      const keep = 0.04 + 0.96 * sstep(470, 1000, Math.abs(u));
+      if (v > 120 && cId < (0.003 + 0.022 * sstep(0.66, 1, m)) * keep) fl = sstep(0.05, 0.075, cE);
+      cell(u / 33 + 9.5 + ux * 1.1, v / 23 + 5.5 + uy * 1.1);
+      ci = Math.max(ci, (1 - sstep(0.0, 0.07, cE)) * 0.46 * sstep(0.5, 0.95, m));
+      if (v > 120 && cId < (0.005 + 0.06 * sstep(0.62, 1, m)) * keep) fl = Math.max(fl, sstep(0.06, 0.09, cE));
+      cd[i] = 8; cd[i + 1] = 10; cd[i + 2] = 24; cd[i + 3] = ci * 255;
       fd[i] = fd[i + 1] = fd[i + 2] = 255; fd[i + 3] = fl * 255;
     }
   }
@@ -316,35 +327,94 @@ function buildAging(env) {
 }
 
 // ───────────────────────── vermilion lacquer above the arc ─────────────────────────
+const RED = '#aa1a25';
+/** 0 inside the tagline zone → 1 well outside it */
+const quiet = (a, x, y) => sstep(0.75, 1.55, Math.hypot((x - a.cx) / 480, (y - (a.crestY - 135)) / 225));
+
+/**
+ * 断纹: hair cracks that run with the board (so roughly along the arc), wandering and tapering, tied to their neighbours by
+ * short cross-breaks → long narrow cells (流水断), never the fat scales of dried mud. Patchy; almost absent behind the tagline.
+ */
+function lacquerCracks(g, env) {
+  const a = env.arc, r = L.rng('s17lqc'), nz = L.makeNoise('s17lqz'), s = a.span(PAD + 80);
+  g.save(); g.lineCap = 'round';
+  const seg = (x0, y0, x1, y1, w, al) => {
+    if (al < 0.03) return;
+    g.lineWidth = w; g.strokeStyle = `rgba(255,138,132,${(al * 0.3).toFixed(3)})`;           // lit lower lip of the crack
+    g.beginPath(); g.moveTo(x0 + 0.9, y0 + 1.2); g.lineTo(x1 + 0.9, y1 + 1.2); g.stroke();
+    g.lineWidth = w; g.strokeStyle = `rgba(52,3,13,${(al * 0.66).toFixed(3)})`;
+    g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+  };
+  for (let i = 0; i < 230; i++) {
+    let dr = 14 + Math.pow(r(), 0.9) * 820;
+    const th = r.range(-s, s), len = r.range(220, 1300) / a.R, steps = Math.ceil((len * a.R) / 12);
+    const w0 = r.range(0.9, 1.8), tilt = r.range(-30, 30);
+    const zth = (th * a.R) / 560, zdr = dr / 240;
+    let prev = a.pt(th, dr), drift = 0;
+    for (let k = 1; k <= steps; k++) {
+      const u = k / steps;
+      drift = drift * 0.95 + r.range(-1.6, 1.6);
+      if (r.chance(0.03)) dr += r.range(-9, 9);
+      const q = a.pt(th + len * u, dr + drift + tilt * u);
+      const zone = 0.3 + 0.7 * sstep(-0.3, 0.3, nz.fbm(zth + (len * u * a.R) / 560, zdr, 2));
+      const far = 1 - 0.7 * sstep(760, 1250, Math.hypot(q.x - a.cx, (q.y - a.crestY) * 1.3));   // out where the lens has let go, cracks would only smear
+      const taper = Math.sqrt(Math.sin(Math.PI * u)), al = zone * taper * far * quiet(a, q.x, q.y);
+      seg(prev.x, prev.y, q.x, q.y, w0 * (0.4 + 0.6 * taper), al);
+      if (r.chance(0.085)) {   // a short cross-break toward the neighbouring crack
+        const h = r.range(10, 44) * (r.chance(0.5) ? 1 : -1), e = a.pt(th + len * u + r.range(-7, 7) / a.R, dr + drift + tilt * u + h);
+        const m = { x: (q.x + e.x) / 2 + r.range(-2, 2), y: (q.y + e.y) / 2 + r.range(-2, 2) };
+        seg(q.x, q.y, m.x, m.y, w0 * 0.62, al * 0.9); seg(m.x, m.y, e.x, e.y, w0 * 0.45, al * 0.75);
+      }
+      prev = q;
+    }
+  }
+  g.restore();
+}
+
 function paintLacquer(g, env) {
   const a = env.arc, T = topRect(a);
-  g.fillStyle = L.radial(g, 240, -90, 80, 2050, [[0, '#9c251a'], [0.28, '#861d16'], [0.68, '#701611'], [1, '#4a0d0a']]);
+  // one even field of 朱: only a breath of fall-off, no brown, no dark corner
+  g.fillStyle = L.radial(g, a.cx - 260, a.crestY - 420, 200, 1700, [[0, '#ae1b26'], [0.55, RED], [1, '#a21822']]);
   g.fillRect(-PAD, -PAD, FW, FH);
   // depth of the lacquer: slow clouds, then the brush drag of the last coat (follows the board = along the arc)
   g.save();
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.3;
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.1;
   g.drawImage(rectNoise(env, T, { seed: 's17lq1', scale: 380, octaves: 4, warp: 0.7, res: 0.14, contrast: 1.5 }), T.x, T.y);
-  g.globalAlpha = 0.16;
+  g.globalAlpha = 0.13;
   g.drawImage(rectNoise(env, T, { seed: 's17lq2', polar: true, scale: 9, sx: 34, sy: 1, octaves: 3, res: 0.5, contrast: 1.5 }), T.x, T.y);
-  g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.18;
-  g.drawImage(rectNoise(env, T, { seed: 's17lq3', scale: 230, octaves: 4, warp: 0.9, res: 0.16, contrast: 1.6, ramp: [[0, '#5a1410'], [0.5, '#ffffff'], [1, '#ffffff']] }), T.x, T.y);
   g.restore();
-  L.speckle(g, { seed: 's17pit', count: 2200, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.5, rMax: 1.7, colors: ['#2a0705', '#3d0c08'], alpha: [0.15, 0.55] });
-  L.speckle(g, { seed: 's17dust', count: 600, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.4, rMax: 1.3, colors: ['#f0b8a4', '#ffd9bf'], alpha: [0.08, 0.32] });
+  lacquerCracks(g, env);
+  L.speckle(g, { seed: 's17pit', count: 1700, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.5, rMax: 1.6, colors: ['#3a0612', '#4c0a18'], alpha: [0.12, 0.45] });
+  L.speckle(g, { seed: 's17dust', count: 520, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.4, rMax: 1.3, colors: ['#f4c0c8', '#ffe0e4'], alpha: [0.08, 0.3] });
   // even out the tagline zone
   g.save(); g.translate(a.cx, a.crestY - 140); g.scale(1, 0.5);
-  g.fillStyle = L.radial(g, 0, 0, 0, 560, [[0, 'rgba(118,24,18,0.55)'], [0.6, 'rgba(118,24,18,0.45)'], [1, 'rgba(118,24,18,0)']]);
+  g.fillStyle = L.radial(g, 0, 0, 0, 560, [[0, L.rgba(RED, 0.6)], [0.6, L.rgba(RED, 0.48)], [1, L.rgba(RED, 0)]]);
   g.fillRect(-600, -600, 1200, 1200);
   g.restore();
-  // the soft sheen of polished lacquer, well clear of the tagline
-  g.save(); g.globalCompositeOperation = 'screen';
-  g.translate(150, 40); g.rotate(-0.16); g.scale(1, 0.42);
-  g.fillStyle = L.radial(g, 0, 0, 0, 760, [[0, 'rgba(255,128,96,0.2)'], [0.5, 'rgba(255,110,80,0.08)'], [1, 'rgba(255,110,80,0)']]);
-  g.fillRect(-800, -800, 1600, 1600);
-  g.restore();
   // the board sits behind the beam: contact shade just above the arc
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 34, [[0, 'rgba(22,3,2,0.62)'], [0.3, 'rgba(22,3,2,0.3)'], [1, 'rgba(22,3,2,0)']]);
-  a.pathBand(g, 36, -2); g.fill();
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 30, [[0, 'rgba(36,2,10,0.6)'], [0.3, 'rgba(36,2,10,0.28)'], [1, 'rgba(36,2,10,0)']]);
+  a.pathBand(g, 32, -2); g.fill();
+}
+
+/** shallow focus: sharp round the crest, falling off toward both ends of the beam, the bottom and the top corners */
+function depthOfField(main, env) {
+  const a = env.arc;
+  const pass = (px, r0, r1) => {
+    const k = 0.5, sm = L.makeCanvas(FW * k, FH * k), sg = sm.getContext('2d');
+    sg.filter = `blur(${px * k}px)`; sg.drawImage(main, 0, 0, sm.width, sm.height); sg.filter = 'none';
+    const out = L.makeCanvas(FW, FH), g = out.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(sm, 0, 0, FW, FH);
+    g.globalCompositeOperation = 'destination-in';
+    g.translate(PAD + a.cx, PAD + a.crestY + 40); g.scale(1, 0.72);
+    g.fillStyle = L.radial(g, 0, 0, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    g.fillRect(-3000, -3000, 6000, 6000);
+    return out;
+  };
+  const near = pass(3, 440, 900), far = pass(8, 780, 1350);
+  const g = main.getContext('2d');
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+  g.drawImage(near, 0, 0); g.drawImage(far, 0, 0);
+  g.restore();
 }
 
 function buildMain(env) {
@@ -358,75 +428,80 @@ function buildMain(env) {
     g.fillStyle = '#808080'; g.fillRect(-PAD, -PAD, FW, FH);
     drawPattern(g, env, HGT);
     g.save(); a.clipBelow(g, 0);
-    g.globalAlpha = 0.22; g.globalCompositeOperation = 'overlay';
+    g.globalAlpha = 0.2; g.globalCompositeOperation = 'overlay';
     g.drawImage(grain, -PAD - 37, -PAD - 23, FW + 60, FH + 60);
     g.restore();
-    g.globalAlpha = 0.95; g.drawImage(tint(gold, '#ffffff'), -PAD, -PAD);
+    g.globalAlpha = 0.95; g.drawImage(tint(gold.raised, '#ffffff'), -PAD, -PAD);
     g.globalAlpha = 0.85; g.drawImage(tint(flake, '#383838'), -PAD, -PAD);
-    g.save(); a.clipBelow(g, 0); g.globalAlpha = 0.75; g.drawImage(crack, -PAD, -PAD); g.restore();
-    g.save(); a.clipAbove(g, 0); g.globalAlpha = 0.22; g.drawImage(crack, -PAD, -PAD); g.restore();
+    g.globalAlpha = 0.6; g.drawImage(tint(crack, '#101010'), -PAD, -PAD);
   });
 
   // NB: with white = high, bumpLight's angle 45 is what lights raised detail from the upper left
   const bump = L.bumpLight(height, { angle: 45, strength: 3.2, blur: 0.7, res: 0.6 });
 
-  // the bare 地仗 ground that shows where paint has flaked
+  // the bare 地仗 ground that shows where paint has flaked: pale hemp-and-ash, so it reads as a lost chip, not as a stain
   const chips = L.makeLayer(PAD, (g) => {
-    g.drawImage(L.noiseTex(FW >> 1, FH >> 1, { seed: 's17ground', scale: 22, octaves: 3, res: 0.5, contrast: 1.6, ramp: [[0, '#372b22'], [0.5, '#6a5846'], [1, '#a08c6c']] }), -PAD, -PAD, FW, FH);
+    g.drawImage(L.noiseTex(FW >> 1, FH >> 1, { seed: 's17ground', scale: 22, octaves: 3, res: 0.5, contrast: 1.6, ramp: [[0, '#6a5540'], [0.5, '#a89070'], [1, '#cdb88e']] }), -PAD, -PAD, FW, FH);
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.5; g.drawImage(grain, -PAD, -PAD, FW, FH);
     g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(flake, -PAD, -PAD);
-    g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(46,10,6,0.62)'; a.pathAbove(g, 0); g.fill();
   });
+
+  // pigment particles as a grey sheet → overlaid, so they brighten / deepen the colour underneath instead of chalking it
+  const part = L.makeCanvas(B.w, B.h), pg = part.getContext('2d');
+  pg.translate(-B.x, -B.y);
+  L.speckle(pg, { seed: 's17xtal', count: 7000, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.6, rMax: 2.4, colors: ['#ffffff'], alpha: [0.12, 0.6] });
+  L.speckle(pg, { seed: 's17dark', count: 4500, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.6, rMax: 2.6, colors: ['#000000'], alpha: [0.1, 0.42] });
 
   const main = L.makeLayer(PAD, (g) => {
     paintLacquer(g, env);
     drawPattern(g, env, COL);
-    // mineral pigment: uneven density, brush drag, coarse crystals, grime
+    // mineral pigment: uneven density, brush drag, coarse crystals — all inside each colour's own hue
     g.save(); a.clipBelow(g, 0);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
+    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.34;
     g.drawImage(rectNoise(env, B, { seed: 's17mott', scale: 44, octaves: 4, warp: 0.7, res: 0.3, contrast: 1.6 }), B.x, B.y);
-    g.globalAlpha = 0.3;
+    g.globalAlpha = 0.26;
     g.drawImage(rectNoise(env, B, { seed: 's17brush', polar: true, scale: 7, sx: 10, sy: 1, octaves: 2, res: 0.5, contrast: 1.4 }), B.x, B.y);
-    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.4;
+    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.36;
     g.drawImage(grain, -PAD, -PAD, FW, FH);
-    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-    L.speckle(g, { seed: 's17xtal', count: 9000, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.5, rMax: 2.1, colors: ['#e6fbff', '#c9ffe9', '#ffffff', '#bfe0ff'], alpha: [0.08, 0.42] });
-    L.speckle(g, { seed: 's17dark', count: 4500, x: B.x, y: B.y, w: B.w, h: B.h, rMin: 0.5, rMax: 2.4, colors: ['#06102a', '#04241a', '#1a120a'], alpha: [0.1, 0.45] });
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.5;
-    g.drawImage(rectNoise(env, B, { seed: 's17grime', scale: 250, octaves: 4, warp: 0.8, res: 0.14, contrast: 1.5, ramp: [[0, '#6f5d40'], [0.55, '#ffffff'], [1, '#ffffff']] }), B.x, B.y);
+    g.globalAlpha = 1; g.drawImage(part, B.x, B.y);
     g.restore();
 
-    // gilding stands proud of the paint
+    // gilding: the leaf on the 菱角地 lies flat, the 沥粉 lines stand proud of the paint
+    g.drawImage(gold.flat, -PAD, -PAD);
     g.save(); g.shadowColor = 'rgba(3,5,18,0.7)'; g.shadowBlur = 5; g.shadowOffsetX = 2.5; g.shadowOffsetY = 3.5;
-    g.drawImage(gold, -PAD, -PAD);
+    g.drawImage(gold.raised, -PAD, -PAD);
     g.restore();
     // craquelure, flaked cells
-    g.globalAlpha = 0.85; g.drawImage(crack, -PAD, -PAD); g.globalAlpha = 1;
+    g.globalAlpha = 0.7; g.drawImage(crack, -PAD, -PAD); g.globalAlpha = 1;
     g.drawImage(chips, -PAD, -PAD);
     // relief
     g.globalCompositeOperation = 'overlay'; g.drawImage(bump, -PAD, -PAD);
-    // raking light from the upper left; the beam falls away into shade toward the bottom
+    // key light from the upper left across the beam (the lacquer board above stays even); cool shade toward the lower right
+    g.save(); a.clipBelow(g, 0);
     g.globalCompositeOperation = 'soft-light';
-    g.fillStyle = L.linear(g, 0, 0, W, H, [[0, 'rgba(255,238,205,0.4)'], [0.45, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,12,0.5)']]);
+    g.fillStyle = L.linear(g, 0, a.crestY - 100, W, H, [[0, 'rgba(255,248,232,0.38)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,6,40,0.34)']]);
     g.fillRect(-PAD, -PAD, FW, FH);
     g.globalCompositeOperation = 'multiply';
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 250, [[0, 'rgba(8,8,26,0.45)'], [1, 'rgba(8,8,26,0)']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 250, [[0, 'rgba(10,14,52,0.42)'], [1, 'rgba(10,14,52,0)']]);
     a.pathBelow(g, -200); g.fill();
+    g.restore();
   });
-  return { main: L.filtered(main, 'saturate(1.2) contrast(1.06)'), gold };
+  // a little punch for the mineral colours only (the red board keeps its even value): the beam overlaid on itself
+  {
+    const copy = L.makeCanvas(FW, FH); copy.getContext('2d').drawImage(main, 0, 0);
+    const g = main.getContext('2d');
+    g.save(); a.clipBelow(g, 0); g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.24; g.drawImage(copy, -PAD, -PAD); g.restore();
+  }
+  depthOfField(main, env);
+  return { main, gold: gold.all };
 }
 
+/** a soft round glint of leaf catching the light (no star rays) */
 function flare(ctx, x, y, size, alpha) {
   if (alpha <= 0.01) return;
   ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = alpha; ctx.translate(x, y);
-  ctx.fillStyle = L.radial(ctx, 0, 0, 0, size, [[0, 'rgba(255,250,225,0.95)'], [0.18, 'rgba(255,226,140,0.5)'], [1, 'rgba(255,190,70,0)']]);
+  ctx.fillStyle = L.radial(ctx, 0, 0, 0, size, [[0, 'rgba(255,250,225,0.9)'], [0.16, 'rgba(255,228,150,0.42)'], [0.5, 'rgba(255,200,90,0.1)'], [1, 'rgba(255,190,70,0)']]);
   ctx.fillRect(-size, -size, size * 2, size * 2);
-  ctx.rotate(0.5);
-  for (let k = 0; k < 2; k++) {
-    ctx.rotate(Math.PI / 2);
-    ctx.fillStyle = L.linear(ctx, -size * 1.7, 0, size * 1.7, 0, [[0, 'rgba(255,240,190,0)'], [0.5, 'rgba(255,250,225,0.9)'], [1, 'rgba(255,240,190,0)']]);
-    ctx.beginPath(); ctx.moveTo(-size * 1.7, 0); ctx.lineTo(0, -1.3); ctx.lineTo(size * 1.7, 0); ctx.lineTo(0, 1.3); ctx.closePath(); ctx.fill();
-  }
   ctx.restore();
 }
 
@@ -436,11 +511,11 @@ export default {
   async init(env) {
     const a = env.arc, lat = lattice(a), B = botRect(a);
     const { main, gold } = buildMain(env);
-    // where the leaf catches the light: the rosette eyes and a few points on the bead
+    // where the leaf catches the light: the rosette eyes and a few points on the bead (none under the tagline)
     const glints = [];
-    for (let k = -1; k <= 1; k++) { const q = a.pt(2 * k * lat.d, FC); glints.push({ x: q.x - 12, y: q.y - 14, ph: (k + 1) * 0.55, size: 28 }); }
+    for (let k = -1; k <= 1; k++) { const q = a.pt(2 * k * lat.d, FC); glints.push({ x: q.x - 12, y: q.y - 14, ph: (k + 1) * 0.55, size: 30 }); }
     for (let k = -2; k < 2; k++) { const q = a.pt((2 * k + 1) * lat.d, FZ0 - 16); glints.push({ x: q.x - 9, y: q.y, ph: 0.3 + (k + 2) * 0.4, size: 20 }); }
-    [-0.31, -0.118, 0.052, 0.236].forEach((th, i) => { const q = a.pt(th, -4); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 20 }); });
+    [-0.31, -0.2, 0.17, 0.3].forEach((th, i) => { const q = a.pt(th, -5); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 22 }); });
     // everything drawn per frame is baked into ImageBitmaps: plain images blit cheaply, whereas using the canvases
     // themselves (built from thousands of small draws) as sources forced a slow synchronous flush on every frame
     const [mainB, sparkA, sparkB] = await Promise.all([main, buildSpark(env, gold, 's17spA'), buildSpark(env, gold, 's17spB')].map((c) => createImageBitmap(c)));
@@ -471,9 +546,8 @@ export default {
     L.cam(ctx, env, { rot, zoom }, () => {
       for (const q of S.glints) {
         const k = Math.sin(Math.PI * L.clamp(p * 1.15 - q.ph * 0.5 + 0.35));
-        flare(ctx, q.x, q.y, q.size, 0.15 + 0.75 * k * k);
+        flare(ctx, q.x, q.y, q.size, 0.06 + 0.5 * k * k);
       }
     });
-    L.vignette(ctx, { strength: 0.3, inner: 0.5 });
   },
 };

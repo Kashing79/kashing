@@ -1,6 +1,7 @@
-// s27 — 鎏金宝顶. Night. The arc is the upper limb of a huge gilded (copper-bodied) roof finial ball, seen from below.
-// The gold is alive with glitter: tens of thousands of fine flakes baked on the ball, plus a few thousand live ones
-// that flash on and off every frame (seeded by the frame number) — some bloom into four-point star flares.
+// s27 — 鎏金宝顶. Night. The arc is the upper limb of a huge gilded (copper-bodied) roof finial ball, seen from below,
+// shot like a macro photograph: focus sits on the limb, the part of the ball that bulges toward the lens melts into bokeh.
+// The gold is alive with glitter: tens of thousands of flakes baked on the ball, plus a few thousand live ones
+// that flash on and off every frame (seeded by the frame number) — a few bloom into four-point star flares.
 // Along the limb a fringe of gold dust lifts off into the black; the sky above the crest stays empty for the caption.
 //
 // Geometry: every point under the arc is mapped onto a real sphere of radius arc.R (Z = how far the surface faces the
@@ -20,9 +21,9 @@ const HOOPS = [
   { lat: L.deg(23.9), hw: L.deg(0.24), amp: 0.55 },
 ];
 
-// ── brightness model: lit from above/behind → the limb glows, the face turned to us sinks into ochre shadow ──
+// ── brightness model: lit from above/behind → the limb glows, the face turned to us sinks into copper shadow ──
 const IMAX = 1.25;
-const BASE = [[0, 0.92], [0.05, 0.88], [0.14, 0.8], [0.26, 0.67], [0.4, 0.49], [0.54, 0.33], [0.68, 0.21], [0.8, 0.14], [1, 0.08]];
+const BASE = [[0, 0.92], [0.05, 0.88], [0.14, 0.8], [0.26, 0.69], [0.4, 0.55], [0.54, 0.4], [0.68, 0.25], [0.8, 0.15], [1, 0.08]];
 // falloff curve as a smoothed lookup table (piecewise-linear stops, then relaxed so no band shows at the knots)
 const BASE_LUT = (() => {
   const n = 513; let t = new Float32Array(n);
@@ -70,7 +71,7 @@ const GOLD_STOPS = [[0, '#040201'], [0.08, '#1e0906'], [0.18, '#4c160a'], [0.28,
 const NZP = L.makeNoise('s27patch');
 const patchAt = (th, Z, R) => 0.62 * NZP.fbm(th * R / 120, Z * R / 120, 3) + 0.38 * NZP.fbm(th * R / 340 + 5.3, Z * R / 340 - 2.1, 2);
 
-/** the smooth gilded ball under the glitter: satin gold, burnishing streaks along the latitudes, mottling, fine grain, hoops */
+/** the gilded ball under the glitter: satin gold, burnishing streaks along the latitudes, worn patches, fine grain, hoops */
 function buildBase(env) {
   const a = env.arc, R = a.R;
   const res = 0.5, cw = Math.ceil(LW * res), ch = Math.ceil(LH * res), N = cw * ch;
@@ -86,15 +87,18 @@ function buildBase(env) {
       const rr = X * X + Y * Y;
       if (rr > 1.016) { lum[k] = -1; continue; }
       const Z = rr >= 1 ? 0 : Math.sqrt(1 - rr);
-      const lat = Math.asin(Y * CA - Z * SA), lon = Math.atan2(X, Z * CA + Y * SA);
+      const lat = Math.asin(Y * CA - Z * SA), lon = Math.atan2(X, Z * CA + Y * SA), th = Math.atan2(X, Y);
       const u = lon * R * 0.92, v = lat * R;
       const fade = L.smooth(Z / 0.24);          // surface detail is too foreshortened to resolve near the limb
       const streak = nz.fbm(u / 560 + 3.1, v / 13, 3);
       const mott = nz.fbm(u / 340 + 9.7, v / 220 - 4.2, 3);
+      const dent = nz.fbm(u / 90 - 1.7, v / 90 + 6.4, 2);     // the ball is beaten copper: the gilding is never dead smooth
       const grain = nz.fbm(u / 6, v / 6, 2);
+      const patch = patchAt(th, Z, R);
       hoopAt(lat);
-      hgt[k] = hb * 3.4 + (grain * 1.1 + streak * 0.5) * fade;
-      lum[k] = baseI(Z) * azI(Math.atan2(X, Y), Z) * (1 + 0.12 * mott + 0.08 * streak * fade) * (1 - sh);
+      hgt[k] = hb * 3.4 + (grain * 1.1 + streak * 0.3 + dent * 1.5) * fade;
+      // where the glitter is thin the burnished metal shows: darker, redder (the ramp does the hue)
+      lum[k] = baseI(Z) * azI(th, Z) * (1 + 0.2 * mott + 0.06 * streak * fade + 0.24 * patch * fade) * (1 - sh);
     }
   }
   const ramp = L.makeRamp(GOLD_STOPS);
@@ -126,45 +130,82 @@ function bucketColours() {
 }
 const bucketOf = (I) => Math.round(L.clamp(I / IMAX) * (NB - 1));
 
-/** baked glitter: flakes spread evenly over the SPHERE (uniform in Z and theta), so they crowd and flatten toward the limb */
+/**
+ * baked glitter: grains spread evenly over the SPHERE (uniform in Z and theta), so they crowd and flatten toward the limb
+ * and grow toward the lens. Most are fine dust; about one in ten is a coarse round granule big enough to read as a single
+ * facet — dark, plain gold, or blazing — and the lit ones throw a small shadow down-right, away from the key light.
+ * The raised hoops are burnished clean: no glitter clings to them.
+ */
 function paintFlakes(g, env, cols) {
-  const a = env.arc, R = a.R, r = L.rng('s27flakes'), nz = L.makeNoise('s27patch');
-  const buckets = cols.map(() => []);
-  for (let i = 0; i < 150000; i++) {
+  const a = env.arc, R = a.R, r = L.rng('s27flakes');
+  const rects = cols.map(() => []), rounds = cols.map(() => []);
+  for (let i = 0; i < 165000; i++) {
     const Z = r() * 0.78, th = r.range(-0.8, 0.8);
     const rad = R * Math.sqrt(1 - Z * Z), sn = Math.sin(th), cs = Math.cos(th);
     const x = a.cx + rad * sn, y = a.cy - rad * cs;
     if (x < -PAD - 4 || x > W + PAD + 4 || y > H + PAD + 4) continue;
-    const patch = nz.fbm(th * R / 120, Z * R / 120, 3);       // glitter lies in drifts, not an even coat
-    if (r() > 0.62 + 0.6 * patch) continue;
-    const I0 = surfI(Z, th) * (1 + 0.25 * patch);
-    const s = 1.1 + 3.6 * Math.pow(r(), 3.0);
+    const patch = patchAt(th, Z, R);                         // glitter lies in drifts, not an even coat
+    if (r() > 0.58 + 0.8 * patch) continue;
+    const I1 = surfI(Z, th);
+    if (r() < hb * 0.92) continue;
+    const I0 = I1 * (1 + 0.25 * patch);
+    const near = 0.72 + 0.85 * Z;                            // nearer the lens → larger
     let If, al;
+    if (r() < 0.1) {
+      const s = (3.2 + 5.2 * Math.pow(r(), 1.7)) * near, v = r();
+      const w = s * r.range(0.8, 1.2), h = Math.max(1.6, s * (0.5 + 0.45 * Math.min(1, Z / 0.45)) * r.range(0.8, 1.15));
+      if (v < 0.4) { If = I0 * r.range(0.38, 0.7); al = r.range(0.55, 0.9); }
+      else {
+        if (v < 0.84) { If = I0 * r.range(0.92, 1.22); al = r.range(0.55, 0.9); }
+        else { If = L.lerp(I0, 1.22, r.range(0.45, 1) * (0.4 + 0.6 * Math.min(1, I0))); al = r.range(0.8, 1); }
+        rounds[bucketOf(I0 * 0.4)].push(x + s * 0.2, y + s * 0.3, w, h, sn, cs, 0.5);
+      }
+      rounds[bucketOf(If)].push(x, y, w, h, sn, cs, al);
+      continue;
+    }
+    const s = (1.1 + 3.6 * Math.pow(r(), 3.0)) * near;
     if (r() < 0.25) { If = I0 * r.range(0.28, 0.6); al = r.range(0.35, 0.7); }                 // pits between the grains
     else { const k = Math.pow(r(), 2.4); If = L.lerp(I0 * 0.95, 1.22, k * (0.45 + 0.55 * Math.min(1, I0))); al = r.range(0.5, 0.95); }
-    buckets[bucketOf(If)].push(x, y, s, Math.max(0.9, s * (0.22 + 0.95 * Z)), sn, cs, al);
+    rects[bucketOf(If)].push(x, y, s, Math.max(0.9, s * (0.4 + 0.75 * Z)), sn, cs, al);
   }
   for (let b = 0; b < NB; b++) {
-    const q = buckets[b]; g.fillStyle = cols[b];
+    g.fillStyle = cols[b];
+    let q = rects[b];
     for (let i = 0; i < q.length; i += 7) {
       g.globalAlpha = q[i + 6];
       g.setTransform(q[i + 5], q[i + 4], -q[i + 4], q[i + 5], q[i] + PAD, q[i + 1] + PAD);
       g.fillRect(-q[i + 2] / 2, -q[i + 3] / 2, q[i + 2], q[i + 3]);
     }
+    q = rounds[b];
+    for (let i = 0; i < q.length; i += 7) {
+      g.globalAlpha = q[i + 6];
+      g.setTransform(q[i + 5], q[i + 4], -q[i + 4], q[i + 5], q[i] + PAD, q[i + 1] + PAD);
+      g.beginPath(); g.ellipse(0, 0, q[i + 2] / 2, q[i + 3] / 2, 0, 0, L.TAU); g.fill();
+    }
   }
   g.setTransform(1, 0, 0, 1, PAD, PAD); g.globalAlpha = 1;
 }
 
-/** trace a latitude line of the ball (the visible front part) */
-function hoopPath(g, a, lat) {
-  const cl = Math.cos(lat);
-  g.beginPath();
-  g.ellipse(a.cx, a.cy - a.R * Math.sin(lat) * CA, a.R * cl, a.R * cl * SA, 0, L.deg(-150), L.deg(-30));
+/** stroke a latitude line of the ball (the visible front part) in short pieces; fn(x) → alpha of each piece */
+function hoopStroke(g, a, lat, fn) {
+  const cl = Math.cos(lat), ey = a.cy - a.R * Math.sin(lat) * CA, rx = a.R * cl, ry = rx * SA;
+  const A0 = L.deg(-150), A1 = L.deg(-30), n = 640;
+  for (let i = 0; i < n; i++) {
+    const p0 = L.lerp(A0, A1, i / n), p1 = L.lerp(A0, A1, (i + 1) / n) + 0.0005;
+    const x = a.cx + rx * Math.cos((p0 + p1) / 2);
+    if (x < -PAD - 20 || x > W + PAD + 20) continue;
+    const al = fn(x);
+    if (al <= 0.004) continue;
+    g.globalAlpha = Math.min(1, al);
+    g.beginPath(); g.ellipse(a.cx, ey, rx, ry, 0, p0, p1); g.stroke();
+  }
+  g.globalAlpha = 1;
 }
 
 function buildBody(env, cols) {
   const a = env.arc;
   const base = buildBase(env);
+  const nz = L.makeNoise('s27edge');
   return L.makeLayer(PAD, (g) => {
     g.save(); a.clipBelow(g, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
@@ -173,45 +214,60 @@ function buildBody(env, cols) {
     g.drawImage(L.grainTex(LW, LH, { seed: 's27grain', amount: 0.36 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
     paintFlakes(g, env, cols);
-    // the hoops catch a thin line of light on their upper shoulder, a hairline of shadow underneath
-    for (const hp of HOOPS) {
-      g.globalCompositeOperation = 'screen';
-      g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.08)'], [0.34, `rgba(255,244,200,${0.44 * hp.amp})`], [0.6, `rgba(255,236,170,${0.24 * hp.amp})`], [1, 'rgba(255,226,150,0.05)']]);
-      g.lineWidth = 1.3; hoopPath(g, a, hp.lat + hp.hw * 0.75); g.stroke();
-      g.globalCompositeOperation = 'multiply';
-      g.strokeStyle = `rgba(60,32,4,${0.35 * hp.amp})`; g.lineWidth = 2; hoopPath(g, a, hp.lat - hp.hw * 1.5); g.stroke();
-    }
+    // the hoops catch a broken line of light on their upper shoulder, a hairline of shadow underneath
+    HOOPS.forEach((hp, hi) => {
+      const lit = (x) => { const u = L.clamp((x + PAD) / LW); return u < 0.34 ? L.lerp(0.08, 0.46, u / 0.34) : u < 0.6 ? L.lerp(0.46, 0.25, (u - 0.34) / 0.26) : L.lerp(0.25, 0.05, (u - 0.6) / 0.4); };
+      g.globalCompositeOperation = 'screen'; g.strokeStyle = '#fff2c4'; g.lineWidth = 1.4;
+      hoopStroke(g, a, hp.lat + hp.hw * 0.75, (x) => lit(x) * hp.amp * (0.25 + 1.5 * L.clamp(0.5 + 0.9 * nz.fbm(x / 26 + hi * 31.7, 1.3, 2))));
+      g.globalCompositeOperation = 'multiply'; g.strokeStyle = '#3a1006'; g.lineWidth = 2;
+      hoopStroke(g, a, hp.lat - hp.hw * 1.5, (x) => 0.36 * hp.amp * (0.45 + 0.9 * L.clamp(0.5 + 0.9 * nz.fbm(x / 40 - hi * 17.3, 8.1, 2))));
+    });
     g.globalCompositeOperation = 'source-over';
     g.restore();
-    // the limb itself: a hairline of white-gold exactly on the arc
+    // the limb itself: light catching the grains exactly on the arc — a broken hairline of white-gold, never an even outline
     g.save(); a.clipBelow(g, 0);
-    g.globalCompositeOperation = 'screen'; g.lineWidth = 3.2;
-    g.strokeStyle = L.linear(g, -PAD, 0, W + PAD, 0, [[0, 'rgba(255,226,150,0.5)'], [0.33, 'rgba(255,250,228,0.95)'], [0.6, 'rgba(255,240,190,0.75)'], [1, 'rgba(255,226,150,0.4)']]);
-    a.stroke(g, -1.2);
+    g.globalCompositeOperation = 'screen'; g.strokeStyle = '#fff8dc';
+    const tm = a.span(PAD + 100), n = 600;
+    for (let i = 0; i < n; i++) {
+      const t0 = L.lerp(-tm, tm, i / n), t1 = L.lerp(-tm, tm, (i + 1) / n) + 0.0004, th = (t0 + t1) / 2;
+      const nn = L.clamp(0.5 + 0.85 * nz.fbm(th * a.R / 14, 3.3, 2));
+      const lit = 0.26 + 0.7 * Math.exp(-Math.pow((th - KEY) / 0.36, 2)) + 0.12 * Math.exp(-Math.pow((th - 0.05) / 0.2, 2));
+      g.globalAlpha = Math.min(1, lit * (0.3 + 0.7 * nn));
+      g.lineWidth = L.lerp(1.8, 3.4, nn);
+      g.beginPath(); a.trace(g, -1.2, t0, t1); g.stroke();
+    }
     g.restore();
   });
 }
 
-/** the part of the ball that bulges toward the lens (bottom of frame) drops out of focus */
-const defocusAt = (Z) => L.smooth((Z - 0.5) / 0.22);
+/** macro depth of field: the part of the ball that bulges toward the lens (bottom of frame) drops out of focus, step by step */
+const defocusAt = (Z) => L.smooth((Z - 0.44) / 0.24);   // where glints have swollen into bokeh discs
+const softAt = (Z) => L.smooth((Z - 0.39) / 0.2);       // where the grain itself has already gone soft (just under the hoops)
 function defocus(env, body) {
-  const a = env.arc;
-  const soft = L.blurred(body, 4);
-  const g = soft.getContext('2d');
-  g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R - 620, a.R - 290, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
-  g.fillRect(0, 0, LW, LH);
+  const a = env.arc, y0 = Math.floor(a.crestY + PAD + 110), hh = LH - y0;   // nothing above this row is touched
   const bg = body.getContext('2d');
-  bg.save(); bg.setTransform(1, 0, 0, 1, 0, 0); bg.globalAlpha = 1; bg.globalCompositeOperation = 'source-over';
-  bg.drawImage(soft, 0, 0);
-  bg.restore();
+  const pass = (px, rIn, rOut) => {
+    const c = L.makeCanvas(LW, hh), g = c.getContext('2d');
+    g.filter = `blur(${px}px)`; g.drawImage(body, 0, -y0); g.filter = 'none';
+    g.globalCompositeOperation = 'destination-in';
+    g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD - y0, rIn, rOut, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+    g.fillRect(0, 0, LW, hh);
+    bg.save(); bg.setTransform(1, 0, 0, 1, 0, 0); bg.globalAlpha = 1; bg.globalCompositeOperation = 'source-over';
+    bg.drawImage(c, 0, y0);
+    bg.restore();
+  };
+  // each pass blurs what the one before left, so the steps cross-fade without a sharp grain floating on a haze
+  pass(1.5, a.R - 235, a.R - 150);
+  pass(3.2, a.R - 330, a.R - 235);
+  pass(9, a.R - 520, a.R - 330);
   return body;
 }
 
 // ── sprites ──
+/** an in-focus specular: a hard white core with a tight warm halo (a point of light, not a fairy lamp) */
 function dotSprite(size, core, halo) {
   const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
-  g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(core, 1)], [0.2, L.rgba(core, 0.95)], [0.38, L.rgba(halo, 0.5)], [0.68, L.rgba(halo, 0.13)], [1, L.rgba(halo, 0)]]);
+  g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(core, 1)], [0.1, L.rgba(core, 1)], [0.22, L.rgba(halo, 0.6)], [0.5, L.rgba(halo, 0.12)], [1, L.rgba(halo, 0)]]);
   g.fillRect(0, 0, size, size);
   return c;
 }
@@ -230,6 +286,20 @@ function starSprite(size, core, halo) {
   spike(Math.PI / 4, m * 0.4, 0.05, 0.45); spike(-Math.PI / 4, m * 0.4, 0.05, 0.45);
   return c;
 }
+/** a glint just out of focus: an even soft blob */
+function softSprite(size, col) {
+  const c = L.makeCanvas(size, size), g = c.getContext('2d'), m = size / 2;
+  g.fillStyle = L.radial(g, m, m, 0, m, [[0, L.rgba(col, 0.8)], [0.3, L.rgba(col, 0.64)], [0.6, L.rgba(col, 0.24)], [1, L.rgba(col, 0)]]);
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+/** an out-of-focus specular: a flat disc with a soft rim (no bright ring) */
+function discSprite(rgb, al) {
+  const c = L.makeCanvas(96, 96), g = c.getContext('2d');
+  g.fillStyle = L.radial(g, 48, 48, 0, 48, [[0, `rgba(${rgb},${al})`], [0.78, `rgba(${rgb},${al})`], [0.9, `rgba(${rgb},${al * 0.92})`], [1, `rgba(${rgb},0)`]]);
+  g.fillRect(0, 0, 96, 96);
+  return c;
+}
 
 /** live flakes: tiny rects grouped by colour, packed as [x, y, w, h, phase, speed, alpha] */
 function genLiveFlakes(env, cols) {
@@ -241,44 +311,59 @@ function genLiveFlakes(env, cols) {
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
     if (x < -70 || x > W + 70 || y > H + 70) continue;
     const I0 = surfI(Z, th);
-    if (r() > 0.22 + 0.85 * I0) continue;                 // sparkle where the light is
-    if (r() < 0.9 * defocusAt(Z)) continue;               // out of focus down there: the bokeh takes over
-    const s = 1.2 + 2.2 * Math.pow(r(), 2.4);
+    if (r() < hb * 0.9) continue;
+    if (r() > (0.22 + 0.85 * Math.max(I0, 0.3)) * (1 + 0.8 * patchAt(th, Z, R))) continue;   // sparkle where the light and the glitter are
+    if (r() < 0.95 * softAt(Z)) continue;                 // out of focus down there: soft glints and bokeh take over
+    const s = (1.2 + 2.4 * Math.pow(r(), 2.4)) * (0.8 + 0.6 * Z);
     const If = L.lerp(I0, 1.25, r.range(0.45, 0.95));
     buckets[bucketOf(If)].push(x, y, s, Math.max(1, s * (0.3 + 0.9 * Z)), r() * L.TAU, r.range(1.0, 2.6), r.range(0.55, 1));
   }
   return buckets.map((q, b) => ({ color: cols[b], d: new Float32Array(q) })).filter((q) => q.d.length);
 }
 
-/** live glints with a soft bloom, and the few that flare into four-point stars */
+/** live glints: pin-sharp speculars in the focal band, swelling to bokeh discs toward the lens; a few flare into four-point stars */
 function genGlints(env, spr) {
   const a = env.arc, R = a.R, r = L.rng('s27glint');
   const dots = [], stars = [];
-  for (let i = 0; i < 9500; i++) {
+  for (let i = 0; i < 12500; i++) {
     const Z = r() * 0.75, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
-    if (x < -60 || x > W + 60 || y > H + 60) continue;
-    const I0 = surfI(Z, th), hot = hotAt(th, Z * 0.6);
-    if (r() > 0.13 + 0.7 * I0 + 0.4 * hot) continue;
-    const warm = r() > 0.25 + 0.7 * I0;                   // deeper, dimmer gold → amber glints
+    if (x < -70 || x > W + 70 || y > H + 70) continue;
+    const I0 = surfI(Z, th), hot = hotAt(th, Z * 0.6), patch = patchAt(th, Z, R);
+    if (r() < hb * 0.85) continue;
+    if (r() > (0.13 + 0.7 * Math.max(I0, 0.3) + 0.4 * hot) * (1 + 0.9 * patch)) continue;
+    const warm = r() > 0.25 + 0.7 * I0;                   // deeper, dimmer gold → copper-red glints
     const df = defocusAt(Z);
-    if (df > 0.25 && r() < df * 0.8) {
-      // out-of-focus glints swell into soft discs
-      if (r() < 0.55) dots.push({ x, y, s: (12 + 34 * Math.pow(r(), 1.8)) * (0.6 + 0.6 * df), img: spr.bokeh, ph: r() * L.TAU, sp: r.range(0.6, 1.6), k: 2, al: r.range(0.2, 0.7) });
+    if (df > 0.3 && r() < df * 0.85) {
+      // out-of-focus glints swell into soft overlapping discs — only where the ball behind them is out of focus too
+      if (r() < L.smooth((df - 0.4) / 0.35)) {
+        const v = r();
+        // the blur circle grows with depth: small where focus starts to go, big at the bottom of the frame; a few blaze, most are faint
+        dots.push({ x, y, s: (14 + 78 * L.smooth((df - 0.3) / 0.7)) * r.range(0.72, 1.25), img: v < 0.12 ? spr.bokehRed : v < 0.68 ? spr.bokeh : spr.bokehPale,
+          ph: r() * L.TAU, sp: r.range(0.6, 1.6), k: 2, al: 0.09 + 0.43 * Math.pow(r(), 2.2) });
+      }
       continue;
     }
-    dots.push({ x, y, s: (6 + 26 * Math.pow(r(), 2.6)) * (0.6 + 0.5 * Z / 0.75) * (1 + 1.2 * df) * (1 + 0.4 * hot), img: warm ? spr.dotAmber : spr.dotGold,
-      ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.55, 1) * (0.55 + 0.45 * Math.min(1, I0)) * (1 - 0.3 * df) });
+    const sf = softAt(Z);
+    if (sf > 0.3 && r() < sf) {
+      // just out of focus: no hard core any more, a small soft blob
+      dots.push({ x, y, s: (7 + 22 * Math.pow(r(), 2.6)) * (0.7 + 0.9 * sf), img: warm ? spr.softAmber : spr.softGold,
+        ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.45, 0.95) * (0.6 + 0.4 * Math.min(1, I0)) });
+      continue;
+    }
+    dots.push({ x, y, s: (4 + 34 * Math.pow(r(), 3.4)) * (0.6 + 0.5 * Z / 0.75) * (1 + 0.4 * hot), img: warm ? spr.dotAmber : spr.dotGold,
+      ph: r() * L.TAU, sp: r.range(0.8, 2.3), k: 3, al: r.range(0.6, 1) * (0.6 + 0.4 * Math.min(1, I0)) });
   }
-  for (let i = 0; i < 820; i++) {
-    const Z = Math.pow(r(), 1.5) * 0.74, th = r.range(-0.78, 0.78);
+  for (let i = 0; i < 300; i++) {
+    const Z = Math.pow(r(), 1.5) * 0.6, th = r.range(-0.78, 0.78);
     const rad = R * Math.sqrt(1 - Z * Z);
     const x = a.cx + rad * Math.sin(th), y = a.cy - rad * Math.cos(th);
     if (x < -60 || x > W + 60 || y > H + 60) continue;
     const I0 = surfI(Z, th), hot = hotAt(th, Z * 0.6);
-    if (r() > 0.4 + 0.35 * I0 + 0.5 * hot) continue;
-    const s = (46 + 150 * Math.pow(r(), 2.6)) * (1 + 0.3 * hot);
+    if (r() > 0.4 + 0.35 * I0 + 0.1 * hot) continue;
+    if (Math.abs(th - (KEY - 0.03)) < 0.085 && Z < 0.3) continue;      // the hero glint stands alone on the hot spot
+    const s = (56 + 170 * Math.pow(r(), 2.4)) * (1 + 0.2 * hot);
     // keep flare spikes out of the caption zone above the crest
     if (Math.abs(x - a.cx) < 390 && y - s * 0.5 < a.crestY - 6) continue;
     const warm = r() > 0.35 + 0.6 * I0;
@@ -287,39 +372,46 @@ function genGlints(env, spr) {
   return { dots, stars };
 }
 
-/** gold dust lifting off the limb + a few motes adrift in the dark (none over the caption) */
+/** gold dust lifting off the limb + sparks adrift in the dark, mostly out at the sides (none over the caption) */
 function genDust(env, spr) {
   const a = env.arc, r = L.rng('s27dust');
-  const out = [];
+  const out = [], sparks = [];
   const tmax = a.span(70);
-  const inZone = (x, y) => x > 585 && x < 1335 && y > 240 && y < a.crestY - 8;
+  const inZone = (x, y) => x > 575 && x < 1345 && y > 230 && y < a.crestY - 6;
   // 1) the fringe hugging the limb: thin over the crest, fuller toward the sides
   for (let i = 0; i < 5200; i++) {
     const th = r.range(-tmax, tmax);
     const lam = L.lerp(4, 17, L.smooth(Math.abs(th) / 0.34)) * r.range(0.5, 1.5);
     const dr = -lam * Math.log(1 - 0.995 * r()) - 1.5;
     const p = a.pt(th, dr);
-    if (inZone(p.x, p.y)) continue;
+    const vx = Math.sin(th) * dr * 0.12 + r.range(-1.5, 1.5), vy = -Math.cos(th) * dr * 0.12 + r.range(-1.5, 0.5);
     const near = Math.exp(-Math.max(0, dr) / 26);
-    const glow = r() < 0.07;
-    out.push({ x: p.x, y: p.y, s: glow ? r.range(5, 11) : 0.8 + 1.5 * Math.pow(r(), 2), img: glow ? spr.dotGold : null,
-      col: r.pick(['#fff3c0', '#f6d577', '#e9b949', '#e9b949', '#c48e2b']), al: r.range(0.35, 1) * (0.35 + 0.65 * near),
-      ph: r() * L.TAU, sp: r.range(0.9, 2.4), vx: Math.sin(th) * dr * 0.12 + r.range(-1.5, 1.5), vy: -Math.cos(th) * dr * 0.12 + r.range(-1.5, 0.5) });
+    const glow = r() < 0.07, sz = glow ? r.range(5, 11) : 0.8 + 1.5 * Math.pow(r(), 2);
+    const q = { x: p.x, y: p.y, s: sz, img: glow ? spr.dotGold : null,
+      col: r.pick(['#fff4c8', '#f6d577', '#ecb93c', '#ecb93c', '#c9781c']), al: r.range(0.35, 1) * (0.35 + 0.65 * near),
+      ph: r() * L.TAU, sp: r.range(0.9, 2.4), vx, vy };
+    // it drifts during the shot: neither end of its path (nor its glow) may sit over the caption
+    if (inZone(p.x, p.y - sz / 2) || inZone(p.x + vx, p.y + vy - sz / 2 - 4)) continue;
+    out.push(q);
   }
-  // 2) motes adrift, mostly off to the sides
-  for (let i = 0; i < 300; i++) {
+  // 2) sparks adrift: each one a short streak along its own drift
+  for (let i = 0; i < 900; i++) {
     const x = r.range(-60, W + 60), dr = 14 - 115 * Math.log(1 - 0.97 * r());
     const y = a.yAt(x, 0) - dr;
     const side = L.smooth((Math.abs(x - a.cx) - 360) / 420);
-    if (r() > 0.1 + 0.9 * side || y < -30 || inZone(x, y)) continue;
+    if (r() > 0.1 + 0.9 * side || y < 170 || inZone(x, y) || inZone(x, y - 20)) continue;
     const far = Math.exp(-dr / 170);
-    const kind = r();
     const th = a.thetaAtX(x);
-    const base = { x, y, ph: r() * L.TAU, sp: r.range(0.7, 1.9), vx: Math.sin(th) * r.range(3, 12) + r.range(-5, 5), vy: -r.range(3, 14) };
-    if (kind < 0.3) out.push({ ...base, s: r.range(5, 11), img: spr.dotGold, col: null, al: r.range(0.4, 0.9) * (0.35 + 0.65 * far) });
-    else out.push({ ...base, s: 0.9 + 1.6 * Math.pow(r(), 1.6), img: null, col: r.pick(['#fff3c0', '#f6d577', '#e9b949', '#c48e2b']), al: r.range(0.4, 1) * (0.3 + 0.7 * far) });
+    const vx = Math.sin(th) * r.range(3, 12) + r.range(-5, 5), vy = -r.range(3, 14);
+    const base = { x, y, ph: r() * L.TAU, sp: r.range(0.7, 1.9), vx, vy };
+    if (r() < 0.2) out.push({ ...base, s: r.range(5, 11), img: spr.dotGold, col: null, al: r.range(0.4, 0.9) * (0.35 + 0.65 * far) });
+    else {
+      const len = r.range(0.35, 0.95) * (0.5 + 0.5 * far);
+      sparks.push({ ...base, lx: vx * len, ly: vy * len, w: 1.1 + 2.1 * Math.pow(r(), 1.7) * (0.6 + 0.4 * far),
+        col: r.pick(['#fff4c8', '#f6d577', '#ecb93c', '#ecb93c', '#e2702a', '#c9781c']), al: r.range(0.45, 1) * (0.3 + 0.7 * far) });
+    }
   }
-  return out;
+  return { motes: out, sparks };
 }
 
 export default {
@@ -328,24 +420,29 @@ export default {
   init(env) {
     const cols = bucketColours();
     const spr = {
-      dotGold: dotSprite(48, '#fffbe6', '#ffc955'),
-      dotAmber: dotSprite(48, '#ffe2a0', '#e8962a'),
-      starGold: starSprite(192, '#fffdf2', '#ffd169'),
-      starAmber: starSprite(192, '#fff0c4', '#f0a23a'),
-      bokeh: (() => {
-        const c = L.makeCanvas(64, 64), g = c.getContext('2d');
-        g.fillStyle = L.radial(g, 32, 32, 0, 32, [[0, 'rgba(232,150,40,0.5)'], [0.6, 'rgba(236,160,46,0.56)'], [0.8, 'rgba(250,190,84,0.62)'], [0.9, 'rgba(240,170,60,0.3)'], [1, 'rgba(233,160,50,0)']]);
-        g.fillRect(0, 0, 64, 64); return c;
-      })(),
+      dotGold: dotSprite(48, '#ffffff', '#ffd67a'),
+      dotAmber: dotSprite(48, '#ffe6b0', '#e87a2a'),
+      softGold: softSprite(40, '#ffc95e'),
+      softAmber: softSprite(40, '#f08c2a'),
+      starGold: starSprite(192, '#ffffff', '#ffdc8a'),
+      starAmber: starSprite(192, '#fff0c4', '#ee8a34'),
+      bokeh: discSprite('250,176,64', 0.4),
+      bokehRed: discSprite('226,104,36', 0.4),
+      bokehPale: discSprite('255,226,150', 0.42),
     };
-    const body = defocus(env, L.filtered(buildBody(env, cols), 'saturate(1.1) contrast(1.05)'));
-    // photographic bloom: only the brightest gold bleeds, a few px past the limb
+    const body = defocus(env, buildBody(env, cols));
+    // photographic bloom, baked in: only the brightest gold bleeds, a few px past the limb
     const bw = Math.ceil(LW / 2), bh = Math.ceil(LH / 2);
     const bloom = L.makeCanvas(bw, bh); const bg = bloom.getContext('2d');
     bg.filter = 'brightness(0.8) contrast(2.2) blur(8px)';
     bg.drawImage(body, 0, 0, bw, bh);
-    const gl = genGlints(env, spr);
-    S = { body, bloom, star: spr.starGold, live: genLiveFlakes(env, cols), dots: gl.dots, stars: gl.stars, dust: genDust(env, spr) };
+    const g = body.getContext('2d');
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.45;
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+    g.drawImage(bloom, 0, 0, LW, LH);
+    g.restore();
+    const gl = genGlints(env, spr), du = genDust(env, spr);
+    S = { body, star: spr.starGold, live: genLiveFlakes(env, cols), dots: gl.dots, stars: gl.stars, dust: du.motes, sparks: du.sparks };
   },
   draw(ctx, env, p) {
     const a = env.arc, f = env.frame;
@@ -355,8 +452,6 @@ export default {
 
     L.blit(ctx, env, S.body, { rot, zoom });
     L.cam(ctx, env, { rot, zoom }, () => {
-      ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.45;
-      ctx.drawImage(S.bloom, -PAD, -PAD, LW, LH);
       // the flakes that flash this frame
       ctx.globalCompositeOperation = 'lighter';
       for (const B of S.live) {
@@ -386,14 +481,15 @@ export default {
       ctx.globalAlpha = hk;
       ctx.drawImage(S.star, hp.x - hs / 2, hp.y - hs / 2, hs, hs);
       ctx.globalAlpha = 1;
-      L.glow(ctx, hp.x, hp.y, 70, '#ffe7a8', 0.5 * hk, 'lighter');
+      L.glow(ctx, hp.x, hp.y, 70, '#fff0c4', 0.5 * hk, 'lighter');
     });
-    // key light sweeping along the limb
+    // key light sweeping along the limb: brighter, not more saturated
     ctx.save(); a.clipBelow(ctx, 0);
     const gl = a.pt(KEY + L.lerp(-0.07, 0.07, p), -34);
-    L.glow(ctx, gl.x, gl.y, 440, '#ffdc92', 0.3);
+    L.glow(ctx, gl.x, gl.y, 360, '#fff1c8', 0.38);
+    L.glow(ctx, gl.x, gl.y + 10, 150, '#fffbe8', 0.3);
     ctx.restore();
-    // gold dust lifting off the limb
+    // gold dust lifting off the limb, sparks adrift at the sides
     L.cam(ctx, env, { rot: rot * 0.8, zoom }, () => {
       ctx.globalCompositeOperation = 'lighter';
       for (const q of S.dust) {
@@ -403,7 +499,15 @@ export default {
         if (q.img) ctx.drawImage(q.img, x - q.s / 2, y - q.s / 2, q.s, q.s);
         else { ctx.fillStyle = q.col; ctx.fillRect(x - q.s / 2, y - q.s / 2, q.s, q.s); }
       }
+      ctx.lineCap = 'round';
+      for (const q of S.sparks) {
+        const t = 0.4 + 0.6 * Math.max(0, Math.cos(q.ph + q.sp * f));
+        const x = q.x + q.vx * p, y = q.y + q.vy * p;
+        ctx.globalAlpha = Math.min(1, q.al * t);
+        ctx.strokeStyle = q.col; ctx.lineWidth = q.w;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + q.lx, y + q.ly); ctx.stroke();
+      }
     });
-    L.vignette(ctx, { strength: 0.3 });
+    L.vignette(ctx, { strength: 0.18 });
   },
 };

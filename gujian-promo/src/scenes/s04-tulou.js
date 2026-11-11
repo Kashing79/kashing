@@ -1,24 +1,23 @@
-// s04 — 福建土楼. Drone view down into a round rammed-earth tulou; we see the far half of the ring.
-// The arc is the OUTER EAVE of the ring roof. Going inward (down the frame): shaded outer roof slope → ridge →
-// sunlit inner slope of small grey tiles (瓦垄 run radially) → eave shadow → four storeys of timber galleries
-// (posts, baluster railings, red lanterns, red door couplets) → cobbled courtyard → the roof of a lower inner ring.
+// s04 — 福建土楼 (macro). The camera has pushed right in on the ring roof of a round tulou: the arc is the OUTER EAVE of the
+// far half of the ring, standing dark against clean morning mist. Going inward (down the frame): the far roof slope seen at a
+// grazing angle (shaded, a cool sheen on the damp tile crowns) → the ridge of tiles stacked on edge, bedded in lime → the
+// sunlit inner slope, one small grey tile at a time (cover tiles ≈ 53 px wide, troughs between them full of dirt and moss) →
+// the scalloped inner eave → a soft, out-of-focus glimpse of the amber timber gallery in the eave's shadow at the bottom.
 //
-// How it is built: the whole building is painted once as a flat "unrolled" strip (x = distance along the arc,
-// y = depth inside the arc) — tiles and cobbles per pixel, timber work as vectors — and then wrapped onto the arc
-// with a per-pixel polar warp. Everything is therefore concentric / radial, so rot about the arc centre is seamless.
+// How it is built: the roof is modelled once as a flat "unrolled" strip (x = distance along the arc, y = depth inside the arc)
+// — a HEIGHT map and an ALBEDO map, tile by tile, every tile with its own length, shift, tilt, colour and wear — then lit per
+// pixel (low sun from behind-left of the camera, cool skylight, cast shadows marched through the height map, a damp sheen) and
+// wrapped onto the arc with a polar warp. Everything is therefore concentric / radial, so rot about the arc centre is seamless.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 240;
-const TOPM = 14;        // strip rows kept above the eave line (room for the scalloped tile ends)
-const DEPTH = 650;      // strip rows below the eave line
-const ROW = 10;         // 瓦垄 pitch of the main roof (px along the arc)
-const ROW2 = 12;        // 瓦垄 pitch of the inner ring roof
-const SPLIT = 0.56;     // share of a tile row taken by the convex cover tile (the rest is the trough)
-const LAP = 6.5;        // exposed length of one tile
-const BAY = 60;         // 开间: one bay of the gallery (px along the arc at the eave)
-// depths inside the arc (px)
-const D = { ridge: 64, eave: 206, f3: 246, f2: 291, f1: 335, kerb: 379, yard: 388, ring: 447, ridge2: 493 };
+const HP = 64;          // margin of the roof layer (the move is ±25 px of slide and ±1 % of zoom)
+const BP = 32;          // margin of the background layer
+const TOPM = 16;        // strip rows kept above the eave line (room for the bumpy tile ends)
+const DEPTH = 600;      // strip rows below the eave line
+const P = 88;           // 瓦垄 pitch along the arc: one row of cover tiles + one trough
+const SPLIT = 0.6;      // share of the pitch taken by the convex cover tile (≈ 53 px)
+const D = { ridge: 98, rh: 12, eave: 428 };   // depths inside the arc (px): ridge line, ridge half-width, inner eave
 let S = null;
 
 function h2(a, b) {
@@ -26,392 +25,331 @@ function h2(a, b) {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
-function lutOf(stops) {
-  const f = L.makeRamp(stops); const lut = new Uint8ClampedArray(256 * 3);
-  for (let i = 0; i < 256; i++) { const c = f(i / 255); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
-  return lut;
+const sm = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+/** a noise field as a plain byte array (0..255) */
+function noiseArr(w, h, opts) {
+  const d = L.noiseTex(w, h, opts).getContext('2d').getImageData(0, 0, w, h).data;
+  const o = new Uint8Array(w * h);
+  for (let i = 0; i < o.length; i++) o[i] = d[i * 4];
+  return o;
 }
-// brightness across one tile row (cover tile then trough), sun from the left / skylight only
-const PROF = (() => {
-  const N = 128, lit = new Float32Array(N), shd = new Float32Array(N);
-  for (let i = 0; i < N; i++) {
-    const fu = (i + 0.5) / N;
-    if (fu < SPLIT) {
-      const t = fu / SPLIT;
-      lit[i] = 0.4 + 0.6 * Math.exp(-((t - 0.3) * (t - 0.3)) / 0.15);
-      shd[i] = 0.5 + 0.28 * Math.sin(Math.PI * t);
-    } else {
-      const t = (fu - SPLIT) / (1 - SPLIT);
-      lit[i] = 0.13 + 0.38 * L.smooth(t / 0.8) - 0.1 * L.smooth((t - 0.8) / 0.2);
-      shd[i] = 0.2 + 0.16 * Math.sin(Math.PI * t);
-    }
-  }
-  return { N, lit, shd };
-})();
-
-/** per-pixel small-grey-tile roof into rows yA..yB of an RGBA buffer (FW wide). */
-function paintRoof(d, FW, yA, yB, o) {
-  const { ridgeY, dir, lit, pitch, lap, seed, lut, gain, xg } = o;
-  const prof = lit ? PROF.lit : PROF.shd, PN = PROF.N;
-  const nR = Math.ceil(FW / pitch) + 4;
-  const r = L.rng('s04roof' + seed);
-  const tone = new Float32Array(nR), p1 = new Float32Array(nR), p2 = new Float32Array(nR);
-  const wA = new Float32Array(nR), wF = new Float32Array(nR), wP = new Float32Array(nR), tF = new Float32Array(nR), tP = new Float32Array(nR);
-  for (let i = 0; i < nR; i++) {
-    tone[i] = 0.92 + 0.16 * r(); p1[i] = r() * 50; p2[i] = r() * 50;
-    wA[i] = r.range(0.15, 0.9); wF[i] = r.range(0.02, 0.05); wP[i] = r() * L.TAU; tF[i] = r.range(0.03, 0.09); tP[i] = r() * L.TAU;
-  }
-  const lapT = lap * 1.25, edgeDark = lit ? 0.66 : 0.78, sd = seed * 1013;
-  for (let y = yA; y < yB; y++) {
-    const v = (y + 0.5 - ridgeY) * dir + 400;       // distance down the slope (+400 keeps tile indices positive)
-    let k = y * FW * 4;
-    for (let x = 0; x < FW; x++, k += 4) {
-      const r0 = (x / pitch) | 0;
-      let u = (x + wA[r0] * Math.sin(v * wF[r0] + wP[r0])) / pitch;
-      if (u < 0) u = 0;
-      const ri = u | 0, fu = u - ri;
-      const cover = fu < SPLIT;
-      const vv = cover ? (v + p1[ri]) / lap : (v + p2[ri]) / lapT;
-      const ti = vv | 0, fv = vv - ti;
-      const hh = h2(ri * 2 + (cover ? 0 : 1) + sd, ti);
-      let m = prof[(fu * PN) | 0] * tone[ri] * (0.87 + 0.26 * hh) * (0.94 + 0.1 * fv) * (1 + 0.07 * Math.sin(v * tF[ri] + tP[ri]));
-      if (hh > 0.985) m *= 1.25; else if (hh < 0.02) m *= 0.66;
-      if (fv < 0.17) m *= edgeDark; else if (lit && fv > 0.83) m *= 1.1;
-      m *= gain * xg[x];
-      const li = (m >= 1 ? 255 : (m * 255) | 0) * 3;
-      const cs = ((hh * 7.31) % 1 - 0.5) * 7;
-      d[k] = lut[li] + cs; d[k + 1] = lut[li + 1] + cs * 0.4; d[k + 2] = lut[li + 2] - cs; d[k + 3] = 255;
-    }
-  }
-}
-
-/** per-pixel river-cobble paving */
-function paintCobbles(d, FW, hC, lut, xg) {
-  const nz = L.makeNoise('s04cobble');
+/** one row of overlapping tiles down a slope: butt positions b[k] (tile k shows from b[k] to b[k+1]), a per-px lookup, per-tile dice */
+function makeRun(seed, len, lap, jit) {
+  const r = L.rng(seed);
+  const b = [-60 - lap * r()];
+  while (b[b.length - 1] < len + 70) b.push(b[b.length - 1] + lap * (1 + jit * (r() * 2 - 1)));
+  const idx = new Uint8Array(len + 124);
   let k = 0;
-  for (let y = 0; y < hC; y++) {
-    for (let x = 0; x < FW; x++, k += 4) {
-      const c = nz.cell(x / 6.4, y / 5.6);
-      let m = (0.24 + 0.76 * L.smooth(c.edge / 0.2)) * (0.72 + 0.4 * c.id) * (1.1 - 0.5 * c.d) * xg[x];
-      const li = (m >= 1 ? 255 : (m * 255) | 0) * 3;
-      d[k] = lut[li]; d[k + 1] = lut[li + 1]; d[k + 2] = lut[li + 2]; d[k + 3] = 255;
-    }
+  for (let s = -60; s < len + 64; s++) { while (k < b.length - 2 && b[k + 1] <= s) k++; idx[s + 60] = k; }
+  const n = b.length, hk = new Float32Array(n), hq = new Float32Array(n), hp = new Float32Array(n), ho = new Float32Array(n);
+  for (let i = 0; i < n; i++) { hk[i] = r(); hq[i] = r(); hp[i] = r(); ho[i] = r(); }
+  return { b: Float32Array.from(b), idx, hk, hq, hp, ho };
+}
+/** box blur of a float field (edges clamped) */
+function boxBlur(src, w, h, r) {
+  const tmp = new Float32Array(src.length), out = new Float32Array(src.length), n = 2 * r + 1;
+  for (let y = 0; y < h; y++) {
+    const o = y * w; let acc = 0;
+    for (let i = -r; i <= r; i++) acc += src[o + (i < 0 ? 0 : i)];
+    for (let x = 0; x < w; x++) { tmp[o + x] = acc / n; const a = x - r, b = x + r + 1; acc += src[o + (b >= w ? w - 1 : b)] - src[o + (a < 0 ? 0 : a)]; }
   }
+  const col = new Float32Array(w);
+  for (let yy = 0; yy <= r && yy < h; yy++) { const o = yy * w; for (let x = 0; x < w; x++) col[x] += tmp[o + x]; }
+  for (let y = 0; y < h; y++) {
+    const y0 = y - r < 0 ? 0 : y - r, y1 = y + r >= h ? h - 1 : y + r, inv = 1 / (y1 - y0 + 1), o = y * w;
+    for (let x = 0; x < w; x++) out[o + x] = col[x] * inv;
+    if (y + r + 1 < h) { const oa = (y + r + 1) * w; for (let x = 0; x < w; x++) col[x] += tmp[oa + x]; }
+    if (y - r >= 0) { const os = (y - r) * w; for (let x = 0; x < w; x++) col[x] -= tmp[os + x]; }
+  }
+  return out;
 }
 
-function drawRidge(g, FW, yc, seed) {
-  const r = L.rng(seed);
-  // shadow thrown onto the far (shaded) slope
-  g.fillStyle = L.linear(g, 0, yc - 14, 0, yc - 5, [[0, 'rgba(8,6,5,0)'], [1, 'rgba(8,6,5,0.66)']]); g.fillRect(0, yc - 14, FW, 9);
-  // ridge of tiles stacked on edge, bedded in lime
-  g.fillStyle = L.linear(g, 0, yc - 6, 0, yc + 6, [[0, '#4b423b'], [0.25, '#86867f'], [0.5, '#c9cdca'], [0.78, '#8c8c85'], [1, '#3a312b']]);
-  g.fillRect(0, yc - 6, FW, 12);
-  for (let x = 0; x < FW; x += r.range(2.6, 4.4)) { g.fillStyle = `rgba(22,16,12,${r.range(0.12, 0.5)})`; g.fillRect(x, yc - 6, 1, 12); }
-  for (let i = 0; i < FW / 26; i++) {
-    const x = r() * FW, w = r.range(5, 30);
-    g.fillStyle = r.chance(0.6) ? `rgba(222,214,196,${r.range(0.15, 0.45)})` : `rgba(30,24,20,${r.range(0.2, 0.5)})`;
-    g.fillRect(x, yc - 5 + r.range(0, 4), w, r.range(2, 6));
+/** the timber gallery under the inner eave, in strip space (y = depth). Big, simple, and it will be thrown out of focus. */
+function paintGallery(g, FW) {
+  const E = D.eave, r = L.rng('s04gal');
+  g.fillStyle = '#0b0705'; g.fillRect(0, E - 16, FW, DEPTH - E + 16);
+  const rail0 = E + 34, rail1 = E + 84, beam1 = E + 97, BAY = P * 1.5;
+  // boarded railing of the top gallery: upright planks, one by one
+  for (let x = 0; x < FW;) {
+    const w = r.range(9, 15);
+    g.fillStyle = L.shade('#b4601f', r.range(-0.3, 0.1)); g.fillRect(x, rail0, w - 1.6, rail1 - rail0);
+    g.fillStyle = 'rgba(255,196,130,0.24)'; g.fillRect(x, rail0, 1.6, rail1 - rail0);
+    x += w;
   }
-  g.fillStyle = 'rgba(10,7,5,0.5)'; g.fillRect(0, yc + 6, FW, 1.8);
+  for (let i = 0; i < 26; i++) {   // a few replaced / weathered boards
+    const x = r() * FW, w = r.range(10, 34);
+    g.fillStyle = r.chance(0.5) ? `rgba(236,180,120,${r.range(0.1, 0.26)})` : `rgba(40,18,6,${r.range(0.2, 0.45)})`; g.fillRect(x, rail0, w, rail1 - rail0);
+  }
+  g.fillStyle = '#e09a4c'; g.fillRect(0, rail0 - 5, FW, 6);            // handrail catching the sun
+  g.fillStyle = '#421f0a'; g.fillRect(0, rail0 + 1, FW, 2.5);
+  g.fillStyle = L.linear(g, 0, rail1, 0, beam1, [[0, '#c4742e'], [0.35, '#98541f'], [1, '#341808']]); g.fillRect(0, rail1, FW, beam1 - rail1);   // floor-edge beam
+  g.fillStyle = '#080503'; g.fillRect(0, beam1, FW, DEPTH - beam1);                                 // the storey below, lost in shadow
+  // posts
+  for (let x = BAY * 0.3; x < FW; x += BAY) {
+    const px = x + r.range(-5, 5), hw = r.range(7, 9);
+    g.fillStyle = L.linear(g, px - hw, 0, px + hw, 0, [[0, '#e8a257'], [0.3, '#bb6a26'], [1, '#3d1c09']]); g.fillRect(px - hw, E - 16, hw * 2, beam1 - E + 16);
+    g.fillStyle = 'rgba(20,9,3,0.5)'; g.fillRect(px + hw, rail0 - 5, 9, rail1 - rail0 + 5);
+  }
+  // timber grain + patchy ageing
+  g.save(); g.beginPath(); g.rect(0, E - 16, FW, beam1 - E + 16); g.clip();
+  g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.55;
+  g.drawImage(L.noiseTex(FW, 130, { seed: 's04age', scale: 90, sx: 1.6, octaves: 3, res: 0.25, contrast: 1.7, ramp: [[0, '#6b5240'], [0.5, '#e6dccd'], [1, '#ffffff']] }), 0, E - 16);
+  g.restore();
+  // the sun rakes the ring from the left: the galleries on the right face it squarely, those on the left turn away into cool shade
+  g.save(); g.globalCompositeOperation = 'multiply';
+  g.fillStyle = L.linear(g, 0, 0, FW, 0, [[0, '#4d5263'], [0.2, '#5f6170'], [0.5, '#b9aa98'], [0.8, '#f4ece2'], [1, '#f4ece2']]);
+  g.fillRect(0, E - 16, FW, beam1 - E + 16);
+  g.restore();
+  // the deep eave's shadow over the top of the gallery
+  g.fillStyle = L.linear(g, 0, E - 16, 0, E + 66, [[0, 'rgba(7,4,3,0.97)'], [0.55, 'rgba(7,4,3,0.94)'], [0.8, 'rgba(7,4,3,0.5)'], [1, 'rgba(7,4,3,0)']]);
+  g.fillRect(0, E - 16, FW, 82);
 }
 
-/** one storey of the timber gallery in strip space. lvl 4..2 = upper floors with railings, 1 = ground floor */
-function drawStorey(g, FW, d0, hS, lvl, seed) {
-  const r = L.rng(seed);
-  const nB = Math.ceil(FW / BAY) + 1;
-  const beamH = lvl > 1 ? 5 : 0;
-  const dB = d0 + hS;
-  const railT = d0 + hS * 0.5, railB = dB - beamH;
-  const shadB = d0 + hS * (lvl > 1 ? 0.34 : 0.4);
-  const wallB = lvl > 1 ? railT + 4 : dB - 9;        // how far down the back wall is visible
-  // ── back wall, bay by bay
-  for (let b = -1; b < nB; b++) {
-    const x = b * BAY, tone = r.range(-0.14, 0.1);
-    if (lvl > 1) {
-      g.fillStyle = L.shade('#96623a', tone); g.fillRect(x, d0, BAY + 1, hS);
-      for (let px = x + 3; px < x + BAY; px += r.range(4, 7.5)) { g.fillStyle = `rgba(34,18,8,${r.range(0.12, 0.42)})`; g.fillRect(px, d0, 1, hS); }
-      const dx = x + BAY * r.range(0.26, 0.56), dw = 12;
-      g.fillStyle = r.chance(0.35) ? '#0d0806' : L.shade('#5a361d', r.range(-0.3, 0.05)); g.fillRect(dx, d0 + 4, dw, hS);
-      g.fillStyle = 'rgba(20,10,5,0.7)'; g.fillRect(dx - 1.2, d0 + 3, 1.2, hS); g.fillRect(dx + dw, d0 + 3, 1.2, hS);
-      if (r.chance(0.42)) {   // 春联
-        g.fillStyle = '#d32a1b'; g.fillRect(dx - 5.4, d0 + 5, 3.2, wallB - d0 - 5); g.fillRect(dx + dw + 2.2, d0 + 5, 3.2, wallB - d0 - 5);
-      }
-      if (r.chance(0.6)) {    // small lattice window
-        const wx = dx + (dx - x > BAY * 0.42 ? -17 : dw + 8);
-        g.fillStyle = '#1a0f09'; g.fillRect(wx, d0 + 8, 9, 10);
-        g.fillStyle = 'rgba(190,130,80,0.7)'; g.fillRect(wx + 2.6, d0 + 8, 0.9, 10); g.fillRect(wx + 5.6, d0 + 8, 0.9, 10);
-      }
-    } else {
-      // ground floor: earthen plaster wall on a stone footing, kitchen doors with couplets
-      g.fillStyle = L.shade('#cfa86f', tone * 0.7); g.fillRect(x, d0, BAY + 1, hS);
-      g.fillStyle = L.shade('#a29782', tone); g.fillRect(x, dB - 15, BAY + 1, 6);
-      g.fillStyle = L.linear(g, 0, dB - 9, 0, dB, [[0, '#8f8573'], [0.25, '#c4b9a3'], [1, '#b3a892']]); g.fillRect(x, dB - 9, BAY + 1, 9);
-      const dx = x + BAY * r.range(0.3, 0.5), dw = 15, dt = d0 + 9;
-      g.fillStyle = '#5c3a20'; g.fillRect(dx - 1.5, dt - 1.5, dw + 3, dB - 9 - dt + 1.5);
-      g.fillStyle = r.chance(0.55) ? '#0f0906' : '#3b2414'; g.fillRect(dx, dt, dw, dB - 9 - dt);
-      if (r.chance(0.5)) { g.fillStyle = '#6a4226'; g.fillRect(dx, dt, dw * 0.45, dB - 9 - dt); }
-      if (r.chance(0.6)) {
-        g.fillStyle = '#d42a1b'; g.fillRect(dx - 6.2, dt + 1, 3.4, dB - 14 - dt); g.fillRect(dx + dw + 2.8, dt + 1, 3.4, dB - 14 - dt);
-        g.fillRect(dx + 1, dt - 6.5, dw - 2, 3.6);
-      }
-      if (r.chance(0.7)) {
-        const wx = dx + (dx - x > BAY * 0.4 ? -20 : dw + 11);
-        g.fillStyle = '#20140c'; g.fillRect(wx, dt + 3, 9, 9);
-        g.fillStyle = 'rgba(120,80,50,0.9)'; g.fillRect(wx + 2.6, dt + 3, 1, 9); g.fillRect(wx + 5.6, dt + 3, 1, 9);
-      }
+/** round colonies of crusty lichen (R = pale grey-green, G = ochre), scattered over the strip */
+function lichenMap(FW, RH) {
+  const c = L.makeCanvas(FW, RH), g = c.getContext('2d'), r = L.rng('s04lichen');
+  g.fillStyle = '#000'; g.fillRect(0, 0, FW, RH);
+  g.globalCompositeOperation = 'lighter';
+  const n = Math.round(FW * 0.36);
+  for (let i = 0; i < n; i++) {
+    const x = r() * FW, y = TOPM + Math.pow(r(), 0.8) * (D.eave + 10), rad = 2.5 + 15 * Math.pow(r(), 2.6), ochre = r.chance(0.16), a = r.range(0.35, 1);
+    const lobes = rad > 6 ? r.int(3, 6) : 1;
+    for (let j = 0; j < lobes; j++) {
+      const lx = x + (lobes > 1 ? r.range(-0.5, 0.5) * rad : 0), ly = y + (lobes > 1 ? r.range(-0.5, 0.5) * rad : 0), lr = rad * (lobes > 1 ? r.range(0.45, 0.8) : 1);
+      const col = ochre ? '0,255,0' : '255,0,0';
+      g.fillStyle = L.radial(g, lx, ly, 0, lr, [[0, `rgba(${col},${a * 0.55})`], [0.55, `rgba(${col},${a})`], [0.82, `rgba(${col},${a * 0.8})`], [1, `rgba(${col},0)`]]);
+      g.beginPath(); g.arc(lx, ly, lr, 0, L.TAU); g.fill();
     }
   }
-  // ── shadows of the posts thrown onto the back wall (longer where the sun rakes, on the left)
-  for (let b = -1; b < nB; b++) {
-    const x = b * BAY, u = L.clamp(x / FW);
-    const off = 5 + 17 * (1 - u);
-    g.fillStyle = 'rgba(22,11,5,0.42)'; g.fillRect(x + off, d0, 6.5, hS);
-  }
-  // ── shadow of the floor above
-  g.fillStyle = 'rgba(12,7,4,0.78)'; g.fillRect(0, d0, FW, shadB - d0);
-  g.fillStyle = L.linear(g, 0, shadB, 0, shadB + 3, [[0, 'rgba(12,7,4,0.78)'], [1, 'rgba(12,7,4,0)']]); g.fillRect(0, shadB, FW, 3);
-  // ── railing
-  if (lvl > 1) {
-    g.fillStyle = '#2a190e'; g.fillRect(0, railT, FW, railB - railT);
-    for (let b = -1; b < nB; b++) {
-      const x = b * BAY;
-      if (r.chance(0.16)) {      // boarded panel instead of balusters
-        g.fillStyle = L.shade('#a0663a', r.range(-0.18, 0.08)); g.fillRect(x, railT + 2, BAY, railB - railT - 2);
-        for (let px = x + r.range(5, 9); px < x + BAY; px += r.range(6, 10)) { g.fillStyle = 'rgba(30,15,6,0.5)'; g.fillRect(px, railT + 2, 1, railB - railT - 2); }
-      } else {
-        for (let px = x + 4.5; px < x + BAY - 3; px += 5) {
-          g.fillStyle = L.shade('#c07a3c', r.range(-0.2, 0.12)); g.fillRect(px, railT + 2, 2.7, railB - railT - 3);
-          g.fillStyle = 'rgba(255,214,160,0.4)'; g.fillRect(px, railT + 2, 0.9, railB - railT - 3);
-        }
-      }
-    }
-    g.fillStyle = '#eab877'; g.fillRect(0, railT, FW, 2.3);
-    g.fillStyle = '#5e381f'; g.fillRect(0, railT + 2.3, FW, 1.2);
-    g.fillStyle = '#94603a'; g.fillRect(0, railB - 2.6, FW, 2.6);
-    // floor-edge beam
-    g.fillStyle = L.linear(g, 0, railB, 0, dB, [[0, '#c18a58'], [0.3, '#8a5631'], [1, '#3a2011']]); g.fillRect(0, railB, FW, beamH);
-  }
-  // ── posts (+ small bracket block under the beam, stone plinth on the ground floor)
-  for (let b = -1; b < nB; b++) {
-    const x = b * BAY, tone = r.range(-0.1, 0.08), hw = lvl > 1 ? 3.8 : 4.4;
-    g.fillStyle = L.linear(g, x - hw, 0, x + hw, 0, [[0, L.shade('#f0b06a', tone)], [0.3, L.shade('#c7722f', tone)], [1, L.shade('#4a240c', tone)]]);
-    g.fillRect(x - hw, d0, hw * 2, (lvl > 1 ? railB : dB - 6) - d0);
-    g.fillStyle = L.shade('#8a5631', tone); g.fillRect(x - 8, d0, 16, 3);
-    g.fillStyle = 'rgba(10,6,3,0.55)'; g.fillRect(x - 8, d0 + 3, 16, 1.2);
-    if (lvl === 1) {
-      g.fillStyle = L.linear(g, x - 6, 0, x + 6, 0, [[0, '#ddd2bc'], [0.5, '#b3a892'], [1, '#6f6656']]); g.fillRect(x - 6, dB - 8, 12, 5);
-      g.fillStyle = 'rgba(30,22,14,0.5)'; g.fillRect(x - 5, dB - 3, 26, 2.4);
-    }
-  }
+  return g.getImageData(0, 0, FW, RH).data;
 }
 
-/**
- * red lanterns, one to a bay, hanging from the beam above. Painted LAST (over the eave shadow and the long morning
- * shadow) so the three rings of 朱砂 dots stay lit all the way round. `k` dims a whole row (the one tucked under the eave).
- */
-function drawLanterns(g, FW, d0, seed, k) {
-  const r = L.rng(seed);
-  const nB = Math.ceil(FW / BAY) + 1;
-  const dim = (c) => (k < 1 ? L.mix(c, '#000000', 1 - k) : c);
-  for (let b = -1; b < nB; b++) {
-    const x = b * BAY + BAY / 2 + r.range(-1.5, 1.5), y = d0 + 13 + r.range(-0.8, 0.8), rx = 6.5, ry = 7.6;
-    g.fillStyle = 'rgba(20,10,6,0.8)'; g.fillRect(x - 0.5, d0 + 2, 1, 4);
-    g.fillStyle = L.radial(g, x, y, 0, 22, [[0, `rgba(255,70,31,${0.5 * k})`], [0.45, `rgba(255,70,31,${0.16 * k})`], [1, 'rgba(255,70,31,0)']]); g.fillRect(x - 22, y - 22, 44, 44);
-    g.fillStyle = L.radial(g, x - 2, y - 2.3, 0.5, 9.6, [[0, dim('#ffb07a')], [0.3, dim('#ff461f')], [0.75, dim('#d8261a')], [1, dim('#8a120c')]]);
-    g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, L.TAU); g.fill();
-    g.fillStyle = dim('#d6a43c'); g.fillRect(x - 3, y - ry - 1, 6, 1.7); g.fillRect(x - 2.8, y + ry - 0.7, 5.6, 1.6);
-    g.fillStyle = dim('#e0b13f'); g.fillRect(x - 0.6, y + ry + 0.9, 1.2, 4.2);
-  }
-}
-
-/** the unrolled building strip: FW × (TOPM + DEPTH), x = arc length, y = TOPM + depth */
+/** the unrolled roof strip, lit: returns straight-alpha RGBA (FW × FH) */
 function buildStrip(env) {
   const a = env.arc, R = a.R;
-  const FW = Math.ceil((2 * a.span(PAD + 170) * R) / BAY) * BAY;
-  const FH = TOPM + DEPTH;
-  // sunlight comes from behind-left of the camera: the right-hand part of the ring faces it squarely, the left is raked
-  const sunRoof = new Float32Array(FW), sunShade = new Float32Array(FW), sunWall = new Float32Array(FW);
-  for (let x = 0; x < FW; x++) {
-    const s = L.smooth(L.remap(x / FW, 0.14, 0.84, 0, 1));
-    sunRoof[x] = L.lerp(0.74, 1.1, s); sunShade[x] = L.lerp(0.92, 1.04, s); sunWall[x] = L.lerp(0.8, 1.06, s);
+  const nR = Math.ceil((2 * a.span(HP + 40) * R) / P) + 1;
+  const FW = nR * P, FH = TOPM + DEPTH, RH = TOPM + D.eave + 24;
+  const sE = D.eave - D.ridge;
+  // ── noise fields
+  const nBig = noiseArr(FW, RH, { seed: 's04big', scale: 190, sx: 1.5, octaves: 3, res: 0.16, contrast: 1.8 });
+  const nMid = noiseArr(FW, RH, { seed: 's04mid', scale: 40, octaves: 3, res: 0.3, contrast: 1.7 });
+  const nRun = noiseArr(FW, RH, { seed: 's04run', scale: 26, sx: 0.42, sy: 5, octaves: 3, res: 0.3, contrast: 1.7 });   // streaks down the slope
+  const fine = noiseArr(256, 256, { seed: 's04fine', scale: 5, octaves: 3, res: 1, contrast: 1.8 });
+  const lich = lichenMap(FW, RH);
+  // ── rows
+  const rr = L.rng('s04rows');
+  const cOff = new Float32Array(nR), cHW = new Float32Array(nR), rowTone = new Float32Array(nR);
+  const ci = [], co = [], ti_ = [], to_ = [];
+  const lenIn = sE + 40, lenOut = D.ridge + TOPM + 24;
+  for (let i = 0; i < nR; i++) {
+    cOff[i] = rr.range(-3.5, 3.5); cHW[i] = ((P * SPLIT) / 2) * rr.range(0.92, 1.06); rowTone[i] = rr.range(0.9, 1.1);
+    ci.push(makeRun('s04ci' + i, lenIn, 25, 0.24)); co.push(makeRun('s04co' + i, lenOut, 11.5, 0.22));
+    ti_.push(makeRun('s04ti' + i, lenIn, 30, 0.24)); to_.push(makeRun('s04to' + i, lenOut, 14, 0.22));
   }
-  const litLut = lutOf([[0, '#0f0d0c'], [0.22, '#2c2622'], [0.45, '#4f4640'], [0.62, '#6a655f'], [0.8, '#8e8f8c'], [1, '#c2c8c8']]);
-  const shdLut = lutOf([[0, '#0b0b0c'], [0.3, '#25262a'], [0.55, '#3a3d43'], [0.8, '#51565d'], [1, '#6b727a']]);
-  const cobLut = lutOf([[0, '#4a3b28'], [0.3, '#8b7654'], [0.55, '#c2a678'], [0.8, '#dcc08d'], [1, '#f1dfb8']]);
-  const yR = TOPM + D.ridge, yR2 = TOPM + D.ridge2;
+  const hgt = new Float32Array(FW * RH), alb = new Uint8ClampedArray(FW * RH * 3), glo = new Uint8Array(FW * RH), alp = new Uint8ClampedArray(FW * RH);
 
-  // ── roofs (per pixel)
-  const B = L.makeCanvas(FW, FH), bg = B.getContext('2d');
-  const img = new ImageData(FW, FH);
-  paintRoof(img.data, FW, 0, yR, { ridgeY: yR, dir: -1, lit: false, pitch: ROW, lap: LAP * 0.7, seed: 1, lut: shdLut, gain: 0.88, xg: sunShade });
-  paintRoof(img.data, FW, yR, TOPM + D.eave + 8, { ridgeY: yR, dir: 1, lit: true, pitch: ROW, lap: LAP, seed: 2, lut: litLut, gain: 1.0, xg: sunRoof });
-  paintRoof(img.data, FW, TOPM + D.ring - 8, yR2, { ridgeY: yR2, dir: -1, lit: false, pitch: ROW2, lap: LAP * 0.7, seed: 3, lut: shdLut, gain: 0.9, xg: sunShade });
-  paintRoof(img.data, FW, yR2, FH, { ridgeY: yR2, dir: 1, lit: true, pitch: ROW2, lap: LAP, seed: 4, lut: litLut, gain: 0.96, xg: sunRoof });
-  bg.putImageData(img, 0, 0);
-  // weathering: big damp blotches, rain streaks down the slope, sagging between purlins, lichen specks, moss by the eaves, repairs
-  bg.globalCompositeOperation = 'soft-light'; bg.globalAlpha = 0.3;
-  bg.drawImage(L.noiseTex(FW, FH, { seed: 's04w1', scale: 150, sx: 1.6, octaves: 4, res: 0.2, contrast: 1.8, ramp: [[0, '#1c140f'], [0.5, '#80786f'], [1, '#cfd2cf']] }), 0, 0);
-  bg.globalAlpha = 0.3;
-  bg.drawImage(L.noiseTex(FW, FH, { seed: 's04w2', scale: 20, sx: 0.5, sy: 8, octaves: 3, res: 0.4, contrast: 1.6 }), 0, 0);
-  bg.globalAlpha = 0.34;
-  bg.drawImage(L.noiseTex(FW, FH, { seed: 's04sag', scale: 30, sx: 14, sy: 0.9, octaves: 2, res: 0.3, contrast: 1.5 }), 0, 0);
-  bg.globalCompositeOperation = 'source-atop'; bg.globalAlpha = 1;
-  L.speckle(bg, { seed: 's04lichen', count: 5200, x: 0, y: 0, w: FW, h: FH, rMin: 0.6, rMax: 3.4, squash: 1.5, colors: ['#b3ab94', '#9d9a86', '#c9c0aa', '#8a8a72'], alpha: [0.08, 0.42] });
-  L.speckle(bg, { seed: 's04soot', count: 3200, x: 0, y: 0, w: FW, h: FH, rMin: 0.8, rMax: 4.2, squash: 1.7, colors: ['#0f0b08', '#1c1a10', '#231a12'], alpha: [0.1, 0.45] });
-  {
-    const moss = L.noiseTex(FW, FH, { seed: 's04moss', scale: 64, sx: 2.2, octaves: 4, res: 0.25, contrast: 1.6,
-      ramp: [[0, 'rgba(32,34,18,0)'], [0.45, 'rgba(32,34,18,0.08)'], [1, 'rgba(26,28,14,0.66)']] });
-    const mg = moss.getContext('2d'); mg.globalCompositeOperation = 'destination-in';
-    const st = (d) => (TOPM + d) / FH;
-    mg.fillStyle = L.linear(mg, 0, 0, 0, FH, [[0, 'rgba(0,0,0,0.7)'], [st(26), 'rgba(0,0,0,0.12)'], [st(130), 'rgba(0,0,0,0.08)'], [st(D.eave - 6), 'rgba(0,0,0,0.9)'], [st(D.eave + 10), 'rgba(0,0,0,0.9)'],
-      [st(D.ring - 6), 'rgba(0,0,0,0.8)'], [st(D.ring + 30), 'rgba(0,0,0,0.15)'], [1, 'rgba(0,0,0,0.3)']]);
-    mg.fillRect(0, 0, FW, FH);
-    bg.drawImage(moss, 0, 0);
-  }
-  {
-    const r = L.rng('s04patch');
-    bg.globalCompositeOperation = 'soft-light';
-    for (let i = 0; i < 40; i++) {
-      const x = Math.round(r() * FW / ROW) * ROW, w = r.int(2, 8) * ROW, y = r.chance(0.75) ? TOPM + r.range(D.ridge + 6, D.eave - 20) : TOPM + r.range(D.ridge2 + 4, D.ridge2 + 40), h = r.range(16, 60);
-      bg.fillStyle = r.chance(0.5) ? `rgba(225,212,195,${r.range(0.1, 0.26)})` : `rgba(18,12,8,${r.range(0.12, 0.3)})`;
-      bg.fillRect(x, y, w, h);
-    }
-  }
-  // the slopes as forms: the sunlit pitch is brightest below the ridge and dulls toward the damp eave; the far pitch falls away dark
-  bg.globalCompositeOperation = 'soft-light'; bg.globalAlpha = 1;
-  bg.fillStyle = L.linear(bg, 0, yR, 0, TOPM + D.eave, [[0, 'rgba(236,242,246,0.3)'], [0.3, 'rgba(236,242,246,0.12)'], [0.7, 'rgba(20,14,10,0.05)'], [1, 'rgba(20,14,10,0.36)']]);
-  bg.fillRect(0, yR, FW, D.eave - D.ridge);
-  bg.fillStyle = L.linear(bg, 0, 0, 0, yR, [[0, 'rgba(10,8,8,0.46)'], [0.4, 'rgba(10,8,8,0.16)'], [1, 'rgba(10,8,8,0.06)']]);
-  bg.fillRect(0, 0, FW, yR);
-  bg.fillStyle = L.linear(bg, 0, TOPM + D.ring, 0, yR2, [[0, 'rgba(10,8,8,0.45)'], [1, 'rgba(10,8,8,0.1)']]);
-  bg.fillRect(0, TOPM + D.ring - 8, FW, D.ridge2 - D.ring + 8);
-  bg.fillStyle = L.linear(bg, 0, yR2, 0, yR2 + 60, [[0, 'rgba(236,242,246,0.3)'], [1, 'rgba(236,242,246,0.05)']]);
-  bg.fillRect(0, yR2, FW, FH - yR2);
-  bg.globalCompositeOperation = 'source-over';
-  drawRidge(bg, FW, yR, 's04ridge1');
-  drawRidge(bg, FW, yR2, 's04ridge2');
-  // the sunlit lip of the inner eave, the dark lip of the inner ring's eave
-  bg.fillStyle = 'rgba(226,232,234,0.26)'; bg.fillRect(0, TOPM + D.eave - 3.5, FW, 7);
-  bg.fillStyle = 'rgba(8,6,4,0.4)'; bg.fillRect(0, TOPM + D.ring - 4, FW, 7);
-  // cut the roofs back to their scalloped eave lines (trough tiles poke out a little beyond the cover tiles)
-  bg.globalCompositeOperation = 'destination-out'; bg.globalAlpha = 1; bg.fillStyle = '#000';
-  bg.beginPath();
-  const scal = (x, pitch) => { const fu = x / pitch - Math.floor(x / pitch); return fu < SPLIT ? 0 : 2.2 * Math.sin((Math.PI * (fu - SPLIT)) / (1 - SPLIT)); };
-  for (let x = 0; x <= FW; x += 1) { const y = TOPM + D.eave + scal(x, ROW); if (x === 0) bg.moveTo(x, y); else bg.lineTo(x, y); }
-  for (let x = FW; x >= 0; x -= 1) bg.lineTo(x, TOPM + D.ring - scal(x, ROW2));
-  bg.closePath(); bg.fill();
-  bg.globalCompositeOperation = 'source-over';
-
-  // ── everything under the roofs
-  const A = L.makeCanvas(FW, FH), g = A.getContext('2d');
-  g.fillStyle = '#20140c'; g.fillRect(0, 0, FW, FH);
-  // cobbled courtyard
-  const hC = D.ring + 14 - D.kerb;
-  const cimg = new ImageData(FW, hC);
-  paintCobbles(cimg.data, FW, hC, cobLut, sunWall);
-  g.putImageData(cimg, 0, TOPM + D.kerb);
-  g.translate(0, TOPM);            // from here on y = depth inside the arc
-  {
-    const r = L.rng('s04yard');
-    // damp, mossy patches
-    g.save(); g.beginPath(); g.rect(0, D.kerb, FW, hC); g.clip();
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.6;
-    g.drawImage(L.noiseTex(FW, hC, { seed: 's04damp', scale: 80, sx: 2.6, octaves: 4, res: 0.4, contrast: 1.7, ramp: [[0, '#8d7f5c'], [0.45, '#e4dac3'], [1, '#ffffff']] }), 0, D.kerb);
-    g.restore();
-    // granite slab paths crossing the yard on a few axes
-    for (const bx of [0.5, 0.18, 0.82, 0.335, 0.665]) {
-      const x = Math.round((bx * FW) / BAY) * BAY + BAY / 2 - 11;
-      g.fillStyle = 'rgba(40,30,18,0.4)'; g.fillRect(x - 1.2, D.yard, 24.4, D.ring - D.yard);
-      for (let y = D.yard + 3; y < D.ring + 10; y += 13) {
-        g.fillStyle = L.shade('#cdbb96', r.range(-0.16, 0.06)); g.fillRect(x, y, 22, 12);
-        g.fillStyle = 'rgba(255,246,225,0.28)'; g.fillRect(x, y, 22, 1.1);
+  // ── pass 1: height + albedo, tile by tile
+  for (let y = 0; y < RH; y++) {
+    const d = y - TOPM;
+    let k = y * FW;
+    for (let x = 0; x < FW; x++, k++) {
+      const nb = nBig[k], nm = nMid[k], nr = nRun[k];
+      const dd = d - D.ridge + (nb - 128) * 0.022;                         // the ridge line wanders a few px
+      const side = dd >= 0 ? 1 : -1;            // +1 inner slope (faces the camera), −1 outer slope (falls away)
+      const s = dd >= 0 ? dd : -dd;             // distance down the slope from the ridge line
+      const xr = x + (nm - 128) * 0.012 + (nb - 128) * 0.03;              // rows meander a little
+      let ri = (xr / P) | 0; if (ri < 0) ri = 0; else if (ri >= nR) ri = nR - 1;
+      const fx = xr - (ri + 0.5) * P - cOff[ri];
+      const hw = cHW[ri];
+      let h = 0, tone = 1, warm = 0, gl = 0, hd = 99, tr = 0, cover = false, edge = -1.4, fi = 0, lim = 0;
+      const u0 = fx / hw;
+      if (u0 > -1.3 && u0 < 1.3) {
+        const uc0 = u0 < -1 ? -1 : u0 > 1 ? 1 : u0;
+        const run = side > 0 ? ci[ri] : co[ri];
+        // butt ends: seen from the front on the inner slope (∩), from behind on the outer one
+        const se = s + (side > 0 ? 7 : -2.5) * (1 - uc0 * uc0);
+        const ti = run.idx[(se + 60) | 0];
+        const b0 = run.b[ti], e = run.b[ti + 1] - b0;
+        const hk = run.hk[ti], hq = run.hq[ti], hp = run.hp[ti], ho = run.ho[ti];
+        const uc = (fx - (hq - 0.5) * 6 - (hp - 0.5) * 0.14 * (se - b0 - e * 0.5)) / hw;
+        if (uc > -1 && uc < 1) {
+          cover = true;
+          const face = side > 0 ? 2.2 : 1.4;
+          const f = (se - b0) / e; let q = b0 + e - se;                    // q = px left to this tile's butt
+          if (side > 0 && sE - se < q) q = sE - se;                        // the eave cuts the last tile
+          const au = uc < 0 ? -uc : uc;
+          const prof = (Math.sqrt(1 - 0.84 * uc * uc) - 0.4) / 0.6;        // 1 on the crown → 0 at the edges
+          h = 5 + 13.5 * prof + (side > 0 ? 3 : 1.8) * f * (q < face ? (q < 0 ? 0 : q / face) : 1) + (ho - 0.5) * 2 + (hp - 0.5) * 2.6 * uc;
+          tone = rowTone[ri] * (0.78 + 0.44 * hk);
+          if (ho > 0.94) tone *= 1.3; else if (ho < 0.1) tone *= 0.66;
+          warm = hq - 0.5;
+          hd = se - b0;
+          if (hd < 4.5) tone *= 0.5 + 0.5 * (hd / 4.5);                    // dirt packed under the tile above
+          if (q >= face && q < face + 2.5) tone *= 1.2;                    // worn, paler lip
+          if (au > 0.86) tone *= 1 - (au - 0.86) * 2.4;
+          if (hp > 0.86) {                                                 // a chipped corner shows the tile underneath
+            const cw = 0.25 + 0.4 * hq, ch = 8 + 10 * ho;
+            if ((1 - (hk > 0.5 ? uc : -uc)) / (cw * 2) + q / ch < 1 + (nm - 128) * 0.004) { h -= 3.4; tone *= 0.58; warm += 0.3; hd = 2; }
+          } else if (ho < 0.013 && side > 0) { h = 1 + 3 * prof; tone *= 0.5; warm += 0.35; hd = 2; }   // a cover tile gone: the bedding shows
+          gl = 150;
+          edge = 0.4 + 3.1 * prof + (ho - 0.5) * 1.6;
+          fi = ri * 37 + ti * 53;
+          lim = sE - 7 * (1 - uc * uc);
+        }
       }
+      if (!cover) {
+        const tj = fx > 0 ? ri : ri - 1;                                    // the trough between cover rows tj and tj+1
+        const j0 = tj < 0 ? 0 : tj, j1 = tj + 1 >= nR ? nR - 1 : tj + 1;
+        const thw = (P - cHW[j0] - cHW[j1]) * 0.5 + 4.5;
+        let ut = (xr - (tj + 1) * P - (cOff[j0] + cOff[j1]) * 0.5) / thw; if (ut < -1) ut = -1; else if (ut > 1) ut = 1;
+        const run = side > 0 ? ti_[j0] : to_[j0];
+        tr = 1 - ut * ut;
+        const se = s + (side > 0 ? -6 : 2.5) * tr;                          // ∪ from the front
+        const ti = run.idx[(se + 60) | 0];
+        const b0 = run.b[ti], e = run.b[ti + 1] - b0;
+        const hk = run.hk[ti];
+        const face = side > 0 ? 2.2 : 1.4;
+        const f = (se - b0) / e; let q = b0 + e - se;
+        if (side > 0 && sE + 6 - se < q) q = sE + 6 - se;
+        h = -1.5 - 9 * tr + (side > 0 ? 2.6 : 1.5) * f * (q < face ? (q < 0 ? 0 : q / face) : 1) + (hk - 0.5) * 1.8;
+        tone = 0.82 * (0.8 + 0.4 * hk);
+        warm = run.hq[ti] - 0.5;
+        hd = se - b0;
+        if (hd < 4.5) tone *= 0.55 + 0.45 * (hd / 4.5);
+        if (q >= face && q < face + 2.5) tone *= 1.18;
+        gl = 110;
+        edge = -1.5 + 0.9 * ut * ut;
+        fi = j0 * 91 + ti * 29 + 7;
+        lim = sE + 6 + 6 * tr;
+      }
+      const nf = fine[(((y + fi * 3) & 255) << 8) | ((x + fi) & 255)];
+      // the old roof sags and swells; the clay itself is finely pitted
+      h += (nb - 128) * 0.07 + (nf - 128) * 0.0045;
+      // rain has streaked the slope below the ridge; the tiles stay damp and dark toward the inner eave
+      if (side > 0) { if (s < 80) tone *= 1 - 0.3 * sm((nr - 132) / 50) * (1 - s / 80); tone *= 1 - 0.2 * sm((s - 190) / 140); }
+      // fired clay: cool grey ↔ warm grey-brown, drifting in big patches and tile by tile
+      let wm = 0.5 + warm * 0.8 + (nb - 128) * 0.0035; if (wm < 0) wm = 0; else if (wm > 1) wm = 1;
+      const tx = tone * (0.74 + 0.52 * (nf / 255)) * (0.82 + 0.36 * (nr / 255));
+      let cr = (71 + 15 * wm) * tx, cg = (73 - 1 * wm) * tx, cb = (77 - 15 * wm) * tx;
+      // ── the ridge: roof tiles stacked on edge like a row of leaning books, bedded in lime mortar
+      if (dd > -D.rh * 1.6 && dd < D.rh * 1.6) {
+        const t = dd / D.rh, t2 = t * t;
+        if (t2 < 1) {
+          const xe = xr + 12 * (1 - t2) + (nm - 128) * 0.05;
+          const pk = Math.floor(xe / 9.5), fp = xe / 9.5 - pk;
+          const pkh = h2(pk, 4177), pk2 = h2(pk, 911);
+          const hR = 21 + 13 * Math.sqrt(1 - t2) + (fp < 0.3 ? fp / 0.3 : 1 - (fp - 0.3) * 0.5) * 3.2 * (0.4 + pkh) - (pk2 < 0.06 ? 7 : 0);
+          if (hR > h) {
+            h = hR;
+            const lime = sm((nm - 150) / 40) * 0.7;
+            const pt = (0.7 + 0.5 * pkh) * (fp < 0.16 ? 0.45 : fp < 0.34 ? 1.25 : 1) * (0.75 + 0.5 * (nf / 255));
+            cr = 80 * pt * (1 - lime) + lime * (158 + 0.2 * nf); cg = 76 * pt * (1 - lime) + lime * (156 + 0.2 * nf); cb = 72 * pt * (1 - lime) + lime * (148 + 0.2 * nf);
+            gl = 90 * (1 - lime); hd = 99; tr = 0; cover = true;
+          }
+        }
+        const ft = t < 0 ? -t : t;
+        if (ft > 0.78 && ft < 1.6) {          // the lime fillet at the foot of the ridge, grey with age
+          let am = ft < 1 ? (ft - 0.78) / 0.22 : 1 - (ft - 1) / 0.6; am *= 0.25 + 0.75 * sm((nm - 100) / 60);
+          const lv = 122 + 0.3 * nf;
+          cr += (lv - cr) * am; cg += (lv * 0.98 - cg) * am; cb += (lv * 0.93 - cb) * am; gl *= 1 - am;
+          if (ft >= 1) h += 3.5 * am;
+        }
+      }
+      // round colonies of pale lichen on the exposed crowns
+      const k4 = k * 4;
+      let li = lich[k4] + lich[k4 + 1];
+      if (li > 0) {
+        const och = lich[k4 + 1] > lich[k4];
+        li = (li > 255 ? 1 : li / 255) * (cover ? 0.78 : 0.3) * (0.5 + 0.5 * (nf / 255)) * (side > 0 ? 1 : 0.6);
+        if (och) { cr += (150 - cr) * li; cg += (124 - cg) * li; cb += (62 - cb) * li; } else { cr += (146 - cr) * li; cg += (152 - cg) * li; cb += (138 - cb) * li; }
+        gl *= 1 - li; h += li * 0.8;
+      }
+      // moss and black dirt gathering in the troughs and under every lap
+      const wz = side > 0 ? 0.25 + 0.75 * sm((s - 120) / 190) : 0.8;       // dampness: toward the inner eave; all of the shaded slope
+      let mm = sm((nr - 108) / 60) * wz * (cover ? (hd < 7 ? (1 - hd / 7) * 0.7 : 0) : tr * 1.1 + (hd < 7 ? (1 - hd / 7) * 0.5 : 0));
+      if (mm > 0) {
+        if (mm > 1) mm = 1; mm *= 0.45 + 0.55 * (nm / 255);
+        const tip = nf / 255;
+        cr += (24 + 34 * tip - cr) * mm; cg += (28 + 40 * tip - cg) * mm; cb += (16 + 14 * tip - cb) * mm; gl *= 1 - mm; h += mm * (0.6 + 2.6 * tip);
+      }
+      hgt[k] = h; alb[k * 3] = cr; alb[k * 3 + 1] = cg; alb[k * 3 + 2] = cb; glo[k] = gl;
+      // silhouettes: the bumpy far eave above, the scalloped inner eave below
+      let al = 255;
+      if (d < 7) { const c = (edge + d + 0.5) * 255; al = c < 0 ? 0 : c > 255 ? 255 : c; }
+      else if (s > sE - 12) { const c = (lim - s + 0.5) * 255; al = c < 0 ? 0 : c > 255 ? 255 : c; }
+      alp[k] = al;
     }
-    // stone well-heads
-    for (const wx of [0.5 * FW + 316, 0.5 * FW - 612]) {
-      g.fillStyle = 'rgba(30,20,10,0.45)'; g.beginPath(); g.ellipse(wx + 4, 415 - 4, 11.5, 8.5, 0, 0, L.TAU); g.fill();
-      g.fillStyle = L.linear(g, wx - 10, 0, wx + 10, 0, [[0, '#cfc3a8'], [0.6, '#a79b82'], [1, '#6f6652']]); g.beginPath(); g.ellipse(wx, 415, 10, 7.6, 0, 0, L.TAU); g.fill();
-      g.fillStyle = '#2a2a24'; g.beginPath(); g.ellipse(wx, 415.4, 6, 4.4, 0, 0, L.TAU); g.fill();
-      g.fillStyle = 'rgba(150,170,170,0.35)'; g.beginPath(); g.ellipse(wx - 1.5, 416.4, 3, 1.8, 0, 0, L.TAU); g.fill();
+  }
+
+  // ── ambient occlusion from a blurred copy of the height map
+  const hb = boxBlur(hgt, FW, RH, 6);
+
+  // ── pass 2: light. Low sun from behind-left of the camera; cool skylight; the bright mist behind the far rim.
+  const EL = 0.42, cosE = Math.cos(EL), sinE = Math.sin(EL), tanE = Math.tan(EL), STEP = 3.6;
+  const hxl = new Float32Array(FW), hyl = new Float32Array(FW), hsx = new Float32Array(FW), hsy = new Float32Array(FW), hsz = new Float32Array(FW);
+  for (let x = 0; x < FW; x++) {
+    const th = (x - FW / 2) / R, c = Math.cos(th), sn = Math.sin(th);
+    hxl[x] = -0.76 * c + 0.65 * sn; hyl[x] = 0.76 * sn + 0.65 * c;        // unit direction TO the sun, in strip space (it turns as the ring turns)
+    const vx = hxl[x] * cosE, vy = hyl[x] * cosE + 0.64, vz = sinE + 0.77, vl = Math.hypot(vx, vy, vz);
+    hsx[x] = vx / vl; hsy[x] = vy / vl; hsz[x] = vz / vl;                  // half vector sun ↔ camera
+  }
+  const gal = L.makeCanvas(FW, FH), gg_ = gal.getContext('2d');
+  gg_.translate(0, TOPM); paintGallery(gg_, FW);
+  const sd = gg_.getImageData(0, 0, FW, FH), o = sd.data;
+  for (let y = 0; y < RH; y++) {
+    const dd = y - TOPM - D.ridge;
+    const tilt = dd <= -D.rh ? 0.8 : dd >= D.rh ? -0.42 : 0.8 - ((dd + D.rh) / (2 * D.rh)) * 1.22;   // the two pitches of the roof
+    const yu = (y > 0 ? y - 1 : 0) * FW, yd = (y < RH - 1 ? y + 1 : RH - 1) * FW;
+    for (let x = 0; x < FW; x++) {
+      const k = y * FW + x, al = alp[k];
+      if (al === 0) continue;
+      const h0 = hgt[k];
+      const gx = (hgt[x < FW - 1 ? k + 1 : k] - hgt[x > 0 ? k - 1 : k]) * 0.5, gy = (hgt[yd + x] - hgt[yu + x]) * 0.5 + tilt;
+      const inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
+      const nx = -gx * inv, ny = -gy * inv, nz = inv;
+      const lx = hxl[x], ly = hyl[x];
+      let diff = (nx * lx + ny * ly) * cosE + nz * sinE, sh = 0;
+      if (diff > 0) {
+        for (let i = 1; i <= 9; i++) {
+          const sx = (x + lx * STEP * i + 0.5) | 0, sy = (y + ly * STEP * i + 0.5) | 0;
+          if (sx < 0 || sx >= FW || sy < 0 || sy >= RH) break;
+          const oc = (hgt[sy * FW + sx] - h0 - STEP * i * tanE - 0.4) / (0.8 + 0.45 * i);
+          if (oc > sh) { sh = oc; if (sh >= 1) { sh = 1; break; } }
+        }
+      } else diff = 0;
+      let ao = 1 - (hb[k] - h0) * 0.06; if (ao < 0.36) ao = 0.36; else if (ao > 1.12) ao = 1.12;
+      const amb = (0.5 + 0.5 * nz) * ao;
+      let bk = ny * -0.8 + nz * 0.6; bk = bk > 0 ? bk * ao : 0;
+      const sun = diff * (1 - sh);
+      let r = alb[k * 3] * (0.5 * amb + 0.08 * bk + 1.4 * sun);
+      let g = alb[k * 3 + 1] * (0.57 * amb + 0.1 * bk + 1.16 * sun);
+      let b = alb[k * 3 + 2] * (0.68 * amb + 0.12 * bk + 0.86 * sun);
+      const gl = glo[k] / 255;
+      if (gl > 0) {      // damp tiles: a cool sheen at grazing angles, small warm glints toward the sun
+        let fr = 1 - (ny * 0.64 + nz * 0.77); fr = fr > 0 ? fr * fr * fr * ao : 0;
+        let sp = nx * hsx[x] + ny * hsy[x] + nz * hsz[x]; sp = sp > 0 ? Math.pow(sp, 26) * (1 - sh) : 0;
+        r += gl * (fr * 50 + sp * 190); g += gl * (fr * 57 + sp * 172); b += gl * (fr * 66 + sp * 140);
+      }
+      if (r > 196) r = 196 + (r - 196) * 0.5; if (g > 196) g = 196 + (g - 196) * 0.5; if (b > 196) b = 196 + (b - 196) * 0.5;
+      const k4 = k * 4;
+      if (al === 255 || y < TOPM + 40) { o[k4] = r; o[k4 + 1] = g; o[k4 + 2] = b; o[k4 + 3] = al; }
+      else { const t = al / 255; o[k4] += (r - o[k4]) * t; o[k4 + 1] += (g - o[k4 + 1]) * t; o[k4 + 2] += (b - o[k4 + 2]) * t; o[k4 + 3] = 255; }
     }
-    // platform kerb of dressed granite + the drain that runs round the yard
-    for (let x = 0; x < FW;) {
-      const w = r.range(26, 52);
-      g.fillStyle = L.shade('#cdc1a9', r.range(-0.12, 0.08)); g.fillRect(x, D.kerb, w - 1, D.yard - D.kerb - 2.5);
-      x += w;
-    }
-    g.fillStyle = 'rgba(255,248,230,0.4)'; g.fillRect(0, D.kerb, FW, 1.4);
-    g.fillStyle = '#6e624e'; g.fillRect(0, D.yard - 2.6, FW, 2.6);
-    g.fillStyle = 'rgba(24,18,10,0.7)'; g.fillRect(0, D.yard, FW, 3);
-    g.fillStyle = 'rgba(46,52,26,0.4)'; g.fillRect(0, D.yard + 3, FW, 5);
   }
-  // the four storeys
-  drawStorey(g, FW, D.eave, D.f3 - D.eave, 4, 's04f4');
-  drawStorey(g, FW, D.f3, D.f2 - D.f3, 3, 's04f3');
-  drawStorey(g, FW, D.f2, D.f1 - D.f2, 2, 's04f2');
-  drawStorey(g, FW, D.f1, D.kerb - D.f1, 1, 's04f1');
-  // timber: weathering streaks + patchy ageing; then the raking-sun falloff across the ring
-  {
-    const hG = D.kerb - D.eave;
-    g.save(); g.beginPath(); g.rect(0, D.eave, FW, D.f1 - D.eave); g.clip();
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.3;
-    g.drawImage(L.noiseTex(FW, hG, { seed: 's04wood', scale: 12, sx: 0.5, sy: 3, octaves: 3, res: 0.5, contrast: 1.6 }), 0, D.eave);
-    g.restore();
-    g.save(); g.beginPath(); g.rect(0, D.eave, FW, hG); g.clip();
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.5;
-    g.drawImage(L.noiseTex(FW, hG, { seed: 's04age', scale: 120, sx: 1.4, octaves: 4, res: 0.25, contrast: 1.6, ramp: [[0, '#6a5646'], [0.5, '#e8dfd2'], [1, '#ffffff']] }), 0, D.eave);
-    g.restore();
-    g.save(); g.globalCompositeOperation = 'multiply';
-    g.fillStyle = L.linear(g, 0, 0, FW, 0, [[0, '#b3b0ae'], [0.14, '#b3b0ae'], [0.5, '#dcd6ce'], [0.84, '#ffffff'], [1, '#ffffff']]);
-    g.fillRect(0, D.eave, FW, D.yard + 2 - D.eave);
-    g.restore();
-    g.save(); g.globalCompositeOperation = 'soft-light';
-    g.fillStyle = L.linear(g, 0, 0, FW, 0, [[0, 'rgba(120,140,170,0.25)'], [0.45, 'rgba(255,200,130,0.1)'], [0.8, 'rgba(255,196,120,0.4)'], [1, 'rgba(255,196,120,0.4)']]);
-    g.fillRect(0, D.eave, FW, D.ring - D.eave);
-    g.restore();
-  }
-  // cast shadows: the deep eave over the top gallery, and the inner ring over the yard
-  g.fillStyle = L.linear(g, 0, D.eave, 0, D.eave + 24, [[0, 'rgba(8,5,3,0.8)'], [0.78, 'rgba(8,5,3,0.55)'], [0.9, 'rgba(8,5,3,0.3)'], [1, 'rgba(8,5,3,0)']]);
-  g.fillRect(0, D.eave, FW, 24);
-  g.fillStyle = L.linear(g, 0, D.ring - 30, 0, D.ring + 4, [[0, 'rgba(20,14,10,0)'], [0.16, 'rgba(20,14,10,0.55)'], [1, 'rgba(14,10,7,0.55)']]);
-  g.fillRect(0, D.ring - 30, FW, 34);
-  // roofs on top
-  g.drawImage(B, 0, -TOPM);
-  // the long morning shadow of the near half of the ring (out of frame): it lies across the yard and climbs the
-  // galleries toward the left, where the ring turns away from the sun. Cool skylight fills it.
-  g.save();
-  g.beginPath(); g.rect(0, D.eave + 4, FW, FH); g.clip();
-  g.globalCompositeOperation = 'multiply'; g.filter = 'blur(6px)'; g.fillStyle = '#8b96b8';
-  g.beginPath();
-  for (let x = -60; x <= FW + 60; x += 20) {
-    const y = 216 + 520 * Math.pow(L.smooth((x / FW - 0.02) / 0.75), 1.25);
-    if (x === -60) g.moveTo(x, y); else g.lineTo(x, y);
-  }
-  g.lineTo(FW + 60, FH + 60); g.lineTo(-60, FH + 60); g.closePath(); g.fill();
-  g.restore();
-  // lanterns last of all: nothing dims them
-  g.save();
-  g.beginPath(); g.rect(0, D.eave + 4, FW, D.kerb - D.eave); g.clip();
-  drawLanterns(g, FW, D.eave, 's04lan4', 0.8);
-  drawLanterns(g, FW, D.f3, 's04lan3', 1);
-  drawLanterns(g, FW, D.f2, 's04lan2', 1);
-  g.restore();
-  return { strip: A, FW, FH };
+  return { data: o, FW, FH };
 }
 
-/** wrap the strip onto the arc (inverse polar mapping, bilinear) → a padded layer */
-function wrapStrip(env, strip, FW, FH) {
+/** wrap the strip onto the arc (inverse polar mapping, bilinear, straight alpha) → a layer cropped to the roof */
+function wrapStrip(env, src, FW, FH) {
   const a = env.arc, R = a.R;
-  const LW = W + PAD * 2, LH = H + PAD * 2;
-  const src = strip.getContext('2d').getImageData(0, 0, FW, FH).data;
+  const LW = W + HP * 2, top = Math.floor(a.crestY) - 10, LH = H + HP - top;
   const out = new ImageData(LW, LH), o = out.data;
   const xMax = FW - 1.001, yMax = FH - 1.001, row = FW * 4, half = FW / 2 - 0.5;
-  const yStart = Math.max(0, Math.floor(a.crestY - TOPM + PAD) - 1);
-  for (let Y = yStart; Y < LH; Y++) {
-    const dy = a.cy - (Y - PAD + 0.5), dy2 = dy * dy;
+  for (let Y = 0; Y < LH; Y++) {
+    const dy = a.cy - (Y + top + 0.5), dy2 = dy * dy;
     let k = Y * LW * 4;
     for (let X = 0; X < LW; X++, k += 4) {
-      const dx = X - PAD + 0.5 - a.cx;
+      const dx = X - HP + 0.5 - a.cx;
       let fy = R - Math.sqrt(dx * dx + dy2) + TOPM - 0.5;
       if (fy < 0) continue;
       if (fy > yMax) fy = yMax;
@@ -423,91 +361,60 @@ function wrapStrip(env, strip, FW, FH) {
       o[k] = src[i] * w00 + src[i + 4] * w10 + src[j] * w01 + src[j + 4] * w11;
       o[k + 1] = src[i + 1] * w00 + src[i + 5] * w10 + src[j + 1] * w01 + src[j + 5] * w11;
       o[k + 2] = src[i + 2] * w00 + src[i + 6] * w10 + src[j + 2] * w01 + src[j + 6] * w11;
-      o[k + 3] = 255;
+      o[k + 3] = src[i + 3] * w00 + src[i + 7] * w10 + src[j + 3] * w01 + src[j + 7] * w11;
     }
   }
-  const c = L.makeCanvas(LW, LH); c._pad = PAD;
+  const c = L.makeCanvas(LW, LH);
   const g = c.getContext('2d');
   g.putImageData(out, 0, 0);
-  g.translate(PAD, PAD);
-  // crisp outer eave: the arc itself, with the trough tiles' ends poking a couple of px beyond the cover tiles
-  const hs = FW / 2 / R;
-  g.globalCompositeOperation = 'destination-in';
-  g.beginPath();
-  for (let x = 0; x <= FW; x += 1.5) {
-    const fu = x / ROW - Math.floor(x / ROW);
-    const dr = fu < SPLIT ? 0 : 1.3 * Math.sin((Math.PI * (fu - SPLIT)) / (1 - SPLIT));
-    const q = a.pt((x - FW / 2) / R, dr);
-    if (x === 0) g.moveTo(q.x, q.y); else g.lineTo(q.x, q.y);
-  }
-  g.lineTo(a.pt(hs, 0).x, H + PAD + 400); g.lineTo(a.pt(-hs, 0).x, H + PAD + 400);
-  g.closePath(); g.fill();
-  // finishing, only where the building is
+  g.translate(HP, -top);                    // frame coordinates from here on
+  // finishing, only where the roof is
   g.globalCompositeOperation = 'source-atop';
-  // a breath of haze on the far rim, weight toward the bottom of frame
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 70, R + 4, [[0, 'rgba(226,236,242,0)'], [1, 'rgba(226,236,242,0.16)']]);
-  g.fillRect(-PAD, -PAD, LW, LH);
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 640, R - 380, [[0, 'rgba(10,7,5,0.18)'], [1, 'rgba(10,7,5,0)']]);
-  g.fillRect(-PAD, -PAD, LW, LH);
+  // aerial haze on the far rim + the bright mist blooming a few px over the dark edge
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 110, R + 6, [[0, 'rgba(214,226,236,0)'], [1, 'rgba(214,226,236,0.1)']]);
+  g.fillRect(-HP, top, LW, LH);
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 14, R + 5, [[0, 'rgba(240,246,250,0)'], [0.7, 'rgba(240,246,250,0.16)'], [1, 'rgba(240,246,250,0.36)']]);
+  g.fillRect(-HP, top, LW, LH);
   g.globalCompositeOperation = 'source-over';
-  return c;
+  // depth of field: focus sits on the far rim at the crest; the roof softens toward the camera (down the frame)
+  const soft = (px, y0, y1) => {
+    const c0 = Math.max(0, Math.floor(y0 - top - px * 3)), hh = LH - c0;      // only the rows that will show
+    const b = L.makeCanvas(LW, hh), q = b.getContext('2d');
+    q.filter = `blur(${px}px)`; q.drawImage(c, 0, -c0); q.filter = 'none';
+    q.globalCompositeOperation = 'destination-in';
+    q.fillStyle = L.linear(q, 0, y0 - top - c0, 0, y1 - top - c0, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); q.fillRect(0, 0, LW, hh);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(b, 0, c0); g.restore();
+  };
+  soft(1.8, 760, 930);
+  soft(6.5, 925, 1072);
+  return { canvas: c, top };
 }
 
-/** mist and far hills */
+/** clean morning mist: one soft gradient, a breath of a far ridge thrown completely out of focus */
 function buildBack(env) {
   const a = env.arc;
-  const X = -PAD, Y = -PAD, WW = W + PAD * 2, HH = H + PAD * 2;
-  const hill = (g, o) => {
-    const c = L.makeLayer(PAD, (q) => {
-      const nz = L.makeNoise(o.seed);
-      const pts = []; let top = 1e9;
-      for (let x = X - 20; x <= W + PAD + 20; x += 5) {
-        const y = o.y(x) - o.amp * nz.fbm((x / W) * o.freq + 3.7, 1.3, 4, 2.05, 0.5) - o.fuzz * (2.4 * nz.n2(x * 0.09, 9.1) + 1.2 * nz.n2(x * 0.31, 2.2));
-        pts.push([x, y]); if (y < top) top = y;
-      }
-      q.beginPath(); q.moveTo(pts[0][0], pts[0][1]); for (const p of pts) q.lineTo(p[0], p[1]);
-      q.lineTo(W + PAD + 20, H + PAD); q.lineTo(X - 20, H + PAD); q.closePath();
-      q.fillStyle = L.linear(q, 0, top, 0, top + o.fade, [[0, L.rgba(o.color, o.alpha)], [0.25, L.rgba(o.color, o.alpha * 0.86)], [0.65, L.rgba(o.color, o.alpha * 0.3)], [1, L.rgba(o.color, 0)]]);
-      q.fill();
-      q.globalCompositeOperation = 'source-atop'; q.globalAlpha = o.tex;
-      q.drawImage(L.noiseLayer(PAD, { seed: o.seed + 't', scale: 70, sx: 1.4, sy: 2.4, octaves: 4, res: 0.2, contrast: 1.7,
-        ramp: [[0, L.rgba(L.shade(o.color, -0.28), 0.9)], [0.5, L.rgba(o.color, 0)], [1, 'rgba(246,250,252,0.75)']] }), X, Y);
-    });
-    g.drawImage(c, X, Y);
-  };
-  return L.makeLayer(PAD, (g) => {
-    g.fillStyle = L.linear(g, 0, -PAD, 0, 900, [[0, '#c9dcea'], [0.3, '#d9e8f0'], [0.62, '#eaf2f6'], [1, '#f6fafb']]);
-    g.fillRect(X, Y, WW, HH);
-    g.drawImage(L.noiseLayer(PAD, { seed: 's04sky', scale: 460, sx: 3, sy: 1, octaves: 4, res: 0.15, contrast: 1.4,
-      ramp: [[0, 'rgba(150,178,200,0.30)'], [0.5, 'rgba(214,228,238,0)'], [1, 'rgba(255,255,255,0.7)']] }), X, Y);
-    const dc = (x) => Math.abs(x - a.cx);
-    hill(g, { seed: 's04h1', color: '#a9bfd0', alpha: 0.9, fade: 250, amp: 36, freq: 2.2, tex: 0.3, fuzz: 0.35,
-      y: (x) => 262 - 46 * Math.exp(-(((x - 1380) / 540) ** 2)) - 26 * Math.exp(-(((x - 200) / 380) ** 2)) });
-    hill(g, { seed: 's04h2', color: '#8fabc0', alpha: 0.92, fade: 250, amp: 42, freq: 3.0, tex: 0.4, fuzz: 0.6,
-      y: (x) => 348 - 62 * Math.exp(-(((x - 420) / 460) ** 2)) - 38 * Math.exp(-(((x - 1820) / 360) ** 2)) });
-    // mist lying in the valley
-    g.drawImage(L.noiseLayer(PAD, { seed: 's04v1', scale: 150, sx: 5, sy: 1, octaves: 4, res: 0.2, contrast: 1.5,
-      ramp: [[0, 'rgba(246,250,251,0)'], [0.45, 'rgba(246,250,251,0.15)'], [1, 'rgba(246,250,251,0.85)']] }), X, Y);
-    // nearer wooded spurs coming in from both sides
-    hill(g, { seed: 's04h3', color: '#6f8ea6', alpha: 0.9, fade: 280, amp: 34, freq: 3.6, tex: 0.5, fuzz: 1,
-      y: (x) => (x < a.cx ? 650 - 250 * L.smooth((dc(x) - 180) / 720) : 650 - 170 * L.smooth((dc(x) - 380) / 640)) });
-    // the bright fog bank the building rises out of
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 20, a.R + 330, [[0, 'rgba(246,250,251,0.98)'], [0.3, 'rgba(246,250,251,0.8)'], [0.65, 'rgba(246,250,251,0.3)'], [1, 'rgba(246,250,251,0)']]);
-    g.fillRect(X, Y, WW, HH);
-  });
-}
-
-/** thin mist that drifts in front of the far rim near both ends of the arc */
-function buildMist(env) {
-  const a = env.arc;
-  const c = L.polarNoiseLayer(env, PAD, { seed: 's04mist', scale: 130, sx: 4.5, sy: 1, octaves: 4, res: 0.2, contrast: 1.6,
-    ramp: [[0, 'rgba(246,250,251,0)'], [0.42, 'rgba(246,250,251,0)'], [1, 'rgba(246,250,251,0.9)']] });
-  const g = c.getContext('2d');
-  g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R - 120, a.R + 230, [[0, 'rgba(0,0,0,0)'], [0.31, 'rgba(0,0,0,0)'], [0.42, 'rgba(0,0,0,0.35)'], [0.6, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,0)']]);
-  g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = L.linear(g, 0, 0, c.width, 0, [[0, 'rgba(0,0,0,0.55)'], [0.16, 'rgba(0,0,0,0.45)'], [0.36, 'rgba(0,0,0,0)'], [0.68, 'rgba(0,0,0,0)'], [0.86, 'rgba(0,0,0,0.3)'], [1, 'rgba(0,0,0,0.4)']]);
-  g.fillRect(0, 0, c.width, c.height);
+  const X = -BP, Y = -BP, WW = W + BP * 2, HH = H + BP * 2;
+  const c = L.makeCanvas(WW, HH); c._pad = BP;
+  const g = c.getContext('2d'); g.translate(BP, BP);
+  g.fillStyle = L.linear(g, 0, Y, 0, a.crestY + 300, [[0, '#cbd9e5'], [0.4, '#dde7ee'], [0.75, '#ecf2f5'], [1, '#f5f8fa']]);
+  g.fillRect(X, Y, WW, HH);
+  // drawn at 1/8 size and scaled up: far out of focus for free
+  const hill = L.makeCanvas(WW / 8, HH / 8), q = hill.getContext('2d'); q.scale(1 / 8, 1 / 8); q.translate(BP, BP);
+  const nz = L.makeNoise('s04hill');
+  q.beginPath(); q.moveTo(X - 40, HH);
+  for (let x = X - 40; x <= W + BP + 40; x += 16) {
+    q.lineTo(x, 380 - 60 * Math.exp(-(((x - 330) / 420) ** 2)) - 36 * Math.exp(-(((x - 1650) / 380) ** 2)) - 30 * nz.fbm((x / W) * 2.4 + 3.7, 1.3, 3));
+  }
+  q.lineTo(W + BP + 40, HH); q.closePath();
+  q.fillStyle = L.linear(q, 0, 290, 0, 600, [[0, 'rgba(150,176,198,0.3)'], [0.4, 'rgba(160,184,204,0.18)'], [1, 'rgba(190,208,222,0)']]); q.fill();
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+  g.drawImage(hill, X, Y, WW, HH);
+  // slow, very low-contrast unevenness in the mist so it is air, not a flat fill
+  g.drawImage(L.noiseTex(WW, HH, { seed: 's04sky', scale: 620, sx: 1.8, sy: 1, octaves: 3, res: 0.1, contrast: 1.3,
+    ramp: [[0, 'rgba(176,196,212,0.16)'], [0.5, 'rgba(230,238,244,0)'], [1, 'rgba(255,255,255,0.4)']] }), X, Y);
+  // the bright bank of mist the roof stands against
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 20, a.R + 300, [[0, 'rgba(248,251,252,0.95)'], [0.3, 'rgba(248,251,252,0.7)'], [0.7, 'rgba(248,251,252,0.22)'], [1, 'rgba(248,251,252,0)']]);
+  g.fillRect(X, Y, WW, HH);
   return c;
 }
 
@@ -515,26 +422,27 @@ export default {
   name: '福建土楼',
   tone: 'dark',
   init(env) {
-    const { strip, FW, FH } = buildStrip(env);
-    S = { house: wrapStrip(env, strip, FW, FH), back: buildBack(env), mist: buildMist(env) };
+    const t0 = performance.now();
+    const { data, FW, FH } = buildStrip(env);
+    const t1 = performance.now();
+    const house = wrapStrip(env, data, FW, FH);
+    const t2 = performance.now();
+    S = { house: house.canvas, top: house.top, back: buildBack(env) };
+    console.warn('PROF strip', (t1 - t0) | 0, 'wrap', (t2 - t1) | 0, 'back', (performance.now() - t2) | 0);
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.013, 0.013, p), zoom = L.lerp(0.992, 1.012, p);
-    L.blit(ctx, env, S.back, { rot: rot * 0.22, zoom: 1 + (zoom - 1) * 0.3 });
-    L.blit(ctx, env, S.house, { rot, zoom });
-    L.cam(ctx, env, { rot, zoom }, () => {
-      // damp tiles mirroring the cold sky: a soft sheen that stays put while the roof slides beneath it
-      ctx.save(); a.clipBand(ctx, -D.ridge - 7, -D.eave + 2);
-      const q = a.pt(0.13 - rot, -128);
-      L.glow(ctx, q.x, q.y, 600, '#eaf3f7', 0.3, 'overlay');
-      ctx.restore();
-      // the sun pooling in the right-hand galleries and on the yard
-      ctx.save(); a.clipBand(ctx, -D.eave - 30, -D.ring + 2);
-      const s = a.pt(0.2 - rot, -320);
-      L.glow(ctx, s.x, s.y, 560, '#ffb45e', 0.4, 'overlay');
+    const rot = L.lerp(-0.013, 0.013, p), zoom = L.lerp(0.994, 1.012, p);
+    L.blit(ctx, env, S.back, { rot: rot * 0.15, zoom: 1 + (zoom - 1) * 0.3 });
+    L.cam(ctx, env, { rot, zoom }, () => { ctx.drawImage(S.house, -HP, S.top); });
+    // light that stays put while the roof slides beneath it: the sun pooling right of centre, cool shade gathering on the left
+    L.cam(ctx, env, { zoom }, () => {
+      ctx.save(); a.clipBand(ctx, -D.ridge - D.rh, -D.eave - 110);
+      const s = a.pt(0.2, -300);
+      L.glow(ctx, s.x, s.y, 640, '#ffd6a0', 0.4, 'overlay');
+      const q = a.pt(-0.42, -250);
+      L.glow(ctx, q.x, q.y, 600, '#16202e', 0.38, 'overlay');
       ctx.restore();
     });
-    L.blit(ctx, env, S.mist, { rot: rot * 0.4, zoom: 1 + (zoom - 1) * 0.6, dx: L.lerp(-8, 12, p) });
   },
 };

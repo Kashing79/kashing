@@ -1,32 +1,55 @@
-// s08 — 云纹瓦当拓片. An ink rubbing (墨拓) of a Han cloud-pattern eave-tile end, enormously enlarged:
-// the arc is the outer edge of the tile's wide rim. Raised parts (rim, string line, double-line divider,
-// cloud scrolls, centre ring, boss) print dense black peppered with un-inked white specks; the recessed
-// ground is a pale grey wash with stray ink dabs and a white halo hugging every raised line.
-// Everything lives on ONE sheet of xuan paper, so paper, ink, colophon and seal move together.
-// NOTE on proportions: a true tile whose rim sat on this arc would hide its field and boss far below the frame, so the
-// radial depths are compressed (rim → field → centre ring → boss all within ~530 px) and only the upright double-line
-// divider with its two flanking sectors is shown. The order and form of the parts are kept; their ratios are not to scale.
+// s08 — 云纹瓦当拓片. An ink rubbing (墨拓) of a Han cloud-pattern eave-tile end, photographed close: the arc is the outer
+// edge of the tile's wide rim. Raised parts (rim, string line, double-line divider, cloud scrolls) print dense black peppered
+// with un-inked white specks; the recessed ground is a pale grey wash with stray ink dabs and a white halo hugging every
+// raised line. Above the arc there is nothing but the bare sheet of xuan paper — no colophon, no seal.
+// Everything lives on ONE sheet, so paper and ink move together; the lens (focus fall-off, light) stays fixed.
+// NOTE on proportions: a true tile whose rim sat on this arc would hide its field far below the frame, so the radial depths
+// are compressed and only the upright double-line divider with the two scrolls flanking it is shown (the centre ring and the
+// boss fall just below the frame). The order and form of the parts are kept; their ratios are not to scale.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 140;
+const PAD = 72;
 const LW = W + PAD * 2, LH = H + PAD * 2;
 let S = null;
 
 // radial layout, in px BELOW the arc (d = -dr)
-const RIM = 120;                 // 边轮: 0 … RIM
-const STR0 = 141, STR1 = 155;    // 外圈弦纹 (raised string line)
-const RING0 = 426, RING1 = 441;  // circle around the boss
-const BOSS = 470;                // 圆钮 starts here
+const K = 1.3;                   // how far the lens has been pushed in on the cloud scrolls
+const RIM = 134;                 // 边轮: 0 … RIM
+const STR0 = 152, STR1 = 172;    // 外圈弦纹 (raised string line)
+const RING0 = 527, RING1 = 547;  // circle around the boss (below the frame at the centre line)
+const BOSS = 586;                // 圆钮 starts here
 const FIELD = RING0 - STR1;      // depth of the cloud field
-const THC = 0.245;               // angular centre of each visible cloud scroll
-const LINE = 23;                 // width of the raised cloud lines
+const THC = 0.322;               // half the angle of one sector: divider → centre of its cloud scroll
+const PHI = 0.012;               // the scroll in view sits a hair off the crest (nothing on a tile is dead centre)
+const LINE = 35;                 // width of the raised cloud lines
+const GR = 1.2;                  // grain of the rubbing, enlarged with the push-in
 
 // half of a cloud scroll (卷云纹): a stem rises from the centre ring and splits into two arms that sweep up toward the rim,
-// then roll outward, down and inward into a volute. X along the arc from the stem, Y up from the centre ring.
-const STEM = 118;
-const ARM = [[0, STEM], [22, 171], [80, 218], [160, 240], [246, 224], [302, 174], [312, 112], [274, 60], [210, 44],
+// then roll outward, down and inward into a volute. X along the arc from the stem, Y up from the centre ring (unscaled).
+const STEM = 118 * K;
+const ARM = [[0, 118], [22, 171], [80, 218], [160, 240], [246, 224], [302, 174], [312, 112], [274, 60], [210, 44],
   [156, 70], [140, 122], [166, 165], [212, 175], [246, 148], [241, 114], [215, 101]];
+/** one arm, as the mould-cutter's hand made it: no two volutes alike (coil a little tighter or looser, nudged, lumpy) */
+function armPts(seed) {
+  const r = L.rng('s08arm' + seed);
+  const sx = r.range(0.95, 1.03), sy = r.range(0.97, 1.03);
+  const coil = r.range(0.9, 1.04), nx = r.range(-6, 5), ny = r.range(-6, 4), turn = r.range(-0.1, 0.1);
+  const vx = 222, vy = 124, cs = Math.cos(turn), sn = Math.sin(turn);
+  const pts = ARM.map(([X, Y], i) => {
+    if (i === 0) return [0, Y * K];
+    let x = X, y = Y;
+    if (i >= 4) {
+      const w = Math.min(1, (i - 3) / 4), k = L.lerp(1, coil, w);
+      const ux = (X - vx) * k, uy = (Y - vy) * k, c = L.lerp(1, cs, w), s2 = sn * w;
+      x = vx + ux * c - uy * s2 + nx * w; y = vy + ux * s2 + uy * c + ny * w;
+    }
+    x += r.range(-4.5, 4.5); y += r.range(-4.5, 4.5);
+    return [x * sx * K, Math.min(y * sy, 243) * K];
+  });
+  if (r.chance(0.4)) pts.pop(); // some coils stop a little short
+  return pts;
+}
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
 
@@ -42,12 +65,12 @@ function band(g, a, d0, d1, wob0, wob1, seed) {
   g.beginPath();
   for (let i = 0; i <= n; i++) {
     const th = L.lerp(-s, s, i / n);
-    const p = a.pt(th, -(d0 + wob0 * nz.fbm(th * 16, 1.7, 3)));
+    const p = a.pt(th, -(d0 + wob0 * nz.fbm(th * 13, 1.7, 3)));
     if (i) g.lineTo(p.x, p.y); else g.moveTo(p.x, p.y);
   }
   for (let i = n; i >= 0; i--) {
     const th = L.lerp(-s, s, i / n);
-    const p = a.pt(th, -(d1 + wob1 * nz.fbm(th * 16 + 40, 9.2, 3)));
+    const p = a.pt(th, -(d1 + wob1 * nz.fbm(th * 13 + 40, 9.2, 3)));
     g.lineTo(p.x, p.y);
   }
   g.closePath(); g.fill();
@@ -59,30 +82,33 @@ function buildRelief(env) {
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#000'; g.fillRect(-PAD, -PAD, LW, LH);
     g.fillStyle = '#fff';
-    band(g, a, -1.2, RIM, 0, 3.4, 'rim');
-    band(g, a, STR0, STR1, 1.8, 1.8, 'str');
-    band(g, a, RING0, RING1, 2.2, 2.2, 'ring');
+    band(g, a, -1.2, RIM, 0, 5, 'rim');
+    band(g, a, STR0, STR1, 2.4, 2.6, 'str');
+    band(g, a, RING0, RING1, 2.6, 2.6, 'ring');
     band(g, a, BOSS, BOSS + 900, 3, 0, 'boss');
-    // 双线界格: two parallel raised lines from the centre ring out to the string line
-    const divider = (thC, seed) => {
-      for (const sx of [-13, 13]) {
-        const pts = [[sx, -6], [sx * 1.04, FIELD * 0.5], [sx, FIELD + 6]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
-        L.inkStroke(g, pts, { width: 11.5, color: '#fff', seed: seed + sx, taper: [0, 0], wobble: 0.12 });
+    // 双线界格: two parallel raised lines from the centre ring out to the string line (hand-ruled: not quite parallel)
+    const divider = (thC, seed, lean) => {
+      for (const sx of [-19, 19]) {
+        const pts = [[sx + lean, -6], [sx * 1.06 - lean * 0.4, FIELD * 0.45], [sx * 0.97 - lean, FIELD + 6]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
+        L.inkStroke(g, pts, { width: sx < 0 ? 17.5 : 16, color: '#fff', seed: seed + sx, taper: [0, 0], wobble: 0.16 });
       }
     };
-    divider(0, 40); divider(-0.66, 70); divider(0.66, 90);
+    divider(PHI - THC, 40, 1.5); divider(PHI + THC, 70, -2); divider(PHI - 3 * THC, 90, 2); divider(PHI + 3 * THC, 95, -1);
     // 卷云纹: a stem rising from the centre ring that splits into two volutes curling down and inward
     const cloud = (thC, seed) => {
+      const r = L.rng('s08cloud' + seed);
       for (const m of [-1, 1]) {
-        const pts = ARM.map(([X, Y]) => { const p = fieldPt(a, thC, m * X, Y); return [p.x, p.y]; });
-        L.inkStroke(g, pts, { width: LINE, color: '#fff', seed: seed + m * 3, taper: [0, 0.07], wobble: 0.17 });
+        const pts = armPts(seed + m).map(([X, Y]) => { const p = fieldPt(a, thC, m * X, Y); return [p.x, p.y]; });
+        const w = LINE * r.range(0.92, 1.1);
+        L.inkStroke(g, pts, { width: w, color: '#fff', seed: seed + m * 3, taper: [0, 0.06], wobble: 0.2 });
         const e = pts[pts.length - 1];
-        g.beginPath(); g.arc(e[0], e[1], LINE * 0.66, 0, L.TAU); g.fill();
+        g.beginPath(); g.ellipse(e[0], e[1], w * r.range(0.6, 0.74), w * r.range(0.56, 0.68), r.range(0, 3), 0, L.TAU); g.fill();
       }
-      const st = [[0, -6], [1.5, STEM * 0.5], [0, STEM + 6]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
-      L.inkStroke(g, st, { width: LINE * 1.12, color: '#fff', seed: seed + 11, taper: [0, 0], wobble: 0.12 });
+      const st = [[0, -6], [2, STEM * 0.5], [0, STEM + 8]].map(([X, Y]) => { const p = fieldPt(a, thC, X, Y); return [p.x, p.y]; });
+      L.inkStroke(g, st, { width: LINE * 1.1, color: '#fff', seed: seed + 11, taper: [0, 0], wobble: 0.14 });
     };
-    cloud(-THC, 101); cloud(THC, 202);
+    // one whole scroll under the crest, framed by its two dividers; the neighbours only show a coil at the lower corners
+    cloud(PHI, 101); cloud(PHI - 2 * THC, 202); cloud(PHI + 2 * THC, 303);
   });
 }
 
@@ -93,20 +119,20 @@ function buildVoid(env) {
     g.fillStyle = '#fff'; g.fillRect(-PAD, -PAD, LW, LH);
     g.lineCap = 'round'; g.lineJoin = 'round';
     // fibres
-    for (let i = 0; i < 300; i++) {
-      const p = a.pt(r.range(-0.75, 0.75), -r.range(-6, 640));
-      const len = r.range(18, 80), ang = r.range(0, Math.PI), cs = Math.cos(ang), sn = Math.sin(ang);
-      g.strokeStyle = `rgba(0,0,0,${r.range(0.12, 0.5).toFixed(3)})`; g.lineWidth = r.range(0.6, 1.3);
+    for (let i = 0; i < 260; i++) {
+      const p = a.pt(r.range(-0.7, 0.7), -r.range(-6, 720));
+      const len = r.range(24, 104), ang = r.range(0, Math.PI), cs = Math.cos(ang), sn = Math.sin(ang);
+      g.strokeStyle = `rgba(0,0,0,${r.range(0.12, 0.5).toFixed(3)})`; g.lineWidth = r.range(0.7, 1.6);
       g.beginPath(); g.moveTo(p.x, p.y);
-      g.quadraticCurveTo(p.x + cs * len * 0.5 + r.range(-10, 10), p.y + sn * len * 0.5 + r.range(-10, 10), p.x + cs * len, p.y + sn * len);
+      g.quadraticCurveTo(p.x + cs * len * 0.5 + r.range(-12, 12), p.y + sn * len * 0.5 + r.range(-12, 12), p.x + cs * len, p.y + sn * len);
       g.stroke();
     }
     // pits and small chips, mostly on the rim
     g.fillStyle = '#000';
-    for (let i = 0; i < 90; i++) {
-      const onRim = i < 60;
-      const p = a.pt(r.range(-0.72, 0.72), -(onRim ? r.range(10, RIM - 6) : r.range(RIM, 620)));
-      const rad = L.lerp(1.6, onRim ? 7.5 : 6, Math.pow(r(), 2.4));
+    for (let i = 0; i < 84; i++) {
+      const onRim = i < 54;
+      const p = a.pt(r.range(-0.7, 0.7), -(onRim ? r.range(12, RIM - 8) : r.range(RIM, 720)));
+      const rad = L.lerp(2, onRim ? 9.5 : 7.5, Math.pow(r(), 2.4));
       g.globalAlpha = r.range(0.5, 1);
       const nv = r.int(5, 8), a0 = r.range(0, L.TAU);
       g.beginPath();
@@ -120,10 +146,10 @@ function buildVoid(env) {
     g.globalAlpha = 1;
     // an old break across the tile (left side): a thin jagged white line
     const crack = (th0, th1, d0, d1, seed, w) => {
-      const nz = L.makeNoise('s08crack' + seed); const n = 30; const pts = [];
+      const nz = L.makeNoise('s08crack' + seed); const n = 34; const pts = [];
       for (let i = 0; i <= n; i++) {
         const t = i / n;
-        const th = L.lerp(th0, th1, t) + 0.011 * nz.fbm(t * 4.5, 1.1, 3) + 0.0016 * nz.n2(t * 21, 5.5);
+        const th = L.lerp(th0, th1, t) + 0.012 * nz.fbm(t * 4.5, 1.1, 3) + 0.0018 * nz.n2(t * 21, 5.5);
         const p = a.pt(th, -L.lerp(d0, d1, t)); pts.push(p);
       }
       g.strokeStyle = '#000';
@@ -132,8 +158,8 @@ function buildVoid(env) {
         g.beginPath(); g.moveTo(pts[i].x, pts[i].y); g.lineTo(pts[i + 1].x, pts[i + 1].y); g.stroke();
       }
     };
-    crack(-0.468, -0.352, -4, 520, 1, 4.6);
-    crack(-0.418, -0.47, 236, 420, 2, 2.6);
+    crack(-0.452, -0.33, -4, 680, 1, 5.6);
+    crack(-0.4, -0.47, 300, 560, 2, 3.2);
   });
 }
 
@@ -154,7 +180,7 @@ function vn(lat, x, y) {
 }
 
 /** one octave of value noise on a ROTATED lattice (so the grain never lines up with the pixel grid or with another octave) */
-function oct(lat, cell, ang, ox = 0, oy = 0) { return { lat, c: Math.cos(ang) / cell, s: Math.sin(ang) / cell, ox, oy }; }
+function oct(lat, cell, ang, ox = 0, oy = 0) { cell *= GR; return { lat, c: Math.cos(ang) / cell, s: Math.sin(ang) / cell, ox, oy }; }
 const vo = (o, x, y) => vn(o.lat, x * o.c - y * o.s + o.ox, x * o.s + y * o.c + o.oy);
 /** per-pixel white noise in [0,1) */
 function hash2(x, y) {
@@ -168,13 +194,13 @@ function buildInk(env, relief, voidL) {
   const a = env.arc;
   const y0 = Math.max(0, Math.floor(PAD + a.crestY - 36));
   const hh = LH - y0;
-  const mS = L.blurred(relief, 1.5).getContext('2d').getImageData(0, y0, LW, hh).data;
-  const vd = L.blurred(voidL, 0.7).getContext('2d').getImageData(0, y0, LW, hh).data;
+  const mS = L.blurred(relief, 2).getContext('2d').getImageData(0, y0, LW, hh).data;
+  const vd = L.blurred(voidL, 0.8).getContext('2d').getImageData(0, y0, LW, hh).data;
   // wide blur of the relief at half res → "how close is raised clay" (for the un-inked halo around lines)
   const hw = Math.ceil(LW / 2), hh2 = Math.ceil(hh / 2);
   const wc = L.makeCanvas(hw, hh2); const wg = wc.getContext('2d', { willReadFrequently: true });
   wg.fillStyle = '#000'; wg.fillRect(0, 0, hw, hh2);
-  wg.filter = 'blur(6px)'; wg.drawImage(relief, 0, y0, LW, hh, 0, 0, LW / 2, hh / 2); wg.filter = 'none';
+  wg.filter = 'blur(5.5px)'; wg.drawImage(relief, 0, y0, LW, hh, 0, 0, LW / 2, hh / 2); wg.filter = 'none';
   const mW = wg.getImageData(0, 0, hw, hh2).data;
 
   // low-frequency fields on a coarse grid: how hard the ink pad came down here (dab blotches) + worn zones
@@ -182,10 +208,10 @@ function buildInk(env, relief, voidL) {
   const nA = L.makeNoise('s08dab'), nB = L.makeNoise('s08wear'), nC = L.makeNoise('s08mott');
   const f1 = new Float32Array(gw * gh), f2 = new Float32Array(gw * gh), f3 = new Float32Array(gw * gh);
   for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) {
-    const X = gx * GS, Y = gy * GS + y0, i = gy * gw + gx;
-    f1[i] = nA.fbm(X / 95, Y / 95, 3);
-    f2[i] = nB.fbm(X / 340, Y / 340, 3);
-    f3[i] = nC.fbm(X / 42, Y / 42, 2);
+    const X = gx * GS + (140 - PAD), Y = gy * GS + y0 + (140 - PAD), i = gy * gw + gx;
+    f1[i] = nA.fbm(X / 120, Y / 120, 3);
+    f2[i] = nB.fbm(X / 430, Y / 430, 3);
+    f3[i] = nC.fbm(X / 52, Y / 52, 2);
   }
   const l1 = makeLat('s08l1', 512), l2 = makeLat('s08l2', 512), l3 = makeLat('s08l3', 256), l4 = makeLat('s08l4', 256);
   const O1 = oct(l1, 1.8, 0.47), O2 = oct(l2, 4.1, -0.66), O3 = oct(l3, 9.3, 1.07), O4 = oct(l4, 23, 0.21);
@@ -224,20 +250,25 @@ function buildInk(env, relief, voidL) {
         const m = mS[k] / 255;
         // raised clay: solid ink, eaten by specks where the noise dips; the low fields vary how speckled it is
         // (the pad always bites hardest on the outer edge of the rim → keep that edge dense)
-        const a1 = (m - 0.5) * 4.7 + 0.28 + 0.95 * z + 1.15 * f1v + 1.2 * f2v + 0.5 * f3v + 1.2 * (1 - sstep(3, 22, d));
+        const a1 = (m - 0.5) * 4.7 + 0.28 + 0.95 * z + 1.15 * f1v + 1.2 * f2v + 0.5 * f3v + 1.2 * (1 - sstep(3, 26, d));
         D = sstep(0.9, 1.9, a1);
         tone = 0.45 - 1.1 * f1v - 0.8 * f2v; tone = tone < 0 ? 0 : tone > 1 ? 1 : tone; // thinner ink where the pad was lighter
         // recessed ground: a dry, granular grey (stippled, not airbrushed) + stray dabs, thinning to bare paper beside raised lines
-        const halo = sstep(10 + 14 * f3v, 46 + 22 * f3v, mW[(wrow + (x >> 1)) * 4]);
+        if (m < 0.94) {
+        // (its width wanders: here the pad bridged far from the line, there the wash creeps right up to it)
+        const hl = 15 + 28 * f3v + 24 * f1v;
+        const halo = sstep(hl, hl + 36, mW[(wrow + (x >> 1)) * 4]);
         const z2 = (0.3 * vo(P2, x, Y) + 0.4 * vo(P3, x, Y) + 0.3 * vo(P4, x, Y) - 0.5) * 9;
-        let cover = 0.23 + 0.28 * f1v + 0.24 * f2v;
-        cover = (cover < 0.05 ? 0.05 : cover > 0.6 ? 0.6 : cover) * (1 - 0.94 * halo);
+        // (the pad was dabbed, not rolled: the wash gathers into cloudy blotches a few mm across rather than an even pepper)
+        let cover = 0.4 + 0.4 * f1v + 0.24 * f2v + 0.26 * f3v + 0.06 * z2;
+        cover = (cover < 0.06 ? 0.06 : cover > 0.8 ? 0.8 : cover) * (1 - 0.94 * halo);
         const zf = (0.5 * v1 + 0.5 * vo(Q2, x, Y) - 0.5) * 6.4 + wn * 0.9;
         const tS = 1.9 - 4.2 * cover;
         const stip = sstep(tS - 0.4, tS + 0.4, zf);
         const sp = (sstep(1.0, 1.9, z2 + 1.2 * f3v) * 0.7 * (0.35 + 0.65 * sstep(-0.9, 0.3, zf)) + sstep(1.7, 2.4, z) * 0.4) * (1 - 0.94 * halo);
         const Dg = (cover * 0.42 + stip * 0.62 + sp) * sstep(0, 2.5, d);
         if (Dg > D) D = Dg;
+        }
       }
       D *= vd[k] / 255;
       if (D <= 0.004) continue;
@@ -250,51 +281,27 @@ function buildInk(env, relief, voidL) {
   return ink;
 }
 
-/** a red seal impression (白文): square-spiral 回纹 ornament only — deliberately NOT legible characters.
- *  Cinnabar 朱砂: the single note of colour in a black-and-white shot. Drawn on a 96-unit grid, rasterised at `px`. */
-function buildSeal(px) {
-  const n = 96; const c = L.makeCanvas(px, px); const g = c.getContext('2d');
-  g.scale(px / n, px / n);
-  g.fillStyle = '#d9321f';
-  L.roughPoly(g, [[9, 9], [n - 9, 9], [n - 9, n - 9], [9, n - 9]], { rough: 1.5, seed: 8, step: 5 }); g.fill();
-  g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.35;
-  g.drawImage(L.noiseTex(n, n, { seed: 's08sealtone', scale: 16, octaves: 3, res: 1, contrast: 1.6, ramp: [[0, '#a81b12'], [0.5, 'rgba(217,50,31,0)'], [1, '#ee5a38']] }), 0, 0);
-  g.globalAlpha = 1; g.globalCompositeOperation = 'destination-out';
-  g.strokeStyle = '#000'; g.lineWidth = 3.3; g.lineCap = 'square'; g.lineJoin = 'miter';
-  const spiral = (cx, cy, flipX, flipY) => {
-    const s = 5.6; const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
-    let x = 0, y = -3, len = s;
-    g.beginPath(); g.moveTo(cx + x * flipX, cy + y * flipY);
-    for (let i = 0; i < 7; i++) { x += dirs[i % 4][0] * len; y += dirs[i % 4][1] * len; g.lineTo(cx + x * flipX, cy + y * flipY); if (i % 2) len += s; }
-    g.stroke();
-  };
-  spiral(31, 31, 1, 1); spiral(65, 31, -1, 1); spiral(31, 65, 1, -1); spiral(65, 65, -1, -1);
-  // worn impression
-  L.speckle(g, { seed: 's08sealwear', count: 110, x: 0, y: 0, w: n, h: n, rMin: 0.4, rMax: 1.7, colors: ['#000'], alpha: [0.3, 1] });
-  return c;
-}
-
 function buildSheet(env) {
   const a = env.arc;
   const relief = buildRelief(env);
   const ink = buildInk(env, relief, buildVoid(env));
   // 本白宣纸: neutral white; whatever shading the sheet has is cool grey, never tea-yellow (ageing = texture only)
-  const paper = L.paperTex(LW, LH, { base: '#f2f3f1', seed: 's08paper', tone: '#8c939a', fiber: 0.75, stain: 0.15, grain: 0.2 });
+  const paper = L.paperTex(LW, LH, { base: '#f6f7f5', seed: 's08paper', tone: '#8c939a', fiber: 0.75, stain: 0.15, grain: 0.2 });
   return L.makeLayer(PAD, (g) => {
     g.drawImage(paper, -PAD, -PAD);
     // 帘纹: the faint laid lines of hand-made xuan paper
-    g.fillStyle = 'rgba(70,80,92,0.045)';
-    for (let y = -PAD; y < H + PAD; y += 9) g.fillRect(-PAD, y, LW, 1.2);
+    g.fillStyle = 'rgba(70,80,92,0.04)';
+    for (let y = -PAD; y < H + PAD; y += 11) g.fillRect(-PAD, y, LW, 1.4);
     g.fillStyle = 'rgba(255,252,240,0.05)';
-    for (let x = -PAD + 60; x < W + PAD; x += 168) g.fillRect(x, -PAD, 2, LH);
+    for (let x = -PAD + 60; x < W + PAD; x += 204) g.fillRect(x, -PAD, 2, LH);
     // long fibres of the hand-made sheet (visible at this magnification), white and cool grey, plus a few pulp clumps
     const rf = L.rng('s08xuan');
     g.save(); g.lineCap = 'round';
-    for (let i = 0; i < 420; i++) {
-      const x = rf.range(-PAD, W + PAD), y = rf.range(-PAD, H + PAD), len = rf.range(26, 150), ang = rf.range(0, Math.PI);
-      const cs = Math.cos(ang), sn = Math.sin(ang), b1 = rf.range(-18, 18), b2 = rf.range(-18, 18);
+    for (let i = 0; i < 340; i++) {
+      const x = rf.range(-PAD, W + PAD), y = rf.range(-PAD, H + PAD), len = rf.range(34, 190), ang = rf.range(0, Math.PI);
+      const cs = Math.cos(ang), sn = Math.sin(ang), b1 = rf.range(-22, 22), b2 = rf.range(-22, 22);
       g.strokeStyle = rf.chance(0.55) ? `rgba(255,253,244,${rf.range(0.1, 0.32).toFixed(3)})` : `rgba(105,112,122,${rf.range(0.05, 0.13).toFixed(3)})`;
-      g.lineWidth = rf.range(0.6, 1.7) * (rf.chance(0.06) ? 2.2 : 1);
+      g.lineWidth = rf.range(0.7, 1.9) * (rf.chance(0.06) ? 2.2 : 1);
       g.beginPath(); g.moveTo(x, y);
       g.bezierCurveTo(x + cs * len * 0.33 - sn * b1, y + sn * len * 0.33 + cs * b1, x + cs * len * 0.66 - sn * b2, y + sn * len * 0.66 + cs * b2, x + cs * len, y + sn * len);
       g.stroke();
@@ -304,55 +311,91 @@ function buildSheet(env) {
     g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.3;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's08cockle', scale: 420, sx: 1.7, octaves: 3, res: 0.12, contrast: 1.5 }), -PAD, -PAD);
     g.restore();
-    // a handful of pale pulp specks (no brown foxing) + a few stray ink flecks on the bare paper
-    L.speckle(g, { seed: 's08fox', count: 15, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 5, colors: ['#b8bdc2'], alpha: [0.04, 0.1] });
-    L.speckle(g, { seed: 's08fleck', count: 20, x: 190, y: 300, w: 420, h: 260, rMin: 0.6, rMax: 2.2, colors: ['#0b0b0c'], alpha: [0.1, 0.5], test: (x, y) => a.drAt(x, y) > 12 });
+    // a handful of pale pulp specks (no brown foxing, no ink flecks: the bare sheet stays one clean field)
+    L.speckle(g, { seed: 's08fox', count: 12, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 5, colors: ['#b8bdc2'], alpha: [0.04, 0.1] });
     // puckers in the paper where it was pressed down over the edge of the tile: short radial creases outside the rim
     const rc = L.rng('s08crease');
     g.save(); g.lineCap = 'round';
-    for (let i = 0; i < 48; i++) {
-      const th = rc.range(-0.72, 0.72), d0 = rc.range(3, 14), len = rc.range(18, 86) * (rc.chance(0.15) ? 1.5 : 1);
-      const lean = rc.range(-0.35, 0.35), bend = rc.range(-10, 10), al = rc.range(0.3, 0.75) * (Math.abs(th) < 0.13 ? 0.35 : 1);
+    for (let i = 0; i < 34; i++) {
+      const th = rc.range(-0.7, 0.7), d0 = rc.range(3, 14), len = rc.range(22, 104) * (rc.chance(0.15) ? 1.5 : 1);
+      const lean = rc.range(-0.35, 0.35), bend = rc.range(-12, 12), al = rc.range(0.3, 0.75) * (Math.abs(th) < 0.13 ? 0.35 : 1);
       a.at(g, th, d0, () => {
         const ex = Math.sin(lean) * len, ey = -Math.cos(lean) * len;
-        for (const [ox, col, w] of [[0.9, `rgba(60,68,80,${(0.15 * al).toFixed(3)})`, 1.8], [-0.9, `rgba(255,253,244,${(0.26 * al).toFixed(3)})`, 1.6]]) {
+        for (const [ox, col, w] of [[1, `rgba(60,68,80,${(0.15 * al).toFixed(3)})`, 2.1], [-1, `rgba(255,253,244,${(0.26 * al).toFixed(3)})`, 1.9]]) {
           g.strokeStyle = col; g.lineWidth = w;
           g.beginPath(); g.moveTo(ox, 0); g.quadraticCurveTo(ex * 0.5 + bend + ox, ey * 0.5, ex + ox, ey); g.stroke();
         }
       });
     }
     g.restore();
-    // the rubbing
-    g.drawImage(ink, -PAD, -PAD);
-    // the paper was beaten into the relief while wet: a whisper of emboss along every raised edge (light from the upper left)
-    g.save(); a.clipBelow(g, 14);
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.55;
-    g.drawImage(L.bumpLight(L.blurred(relief, 2.6), { angle: 45, strength: 2.4, res: 0.5 }), -PAD, -PAD);
-    g.restore();
-    // 题签 + 钤印 at the upper right
-    const tx = 1692; let ty = 118; const size = 58, step = 66;
-    g.save(); g.globalCompositeOperation = 'multiply';
-    L.text(g, '汉', tx, ty, { font: 'brush', size, weight: 400, color: '#0b0b0c', alpha: 0.93 });
-    ty += step + 26;
-    for (const ch of '云纹瓦当') { L.text(g, ch, tx, ty, { font: 'brush', size, weight: 400, color: '#0b0b0c', alpha: 0.93 }); ty += step; }
-    g.translate(tx + 1, ty + 40); g.rotate(0.022);
-    g.globalAlpha = 0.94; g.drawImage(buildSeal(108), -54, -54, 108, 108);
+    // the rubbing (a lens never resolves single pixels: take the digital edge off the grain)
+    g.filter = 'blur(0.55px)'; g.drawImage(ink, -PAD, -PAD); g.filter = 'none';
+    // the paper was beaten into the relief while wet and still carries it: under the raking light (from the upper left) every
+    // raised edge throws a soft shade into the bare channel on its far side. Wide and faint — a relief, not a drop shadow.
+    g.save(); a.clipBelow(g, 4);
+    g.drawImage(embossShade(relief), -PAD + 5, -PAD + 5, LW, LH); // cast a few px down-light of each edge
     g.restore();
   });
+}
+
+/** half-res shade map of the relief: cool grey, opaque only on the flanks that face away from the upper-left light */
+function embossShade(relief) {
+  const w = LW >> 1, h = LH >> 1;
+  const c = L.makeCanvas(w, h); const g = c.getContext('2d', { willReadFrequently: true });
+  g.filter = 'blur(2.9px)'; g.drawImage(relief, 0, 0, w, h); g.filter = 'none';
+  const d = g.getImageData(0, 0, w, h).data; const out = new ImageData(w, h); const o = out.data;
+  const row = w * 4;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = (y * w + x) * 4;
+    const fall = (d[i - 4] - d[i + 4]) + (d[i - row] - d[i + row]); // > 0 where the height drops along the light's path
+    if (fall <= 2) continue;
+    o[i] = 40; o[i + 1] = 46; o[i + 2] = 56; o[i + 3] = (fall > 80 ? 1 : fall / 80) * 68;
+  }
+  g.putImageData(out, 0, 0);
+  return c;
+}
+
+/** a half-resolution, out-of-focus copy of the sheet (blur given in full-res px) */
+function softCopy(sheet, px) {
+  const c = L.makeCanvas(LW / 2, LH / 2); const g = c.getContext('2d');
+  g.filter = `blur(${(px / 2).toFixed(2)}px)`;
+  g.drawImage(sheet, 0, 0, c.width, c.height);
+  g.filter = 'none';
+  return c;
+}
+/** macro lens: the plane of focus sits on the rim just under the crest; the sheet goes soft toward the sides and the corners.
+ *  Baked into the sheet (it drifts < 20 px during the shot, so a lens-fixed focus would look the same and cost every frame). */
+function bakeFocus(sheet, a) {
+  const g = sheet.getContext('2d'); // carries translate(PAD, PAD)
+  const tmp = L.makeCanvas(LW, LH); const tg = tmp.getContext('2d');
+  const fx = a.cx + PAD, fy = a.crestY + 120 + PAD;
+  for (const [px, r0, r1] of [[3.2, 470, 860], [8.5, 800, 1320]]) {
+    const soft = softCopy(sheet, px);
+    tg.setTransform(1, 0, 0, 1, 0, 0); tg.globalCompositeOperation = 'source-over';
+    tg.clearRect(0, 0, LW, LH);
+    tg.drawImage(soft, 0, 0, LW, LH);
+    // mask: transparent inside r0 of the focus point, opaque beyond r1 (vertical distances count 1.25×)
+    tg.globalCompositeOperation = 'destination-in';
+    tg.translate(fx, fy); tg.scale(1, 0.8);
+    tg.fillStyle = L.radial(tg, 0, 0, r0, r1, [[0, 'rgba(0,0,0,0)'], [0.35, 'rgba(0,0,0,0.22)'], [0.7, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,1)']]);
+    tg.fillRect(-3000, -3000, 6000, 6000);
+    g.drawImage(tmp, -PAD, -PAD);
+  }
+  return sheet;
 }
 
 export default {
   name: '云纹瓦当拓片',
   tone: 'dark',
   init(env) {
-    S = { sheet: buildSheet(env) };
+    S = { sheet: bakeFocus(buildSheet(env), env.arc) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     // the whole sheet drifts along the arc and the camera creeps in; the zoom stays within ±1 % so the rim never leaves
     // the arc by more than a few px even at the frame edges — the drift along the arc (rot) carries the motion instead
     const rot = L.lerp(-0.008, 0.008, p), zoom = L.lerp(0.993, 1.009, p);
-    ctx.fillStyle = '#f2f3f1'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#f6f7f5'; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.sheet, { rot, zoom });
     // fixed copy-stand light: neutral, a touch brighter at the upper left than the lower right (no warm wash on the white sheet)
     ctx.save(); ctx.globalCompositeOperation = 'soft-light';
@@ -360,11 +403,14 @@ export default {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
     // a breath of light sliding along the rim: soft-light, so it opens the grey ground a little but never lifts the black
-    const gl = a.pt(L.lerp(-0.2, 0.06, p), -62);
-    L.glow(ctx, gl.x, gl.y, 420, '#ffffff', 0.18, 'soft-light');
-    // the rubbing sinks a little toward the lower corners — only BELOW the arc; the bare white paper gets no vignette
+    const gl = a.pt(L.lerp(-0.2, 0.06, p), -70);
+    L.glow(ctx, gl.x, gl.y, 480, '#ffffff', 0.18, 'soft-light');
+    // the rubbing falls away from the raking light toward the lower right, and sinks a little at both lower corners —
+    // only BELOW the arc; the bare white paper gets neither
     ctx.save(); a.clipBelow(ctx, -8);
-    L.vignette(ctx, { strength: 0.16 });
+    ctx.fillStyle = L.linear(ctx, 500, 560, 1920, 1180, [[0, 'rgba(22,26,34,0)'], [1, 'rgba(22,26,34,0.24)']]);
+    ctx.fillRect(0, 0, W, H);
+    L.vignette(ctx, { strength: 0.1 });
     ctx.restore();
   },
 };

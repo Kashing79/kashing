@@ -28,11 +28,48 @@ function loadPlaywright() {
   throw new Error('playwright not found: run `npm i playwright && npx playwright install chromium`');
 }
 
+// ── render slots ──
+// Every preview / render launches a headless Chromium that can take well over a gigabyte. When dozens of authors
+// preview at once the machine runs out of memory (it has happened: the container was restarted). So only a few
+// browsers may run at the same time, across ALL processes; the others wait their turn here.
+const os = require('os');
+const SLOT_DIR = path.join(os.tmpdir(), 'gj-render-slots');
+const SLOTS = Math.max(1, parseInt(process.env.GJ_RENDER_SLOTS || '3', 10));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } }
+async function acquireSlot() {
+  fs.mkdirSync(SLOT_DIR, { recursive: true });
+  const t0 = Date.now();
+  let told = false;
+  for (;;) {
+    for (let i = 0; i < SLOTS; i++) {
+      const f = path.join(SLOT_DIR, `slot-${i}.lock`);
+      try {
+        const fd = fs.openSync(f, 'wx');
+        fs.writeSync(fd, String(process.pid));
+        fs.closeSync(fd);
+        const release = () => { try { if (fs.readFileSync(f, 'utf8') === String(process.pid)) fs.unlinkSync(f); } catch (e) { /* already gone */ } };
+        process.once('exit', release);
+        for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.once(sig, () => { release(); process.exit(130); });
+        if (told) console.error(`[render queue] got a slot after ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+        return release;
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        // a lock left behind by a process that was killed
+        try { const pid = parseInt(fs.readFileSync(f, 'utf8'), 10); if (!pid || !alive(pid)) fs.unlinkSync(f); } catch (e2) { /* raced with someone else */ }
+      }
+    }
+    if (!told && Date.now() - t0 > 4000) { told = true; console.error(`[render queue] all ${SLOTS} render slots are busy — waiting for a turn (this is normal; do not start another preview)`); }
+    await sleep(400 + Math.floor(Math.abs(Math.sin(process.pid + Date.now())) * 600));
+  }
+}
+
 async function openBrowser(film) {
+  const releaseSlot = await acquireSlot();
   const query = film && film !== 'arch' ? `?film=${encodeURIComponent(film)}` : '';
   const { chromium } = loadPlaywright();
   const { server, port } = await startServer();
-  const browser = await chromium.launch({ args: ['--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text', '--js-flags=--max-old-space-size=6144'] });
+  const browser = await chromium.launch({ args: ['--disable-gpu', '--force-color-profile=srgb', '--disable-lcd-text', '--js-flags=--max-old-space-size=3072'] });
   const logs = [];
   const newPage = async () => {
     const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
@@ -43,7 +80,7 @@ async function openBrowser(film) {
     await page.evaluate(() => window.GJ.ready);
     return page;
   };
-  const close = async () => { await browser.close(); server.close(); };
+  const close = async () => { try { await browser.close(); } finally { server.close(); releaseSlot(); } };
   return { browser, server, port, logs, newPage, close, ROOT };
 }
 

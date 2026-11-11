@@ -33,7 +33,7 @@ const EMBER = [[0, '#040303'], [0.1, '#1c0407'], [0.28, '#8a0f1a'], [0.46, '#d81
 const NLUT = 64;
 const SLUT = new Float32Array(NLUT * 3);
 {
-  const ts = [0, 0.25, 0.5, 0.75, 1], cs = [[70, 6, 12], [176, 16, 24], [255, 62, 28], [310, 178, 44], [345, 290, 150]];
+  const ts = [0, 0.25, 0.5, 0.75, 1], cs = [[70, 6, 12], [176, 16, 24], [255, 62, 28], [314, 188, 46], [345, 290, 150]];
   for (let i = 0; i < NLUT; i++) {
     const h = i / (NLUT - 1); let k = 0; while (k < 3 && h > ts[k + 1]) k++;
     const u = (h - ts[k]) / (ts[k + 1] - ts[k]);
@@ -61,9 +61,9 @@ function buildQuiet(crestY) {
   for (let j = 0; j < QH; j++) for (let i = 0; i < QW; i++) {
     const x = i * QS + QS / 2, y = j * QS + QS / 2;
     const dx = Math.abs(x - 960) / 440, dy = Math.abs(y - cy) / (y < cy ? 150 : 175);
-    if (dx > 1.9 || dy > 1.9) continue;
+    if (dx > 2.1 || dy > 2.1) continue;
     const d = Math.pow(Math.pow(dx, 2.2) + Math.pow(dy, 2.2), 1 / 2.2) + 0.13 * nz.n2(x / 210, y / 210) + 0.05 * nz.n2(x / 75 + 9, y / 75);
-    q[j * QW + i] = 1 - L.smooth((d - 0.8) / 0.72);
+    q[j * QW + i] = 1 - L.smooth((d - 0.75) / 1.0);
   }
   QUIET = q;
 }
@@ -89,8 +89,19 @@ function plot(d, w, h, x, y, r, g, b) {
 }
 function grain(d, w, h, x, y, c, k, size) {
   plot(d, w, h, x, y, c[0] * k, c[1] * k, c[2] * k);
-  if (size >= 1) { plot(d, w, h, x + 1, y, c[0] * k * 0.6, c[1] * k * 0.6, c[2] * k * 0.6); plot(d, w, h, x, y + 1, c[0] * k * 0.6, c[1] * k * 0.6, c[2] * k * 0.6); }
+  if (size >= 1) { plot(d, w, h, x + 1, y, c[0] * k * 0.7, c[1] * k * 0.7, c[2] * k * 0.7); plot(d, w, h, x, y + 1, c[0] * k * 0.7, c[1] * k * 0.7, c[2] * k * 0.7); plot(d, w, h, x + 1, y + 1, c[0] * k * 0.45, c[1] * k * 0.45, c[2] * k * 0.45); }
   if (size >= 2) { plot(d, w, h, x - 1, y, c[0] * k * 0.6, c[1] * k * 0.6, c[2] * k * 0.6); plot(d, w, h, x, y - 1, c[0] * k * 0.6, c[1] * k * 0.6, c[2] * k * 0.6); plot(d, w, h, x, y, 90, 80, 50); }
+}
+/** a round grain: soft-edged disc, whitening toward the centre when it is hot (static layer only) */
+function bead(d, cx, cy, rad, c, k, core) {
+  const x0 = Math.max(0, Math.floor(cx - rad - 1)), x1 = Math.min(W - 1, Math.ceil(cx + rad + 1));
+  const y0 = Math.max(0, Math.floor(cy - rad - 1)), y1 = Math.min(H - 1, Math.ceil(cy + rad + 1));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const dd = Math.hypot(x - cx, y - cy);
+    let w = (rad + 0.5 - dd) / Math.max(1, rad * 0.6); if (w <= 0) continue; if (w > 1) w = 1;
+    const i = (y * W + x) << 2, hi = core * w * w * 110;
+    d[i] += c[0] * k * w + hi; d[i + 1] += c[1] * k * w + hi * 0.85; d[i + 2] += c[2] * k * w + hi * 0.5; d[i + 3] = 255;
+  }
 }
 /** bilinear point: sub-pixel positions move smoothly from frame to frame */
 function splat(d, x, y, r, g, b) {
@@ -136,15 +147,33 @@ function glowK(d, x, y, ci, k) {
     for (let q = 0; q < KS; q++, i += 4) { const w = KERN[j * KS + q]; d[i] += r * w; d[i + 1] += g * w; d[i + 2] += b * w; }
   }
 }
-/** out-of-focus spark: a soft-edged disc of light */
-function disc(d, cx, cy, rad, r, g, b) {
+/** a spark close to the lens, out of focus: the streak smeared with a wide soft kernel */
+const KR2 = 7, KS2 = KR2 * 2 + 1;
+const KERN2 = new Float32Array(KS2 * KS2);
+for (let j = 0; j < KS2; j++) for (let i = 0; i < KS2; i++) { const d2 = (i - KR2) * (i - KR2) + (j - KR2) * (j - KR2); KERN2[j * KS2 + i] = Math.max(0, Math.exp(-d2 / 15) - 0.04); }
+function streakSoft(d, tx, ty, hx, hy, ti, hi, k) {
+  const dx = hx - tx, dy = hy - ty, n = Math.max(1, Math.ceil(Math.sqrt(dx * dx + dy * dy) / 3));
+  for (let s = 0; s <= n; s++) {
+    const t = s / n, w = k * (0.15 + 0.85 * t * t);
+    const xi = Math.round(tx + dx * t), yi = Math.round(ty + dy * t);
+    if (xi < KR2 || yi < KR2 || xi >= W - KR2 || yi >= H - KR2) continue;
+    const r = (SLUT[ti] + (SLUT[hi] - SLUT[ti]) * t) * w, g = (SLUT[ti + 1] + (SLUT[hi + 1] - SLUT[ti + 1]) * t) * w, b = (SLUT[ti + 2] + (SLUT[hi + 2] - SLUT[ti + 2]) * t) * w;
+    for (let j = 0; j < KS2; j++) {
+      let i = ((yi + j - KR2) * W + xi - KR2) << 2;
+      for (let q = 0; q < KS2; q++, i += 4) { const kw = KERN2[j * KS2 + q]; d[i] += r * kw; d[i + 1] += g * kw; d[i + 2] += b * kw; }
+    }
+  }
+}
+/** out-of-focus spark: a disc of light; `ring` gives the big ones the brighter rim of a real lens blur */
+function disc(d, cx, cy, rad, r, g, b, ring) {
   const x0 = Math.max(0, Math.floor(cx - rad - 1)), x1 = Math.min(W - 1, Math.ceil(cx + rad + 1));
   const y0 = Math.max(0, Math.floor(cy - rad - 1)), y1 = Math.min(H - 1, Math.ceil(cy + rad + 1));
-  const soft = 1 / (rad * 0.5);
+  const soft = 1 / (ring ? 2.5 : rad * 0.5), ir = 1 / rad;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const dd = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
     let w = (rad - dd) * soft; if (w <= 0) continue; if (w > 1) w = 1;
     w = w * w * (3 - 2 * w);
+    if (ring) { const q = dd * ir; w *= 0.8 + 0.45 * q * q * q * q; }
     const i = (y * W + x) << 2;
     d[i] += r * w; d[i + 1] += g * w; d[i + 2] += b * w;
   }
@@ -192,7 +221,8 @@ function buildSparks(env, heapTop) {
     const s = sampleCanopy(r); s.type = 0;
     flightAt(s, s.tau0 + SIMT * 0.5, P);
     if (P[0] < -60 || P[0] > W + 60 || P[1] < -60 || P[1] > H + 60) continue;
-    if (r() < zoneMask(P[0], P[1], crest) * 0.9) continue;
+    const dr = env.arc.drAt(P[0], P[1]);
+    if (dr > 0 ? r() < zoneMask(P[0], P[1]) * 0.9 : r() < 0.7) continue;   // the gateway stays a black void
     add(s, L.clamp(1.1 - s.tau0 / 2.1 + r.range(-0.22, 0.22))); n++;
   }
   // the fresh splash right at the impact: young, fast, white-hot
@@ -205,13 +235,20 @@ function buildSparks(env, heapTop) {
     if (Math.abs(P[0] - 960) < 470 && P[1] > 215) continue;   // their long tails must never trail through the tagline
     add(s, 1); n++; s.wid = 3; s.gain = 1.5; s.hot = true; s.glob = true; s.ex = r.range(3, 5); s.fork = false;
   }
-  // rain: cooled sparks from the previous throw, falling at terminal speed in front of the gateway
-  for (let n = 0; n < 950; n++) {
-    const s = { type: 1, x: r.range(-40, W + 40), y: crest - 230 + (H - crest + 290) * Math.pow(r(), 0.8), vx: r.range(-70, 70), vy: r.range(600, 1080) };
-    add(s, 0.12 + 0.78 * Math.pow(r(), 1.7));
+  // rain: cooled sparks from the previous throw, falling in front of the gateway — in sheets, not evenly
+  const nzr = L.makeNoise('s33rain');
+  for (let n = 0, tries = 0; n < 250 && tries < 30000; tries++) {
+    const x = r.range(-80, W + 40), y = crest - 230 + (H - crest + 290) * Math.pow(r(), 0.6);
+    if (r() > 0.12 + 0.88 * L.smooth(0.5 + 1.2 * nzr.n2(x / 300, y / 1100))) continue;
+    const soft = r.chance(0.22);
+    const s = { type: 1, x, y, vx: 50 + r.gauss() * 85, vy: r.range(560, 1080) * (soft ? 1.4 : 1) };
+    add(s, 0.1 + 0.85 * Math.pow(r(), soft ? 1.1 : 2.1));
+    if (soft) { s.soft = true; s.gain = r.range(0.07, 0.15); s.ex = r.range(0.8, 1.5); s.hot = false; s.fork = false; }
+    else s.ex = 0.4 + 2.8 * Math.pow(r(), 3.2);
+    n++;
   }
   // sparks bouncing off the ember bed
-  for (let n = 0; n < 300; n++) {
+  for (let n = 0; n < 240; n++) {
     const x = L.clamp(HEAPX + r.gauss() * 400, 10, W - 10);
     const ang = L.deg(-90 + r.gauss() * 34), v = r.range(140, 640);
     const s = { type: 2, x, y: heapTop[Math.round(x)] - 2, vx: v * Math.cos(ang), vy: v * Math.sin(ang) };
@@ -231,40 +268,55 @@ function buildHeight(env) {
   const c = L.makeCanvas(W, H), g = c.getContext('2d');
   const r = L.rng('s33brick');
   g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
-  // horizontal wall courses: big grey city-wall bricks, stretchers with the odd header
+  const grey = (v) => { v = Math.round(v); return `rgb(${v},${v},${v})`; };
+  const chip = (x, y, rad, v) => {           // a knocked-off corner / spalled patch: lower than the face, ragged outline
+    g.fillStyle = grey(v); g.beginPath();
+    for (let k = 0; k < 9; k++) { const an = (k / 9) * L.TAU, rr = rad * r.range(0.55, 1.15); if (k) g.lineTo(x + Math.cos(an) * rr, y + Math.sin(an) * rr); else g.moveTo(x + rr, y); }
+    g.closePath(); g.fill();
+  };
+  // horizontal wall courses: big grey city-wall bricks, stretchers with the odd header — hand-made, none quite alike
   const yMax = a.yAt(0) + 10;
   for (let row = -1; row * T + 14 < yMax; row++) {
-    const y = row * T + 14;
+    const y = row * T + 14 + r.range(-0.8, 0.8);
     let x = -r.range(0, 4 * T) - 20;
     while (x < W + 20) {
-      const len = r.chance(0.28) ? 2 * T : 4 * T;
-      const v = Math.round(r.range(140, 215));
-      g.fillStyle = `rgb(${v},${v},${v})`;
-      g.fillRect(x + JOINT / 2, y + JOINT / 2, len - JOINT, T - JOINT);
+      const len = (r.chance(0.28) ? 2 * T : 4 * T) + r.range(-11, 11);
+      const j = r.range(3.2, 7.5) / 2, sag = r.range(-1.6, 1.6);
+      const v = r.chance(0.12) ? r.range(92, 128) : r.range(140, 218);     // a few bricks sit back from the face
+      g.fillStyle = grey(v);
+      g.beginPath();
+      g.moveTo(x + j + r.range(-1, 1), y + j + r.range(-1, 1)); g.lineTo(x + len - j + r.range(-1, 1), y + j + sag + r.range(-1, 1));
+      g.lineTo(x + len - j + r.range(-1, 1), y + T - j + sag + r.range(-1, 1)); g.lineTo(x + j + r.range(-1, 1), y + T - j + r.range(-1, 1));
+      g.closePath(); g.fill();
+      if (r.chance(0.45)) chip(r.chance(0.5) ? x + j : x + len - j, r.chance(0.5) ? y + j : y + T - j, r.range(4, 12), v * r.range(0.25, 0.5));
+      if (r.chance(0.16)) chip(x + r.range(0.2, 0.8) * len, y + r.range(0.25, 0.75) * T, r.range(5, 13), v * r.range(0.45, 0.7));
       x += len;
     }
   }
   // the arch ring replaces the courses next to the opening
   g.fillStyle = '#000'; a.pathBand(g, RING + JOINT / 2, -4); g.fill();
-  const s = a.span(80), dth = voussoirStep(a), n = Math.ceil(s / dth) + 1, gap = (JOINT * 0.45) / a.R;
+  const s = a.span(80), dth = voussoirStep(a), n = Math.ceil(s / dth) + 1;
   for (let i = -n; i < n; i++) {           // 券: one brick-thickness wide, standing radially
-    const t0 = voussoirT0(a, i);
-    const v = Math.round(r.range(150, 222));
-    g.fillStyle = `rgb(${v},${v},${v})`;
-    a.pathBand(g, RING1 - JOINT / 2, r.range(0, 1.2), t0 + gap, t0 + dth - gap); g.fill();
+    const t0 = voussoirT0(a, i), gap = (JOINT * r.range(0.3, 0.62)) / a.R;
+    const v = r.chance(0.1) ? r.range(105, 140) : r.range(150, 222);
+    g.fillStyle = grey(v);
+    a.pathBand(g, RING1 - JOINT / 2 - r.range(0, 3), r.range(0, 1.2), t0 + gap, t0 + dth - gap); g.fill();
+    if (r.chance(0.3)) { const pc = a.pt(t0 + (r.chance(0.5) ? gap : dth - gap), r.range(RING1 * 0.45, RING1 - 4)); chip(pc.x, pc.y, r.range(4, 9), v * r.range(0.25, 0.5)); }
   }
   const dth2 = (4 * T) / a.R;
   for (let t = -s - r.range(0, dth2); t < s;) {   // 伏: bricks lying along the curve
-    const len = dth2 * (r.chance(0.22) ? 0.5 : 1);
-    const v = Math.round(r.range(140, 210));
-    g.fillStyle = `rgb(${v},${v},${v})`;
-    a.pathBand(g, RING - JOINT / 2, RING1 + JOINT / 2, t + gap, t + len - gap); g.fill();
+    const len = dth2 * (r.chance(0.22) ? 0.5 : 1) * r.range(0.94, 1.06), gap = (JOINT * r.range(0.3, 0.62)) / a.R;
+    const v = r.range(140, 210);
+    g.fillStyle = grey(v);
+    a.pathBand(g, RING - JOINT / 2 - r.range(0, 2), RING1 + JOINT / 2 + r.range(0, 1.5), t + gap, t + len - gap); g.fill();
+    if (r.chance(0.3)) { const pc = a.pt(t + gap, RING1 + r.range(8, RING2 - 6)); chip(pc.x, pc.y, r.range(4, 9), v * r.range(0.25, 0.5)); }
     t += len;
   }
   a.fillBelow(g, '#000', 0);
   // weathering: pitted faces + broad unevenness (joints stay black under 'overlay')
   g.globalCompositeOperation = 'overlay';
-  g.globalAlpha = 0.6; g.drawImage(L.noiseTex(W, H, { seed: 's33pit', scale: 10, octaves: 3, res: 0.5, contrast: 1.8 }), 0, 0);
+  g.globalAlpha = 0.32; g.drawImage(L.noiseTex(W, H, { seed: 's33pit', scale: 7, octaves: 2, res: 0.5, contrast: 1.8 }), 0, 0);
+  g.globalAlpha = 0.6; g.drawImage(L.noiseTex(W, H, { seed: 's33lump', scale: 34, octaves: 3, res: 0.35, contrast: 2.1, warp: 0.6 }), 0, 0);
   g.globalAlpha = 0.5; g.drawImage(L.noiseTex(W, H, { seed: 's33mot', scale: 150, octaves: 3, res: 0.2, contrast: 1.5 }), 0, 0);
   return L.blurred(c, 1.2);
 }
@@ -278,6 +330,7 @@ function buildWall(env, height) {
   const lut = new Uint8ClampedArray(1024 * 3);
   for (let i = 0; i < 1024; i++) { const c = ramp(i / 1023); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const K = 6 / 255, R0 = 105 * 105;
+  const nzr = L.makeNoise('s33ringlight');
   for (let y = 0; y < H; y++) {
     const ym = y > 0 ? y - 1 : 0, yp = y < H - 1 ? y + 1 : y;
     const ey = y - a.cy, ly = IMP.y - y;
@@ -300,9 +353,11 @@ function buildWall(env, height) {
       lum += alb * (0.02 + 0.1 * canopy(x, y)) * Math.max(0, 0.6 + rel * 0.8);
       if (dr < RING + 40) {
         const rel2 = ((gx * ex + gy * ey) / rr) * K;     // lit from below, by the embers in the gateway
-        lum += alb * (0.2 * Math.exp(-dr / 42) + 0.5 * Math.exp(-dr / 4.5)) * Math.max(0, 0.55 + rel2);
+        const up = 0.34 + 0.2 * nzr.n2((ex / rr) * a.R / 360, 0.5) + 0.1 * nzr.n2((ex / rr) * a.R / 90, 4.5);   // the embers flare here and there
+        lum += alb * (up * Math.exp(-dr / 48) + 0.5 * Math.exp(-dr / 4.5)) * Math.max(0, 0.55 + rel2);
       }
-      if (x > 400 && x < 1520 && y > 200) lum *= 1 - 0.62 * zoneMask(x, y, crest);
+      const m = zoneMask(x, y);
+      if (m > 0.004) lum *= 1 - 0.26 * m * L.smooth((dr - 30) / 40);   // the lull under the crown; the arch ring itself stays lit
       if (dr < 0.5) lum *= dr + 0.5;
       lum += (hash2(x, y) - 0.5) * 0.008;
       const li = (lum <= 0 ? 0 : lum >= 1 ? 1023 : (lum * 1023) | 0) * 3;
@@ -318,7 +373,7 @@ function buildWall(env, height) {
 function drawSoffit(g, env) {
   const a = env.arc;
   g.save(); a.clipBelow(g, -1.5);
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 70, a.R, [[0, 'rgba(120,20,10,0)'], [0.5, 'rgba(130,22,10,0.05)'], [0.85, 'rgba(150,26,12,0.15)'], [1, 'rgba(170,34,14,0.3)']]);
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 70, a.R, [[0, 'rgba(120,20,10,0)'], [0.5, 'rgba(130,22,10,0.05)'], [0.85, 'rgba(160,22,16,0.18)'], [1, 'rgba(190,30,18,0.45)']]);
   g.fillRect(0, 0, W, H);
   const s = a.span(80), dth = voussoirStep(a), n = Math.ceil(s / dth) + 1;
   g.strokeStyle = 'rgba(0,0,0,0.8)'; g.lineWidth = 2.2;
@@ -341,9 +396,9 @@ function drawArris(g, env, hotOnly) {
   for (let i = -n; i < n; i++) {
     const t0 = voussoirT0(a, i), tm = t0 + dth / 2;
     const xr = (tm * a.R) / 620;
-    let heat = L.clamp(0.62 + 0.3 * nz.n2(i * 0.23, 1.7) + 0.16 * nz.n2(i * 1.9, 7.1) + 0.2 * Math.exp(-xr * xr), 0.42, 1);
+    let heat = L.clamp(0.58 + 0.36 * nz.n2(i * 0.17, 1.7) + 0.2 * nz.n2(i * 1.9, 7.1) + 0.22 * Math.exp(-xr * xr), 0.34, 1);
     let ta = t0 + gap, tb = t0 + dth - gap;
-    if (r() < 0.1) { if (r.chance(0.5)) ta += dth * r.range(0.2, 0.45); else tb -= dth * r.range(0.2, 0.45); heat *= 0.85; }
+    if (r() < 0.16) { if (r.chance(0.5)) ta += dth * r.range(0.2, 0.45); else tb -= dth * r.range(0.2, 0.45); heat *= 0.85; }
     const jig = r.range(0, 0.7);
     if (!hotOnly) { g.strokeStyle = L.css(ramp(heat * 0.55)); g.lineWidth = 5; g.globalAlpha = 0.6; a.stroke(g, 2.5 + jig, ta, tb); }
     g.strokeStyle = L.css(ramp(heat)); g.lineWidth = 3.6; g.globalAlpha = 1; a.stroke(g, 1.8 + jig, ta, tb);
@@ -428,30 +483,32 @@ function buildHeap() {
   for (let x = 0; x <= W; x++) {
     const u = (x - HEAPX) / 800;
     mnd[x] = Math.pow(Math.max(0, 1 - u * u), 1.6);
-    top[x] = H - 24 - 140 * mnd[x] - 16 * nz.fbm(x / 120, 3.3, 3) - 5 * nz.n2(x / 15, 8.1);
+    top[x] = H - 20 - 150 * mnd[x] - 18 * nz.fbm(x / 110, 3.3, 2) - 11 * nz.n2(x / 46, 5.2) - 2.5 * nz.n2(x / 19, 8.1);
   }
   const fw = W >> 1, fh = (hh >> 1) + 1;
-  const heatF = new Float32Array(fw * fh), crackF = new Float32Array(fw * fh);
+  const heatF = new Float32Array(fw * fh), crackF = new Float32Array(fw * fh), slumpF = new Float32Array(fw * fh);
   for (let j = 0; j < fh; j++) for (let i = 0; i < fw; i++) {
     const x = i * 2, y = y0 + j * 2;
     heatF[j * fw + i] = nz.fbm(x / 170, y / 80, 3);
-    crackF[j * fw + i] = nz.ridged(x / 52, y / 34 + 40, 3);
+    crackF[j * fw + i] = Math.max(0, nz.fbm(x / 64 + 30, y / 40 + 40, 2));         // pockets where the embers are freshest
+    slumpF[j * fw + i] = Math.max(0, nz.fbm(x / 26, y / 70 + 7, 3));               // cooler, crusted patches
   }
-  const ramp = L.makeRamp(HEAT);
+  const ramp = L.makeRamp(EMBER);
   const img = new ImageData(W, hh), d = img.data;
   for (let y = 0; y < hh; y++) for (let x = 0; x < W; x++) {
     const yy = y0 + y, dep = yy - top[x];
     const hs = hash2((x + ((yy >> 1) & 1)) >> 1, yy >> 1) * 0.65 + hash2(x + 911, yy) * 0.35;
     let val;
     if (dep < 0) {                       // loose grains scattered just above the surface
-      if (dep > -40 && hash2(x, yy + 5000) < 0.42 * Math.exp(dep / 8)) val = 0.3 + 0.7 * hs;
+      if (dep > -40 && hash2(x, yy + 5000) < 0.4 * Math.exp(dep / 6.5)) val = 0.3 + 0.7 * hs;
       else continue;
     } else {
       const fi = (y >> 1) * fw + (x >> 1);
       const cr = crackF[fi];
-      val = 0.22 + 0.32 * heatF[fi] + 0.95 * cr * cr * cr + 0.55 * Math.exp(-dep / 6) + 0.26 * mnd[x] * Math.exp(-dep / 50) - 0.0011 * dep;
-      val *= 0.28 + 1.35 * hs * hs;
-      if (hs > 0.93) val += 0.4;
+      val = 0.37 + 0.13 * heatF[fi] + 0.8 * cr * cr + 0.2 * Math.exp(-dep / 26) + 0.22 * Math.exp(-dep / 5) + 0.06 * mnd[x] * Math.exp(-dep / 60) - 0.0008 * dep;
+      val -= 0.1 * slumpF[fi] * L.smooth((dep - 22) / 40);
+      val *= 0.55 + 0.9 * hs * hs;
+      if (hs > 0.95) val += 0.3;
     }
     const c = ramp(L.clamp(val));
     const i = (y * W + x) * 4;
@@ -470,22 +527,35 @@ function buildGlitter(env, heap) {
   const ramp = L.makeRamp(SPARK);
   const tw = [];   // idx, r, g, b, phase, speed, size
   const twinkle = (x, y, c, k, size) => { x |= 0; y |= 0; if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return; tw.push((y * W + x) * 4, c[0] * k, c[1] * k, c[2] * k, r.range(0, L.TAU), r.range(1.1, 2.6), size); };
-  for (let n = 0, tries = 0; n < 38000 && tries < 500000; tries++) {
+  for (let n = 0, tries = 0; n < 80000 && tries < 900000; tries++) {
     const x = r() * W, y = r() * H;
     const dr = a.drAt(x, y);
     if (dr < 3) continue;
     const ri = Math.hypot(x - IMP.x, y - IMP.y);
     const hot = Math.exp(-ri / 300);
     const m = zoneMask(x, y, crest);
-    let den = (0.15 + 0.95 * hot + 0.4 * canopy(x, y)) * (1 - 0.9 * m);
+    // the even dusting runs straight through the tagline zone (no hole); only the dense, hot crown thins out there
+    let den = 0.42 + 0.5 * m + (0.95 * hot + 0.4 * canopy(x, y)) * (1 - 0.92 * m);
     if (dr < RING) den *= 0.7;
     if (r() > den) continue;
-    let heat = Math.pow(r(), 1.7 - 1.1 * hot) * (0.72 + 0.5 * hot);
-    if (m > 0.25) heat *= 0.45;
+    const heat = Math.pow(r(), 1.7 - 1.1 * hot * (1 - m)) * (0.72 + 0.5 * hot * (1 - m)) * (1 - 0.2 * m);
     const q = r();
-    const size = m > 0.25 ? 0 : q < 0.7 ? 0 : q < 0.95 ? 1 : 2;
+    const size = q < 0.52 + 0.14 * m ? 0 : q < 0.88 + 0.12 * m ? 1 : 2;
     const c = ramp(L.clamp(heat)), k = r.range(0.45, 1);
     if (r() < 0.5) grain(base.data, W, H, x, y, c, k, size); else twinkle(x, y, c, k * 1.5, size);
+    n++;
+  }
+  // beads of iron big enough to read as round grains (the "glitter" of the reference), a few of them out of focus
+  for (let n = 0, tries = 0; n < 1500 && tries < 200000; tries++) {
+    const x = r() * W, y = r() * H;
+    const dr = a.drAt(x, y);
+    if (dr < 6) continue;
+    const hot = Math.exp(-Math.hypot(x - IMP.x, y - IMP.y) / 340);
+    const m = zoneMask(x, y);
+    if (r() > (0.12 + 0.9 * hot + 0.55 * canopy(x, y)) * (1 - m) * (1 - m)) continue;
+    const heat = L.clamp(0.3 + 0.75 * Math.pow(r(), 1.5 - hot) + 0.2 * hot);
+    const soft = r.chance(0.12);
+    bead(base.data, x, y, soft ? r.range(3, 6.5) : 1.1 + 2.1 * Math.pow(r(), 2.2), ramp(heat), soft ? r.range(0.16, 0.3) : r.range(0.55, 1), soft ? 0 : heat);
     n++;
   }
   // hot grains breathing on the ember bed
@@ -519,27 +589,38 @@ function buildDust(env) {
     const jx = r.gauss() * 16, jy = r.gauss() * 16;
     const x = P[0] + jx, y = P[1] + jy;
     if (x < -20 || x >= W + 20 || y < -20 || y >= H + 20) continue;
-    const m = zoneMask(x, y, crest);
-    if (r() < m * 0.95) continue;
-    const heat = L.clamp(1.0 - s.tau0 / 2.2 + r.range(-0.3, 0.2)) * (m > 0.2 ? 0.4 : 1);
-    const c = ramp(heat), k = r.range(0.45, 1.1);
-    out.push(s.vx, s.vy, s.k, s.tau0, jx, jy, c[0] * k, c[1] * k, c[2] * k, m < 0.2 && r.chance(0.25) ? 1 : 0);
+    const dr = env.arc.drAt(x, y);
+    const m = dr > 0 ? zoneMask(x, y) : 0;
+    if (r() < m * 0.8) continue;
+    if (dr < 0 && r() < 0.8) continue;          // the gateway stays a black void: far less dust in front of it
+    const heat = L.clamp(1.0 - s.tau0 / 2.2 + r.range(-0.3, 0.2)) * (1 - 0.6 * m);
+    const c = ramp(heat), k = r.range(0.45, 1.1) * (dr < 0 ? 0.3 + 0.7 * L.smooth((-dr - 15) / 110) : 1);
+    out.push(s.vx, s.vy, s.k, s.tau0, jx, jy, c[0] * k, c[1] * k, c[2] * k, r() < 0.25 * (1 - m) * (1 - m) ? 1 : 0);
     n++;
   }
   return new Float32Array(out);
 }
-/** a sprinkling of out-of-focus sparks close to the lens */
+/** out-of-focus sparks close to the lens: a dozen big, faint, ring-edged discs toward the corners + a few small ones */
 function buildBokeh(env) {
-  const crest = env.arc.crestY;
+  const a = env.arc;
   const r = L.rng('s33bokeh');
-  const out = [];   // x, y, rad, r, g, b, parallax
-  const cols = [[255, 46, 20], [255, 46, 20], [255, 70, 24], [255, 96, 28], [255, 128, 40]];
-  for (let n = 0; n < 150;) {
+  const out = [];   // x, y, rad, r, g, b, parallax, ring
+  const cols = [[255, 70, 31], [255, 70, 31], [255, 122, 36], [255, 181, 46]];
+  for (let n = 0, tries = 0; n < 13 && tries < 4000; tries++) {
+    const x = r.range(-40, W + 40), y = r.range(-20, H + 30);
+    const ex = Math.abs(x - 960) / 960, dr = a.drAt(x, y);
+    if (Math.abs(x - 960) < 430 && Math.abs(dr) < 160) continue;
+    if (zoneMask(x, y) > 0.02) continue;
+    if (r() > 0.12 + 0.88 * Math.max(ex * ex, y > 760 ? 0.75 : 0)) continue;   // corners, edges, above the embers
+    const rad = r.range(18, 40), al = r.range(0.08, 0.16), c = r.pick(cols);
+    out.push(x, y, rad, c[0] * al, c[1] * al, c[2] * al, r.range(0.1, 0.2), 1); n++;
+  }
+  for (let n = 0, tries = 0; n < 30 && tries < 4000; tries++) {
     const x = r.range(-30, W + 30), y = r.range(-30, H + 30);
-    if (r() < zoneMask(x, y, crest) * 1.3) continue;
-    const rad = r.range(2.6, 10), al = r.range(0.16, 0.4) * (rad < 5 ? 1.5 : 1), c = r.pick(cols);
-    out.push(x, y, rad, c[0] * al, c[1] * al, c[2] * al, r.range(0.07, 0.16));
-    n++;
+    if (r() < zoneMask(x, y) * 3) continue;
+    if (Math.abs(a.drAt(x, y)) < 26) continue;
+    const rad = r.range(4, 8), al = r.range(0.2, 0.3), c = r.pick(cols);
+    out.push(x, y, rad, c[0] * al, c[1] * al, c[2] * al, r.range(0.07, 0.14), 0); n++;
   }
   return new Float32Array(out);
 }
@@ -581,13 +662,13 @@ function plotDust(d, p) {
 }
 function plotBokeh(d, p) {
   const bk = S.bokeh;
-  for (let j = 0; j < bk.length; j += 7) {
+  for (let j = 0; j < bk.length; j += 8) {
     const z = 1 + bk[j + 6] * p;
-    disc(d, IMP.x + (bk[j] - IMP.x) * z, IMP.y + (bk[j + 1] - IMP.y) * z + 240 * bk[j + 6] * p, bk[j + 2], bk[j + 3], bk[j + 4], bk[j + 5]);
+    disc(d, IMP.x + (bk[j] - IMP.x) * z, IMP.y + (bk[j + 1] - IMP.y) * z + 240 * bk[j + 6] * p, bk[j + 2], bk[j + 3], bk[j + 4], bk[j + 5], bk[j + 7]);
   }
 }
 function plotSparks(d, env, p) {
-  const crest = env.arc.crestY, f = env.frame | 0;
+  const f = env.frame | 0, acx = env.arc.cx, acy = env.arc.cy, aR = env.arc.R;
   const P = S.P, Q = S.Q, dT = p * SIMT, list = S.sparks;
   for (let n = 0; n < list.length; n++) {
     const s = list[n];
@@ -605,10 +686,15 @@ function plotSparks(d, env, p) {
     }
     if (hx < -50 || hx > W + 50 || hy < -50 || hy > H + 50) continue;
     let hi = s.hi, ti = s.ti, wid = s.wid, gain = s.gain, hot = s.hot;
-    if (hy < crest && hx > 400 && hx < 1520) {
-      const m = zoneMask(hx, hy, crest);
+    const ex = hx - acx, ey = hy - acy, dr = Math.sqrt(ex * ex + ey * ey) - aR;
+    if (dr > 0) {
+      const m = zoneMask(hx, hy);
       if (m > 0.02) { if (s.u < m * 0.94) continue; if (m > 0.3) { hi = ti; ti = 0; wid = 0; gain *= 0.7; hot = false; } }
+    } else if (dr > -115) {             // just inside the arris the passage is pure black: sparks only catch the light lower down
+      const v = (-dr - 15) / 100, k = v <= 0 ? 0 : v * v * (3 - 2 * v);
+      gain *= 0.3 + 0.7 * k; if (k < 0.5) hot = false;
     }
+    if (s.soft) { streakSoft(d, tx, ty, hx, hy, ti, hi, gain); continue; }
     streak(d, tx, ty, hx, hy, ti, hi, gain, wid);
     if (hot) glowK(d, hx, hy, hi, s.glob ? 1 : 0.5);
     if (s.fork && hi === s.hi) {        // iron sparks fork as the carbon in them burns
@@ -627,6 +713,7 @@ export default {
   tone: 'light',
   init(env) {
     const a = env.arc;
+    buildQuiet(a.crestY);
     const wall = buildWall(env, buildHeight(env));
     const g = wall.getContext('2d');
     drawSoffit(g, env);
@@ -635,7 +722,7 @@ export default {
     // bake the static spatter into the wall, with a little bloom (kept on the wall side of the arc)
     g.save(); a.clipAbove(g, 0.5);
     g.globalCompositeOperation = 'lighter';
-    g.filter = 'blur(22px)'; g.globalAlpha = 0.9; g.drawImage(gl.base, 0, 0);
+    g.filter = 'blur(22px)'; g.globalAlpha = 0.4; g.drawImage(gl.base, 0, 0);
     g.filter = 'blur(2.5px)'; g.globalAlpha = 0.7; g.drawImage(gl.base, 0, 0);
     g.filter = 'none'; g.globalAlpha = 1; g.drawImage(gl.base, 0, 0);
     const trails = buildTrails(env);
@@ -660,9 +747,9 @@ export default {
     sg.globalCompositeOperation = 'destination-in';
     sg.fillStyle = L.linear(sg, 0, 0, 0, 480, [[0, 'rgba(0,0,0,0)'], [0.35, 'rgba(0,0,0,0.12)'], [1, 'rgba(0,0,0,1)']]);
     sg.fillRect(0, 0, W, 480);
-    g.globalAlpha = 0.5; g.drawImage(smoke, 0, H - 480); g.globalAlpha = 1;
+    g.globalAlpha = 0.2; g.drawImage(smoke, 0, H - 480); g.globalAlpha = 1;
     g.translate(HEAPX, 1000); g.scale(1, 0.46);
-    g.fillStyle = L.radial(g, 0, 0, 0, 800, [[0, 'rgba(255,80,26,0.5)'], [0.3, 'rgba(210,40,16,0.24)'], [0.65, 'rgba(138,20,12,0.08)'], [1, 'rgba(138,20,12,0)']]);
+    g.fillStyle = L.radial(g, 0, 0, 0, 800, [[0, 'rgba(255,70,31,0.55)'], [0.3, 'rgba(216,30,30,0.17)'], [0.6, 'rgba(138,15,24,0.035)'], [1, 'rgba(138,15,24,0)']]);
     g.fillRect(-1400, -900, 2800, 1800);
     g.restore();
     g.drawImage(heap.canvas, 0, heap.y0);
@@ -678,7 +765,9 @@ export default {
     g.save(); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.6; g.drawImage(rim, 0, rimY); g.restore();
     L.vignette(g, { strength: 0.2 });
     const fc = L.makeCanvas(W, H);
+    const small = (k) => { const c = L.makeCanvas(W >> k, H >> k); return { c, g: c.getContext('2d') }; };
     S = {
+      b2: small(1), b4: small(2), b8: small(3),
       base: g.getImageData(0, 0, W, H).data, frame: new ImageData(W, H), fc, fctx: fc.getContext('2d', { willReadFrequently: true }),
       rim, rimY, tw: gl.tw, glints: gl.glints, dust: buildDust(env), bokeh: buildBokeh(env),
       sparks: buildSparks(env, heap.top), P: [0, 0], Q: [0, 0],
@@ -695,13 +784,21 @@ export default {
     plotBokeh(d, p);
     S.fctx.putImageData(S.frame, 0, 0);
     ctx.drawImage(S.fc, 0, 0);
+    // halation, the way a lens blooms round white-hot sparks: the SQUARE of a reduced copy, so dim dust adds nothing and black stays black
+    const b2 = S.b2, b4 = S.b4, b8 = S.b8;
+    b2.g.globalCompositeOperation = 'copy'; b2.g.drawImage(S.fc, 0, 0, b2.c.width, b2.c.height);
+    b4.g.globalCompositeOperation = 'copy'; b4.g.drawImage(b2.c, 0, 0, b4.c.width, b4.c.height);
+    b4.g.globalCompositeOperation = 'multiply'; b4.g.drawImage(b4.c, 0, 0);
+    b8.g.globalCompositeOperation = 'copy'; b8.g.drawImage(b4.c, 0, 0, b8.c.width, b8.c.height);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.3; ctx.drawImage(b4.c, 0, 0, W, H);
+    ctx.globalAlpha = 0.38; ctx.drawImage(b8.c, 0, 0, W, H);
     ctx.globalAlpha = 0.22 + 0.28 * fl; ctx.drawImage(S.rim, 0, S.rimY);
     ctx.restore();
     // the blaze at the point of impact
-    L.glow(ctx, IMP.x, IMP.y, 330, '#ff5a1f', 0.34 + 0.14 * fl);
-    L.glow(ctx, IMP.x, IMP.y, 140, '#ffb347', 0.5 + 0.18 * fl);
-    L.glow(ctx, IMP.x, IMP.y, 52, '#fff0c8', 0.9);
+    L.glow(ctx, IMP.x, IMP.y, 320, '#ff4a1f', 0.26 + 0.12 * fl);
+    L.glow(ctx, IMP.x, IMP.y, 130, '#ffb347', 0.4 + 0.16 * fl);
+    L.glow(ctx, IMP.x, IMP.y, 48, '#fff0c8', 0.85);
   },
 };

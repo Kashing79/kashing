@@ -11,28 +11,47 @@ const GW = W + PAD * 2, GH = H + PAD * 2;
 let S = null;
 
 const C = {
-  card: '#efe8d8', blue: '#1d4995', white: '#faf7ee', black: '#1c1b1a', moon: '#f2e27a',
+  card: '#f6b8b2', cardShade: '#9a3f3c', blue: '#1d4995', white: '#faf7ee', black: '#1c1b1a', moon: '#f2e27a',
   red: '#c8261c', green: '#3f9a54', brown: '#623419',
 };
 
 // ───────────────────────── shared paper textures (grey, 128 = neutral) ─────────────────────────
 function buildTextures() {
-  // 1) grain: paper tooth (relief-lit fine noise) + tonal mottling + loose fibres
+  // 1) grain: sugar paper seen close — matte and flat (no embossing), speckled with pulp flecks, clouded by its formation,
+  //    and full of loose fibres lying every which way (each long one throws a hair of shadow)
   const grain = L.makeCanvas(GW, GH); const g = grain.getContext('2d');
-  const tooth = L.bumpLight(L.noiseTex(GW / 2, GH / 2, { seed: 's31tooth', scale: 2.3, octaves: 2, gain: 0.6, res: 1, contrast: 1.4 }), { angle: 225, strength: 0.22, res: 1 });
   g.imageSmoothingQuality = 'high';
-  g.drawImage(tooth, 0, 0, GW, GH);
-  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.8;
-  g.drawImage(L.noiseTex(GW, GH, { seed: 's31mot', scale: 240, octaves: 3, res: 0.1, contrast: 1.3, ramp: [[0, '#626262'], [1, '#9e9e9e']] }), 0, 0);
+  g.drawImage(L.noiseTex(GW, GH, { seed: 's31pulp', scale: 3.4, octaves: 2, gain: 0.55, res: 0.6, contrast: 1.55, ramp: [[0, '#5a5a5a'], [0.5, '#808080'], [1, '#a6a6a6']] }), 0, 0);
+  g.globalCompositeOperation = 'overlay';
+  g.globalAlpha = 0.75; g.drawImage(L.noiseTex(GW, GH, { seed: 's31mot', scale: 240, octaves: 3, res: 0.1, contrast: 1.3, ramp: [[0, '#666666'], [1, '#9a9a9a']] }), 0, 0);
+  g.globalAlpha = 0.7; g.drawImage(L.noiseTex(GW, GH, { seed: 's31form', scale: 24, octaves: 2, res: 0.25, contrast: 1.35, ramp: [[0, '#6c6c6c'], [1, '#949494']] }), 0, 0);
+  g.globalAlpha = 0.5; g.fillStyle = g.createPattern(L.grainTex(512, 512, { seed: 's31fine', amount: 0.2 }), 'repeat'); g.fillRect(0, 0, GW, GH);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   const r = L.rng('s31fib'); g.lineCap = 'round';
-  for (let i = 0; i < 11000; i++) {
-    const x = r() * GW, y = r() * GH, len = r.range(4, 26), a = r() * Math.PI;
-    g.strokeStyle = r.chance(0.55) ? `rgba(255,255,255,${r.range(0.08, 0.3).toFixed(3)})` : `rgba(0,0,0,${r.range(0.06, 0.22).toFixed(3)})`;
-    g.lineWidth = r.range(0.5, 1.3);
-    g.beginPath(); g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.cos(a) * len * 0.5 + r.range(-4, 4), y + Math.sin(a) * len * 0.5 + r.range(-4, 4), x + Math.cos(a) * len, y + Math.sin(a) * len);
-    g.stroke();
+  const fibre = (x, y, len, a, bend, w, col) => {
+    const mx = x + Math.cos(a) * len * 0.5 - Math.sin(a) * bend, my = y + Math.sin(a) * len * 0.5 + Math.cos(a) * bend;
+    g.strokeStyle = col; g.lineWidth = w;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(mx, my, x + Math.cos(a) * len, y + Math.sin(a) * len); g.stroke();
+  };
+  // pulp flecks and stubs
+  for (let i = 0; i < 26000; i++) {
+    const light = r.chance(0.56);
+    fibre(r() * GW, r() * GH, r.range(1.5, 8), r() * Math.PI, r.range(-1.5, 1.5), r.range(0.6, 1.5), light ? `rgba(255,255,255,${r.range(0.07, 0.3).toFixed(3)})` : `rgba(0,0,0,${r.range(0.06, 0.24).toFixed(3)})`);
+  }
+  // fibres
+  for (let i = 0; i < 9000; i++) {
+    const x = r() * GW, y = r() * GH, len = r.range(9, 34), a = r() * Math.PI, bend = r.range(-0.22, 0.22) * len, w = r.range(0.6, 1.25);
+    if (r.chance(0.66)) {
+      const al = r.range(0.14, 0.42);
+      g.save(); g.translate(0.8, 1.0); fibre(x, y, len, a, bend, w + 0.3, `rgba(0,0,0,${(al * 0.42).toFixed(3)})`); g.restore();
+      fibre(x, y, len, a, bend, w, `rgba(255,255,255,${al.toFixed(3)})`);
+    } else fibre(x, y, len, a, bend, w, `rgba(0,0,0,${r.range(0.08, 0.26).toFixed(3)})`);
+  }
+  // the odd long hair
+  for (let i = 0; i < 620; i++) {
+    const x = r() * GW, y = r() * GH, len = r.range(40, 120), a = r() * Math.PI, bend = r.range(-0.3, 0.3) * len, w = r.range(0.55, 1.0), al = r.range(0.16, 0.4);
+    g.save(); g.translate(0.8, 1.0); fibre(x, y, len, a, bend, w + 0.3, `rgba(0,0,0,${(al * 0.4).toFixed(3)})`); g.restore();
+    fibre(x, y, len, a, bend, w, `rgba(255,255,255,${al.toFixed(3)})`);
   }
   // 2) crumple: flat-shaded voronoi facets with a thin lit crease between them (paper that was creased, then flattened)
   const res = 0.25, cw = Math.round(GW * res), ch = Math.round(GH * res);
@@ -81,6 +100,27 @@ function cut(pts, seed, amp = 1.5, period = 95, step = 12, torn = 0) {
   }
   return out;
 }
+/**
+ * hand-torn outline: `skin` is the ragged coloured face, `core` the white heart of the paper that shows beyond it
+ * wherever the tear ran at a slant (fringe px at most; long stretches show none at all)
+ */
+function tear(pts, seed, rag = 1.5, fringe = 3.2) {
+  const d = dens(pts, 3); const n = d.length; const nz = L.makeNoise('s31rip' + seed);
+  let area = 0; const len = [0];
+  for (let i = 0; i < n; i++) { const a = d[i], b = d[(i + 1) % n]; area += a[0] * b[1] - b[0] * a[1]; len.push(len[i] + Math.hypot(b[0] - a[0], b[1] - a[1])); }
+  const sg = area > 0 ? -1 : 1, total = len[n];      // → normals point out of the piece
+  const skin = [], core = [];
+  for (let i = 0; i < n; i++) {
+    const a = d[(i - 1 + n) % n], b = d[(i + 1) % n];
+    let nx = -(b[1] - a[1]) * sg, ny = (b[0] - a[0]) * sg; const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
+    const s = len[i], win = L.smooth(Math.min(s, total - s) / 24);
+    const o = rag * win * (0.9 * nz.n2(s / 41, 1.7) + 0.65 * nz.n2(s / 10, 4.4) + 0.4 * nz.n2(s / 3.3, 6.1));
+    const f = win * (Math.max(0, 0.1 + nz.n2(s / 52, 9.3) + 0.45 * nz.n2(s / 12, 2.2)) * fringe + 0.45 * (0.5 + 0.5 * nz.n2(s / 2.8, 5.5)));
+    skin.push([d[i][0] + nx * o, d[i][1] + ny * o]);
+    core.push([d[i][0] + nx * (o + f), d[i][1] + ny * (o + f), nx, ny, f]);
+  }
+  return { skin, core };
+}
 function chaikin(pts, k = 0.22) {
   const out = []; const n = pts.length;
   for (let i = 0; i < n; i++) {
@@ -115,38 +155,51 @@ const quad = (p0, p1, p2, n = 14) => { const o = []; for (let i = 0; i <= n; i++
 // ───────────────────────── one piece of paper ─────────────────────────
 let T = null;       // textures
 let pieceNo = 0;
+const SH = (al) => `rgba(5,8,24,${Math.max(0, al).toFixed(3)})`;
 /**
  * Glue a piece of paper onto the layer. polys = one closed polyline or several (even-odd → holes).
  * o: color, sh (shadow strength), lift (how far the piece stands off the sheet), tex (fibre strength),
- *    crumple (0..1), edge (lit/shaded rim strength), curl (0..1 light falling across the piece)
+ *    crumple (0..1), edge (lit/shaded rim strength), curl (0..1 light falling across the piece),
+ *    peel [[x,y,r]…] corners that have come unstuck, core (outline from tear(): the white heart of a torn piece),
+ *    loose (0..1 how much one side of the piece stands off the sheet → its shadow opens up along that side)
  */
 function paper(g, polys, o) {
   if (typeof polys[0][0] === 'number') polys = [polys];
-  const { color, sh = 1, lift = 1, tex = 0.42, crumple = 0, edge = 1, curl = 1, peel = null } = o;
+  const { color, sh = 1, lift = 1, tex = 0.42, crumple = 0, edge = 1, curl = 1, peel = null, core = null, loose = 1 } = o;
   const r = L.rng('s31pp' + (o.seed !== undefined ? o.seed : pieceNo++));
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const p of polys) for (const q of p) { if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, hw = (x1 - x0) / 2 + 6, hh = (y1 - y0) / 2 + 6;
-  const build = () => {
+  const trace = (pp) => {
     g.beginPath();
-    for (const p of polys) { g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.closePath(); }
+    for (const p of pp) { g.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) g.lineTo(p[i][0], p[i][1]); g.closePath(); }
   };
+  const build = () => trace(polys);
+  const outline = () => trace(core ? [core] : polys);       // the silhouette that throws the shadow
   // a corner that has come unstuck: a deeper, softer shadow under it …
   if (peel) for (const [px, py, pr] of peel) {
-    g.save(); g.filter = 'blur(8px)'; g.translate(9, 14);
-    g.fillStyle = L.radial(g, px - 9, py - 14, 0, pr, [[0, 'rgba(4,8,26,0.5)'], [0.5, 'rgba(4,8,26,0.26)'], [1, 'rgba(4,8,26,0)']]);
-    build(); g.fill('evenodd'); g.restore();
+    g.save(); g.filter = 'blur(7px)'; g.translate(9, 14);
+    g.fillStyle = L.radial(g, px - 9, py - 14, 0, pr, [[0, SH(0.52)], [0.5, SH(0.26)], [1, SH(0)]]);
+    outline(); g.fill('evenodd'); g.restore();
   }
-  // soft shadow of the lifted sheet + tight contact shadow
+  // … and one side of every piece is never quite stuck down: along it the shadow opens up, toward the glued side it closes
+  const la = L.deg(r.range(5, 85)), ldx = Math.cos(la), ldy = Math.sin(la), lrad = Math.abs(ldx) * hw + Math.abs(ldy) * hh;
+  if (loose > 0 && lift >= 0.3 && Math.min(hw, hh) > 14) {
+    const k = lift * loose;
+    g.save(); g.filter = `blur(${(2.2 + 2.6 * k).toFixed(1)}px)`; g.translate(4.5 * k, 8 * k);
+    g.fillStyle = L.linear(g, cx - ldx * lrad * 0.5 - 4.5 * k, cy - ldy * lrad * 0.5 - 8 * k, cx + ldx * lrad - 4.5 * k, cy + ldy * lrad - 8 * k, [[0, SH(0)], [0.55, SH(0.16 * sh)], [1, SH(0.42 * sh)]]);
+    outline(); g.fill('evenodd'); g.restore();
+  }
+  // the shadow proper: a wide faint penumbra, the cast shadow, and a tight dark line where paper meets paper
   g.save();
-  g.fillStyle = color;
-  g.shadowColor = `rgba(4,8,26,${(0.34 * sh).toFixed(3)})`; g.shadowBlur = 17 * lift; g.shadowOffsetX = 5 * lift; g.shadowOffsetY = 9 * lift;
-  build(); g.fill('evenodd');
-  g.shadowColor = `rgba(4,8,26,${(0.5 * sh).toFixed(3)})`; g.shadowBlur = 2.6; g.shadowOffsetX = 1.2; g.shadowOffsetY = 2.2;
-  build(); g.fill('evenodd');
+  g.fillStyle = core ? '#f6f3ea' : color;
+  g.shadowColor = SH(0.15 * sh); g.shadowBlur = 12 * lift; g.shadowOffsetX = 2.5 * lift; g.shadowOffsetY = 5 * lift;
+  outline(); g.fill('evenodd');
+  g.shadowColor = SH(0.36 * sh); g.shadowBlur = 0.8 + 3.2 * lift; g.shadowOffsetX = 0.6 + 2.2 * lift; g.shadowOffsetY = 1 + 3.8 * lift;
+  outline(); g.fill('evenodd');
+  g.shadowColor = SH(0.5 * sh); g.shadowBlur = 1.3; g.shadowOffsetX = 0.8; g.shadowOffsetY = 1.5;
+  outline(); g.fill('evenodd');
   g.restore();
-  // everything else stays inside the piece
-  g.save(); build(); g.clip('evenodd');
   const place = (texCanvas, alpha, mode) => {
     let k = r.int(0, 3); if ((k & 1) && (hw > GH / 2 - 12 || hh > GW / 2 - 12)) k -= 1;
     const aw = (k & 1 ? GH : GW) / 2, ah = (k & 1 ? GW : GH) / 2;
@@ -156,10 +209,25 @@ function paper(g, polys, o) {
     g.drawImage(texCanvas, -GW / 2, -GH / 2);
     g.restore();
   };
+  if (core) {
+    // the torn heart: white pulp, thinning to nothing at its outer edge, whiskers standing off it; then the coloured face on top
+    g.save(); outline(); g.clip(); place(T.grain, 0.5, 'hard-light'); g.restore();
+    const rf = L.rng('s31ripfz' + r.int(0, 99999)); g.save(); g.lineCap = 'round';
+    for (let i = 0; i < core.length; i++) {
+      const q = core[i]; if (!rf.chance(0.16 + 0.22 * Math.min(1, q[4] / 2))) continue;
+      const a = Math.atan2(q[3], q[2]) + rf.gauss() * 0.8, len = rf.range(1, 2.2 + Math.min(3, q[4]));
+      g.strokeStyle = `rgba(255,254,248,${rf.range(0.3, 0.85).toFixed(3)})`; g.lineWidth = rf.range(0.5, 1.0);
+      g.beginPath(); g.moveTo(q[0] - q[2] * 0.8, q[1] - q[3] * 0.8); g.lineTo(q[0] + Math.cos(a) * len, q[1] + Math.sin(a) * len); g.stroke();
+    }
+    g.restore();
+    g.fillStyle = color; build(); g.fill('evenodd');
+  }
+  // everything else stays inside the piece
+  g.save(); build(); g.clip('evenodd');
   if (crumple > 0) place(T.crumple, crumple, 'hard-light');
   if (tex > 0) place(T.grain, tex, 'hard-light');
   if (curl > 0) {
-    // the sheet is never perfectly flat: light falls off across it
+    // the sheet is never perfectly flat: light falls off across it, and the loose side tips up toward the lamp
     const a = L.deg(48) + r.range(-0.6, 0.6), rad = Math.hypot(hw, hh);
     const dx = Math.cos(a) * rad, dy = Math.sin(a) * rad;
     const pc = L.parseColor(color); const lum = (0.299 * pc[0] + 0.587 * pc[1] + 0.114 * pc[2]) / 255;
@@ -172,10 +240,10 @@ function paper(g, polys, o) {
     g.fillRect(px - pr, py - pr, pr * 2, pr * 2);
   }
   if (edge > 0) {
-    // paper thickness: the cut edge catches light on the upper-left and falls into shade on the lower-right
-    g.lineJoin = 'round'; g.lineWidth = 1.9;
-    g.save(); g.translate(1.1, 1.5); g.strokeStyle = `rgba(255,255,255,${(0.4 * edge).toFixed(3)})`; build(); g.stroke(); g.restore();
-    g.save(); g.translate(-1.1, -1.5); g.strokeStyle = `rgba(0,0,10,${(0.2 * edge).toFixed(3)})`; build(); g.stroke(); g.restore();
+    // paper thickness: the cut edge catches a hairline of light on the upper-left and falls into shade on the lower-right
+    g.lineJoin = 'round';
+    g.save(); g.lineWidth = 1.4; g.translate(0.8, 1.1); g.strokeStyle = `rgba(255,255,255,${(0.46 * edge).toFixed(3)})`; build(); g.stroke(); g.restore();
+    g.save(); g.lineWidth = 1.8; g.translate(-1.0, -1.4); g.strokeStyle = `rgba(0,0,10,${(0.2 * edge).toFixed(3)})`; build(); g.stroke(); g.restore();
   }
   g.restore();
 }
@@ -231,29 +299,46 @@ function bridgeShape(cx, yb, apexY, R0) {
 function buildCollage(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
-    // ── the torn edge of the big blue sheet: coloured skin (drB) and the white core that outruns it (drW) ──
+    // ── the torn edge of the big blue sheet ──
+    // The tear wanders a few px about the arc. The blue face (drB) stops ragged; here and there it has peeled back (bite)
+    // and the white heart of the paper (drW) runs on past it — a hairline for long stretches, a feathered band elsewhere.
     const nz = L.makeNoise('s31tear');
-    const s = a.span(PAD + 170); const n = Math.ceil((2 * s * a.R) / 2);
-    const eB = [], eW = [], prof = [];
+    const s = a.span(PAD + 170); const n = Math.ceil((2 * s * a.R) / 1.5);
+    const eB = [], eW = [], eT = [], prof = [];
     for (let i = 0; i <= n; i++) {
       const th = L.lerp(-s, s, i / n), al = th * a.R;
-      const bite = Math.max(0, nz.n2(al / 170, 4.2) - 0.3) * 8;        // stretches where the blue skin peeled back further
-      const drB = Math.max(-8, -0.3 + 2.1 * nz.fbm(al / 46, 1.3, 3) + 1.2 * nz.n2(al / 6.5, 7.7) - bite);
-      const drW = Math.min(6.5, drB + 2.8 + bite * 0.85 + 2.6 * (0.5 + 0.5 * nz.n2(al / 21, 12.1)) + 1.0 * nz.n2(al / 4.3, 3.3));
-      const pb = a.pt(th, drB), pw = a.pt(th, drW);
-      eB.push([pb.x, pb.y]); eW.push([pw.x, pw.y]); prof.push([th, drB, drW]);
+      const wander = 2.0 * nz.fbm(al / 74, 1.3, 3) + 1.0 * nz.n2(al / 8.5, 7.7) + 0.55 * nz.n2(al / 2.9, 5.1) + 1.5 * (L.smooth(0.5 + 3.5 * nz.n2(al / 230, 21.3)) - 0.5);
+      const bite = 6.5 * L.smooth((nz.n2(al / 150, 4.2) - 0.3) / 0.6) + 3.2 * Math.max(0, nz.n2(al / 34, 9.1) - 0.45);
+      const fr = Math.max(0, 0.22 + nz.n2(al / 96, 12.1) + 0.5 * nz.n2(al / 23, 3.3));
+      const fringe = 0.35 + 3.4 * fr + (0.5 + 0.5 * nz.n2(al / 3.4, 8.8)) * Math.min(1.1, 0.25 + fr * 2.2);
+      const drB = Math.max(-6.5, wander - 0.4 - bite);
+      const drW = Math.min(6.5, Math.max(drB + 0.3, wander + fringe));
+      const wd = drW - drB;                                              // width of exposed white
+      const drT = drW + Math.min(1, wd / 3) * (0.9 + 1.5 * (0.5 + 0.5 * nz.n2(al / 5.3, 15.5)) + 0.8 * nz.n2(al / 1.9, 2.6));   // the last thin veil of pulp
+      const pb = a.pt(th, drB), pw = a.pt(th, drW), pt = a.pt(th, drT);
+      eB.push([pb.x, pb.y]); eW.push([pw.x, pw.y]); eT.push([pt.x, pt.y]); prof.push([th, drB, drW, wd]);
     }
     const sheet = (e) => { g.beginPath(); g.moveTo(e[0][0], e[0][1]); for (let i = 1; i < e.length; i++) g.lineTo(e[i][0], e[i][1]); g.lineTo(e[e.length - 1][0], H + PAD + 60); g.lineTo(e[0][0], H + PAD + 60); g.closePath(); };
     const line = (e) => { g.beginPath(); g.moveTo(e[0][0], e[0][1]); for (let i = 1; i < e.length; i++) g.lineTo(e[i][0], e[i][1]); };
-    // faint contact shadow of the sheet on the card
-    g.save(); g.filter = 'blur(2.2px)'; g.strokeStyle = 'rgba(70,52,26,0.30)'; g.lineWidth = 3.2; g.translate(0, -0.6); line(eW); g.stroke(); g.restore();
-    g.save(); g.filter = 'blur(7px)'; g.strokeStyle = 'rgba(70,52,26,0.10)'; g.lineWidth = 12; line(eW); g.stroke(); g.restore();
-    // white core
-    g.fillStyle = '#fbfaf5'; sheet(eW); g.fill();
+    // the sheet presses a faint line of shade into the card
+    g.save(); g.filter = 'blur(1.8px)'; g.strokeStyle = L.rgba(C.cardShade, 0.34); g.lineWidth = 2.6; g.translate(0, -0.4); line(eW); g.stroke(); g.restore();
+    g.save(); g.filter = 'blur(7px)'; g.strokeStyle = L.rgba(C.cardShade, 0.12); g.lineWidth = 12; line(eW); g.stroke(); g.restore();
+    // white heart: a thin veil first, then the pulp itself
+    g.fillStyle = 'rgba(253,251,246,0.5)'; sheet(eT); g.fill();
+    g.fillStyle = '#fcfaf5'; sheet(eW); g.fill();
     g.save(); sheet(eW); g.clip();
-    g.globalCompositeOperation = 'hard-light'; g.globalAlpha = 0.5; g.drawImage(T.grain, -PAD, -PAD);
+    g.globalCompositeOperation = 'hard-light'; g.globalAlpha = 0.55; g.drawImage(T.grain, -PAD, -PAD);
     g.restore();
-    // blue skin
+    // pulp is rough: short grey-blue nicks across the exposed band
+    const rf = L.rng('s31fuzz'); g.lineCap = 'round';
+    for (let i = 0; i < 5200; i++) {
+      const [th, drB, drW, wd] = prof[rf.int(0, n)]; if (wd < 1.6) continue;
+      const p = a.pt(th, L.lerp(drB, drW, rf.range(0.05, 0.8))); const dir = th - Math.PI / 2 + rf.gauss() * 0.7, len = rf.range(0.8, 2.6);
+      g.strokeStyle = rf.chance(0.5) ? `rgba(96,112,150,${rf.range(0.1, 0.3).toFixed(3)})` : `rgba(255,255,255,${rf.range(0.3, 0.8).toFixed(3)})`;
+      g.lineWidth = rf.range(0.5, 1.0);
+      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(dir) * len, p.y + Math.sin(dir) * len); g.stroke();
+    }
+    // blue face
     g.fillStyle = C.blue; sheet(eB); g.fill();
     g.save(); sheet(eB); g.clip();
     g.globalAlpha = 1;
@@ -261,20 +346,34 @@ function buildCollage(env) {
     g.globalCompositeOperation = 'hard-light';
     g.globalAlpha = 0.2; g.drawImage(T.crumple, -PAD, -PAD);
     g.globalAlpha = 0.5; g.drawImage(T.grain, -PAD, -PAD);
-    // the skin is stressed pale right at the tear
+    // the face is stressed pale right at the tear
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-    g.filter = 'blur(1.6px)'; g.strokeStyle = 'rgba(214,228,255,0.20)'; g.lineWidth = 5; g.translate(0, 2.5); line(eB); g.stroke();
+    g.filter = 'blur(1.4px)'; g.strokeStyle = 'rgba(214,228,255,0.24)'; g.lineWidth = 4.5; g.translate(0, 2.2); line(eB); g.stroke();
     g.restore();
-    // fuzz: white fibres standing off the core, blue shreds straying onto it
-    const rf = L.rng('s31fuzz'); g.lineCap = 'round';
-    for (let i = 0; i < 5200; i++) {
-      const [th, drB, drW] = prof[rf.int(0, n)];
-      const blue = rf.chance(0.42);
-      const p = a.pt(th, blue ? drB + rf.range(-0.5, 2.2) : drW + rf.range(-1.2, 0.6));
-      const dir = th - Math.PI / 2 + rf.gauss() * 0.9; const len = blue ? rf.range(0.8, 3.2) : rf.range(1.2, 5.5);
-      g.strokeStyle = blue ? L.rgba(rf.chance(0.5) ? '#2b5aa6' : '#3c69b0', rf.range(0.45, 0.95)) : L.rgba('#fffefa', rf.range(0.3, 0.85));
-      g.lineWidth = rf.range(0.5, 1.1);
-      g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(dir) * len, p.y + Math.sin(dir) * len); g.stroke();
+    // fuzz: blue shreds straying onto the pulp, white fibres standing off its edge (thick where the tear feathered, almost none where it ran clean)
+    for (let i = 0; i < 9000; i++) {
+      const [th, drB, drW, wd] = prof[rf.int(0, n)];
+      if (rf.chance(0.36)) {
+        if (wd < 1.2) continue;
+        const p = a.pt(th, drB + rf.range(-0.6, Math.min(2.6, wd * 0.7)));
+        const dir = th - Math.PI / 2 + rf.gauss() * 0.9, len = rf.range(0.8, 3.4);
+        g.strokeStyle = L.rgba(rf.chance(0.5) ? '#2b5aa6' : '#4270b6', rf.range(0.45, 0.95)); g.lineWidth = rf.range(0.5, 1.2);
+        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(dir) * len, p.y + Math.sin(dir) * len); g.stroke();
+      } else {
+        if (!rf.chance(0.1 + Math.min(0.9, wd / 4.5))) continue;
+        const p = a.pt(th, drW + rf.range(-1.4, 0.5));
+        const dir = th - Math.PI / 2 + rf.gauss() * 0.95, len = rf.range(1.2, 2.5 + Math.min(4.5, wd));
+        g.strokeStyle = L.rgba('#fffefa', rf.range(0.3, 0.9)); g.lineWidth = rf.range(0.5, 1.05);
+        g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(dir) * len, p.y + Math.sin(dir) * len); g.stroke();
+      }
+    }
+    // a few long fibres pulled right out of the sheet, lying loose on the card
+    for (let i = 0; i < 150; i++) {
+      const [th, , drW, wd] = prof[rf.int(0, n)]; if (wd < 2.2 && !rf.chance(0.25)) continue;
+      const p = a.pt(th, drW - 0.8); const dir = th - Math.PI / 2 + rf.gauss() * 1.0, len = rf.range(7, 17), bend = rf.range(-0.45, 0.45) * len;
+      const ex = p.x + Math.cos(dir) * len, ey = p.y + Math.sin(dir) * len, mx = (p.x + ex) / 2 - Math.sin(dir) * bend, my = (p.y + ey) / 2 + Math.cos(dir) * bend;
+      g.strokeStyle = L.rgba(C.cardShade, 0.2); g.lineWidth = 1.1; g.beginPath(); g.moveTo(p.x + 0.7, p.y + 1); g.quadraticCurveTo(mx + 0.8, my + 1.1, ex + 0.8, ey + 1.1); g.stroke();
+      g.strokeStyle = L.rgba('#fffefa', rf.range(0.55, 0.9)); g.lineWidth = rf.range(0.55, 0.95); g.beginPath(); g.moveTo(p.x, p.y); g.quadraticCurveTo(mx, my, ex, ey); g.stroke();
     }
 
     // ── everything glued on top stays well inside the sheet ──
@@ -288,7 +387,7 @@ function buildCollage(env) {
     const lantern = (x, yTop, cy) => {
       g.save(); g.strokeStyle = 'rgba(20,18,18,0.9)'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(x, yTop); g.lineTo(x + 0.5, cy - 24); g.stroke(); g.restore();
       paper(g, cut([[x - 2.6, cy + 22], [x + 2.8, cy + 22], [x + 3.4, cy + 50], [x - 2.2, cy + 49]], 'lt' + x, 0.4, 40, 8), { color: '#e9c948', lift: 0.25, sh: 0.7, tex: 0.3, curl: 0 });
-      paper(g, roundish(x, cy, 22, 26, 9, 'lan' + x), { color: C.red, lift: 0.5, sh: 0.95, tex: 0.42, curl: 1.2 });
+      { const t = tear(roundish(x, cy, 22, 26, 9, 'lan' + x), 'lan' + x, 0.8, 2.0); paper(g, t.skin, { color: C.red, core: t.core, lift: 0.5, sh: 0.95, tex: 0.42, curl: 1.2 }); }
       paper(g, cut([[x - 9, cy - 29], [x + 9, cy - 29.5], [x + 10, cy - 21.5], [x - 10, cy - 21]], 'lc' + x, 0.4, 40, 8), { color: C.black, lift: 0.25, sh: 0.7, tex: 0.25, curl: 0 });
       paper(g, cut([[x - 8, cy + 21], [x + 8, cy + 20.5], [x + 7.5, cy + 28], [x - 7.5, cy + 28]], 'lb' + x, 0.4, 40, 8), { color: C.black, lift: 0.25, sh: 0.7, tex: 0.25, curl: 0 });
     };
@@ -304,7 +403,7 @@ function buildCollage(env) {
       const pts = []; const m = 18;
       for (let i = 0; i <= m; i++) { const u = i / m; pts.push([x + (u - 0.5) * len, y + (u - 0.5) * len * tilt - th * 0.5 * Math.pow(Math.sin(Math.PI * u), 0.55)]); }
       for (let i = m; i >= 0; i--) { const u = i / m; pts.push([x + (u - 0.5) * len, y + (u - 0.5) * len * tilt + th * 0.5 * Math.pow(Math.sin(Math.PI * u), 0.7)]); }
-      paper(g, cut(pts, seed, 0.6, 50, 6, 0.9), { color, lift: 0.3, sh: 0.8, tex: 0.4, curl: 0.4, edge: 0.7 });
+      const t = tear(pts, seed, 0.9, 2.2); paper(g, t.skin, { color, core: t.core, lift: 0.3, sh: 0.8, tex: 0.4, curl: 0.4, edge: 0.7 });
     };
 
     // moon reflections & far ripples lying directly on the water
@@ -357,8 +456,8 @@ function buildCollage(env) {
 
     // ── pencil-hatched scrap: the stone quay in the corner ──
     {
-      const poly = cut([[1492, 1003], [1650, 990], [1657, 978], [2040, 990], [2046, 1150], [1488, 1150]], 'quay', 1.4, 100);
-      paper(g, poly, { color: '#ebe6d7', tex: 0.5, crumple: 0.3, lift: 1.0 });
+      const tq = tear([[1492, 1003], [1650, 990], [1657, 978], [2040, 990], [2046, 1150], [1488, 1150]], 'quay', 1.7, 2.6); const poly = tq.skin;
+      paper(g, poly, { color: '#ebe6d7', core: tq.core, tex: 0.5, crumple: 0.3, lift: 1.0 });
       const x0 = 1440, y0 = 930, w = 640, h = 240;
       const c = L.makeCanvas(w, h); const k = c.getContext('2d'); k.translate(-x0, -y0);
       const rh = L.rng('s31hatch');
@@ -422,7 +521,7 @@ function buildCollage(env) {
       };
       for (let bi = 0; bi < 4; bi++) { strand(bi, 0.52, '#2c7a44', 0.4); strand(bi, 0.86, '#2c7a44', 0.4); }
       const trunk = strip([[1518, 1150], [1510, 1000], [1496, 892], [1486, 806]], (t) => L.lerp(42, 19, t), 12);
-      paper(g, cut(trunk, 'trunk', 1.2, 90, 10), { color: '#44260f', lift: 0.7, tex: 0.5, crumple: 0.2 });
+      { const t = tear(trunk, 'trunk', 1.7, 3.4); paper(g, t.skin, { color: '#44260f', core: t.core, lift: 0.7, tex: 0.5, crumple: 0.2 }); }
       boughs.forEach((bp, bi) => paper(g, cut(strip(bp.filter((_, i) => i % 3 === 0 || i === bp.length - 1), (t) => L.lerp(15, 5, t), 9), 'bough' + bi, 0.5, 70, 8), { color: '#44260f', lift: 0.5, sh: 0.9, tex: 0.45, curl: 0.5 }));
       strand(4, 0.82, C.green, 0.6); strand(4, 1.0, '#62b66c', 0.7);
       for (let bi = 0; bi < 4; bi++) {
@@ -443,16 +542,14 @@ function buildCollage(env) {
   });
 }
 
-/** the cream card everything is mounted on (static, so no padding; only the part above the sheet is ever seen) */
+/** the pale peach-pink sugar-paper card everything is mounted on: one flat colour, only its fibre shows (static, so no padding) */
 const CARD_H = 830;
 function buildCard() {
-  const c = L.paperTex(W, CARD_H, { base: C.card, seed: 's31card', tone: '#ab9d7c', fiber: 0.5, stain: 0.08, grain: 0.1 });
-  const g = c.getContext('2d');
-  g.globalCompositeOperation = 'hard-light'; g.globalAlpha = 0.2;
+  const c = L.makeCanvas(W, CARD_H); const g = c.getContext('2d');
+  g.fillStyle = C.card; g.fillRect(0, 0, W, CARD_H);
+  g.drawImage(L.noiseTex(W, CARD_H, { seed: 's31cardmot', scale: 420, octaves: 3, res: 0.08, contrast: 1.3, ramp: [[0, 'rgba(226,140,136,0.10)'], [0.5, 'rgba(246,184,178,0)'], [1, 'rgba(255,226,220,0.12)']] }), 0, 0);
+  g.globalCompositeOperation = 'hard-light'; g.globalAlpha = 0.4;
   g.save(); g.translate(GW - 40, GH - 60); g.rotate(Math.PI); g.drawImage(T.grain, 0, 0); g.restore();
-  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-  g.fillStyle = L.radial(g, 500, 120, 100, 2100, [[0, 'rgba(255,253,244,0.20)'], [0.5, 'rgba(255,253,244,0)'], [1, 'rgba(96,78,48,0.16)']]);
-  g.fillRect(0, 0, W, CARD_H);
   return c;
 }
 
@@ -470,7 +567,7 @@ export default {
     const rot = L.lerp(-0.003, 0.003, p), zoom = L.lerp(1.0, 1.007, p);
     ctx.drawImage(S.card, 0, 0);
     // the collage layer is empty above the tear, so only the lower part of the frame needs the (resampled) blit
-    ctx.save(); ctx.beginPath(); ctx.rect(0, a.crestY - 26, W, H - a.crestY + 26); ctx.clip();
+    ctx.save(); ctx.beginPath(); ctx.rect(0, a.crestY - 36, W, H - a.crestY + 36); ctx.clip();
     L.blit(ctx, env, S.collage, { rot, zoom });
     ctx.restore();
   },
