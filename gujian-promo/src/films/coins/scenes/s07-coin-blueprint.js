@@ -199,14 +199,14 @@ function buildMask(env) {
       const t0 = P(th, 9), t1 = P(th, -RIM - 5);
       arrow(g, t0[0], t0[1], th + Math.PI / 2, 38); arrow(g, t1[0], t1[1], th - Math.PI / 2, 38);
       rule(g, q1[0] - 3, q1[1], q1[0] + 236, q1[1], 6, 'dws', { lo: 0.72 });
-      L.text(g, '外郭', q1[0] + 124, q1[1] - 50, { font: 'brush', size: 80, weight: 400, color: '#fff', spacing: 8, stroke: { color: '#fff', width: 2.2 } }); }
+      L.text(g, '外郭', q1[0] + 124, q1[1] - 50, { font: '"GJ WenKai", "GJ Brush", cursive', size: 80, weight: 400, color: '#fff', spacing: 8, stroke: { color: '#fff', width: 2.2 } }); }
     // ── width of the inner rim (labelled 内郭) ──
     { const x = cx + 303;
       rule(g, x, yo - 58, x, yi + 56, 6, 'dn', { lo: 0.72 });
       arrow(g, x, yo - 5, Math.PI / 2, 34); arrow(g, x, yi + 8, -Math.PI / 2, 34);
-      L.text(g, '内郭', x - 4, yo - 104, { font: 'brush', size: 72, weight: 400, color: '#fff', spacing: 6, stroke: { color: '#fff', width: 1.7 } }); }
-    L.text(g, '肉', cx - 302, yo - 104, { font: 'brush', size: 86, weight: 400, color: '#fff', stroke: { color: '#fff', width: 2.2 } });
-    L.text(g, '穿', cx - 130, yi + 92, { font: 'brush', size: 90, weight: 400, color: '#fff', stroke: { color: '#fff', width: 2.2 } });
+      L.text(g, '内郭', x - 4, yo - 104, { font: '"GJ WenKai", "GJ Brush", cursive', size: 72, weight: 400, color: '#fff', spacing: 6, stroke: { color: '#fff', width: 1.7 } }); }
+    L.text(g, '肉', cx - 302, yo - 104, { font: '"GJ WenKai", "GJ Brush", cursive', size: 86, weight: 400, color: '#fff', stroke: { color: '#fff', width: 2.2 } });
+    L.text(g, '穿', cx - 130, yi + 92, { font: '"GJ WenKai", "GJ Brush", cursive', size: 90, weight: 400, color: '#fff', stroke: { color: '#fff', width: 2.2 } });
 
     // ── above the coin: a few oblique dimension lines, graduations, registration marks, a corner of the title block ──
     { const an = L.deg(-38), ux = Math.cos(an), uy = Math.sin(an), nx = -uy, ny = ux, bx = 250, by = 172 + oy;
