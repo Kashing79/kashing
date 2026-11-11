@@ -37,19 +37,19 @@ const hash2 = (i, j) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
-// tiny allocation-free worley noise (squared distance in cD1, cell id in cId)
-let cD1 = 0, cId = 0;
+// tiny allocation-free worley noise (squared distances to the nearest / second-nearest point in cD1 / cD2, cell id in cId)
+let cD1 = 0, cD2 = 0, cId = 0;
 function cell(x, y) {
   const xi = Math.floor(x), yi = Math.floor(y);
-  let d1 = 9, id = 0;
+  let d1 = 9, d2 = 9, id = 0;
   for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
     const cx = xi + ox, cy = yi + oy;
     let h = (Math.imul(cx, 374761393) + Math.imul(cy, 668265263)) | 0;
     h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16;
     const dx = cx + (h & 1023) / 1023 - x, dy = cy + ((h >>> 10) & 1023) / 1023 - y, d = dx * dx + dy * dy;
-    if (d < d1) { d1 = d; id = ((h >>> 20) & 255) / 255; }
+    if (d < d1) { d2 = d1; d1 = d; id = ((h >>> 20) & 255) / 255; } else if (d < d2) d2 = d;
   }
-  cD1 = d1; cId = id;
+  cD1 = d1; cD2 = d2; cId = id;
 }
 
 /** the big light: a hard pool on the crest, sinking with depth (d px below the arc) and toward the flanks (sn = sin θ) */
@@ -87,7 +87,7 @@ function buildSprites() {
 const SP_PALE = 0, SP_GOLD = 1, SP_EMBER = 2, SP_SOFT = 3, SP_STAR = 4;
 
 function beadSprite(r, V, col) {
-  const SC = 2, half = Math.ceil(r + 5), c = L.makeCanvas(half * 2 * SC, half * 2 * SC), g = c.getContext('2d');
+  const SC = 2, half = Math.ceil(r + 8), c = L.makeCanvas(half * 2 * SC, half * 2 * SC), g = c.getContext('2d');
   g.scale(SC, SC); g.translate(half, half);
   g.fillStyle = L.radial(g, 1.4, 2.6, r * 0.5, r + 4.6, [[0, 'rgba(22,9,0,0.8)'], [1, 'rgba(22,9,0,0)']]);
   g.fillRect(-half, -half, half * 2, half * 2);
@@ -181,10 +181,10 @@ function buildDome(env, spr) {
       const wr = nA.ridged(U / 74 + 0.5 * wx, Sv / 64 + 0.5 * wy, 3, 2.1, 0.5);            // folds of the solidified skin
       const swell = nB.fbm(U / 340 + 3, Sv / 250 - 7, 2);                                   // slow swells
       cell(U / 46 + 0.4 * wx, Sv / 46 + 0.4 * wy);
-      const nod = (cD1 < 0.3 ? 1 - cD1 / 0.3 : 0) * (cId - 0.38);                           // larger lumps and dimples
+      const nod = Math.min(cD1 < 0.3 ? 1 - cD1 / 0.3 : 0, sstep(0, 0.3, Math.sqrt(cD2) - Math.sqrt(cD1))) * (cId - 0.38);   // larger lumps and dimples
       cell(U / 96 - 5.3 + 0.3 * wy, Sv / 96 + 9.1 + 0.3 * wx);
       let pit = 0;
-      if (cId < 0.34) { const rp = 0.1 + 0.13 * ((cId * 7.31) % 1); pit = 1 - sstep(rp * 0.4, rp, Math.sqrt(cD1)); }
+      if (cId < 0.34) { const rp = 0.1 + 0.13 * ((cId * 7.31) % 1); pit = (1 - sstep(rp * 0.4, rp, Math.sqrt(cD1))) * sstep(0, 0.14, Math.sqrt(cD2) - Math.sqrt(cD1)); }
       let fl = 0;
       for (const [d0, sd] of FLOWS) {
         const u = (d - d0 - 14 * nA.n2(U / 420, sd)) / 11;

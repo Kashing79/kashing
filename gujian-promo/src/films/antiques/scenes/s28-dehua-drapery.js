@@ -173,7 +173,7 @@ function buildFields(arc) {
     for (let i = 0; i < E_N; i++) { let a = 0; for (let q = -12; q <= 12; q++) a += src[Math.min(E_N - 1, Math.max(0, i + q))]; edge[i] = a / 25; }
   }
 
-  const Hh = new Float32Array(N).fill(-1000), Ff = new Float32Array(N), Al = new Float32Array(N), De = new Float32Array(N), Gz = new Float32Array(N);
+  const Hh = new Float32Array(N).fill(-1000), Hs = new Float32Array(N).fill(-1000), Ff = new Float32Array(N), Al = new Float32Array(N), De = new Float32Array(N), Gz = new Float32Array(N);
   for (let j = 0; j < RH; j++) {
     const y = Y0 + j, dy = cy - y;
     for (let i = 0; i < RW; i++) {
@@ -186,22 +186,24 @@ function buildFields(arc) {
       const sw = th * rr * FAN / (FAN + (d > 0 ? d : 0)) + bil(gWarp, i, j);
       const f = foldH(sw, d) + bil(gLump, i, j);
       const fine = 0.07 * nF.n2(sw / 11, d / 420 + 3.3) + 0.05 * nF.n2((X0 + i) / 4.1, y / 4.1 + 70)   // modelling strokes down the folds · orange peel
-        + 0.52 * nF.n2(sw / 44 + 17, d / 76 - 8) + 0.11 * nF.n2((X0 + i) / 17 - 40, y / 17 + 11);        // the thumb-smoothed clay under the glaze
+        + 0.11 * nF.n2((X0 + i) / 17 - 40, y / 17 + 11);                                                 // (too fine to throw shadows: normals only)
       const u = Math.min(de + 5, RHO), k = j * RW + i;
       Ff[k] = f; De[k] = de; Al[k] = de <= -0.5 ? 0 : de >= 0.5 ? 1 : de + 0.5; Gz[k] = bil(gGlaze, i, j);
-      Hh[k] = Math.sqrt(RHO * RHO - (RHO - u) * (RHO - u)) + 70 * (1 - Math.exp(-(de > 0 ? de : 0) / 380)) + f + fine;
+      Hs[k] = Math.sqrt(RHO * RHO - (RHO - u) * (RHO - u)) + 70 * (1 - Math.exp(-(de > 0 ? de : 0) / 380)) + f
+        + 0.52 * nF.n2(sw / 44 + 17, d / 76 - 8);                                                        // the thumb-smoothed clay under the glaze
+      Hh[k] = Hs[k] + fine;
     }
   }
   // hollows (where the glaze pools) vs. ridges (where it runs thin): fold height against its own blur
   const Pool = Ff.slice(), tmp = new Float32Array(N);
   boxBlur(Pool, RW, RH, 11, tmp); boxBlur(Pool, RW, RH, 11, tmp);
   for (let k = 0; k < N; k++) Pool[k] -= Ff[k];
-  return { X0, Y0, RW, RH, N, Hh, Al, De, Gz, Pool, tmp, Sh: Ff, Ed: new Float32Array(N), Eb: new Float32Array(N), Sp: new Float32Array(N), Nb: new Float32Array(N), Fl: new Float32Array(N) };
+  return { X0, Y0, RW, RH, N, Hh, Hs, Al, De, Gz, Pool, tmp, Sh: Ff, Ed: new Float32Array(N), Eb: new Float32Array(N), Sp: new Float32Array(N), Nb: new Float32Array(N), Fl: new Float32Array(N) };
 }
 
 // luminance → porcelain colour: black · warm shadow · 影灰 · 积釉暖黄 · 象牙白 · white
 const RAMP = (() => {
-  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.42, '#ad9a74'], [0.54, '#d5c194'], [0.64, '#e2d5b0'],
+  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.42, '#af9a70'], [0.54, '#d7c291'], [0.64, '#e2d5b0'],
     [0.74, '#ece5cd'], [0.84, '#f3ecd8'], [0.93, '#faf6e9'], [1, '#fffdf6']].map(([t, c]) => [t, hex(c)]);
   const n = 1024, out = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
@@ -216,7 +218,7 @@ const EL = 28, KE = 2.9, KB = 0.3, FILL = 0.035, PEN = 2.2;
 
 /** light one state of the key into RGBA bytes `px` (opaque, on the black field); `bloom` gets the hot parts at quarter size */
 function shade(F, az, gx0, px, bloom) {
-  const { X0, Y0, RW, RH, Hh, Al, De, Gz, Pool, tmp, Sh, Ed, Eb, Sp, Nb, Fl } = F;
+  const { X0, Y0, RW, RH, Hh, Hs, Al, De, Gz, Pool, tmp, Sh, Ed, Eb, Sp, Nb, Fl } = F;
   const ra = (az * Math.PI) / 180, re = (EL * Math.PI) / 180;
   const lx = -Math.cos(ra) * Math.cos(re), ly = -Math.sin(ra) * Math.cos(re), lz = Math.sin(re);
   const bx = 0.9, by = 0.1, bz = 0.42;        // bounce comes back off the lit flank of the next ridge to the right
@@ -233,7 +235,7 @@ function shade(F, az, gx0, px, bloom) {
     for (let x = 0; x < RW; x++) {
       const y = c + ta * x;
       if (y < 0 || y >= RH - 1) { D[o + x] = 0; continue; }
-      const j = y | 0, k = j * RW + x, h0 = Hh[k], h1 = Hh[k + RW];
+      const j = y | 0, k = j * RW + x, h0 = Hs[k], h1 = Hs[k + RW];
       const h = h0 < -500 ? h1 : h1 < -500 ? h0 : h0 + (h1 - h0) * (y - j);
       top -= drop; if (h > top) top = h;
       D[o + x] = h < -500 ? 0 : top - h;
