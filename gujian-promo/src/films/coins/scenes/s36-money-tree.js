@@ -35,10 +35,10 @@ function buildCoin(seed) {
     if (Am[k] <= 0) continue;
     const rimO = sm(RC - WR - 3.5, RC - WR + 3, r) * (1 - sm(ro - 6.5, ro + 0.5, r));
     const rimI = (1 - sm(hs + WI - 3, hs + WI + 3, sq)) * sm(hs - 1.5, hs + 3, sq);
-    const f1 = nA.fbm(x / 36, y / 36, 3), f2 = nB.n2(x / 3.1, y / 3.1), f3 = nB.n2(x / 10 + 9, y / 10 - 4);
-    let h = HR * rimO + HI * rimI + 1.25 * f1 + 0.06 * f2 + 0.2 * f3;
+    const f1 = nA.fbm(x / 48, y / 48, 3), f2 = nB.n2(x / 3.1, y / 3.1), f3 = nB.n2(x / 11 + 9, y / 11 - 4);
+    let h = HR * rimO + HI * rimI + 0.85 * f1 + 0.04 * f2 + 0.12 * f3;
     const cl = nB.cell(x / 13 + 40, y / 13);                              // sparse casting pits
-    if (cl.id > 0.8) h -= 1.3 * (1 - sm(0.02, 0.2, cl.d));
+    if (cl.id > 0.9) h -= 1.2 * (1 - sm(0.02, 0.17, cl.d));
     Hh[k] = h;
     Pt[k] = nA.fbm(x / 70 + 11, y / 70 + 7, 3);
     Ed[k] = sm(ro - 5, ro - 0.8, r) * Math.pow(Math.max(0, -uy), 0.6);    // the top edge of the rim catches the back-light
@@ -50,6 +50,7 @@ function buildCoin(seed) {
   const hx0 = -0.229, hy0 = -0.327, hz0 = 0.917;          // half vector for the specular lobe
   const tx = -0.573, ty = -0.819, tanE = 0.36;            // toward the light on the surface, for the cast shadows
   const sheenOff = [-30, 22, -4][seed % 3];
+  const cwA = Math.atan2(ty, tx) + [0.22, -0.2, 0.02][seed % 3], gainK = [1.0, 0.965, 1.03][seed % 3];   // every coin hangs at a slightly different tilt
   const img = new ImageData(SZ, SZ), d = img.data;
   const at = (x, y) => { const i = Math.round(x), j = Math.round(y); return i < 0 || j < 0 || i >= SZ || j >= SZ ? 0 : Hh[j * SZ + i]; };
   for (let j = 1; j < SZ - 1; j++) for (let i = 1; i < SZ - 1; i++) {
@@ -64,9 +65,10 @@ function buildCoin(seed) {
     const sp = Math.pow(Math.max(0, nx * hx0 + ny * hy0 + nz * hz0), 40);
     const x = i + 0.5 - c, y = j + 0.5 - c;
     const sq = (x * 0.55 + y * 0.83 + sheenOff) / (0.46 * RC), sheen = Math.exp(-sq * sq);
-    const alb = 0.86 + 0.28 * hn + 0.09 * Pt[k];
-    const lum = (0.25 + 0.77 * diff * (1 - 0.78 * shadow)) * alb + 0.5 * sp * (0.35 + 0.65 * hn) + 0.07 * hn
-      - 0.22 * (y / RC) + 0.11 * sheen + 0.45 * Ed[k];
+    const cw = Math.cos(2 * (Math.atan2(y, x) - cwA));   // the two opposed bright fans of light a silvery disc throws back
+    const alb = (0.86 + 0.28 * hn + 0.09 * Pt[k]) * gainK;
+    const lum = (0.22 + 0.72 * diff * (1 - 0.78 * shadow)) * alb + 0.55 * sp * (0.35 + 0.65 * hn) + 0.07 * hn
+      - 0.2 * (y / RC) + 0.11 * cw * (1 - 0.45 * hn) + 0.08 * sheen + 0.45 * Ed[k];
     const li = (L.clamp(lum / 1.35) * 511 | 0) * 3;
     const cool = Pt[k] < 0 ? -Pt[k] : 0;                 // the dimmer patches lean a little toward teal
     const o = k * 4;
@@ -128,26 +130,26 @@ function genFilaments(env, coins) {
   const curl = (x) => 0.0011 * nz.n2(x / 240, 20.3);
   const sp = a.span(PAD + 90);
   // 1) a fine, even fuzz all along the branch
-  for (let th = -sp; th <= sp; th += 5 / a.R) {
-    const t = th + r.range(-0.45, 0.45) * 5 / a.R, p0 = a.pt(t, -2), e = envLen(p0.x);
+  for (let th = -sp; th <= sp; th += 6 / a.R) {
+    const t = th + r.range(-0.45, 0.45) * 6 / a.R, p0 = a.pt(t, -2), e = envLen(p0.x);
     const len = Math.min(e, 18 + e * 0.3) * (0.25 + 0.75 * Math.pow(r(), 1.5));
-    sharp.push(mk(p0.x, p0.y, t * 1.15 + lean(p0.x) + r.gauss() * 0.12, r.gauss() * 0.0006, len, 0.8 + 1.0 * r() * r(), 0.3 + 0.5 * r()));
+    sharp.push(mk(p0.x, p0.y, t * 1.15 + lean(p0.x) + r.gauss() * 0.1, r.gauss() * 0.0006, len, 0.75 + 0.8 * r() * r(), 0.3 + 0.5 * r()));
   }
   // 2) tufts: near-parallel filaments sharing a direction and a curl, like the barbs of a feather
   const tuft = (t0, e0) => {
     const x0 = a.pt(t0, 0).x;
     const eT = e0 * r.range(0.55, 1.0), psiT = t0 * 1.15 + lean(x0) + r.gauss() * 0.11, kT = curl(x0) + r.gauss() * 0.0004;
-    const n = Math.round(9 + eT / 8);
+    const n = Math.round(4 + eT / 38);
     for (let i = 0; i < n; i++) {
-      const off = r.gauss() * 13, q = a.pt(t0 + off / a.R, -2);
+      const off = r.gauss() * 15, q = a.pt(t0 + off / a.R, -2);
       const len = eT * (0.2 + 0.8 * Math.pow(r(), 1.15));
       const psi = psiT + off * 0.0045 + r.gauss() * 0.045;
-      sharp.push(mk(q.x, q.y, psi, kT + r.gauss() * 0.00025, len, 0.9 + 1.5 * r() * r() + len / 400, 0.35 + 0.65 * r()));
-      if (eT > 80 && r.chance(0.3)) soft.push(mk(q.x + r.range(-7, 7), q.y, psi + r.gauss() * 0.07, kT + r.gauss() * 0.0004, len * r.range(0.6, 1.1), r.range(3, 6.5), r.range(0.14, 0.34)));
+      sharp.push(mk(q.x, q.y, psi, kT + r.gauss() * 0.00025, len, 0.7 + 1.1 * r() * r() + len / 480, 0.35 + 0.65 * r()));
+      if (eT > 80 && r.chance(0.3)) soft.push(mk(q.x + r.range(-7, 7), q.y, psi + r.gauss() * 0.07, kT + r.gauss() * 0.0004, len * r.range(0.6, 1.1), r.range(2.5, 5), r.range(0.12, 0.28)));
     }
   };
   let th = -sp;
-  while (th < sp) { tuft(th, envLen(a.pt(th, 0).x)); th += r.range(20, 40) / a.R; }
+  while (th < sp) { tuft(th, envLen(a.pt(th, 0).x)); th += r.range(24, 44) / a.R; }
   for (const cn of coins) tuft(cn.th + r.gauss() * 0.004, envLen(a.pt(cn.th, 0).x) * 1.1);   // one more over every coin's top
   return { sharp, soft };
 }
@@ -204,7 +206,7 @@ function buildMain(env, sprites, awn, coins, filAll) {
   const g = layer.getContext('2d');
   // shallow focus: the plane falls soft toward the left and right of frame  (sharp·(1−m) + soft·m)
   const hm = [[0, K1], [0.18, 'rgba(0,0,0,0.5)'], [0.35, K0], [0.65, K0], [0.82, 'rgba(0,0,0,0.5)'], [1, K1]];
-  const soft = L.blurred(layer, 3.6), sg = soft.getContext('2d');
+  const soft = L.blurred(layer, 5), sg = soft.getContext('2d');
   sg.globalCompositeOperation = 'destination-in';
   sg.fillStyle = L.linear(sg, PAD - 60, 0, PAD + W + 60, 0, hm);
   sg.fillRect(0, 0, soft.width, soft.height);
@@ -242,7 +244,7 @@ function buildBack(env, sprites, awn) {
     for (const cn of coins2) a.at(g, cn.th, DRC2, () => { g.scale(K, K); const sp2 = sprites[cn.v]; g.drawImage(sp2, -sp2.width / 2, -sp2.height / 2); });
   });
   const farB = L.blurred(far, 14);
-  const streaks = L.polarNoiseLayer(env, PAD, { seed: 's36mist', scale: 34, sx: 0.55, sy: 11, octaves: 3, contrast: 1.25, res: 0.3, ramp: [[0, '#93a0a1'], [0.5, '#d5dcdc'], [1, '#ffffff']] });
+  const streaks = L.polarNoiseLayer(env, PAD, { seed: 's36mist', scale: 70, sx: 0.6, sy: 7, octaves: 2, contrast: 1.0, res: 0.25, ramp: [[0, '#a9b4b5'], [0.5, '#dde3e2'], [1, '#ffffff']] });
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#030303'; full(g);
     g.drawImage(farB, -PAD, -PAD);
@@ -292,7 +294,7 @@ export default {
       g.drawImage(maskedCopy(L.blurred(filAll, b1), env, 60, 380, M1, g1), 0, 0);
       g.drawImage(maskedCopy(L.blurred(filAll, b2), env, 200, 380, M2, g2), 0, 0);
       g.drawImage(L.blurred(filSoft, b3), 0, 0);
-      g.globalAlpha = 0.6; g.drawImage(haze, 0, 0);
+      g.globalAlpha = 0.3; g.drawImage(haze, 0, 0);
       c._pad = PAD;
       return c;
     };
@@ -301,8 +303,8 @@ export default {
     S = {
       back: await bake(back, a.crestY + RC, H + PAD),
       main: await bake(main, a.crestY - 260, H + PAD),
-      tipsA: await bake(tips(1.2, 2.8, 4.2, 1.2, 1.7), -PAD, yEdge + 40),
-      tipsB: await bake(tips(2.2, 4.6, 6.2, 1.3, 2.0), -PAD, yEdge + 40),
+      tipsA: await bake(tips(1.2, 2.8, 4.2, 1.15, 1.5), -PAD, yEdge + 40),
+      tipsB: await bake(tips(2.2, 4.6, 6.2, 1.25, 1.8), -PAD, yEdge + 40),
     };
   },
   draw(ctx, env, p) {
