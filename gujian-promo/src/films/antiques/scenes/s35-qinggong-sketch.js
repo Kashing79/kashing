@@ -135,30 +135,32 @@ function capTo(a, x0, y0, x1, y1, lim) {
 function drawRim(g, gl, a) {
   const s = a.span(PAD + 140);
   const r = L.rng('s35q-rim');
+  // The stroke's UPPER edge is the edge that rides the arc: the brush is steered along it, and pressure only swells the line downward.
+  const TOP = 2.5;
   // first pull: enters from the left, presses twice (顿), thins, runs dry into flying-white and lifts off right of centre
-  arcPull(g, a, -s, 0.322,
-    (th) => (25 + 10 * bump(th, -0.345, 0.04) + 7 * bump(th, -0.045, 0.07) - 7 * bump(th, -0.2, 0.06) + 3.5 * bump(th, 0.085, 0.03) - 3 * sstep(0.13, 0.29, th) + 2.2 * NZ.n2(th * 16, 2.2)) * (1 - 0.7 * sstep(0.288, 0.322, th)),
+  const w1 = (th) => (25 + 10 * bump(th, -0.345, 0.04) + 7 * bump(th, -0.045, 0.07) - 7 * bump(th, -0.2, 0.06) + 3.5 * bump(th, 0.085, 0.03) - 3 * sstep(0.13, 0.29, th) + 2.2 * NZ.n2(th * 16, 2.2)) * (1 - 0.7 * sstep(0.288, 0.322, th));
+  arcPull(g, a, -s, 0.322, w1,
     (th) => 1.1 - 0.36 * bump(th, -0.21, 0.05) - 0.54 * sstep(0.12, 0.25, th) - 0.2 * sstep(0.29, 0.322, th),
-    (th) => 1.2 * NZ.n2(th * 7, 4.4) - 0.2, 1.7, 30);
+    (th) => TOP - w1(th) / 2 + 0.7 * NZ.n2(th * 7, 4.4), 1.7, 30);
   // second pull (复笔): brush re-charged, set down again a touch low, overlapping the dry tail
-  arcPull(g, a, 0.262, s,
-    (th) => 26 + 12 * bump(th, 0.277, 0.016) - 5 * bump(th, 0.39, 0.05) + 4 * bump(th, 0.47, 0.03) + 2.2 * NZ.n2(th * 16, 6.2),
+  const w2 = (th) => 26 + 12 * bump(th, 0.277, 0.016) - 5 * bump(th, 0.39, 0.05) + 4 * bump(th, 0.47, 0.03) + 2.2 * NZ.n2(th * 16, 6.2);
+  arcPull(g, a, 0.262, s, w2,
     (th) => 1.1 - 0.32 * bump(th, 0.43, 0.04),
-    (th) => -6 * Math.exp(-(th - 0.262) / 0.04) + 1.2 * NZ.n2(th * 7, 9.4) - 0.2, 5.3, 30);
-  const h = a.pt(0.2625, -6); blot(g, h.x, h.y, 18, 3.1);
+    (th) => TOP - w2(th) / 2 - 5 * Math.exp(-(th - 0.262) / 0.035) + 0.7 * NZ.n2(th * 7, 9.4), 5.3, 30);
+  const h = a.pt(0.2625, -17); blot(g, h.x, h.y, 17, 3.1);
   // the inner edge of the lip: a thinner line that leaves the big stroke near the crest and drops away to the left → 双线
   const inner = (t0, t1, d0, d1, key) => {
     const pts = [];
     for (let i = 0; i <= 40; i++) { const th = L.lerp(t0, t1, i / 40), q = a.pt(th, L.lerp(d0, d1, sstep(t0, t1, th)) + 3 * NZ.n2(th * 8, key)); pts.push([q.x, q.y]); }
     return pts;
   };
-  brush(g, inner(0.05, -0.3, -8, -44, 8.8), { w: 9.5, seed: 11, head: 1.0, tin: 0.03, tout: 0.05, dry: 0.4, wob: 0.45, wlen: 130, step: 4 });
-  brush(g, inner(-0.262, -s, -39, -52, 3.8), { w: 11, seed: 12, head: 1.3, tin: 0.03, tout: 0.02, dry: 0.3, wob: 0.42, wlen: 130, step: 4 });
+  brush(g, inner(0.05, -0.3, -18, -56, 8.8), { w: 9.5, seed: 11, head: 1.0, tin: 0.03, tout: 0.05, dry: 0.4, wob: 0.45, wlen: 130, step: 4 });
+  brush(g, inner(-0.262, -s, -51, -64, 3.8), { w: 11, seed: 12, head: 1.3, tin: 0.03, tout: 0.02, dry: 0.3, wob: 0.42, wlen: 130, step: 4 });
   // … and in pale ink on the right, where the hand only felt for it
-  brush(gl, inner(0.08, 0.3, -20, -42, 5.1), { w: 7, seed: 13, tin: 0.04, tout: 0.3, dry: 0.5, wob: 0.4, step: 4 });
-  brush(gl, inner(0.33, s, -41, -50, 6.6), { w: 8, seed: 14, tin: 0.04, tout: 0.04, dry: 0.45, wob: 0.4, step: 4 });
+  brush(gl, inner(0.08, 0.3, -30, -54, 5.1), { w: 7, seed: 13, tin: 0.04, tout: 0.3, dry: 0.5, wob: 0.4, step: 4 });
+  brush(gl, inner(0.33, s, -53, -62, 6.6), { w: 8, seed: 14, tin: 0.04, tout: 0.04, dry: 0.45, wob: 0.4, step: 4 });
   // drops shaken off where the brush first pressed, and where it was set down the second time
-  const d0 = a.pt(-0.348, 0); spatter(g, r, d0.x - 4, d0.y + 34, 2.1, 6, 96, 6);
+  const d0 = a.pt(-0.348, -12); spatter(g, r, d0.x - 4, d0.y + 34, 2.1, 6, 96, 6);
   spatter(g, r, h.x + 12, h.y + 28, 1.2, 5, 70, 5);
 }
 
@@ -510,7 +512,7 @@ function drawHoles(g) {
     g.closePath();
   };
   // single holes
-  for (const [x, y, rad] of [[1612, 318, 6.5], [246, 412, 5.5], [1826, 598, 7], [84, 872, 6], [1470, 152, 5.5], [1884, 884, 5.5], [556, 1040, 5]]) {
+  for (const [x, y, rad] of [[1612, 318, 6.5], [246, 412, 5.5], [1826, 598, 7], [84, 872, 6], [1470, 152, 5.5], [1884, 884, 5.5], [556, 1040, 5], [1252, 884, 6], [870, 1016, 5]]) {
     pit(lump(x + r.range(-4, 4), y + r.range(-4, 4), rad, x * 0.01 + y, r.range(0.7, 1)));
   }
   // galleries: the worm's wandering track

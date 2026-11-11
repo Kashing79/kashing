@@ -48,7 +48,7 @@ function defocus(c, px, maskFn) {
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-atop'; g.drawImage(soft, 0, 0); g.restore();
 }
 
-/** the porcelain: everything below the arc. Returns { bowl, spec } (canvases cropped to the rows below the crest) */
+/** the porcelain: everything below the arc. Returns { bowl, spec, glow } (canvases cropped to the rows around / below the crest) */
 function buildBowl(env) {
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
   const X0 = -PAD, Y0 = Math.floor(a.crestY) - 2;
@@ -170,8 +170,9 @@ function buildBowl(env) {
 
   // ── pass 2: shade ──
   const img = new ImageData(RW, RH), d = img.data, simg = new ImageData(RW, RH), sd = simg.data;
-  let LX = -0.42, LY = 0.62, LZ = 0.66; { const m = Math.hypot(LX, LY, LZ); LX /= m; LY /= m; LZ /= m; }
-  let HX = LX, HY = LY, HZ = LZ + 1; { const m = Math.hypot(HX, HY, HZ); HX /= m; HY /= m; HZ /= m; }
+  let LX = -0.58, LY = 0.52, LZ = 0.63; { const m = Math.hypot(LX, LY, LZ); LX /= m; LY /= m; LZ /= m; }   // key light: upper left
+  let HX = -0.42, HY = 0.62, HZ = 1.66; { const m = Math.hypot(HX, HY, HZ); HX /= m; HY /= m; HZ /= m; }   // half-vector of the soft-box the glaze mirrors
+  const knee = (v) => (v > 0.93 ? 0.93 + 0.07 * (1 - Math.exp(-(v - 0.93) / 0.07)) : v);                    // soft shoulder so the whites never clip flat
   const KM = 1.9;                       // how strongly the micro relief tilts the normal
   const NT0 = -0.235;                   // where the soft-box reflection sits on the wall (normal's sideways component)
   const SB = LIP + 56;                  // cobalt line: distance below the lip edge
@@ -192,17 +193,17 @@ function buildBowl(env) {
       const ntp = nt - KM * (hx * cs + hy * sn), nrp = nr - KM * (hx * sn - hy * cs);
       const nz = Math.sqrt(Math.max(0.02, 1 - ntp * ntp - nrp * nrp));
       const Lt = LX * cs - LY * sn, Lr = LX * sn + LY * cs;
-      const lit = sstep(-0.15, 0.92, ntp * Lt + nrp * Lr + nz * LZ);
+      const lit = Math.pow(sstep(-0.15, 0.92, ntp * Lt + nrp * Lr + nz * LZ), 0.85);
       // the cast shadow over the right third (the lip stands proud, so the edge steps sideways across it)
       const xs = x + 6 * (vn(x / 90, y / 90) - 0.5);
       const sh = sstep(xb0 - pen, xb0 + pen, xs), deep = sh * sstep(0, 700, xs - xb0);
       // the proud lip also throws a soft band of shadow onto the wall right beneath it
       const shl = sstep(LIP * 0.72, LIP * 0.92, s) * (1 - sstep(LIP * 1.02, LIP * 1.42, s));
-      const direct = lit * (1 - 0.97 * sh) * (1 - 0.72 * shl);
-      const ambK = sAt(tAo, s) * (1 - 0.15 * sstep(240, 640, s)) * (1 - 0.1 * sh - 0.3 * deep);
+      const direct = 1.15 * lit * (1 - 0.97 * sh) * (1 - 0.72 * shl);
+      const ambK = sAt(tAo, s) * (1 - 0.15 * sstep(240, 640, s)) * (1 - 0.1 * sh - 0.26 * deep);
       const up = nrp > 0 ? nrp : 0, warm = sh * Math.exp(-s / 170);
-      const eR = 0.76 * ambK + 0.05 * up + 0.24 * direct + 0.055 * warm - 0.02 * deep, eG = 0.72 * ambK + 0.012 * up + 0.28 * direct + 0.012 * warm - 0.006 * deep,
-        eB = 0.675 * ambK - 0.03 * up + 0.325 * direct - 0.03 * warm + 0.035 * deep;
+      const eR = 0.76 * ambK + 0.05 * up + 0.24 * direct + 0.03 * warm - 0.02 * deep, eG = 0.72 * ambK + 0.012 * up + 0.28 * direct + 0.008 * warm - 0.006 * deep,
+        eB = 0.675 * ambK - 0.03 * up + 0.325 * direct - 0.012 * warm + 0.035 * deep;
 
       // ── albedo ──
       const tone = bil(cTone, i, j), hk = Hh[k];
@@ -244,7 +245,7 @@ function buildBowl(env) {
       const eb = 0.2 * Math.exp(-s / 3) * (1 - 0.5 * sh);
       r += (0.5 - r) * eb; g += (0.33 - g) * eb; b += (0.18 - b) * eb;
       const o = k * 4;
-      d[o] = r * 255; d[o + 1] = g * 255; d[o + 2] = b * 255; d[o + 3] = cov * 255;
+      d[o] = knee(r) * 255; d[o + 1] = knee(g) * 255; d[o + 2] = knee(b) * 255; d[o + 3] = cov * 255;
 
       // ── glossy highlights (kept apart so they can slide) ──
       const Ht = HX * cs - HY * sn, Hr = HX * sn + HY * cs, ndh = ntp * Ht + nrp * Hr + nz * HZ;
