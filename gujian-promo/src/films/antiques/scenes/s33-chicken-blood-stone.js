@@ -1,17 +1,22 @@
 // s33 — 鸡血石. A polished dome of black-ground chicken-blood stone (黑地鸡血) in the dark; only black and vermilion.
-// The arc is the stone's upper silhouette: a hair-thin vermilion rim light with a narrow dark gutter hugging its outside.
-// Below it the ground is lacquer-black with faint grey wisps; from the bottom of frame a big mass of "blood" wells up —
-// cinnabar-red clots whose edges break into bands, clouds and loose grains. Above the arc a near-black red-brown void
-// is dusted with cinnabar motes like red stardust under a microscope (thin and dim behind the tagline).
+// The arc is the stone's upper silhouette: a hair-thin vermilion rim light with a narrow band of shadow hugging its outside.
+// Below it lies a lacquer-black polished face, and the "blood" is INSIDE the stone: a mass of cinnabar wells up from the
+// bottom of frame as ragged bands that fuse in the core and come apart toward the edge; a cottony dark-red veil seeps from
+// them into the ground, fine grains are strewn off every edge and loose star clusters lie further out. A soft reflection
+// of the key light lies across the shoulder of the dome and over the top of the blood — it travels with the light, not
+// with the stone, which is what makes the face read as polished. Above the arc a near-black red-brown void is dusted with
+// cinnabar motes like red stardust under a microscope (thin and dim behind the tagline).
 //
 // Built once in init():
-//   · stone  — the blood is shaded per pixel: a warped mound + flow bands give a signed "amount of blood" T (px);
-//              worley cells turn T into individual grains (solid inside, scattered at the fringe);
+//   · stone  — shaded per pixel: slow fields on a coarse grid (the mass, its veil, tone, edge character) plus four fine
+//              octaves at full resolution; the blood's edge is anti-aliased from the screen-space gradient of that field;
+//   · gloss  — the soft reflection, on its own layer;
 //   · dust   — ~50 k motes, split into a steady layer and three twinkle groups that are cross-faded per frame.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
 const PAD = 72;      // the stone slides ≈ ±11 px along the arc
+const PB = 30;       // rows kept below the frame
 const BP = 44;       // the dust behind it moves far less
 let S = null;
 
@@ -21,7 +26,7 @@ function h2(x, y) {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
-// allocation-free worley: distance to the nearest feature point in cD, two independent ids of that cell in cId / cId2
+// allocation-free worley: distance to the nearest feature point in cD (cell units), its offset in cDx / cDy, two ids of that cell
 let cD = 0, cId = 0, cId2 = 0, cDx = 0, cDy = 0;
 function cell(x, y) {
   const xi = Math.floor(x), yi = Math.floor(y);
@@ -54,242 +59,237 @@ function blitAt(ctx, env, c, o = {}) {
   ctx.restore();
 }
 
-const BLOOD = [[0, '#240302'], [0.2, '#6e0f0c'], [0.42, '#a81510'], [0.6, '#d81e1a'], [0.8, '#ee2c1c'], [0.91, '#ff4a32'], [0.97, '#ff8466'], [1, '#ffd0bc']];
+const BLOOD = [[0, '#160202'], [0.2, '#6e0f0c'], [0.42, '#a81510'], [0.6, '#d81e1a'], [0.8, '#ee2c1c'], [0.92, '#ff4a32'], [1, '#ff7658']];
+const RIM = [[0, '#000000'], [0.25, '#5a0c09'], [0.5, '#b01814'], [0.75, '#e8261c'], [1, '#ff5a3c']];
 const MOTE = [[0, '#340705'], [0.28, '#74100c'], [0.52, '#c01a15'], [0.72, '#e42c1c'], [0.85, '#ff5236'], [0.94, '#ff9a7c'], [1, '#ffe2d4']];
 // rounded, cloud-like lumps (0 … ~0.8, mean ≈ 0.3)
 const billow = (n, x, y) => Math.abs(n.n2(x, y)) * 0.6 + Math.abs(n.n2(x * 2.1 + 5, y * 2.1 - 3)) * 0.28 + Math.abs(n.n2(x * 4.3 - 7, y * 4.3 + 9)) * 0.12;
+const smax = (p, q, k) => { const h = Math.max(k - Math.abs(p - q), 0) / k; return Math.max(p, q) + h * h * k * 0.25; };
+const lutOf = (stops) => { const f = L.makeRamp(stops), lut = new Uint8ClampedArray(256 * 3); for (let i = 0; i < 256; i++) { const c = f(i / 255); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; } return lut; };
 
-/** everything below the arc: black ground + the blood, shaded per pixel */
-function buildBody(env) {
-  const a = env.arc;
-  const X0 = -PAD, Y0 = Math.floor(a.crestY) - 2;
-  const RW = W + PAD * 2, RH = H + PAD - Y0;
-  const nA = L.makeNoise('s33a'), nB = L.makeNoise('s33b');
-  const PHI = -0.3, ca = Math.cos(PHI), sa = Math.sin(PHI);   // the blood "flows" up toward the right
+/** everything below the arc, shaded per pixel: the black ground with its rim light, the blood inside it, the soft reflection */
+function shadeStone(a) {
+  const R = a.R, cx = a.cx, cy = a.cy;
+  const X0 = -PAD, Y0 = Math.floor(a.crestY) - 4, RW = W + PAD * 2, RH = H + PB - Y0;
+  const nA = L.makeNoise('s33a'), nB = L.makeNoise('s33b'), nC = L.makeNoise('s33c'), nG = L.makeNoise('s33g'), nR = L.makeNoise('s33rim');
+  const PHI = -0.3, ca = Math.cos(PHI), sa = Math.sin(PHI);       // the blood "flows" up toward the right
+  const FK = 1.6, FL = 70;                                        // the dome turns away toward the limb: the pattern crowds up there
 
-  // slow fields on a coarse grid
-  const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2;
-  const fT = new Float32Array(cw * ch), fTone = new Float32Array(cw * ch), fW = new Float32Array(cw * ch), fH = new Float32Array(cw * ch),
-    fGx = new Float32Array(cw * ch), fGy = new Float32Array(cw * ch), fS = new Float32Array(cw * ch);
+  // where a frame point looks on the unrolled surface (fxs, fys) and its meandering flow coordinates (fAo along, fBo across)
+  let fxs = 0, fys = 0, fAo = 0, fBo = 0, fv = 0;
+  const flow = (x, y) => {
+    const ddx = x - cx, ddy = y - cy, rr = Math.hypot(ddx, ddy), v = R - rr, vv = v > 0 ? v : 0;
+    const vs = vv + FK * FL * (1 - Math.exp(-vv / FL)), kk = (R - vs) / (R - vv);
+    const xs = cx + ddx * kk, ys = cy + ddy * kk;
+    const bx = xs + 42 * nA.n2(xs / 420 + 1.3, ys / 420 - 4.1), by = ys + 36 * nA.n2(xs / 420 - 8.6, ys / 420 + 2.9);
+    fxs = xs; fys = ys; fv = v; fAo = bx * ca + by * sa; fBo = -bx * sa + by * ca;
+  };
+  const ell = (X, Y, x0, y0, rx, ry, rot) => { const c = Math.cos(rot), s = Math.sin(rot), u = (X - x0) * c + (Y - y0) * s, w = -(X - x0) * s + (Y - y0) * c; return 1 - Math.hypot(u / rx, w / ry); };
+  // one long streak has drifted off the right shoulder of the mass
+  flow(1210, 868); const AS = fAo, BS = fBo, SL = 640;
+
+  // ── slow fields on a coarse grid ──
+  const CS = 4, cw = Math.ceil(RW / CS) + 2, ch = Math.ceil(RH / CS) + 2, N = cw * ch;
+  const fT = new Float32Array(N), fA = new Float32Array(N), fB = new Float32Array(N), fTone = new Float32Array(N), fW = new Float32Array(N),
+    fH = new Float32Array(N), fSoft = new Float32Array(N), fP = new Float32Array(N), fV = new Float32Array(N);
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const x = X0 + i * CS, y = Y0 + j * CS, k = j * cw + i;
-    // flow coordinates, bent so the bands meander instead of running ruler-straight
-    const bx = x + 70 * nA.n2(x / 290 + 1.3, y / 290 - 4.1), by = y + 55 * nA.n2(x / 290 - 8.6, y / 290 + 2.9);
-    const A = bx * ca + by * sa, B = -bx * sa + by * ca;
+    flow(x, y);
+    const xs = fxs, ys = fys, A = fAo, B = fBo, v = fv;
+    fA[k] = A; fB[k] = B;
     // grey-black flocculent clouds in the ground
-    fW[k] = sstep(0.3, 0.85, nA.fbm(A / 340 + 3, B / 150 - 5, 4, 2, 0.5) * 0.5 + 0.5 + 0.08 * nB.n2(x / 70, y / 70));
-    if (y < 640) { fT[k] = -999; continue; }
-    const dr = a.drAt(x, y);
+    fW[k] = sstep(0.3, 0.85, nA.fbm(A / 340 + 3, B / 150 - 5, 4, 2, 0.5) * 0.5 + 0.5 + 0.08 * nB.n2(xs / 70, ys / 70));
+    if (v < 40) { fT[k] = -999; fV[k] = -9; continue; }
     const wx = 70 * nA.fbm(x / 340 + 3.1, y / 340 - 7.7, 3), wy = 60 * nA.fbm(x / 340 - 21.4, y / 340 + 13.2, 3);
-    const T0 = (1 - Math.hypot((x + wx - 950) / 650, (y + wy - 1235) / 430)) * 400;
-    let T = T0 + 120 * (billow(nB, x / 200 + 9, y / 160 - 4) - 0.3) + 22 * nB.fbm(A / 220 + 1.7, B / 50 + 5.2, 3);
-    // bands and clouds that have drifted off the main mass, thinning out with distance
-    const bT = (nA.fbm(A / 250 + 11, B / 62 - 3, 3) - 0.4) * 240 - Math.max(0, -T0) * 1.0;
-    if (bT > T) T = bT;
-    T -= 600 * sstep(-190, -80, dr);      // the ground under the rim stays clean black
-    fT[k] = T;
-    // deep red inside, the freshest vermilion along the upper edge where the side light skims it
-    fTone[k] = 0.54 + 0.26 * nA.fbm(A / 420 + 5, B / 170 - 9, 2) - 0.27 * sstep(30, 250, T) + 0.07 * nB.fbm(x / 34 + 2, y / 34, 2) - 0.1 * sstep(950, 1130, y);
-    // thin places inside the mass: broad lenses lying with the flow where the grains part and the black ground shows through
-    fS[k] = sstep(0.02, 0.62, nB.fbm(A / 330 + 31, B / 105 - 17, 2) + 0.12 * nB.n2(x / 55, y / 55)) * sstep(20, 90, T);
-    fH[k] = 0.3 + 0.7 * sstep(-0.3, 0.5, nB.fbm(x / 210 - 6, y / 210 + 8, 2));     // how dusty the edge is here: crisp ↔ powdery
-    fGx[k] = 0.7 * nA.n2(x / 170 + 40, y / 170 - 17); fGy[k] = 0.7 * nA.n2(x / 170 - 23, y / 170 + 61);   // stretches / squeezes the grain lattice → coarse and fine patches
+    const X = x + wx, Y = y + wy;
+    const T0 = smax(smax(400 * ell(X, Y, 930, 1268, 500, 360, 0), 280 * ell(X, Y, 705, 1045, 190, 265, 0.12), 60), 180 * ell(X, Y, 1250, 1040, 330, 112, PHI), 60);
+    // the mass is a stack of ragged bands lying with the flow: they fuse in the core and come apart toward the edge
+    let T = 0.8 * T0 + 190 * nA.fbm(A / 270 + 11, B / 74 - 3, 4, 2, 0.55) + 70 * (billow(nB, A / 215 + 9, B / 125 - 4) - 0.3);
+    const s = (A - AS) / SL;
+    if (s > -0.25 && s < 1.15) {
+      const tp = sstep(-0.2, 0.12, s) * Math.pow(Math.max(0, 1 - s), 0.8);
+      const st = 34 * tp - Math.abs(B - BS - 26 * Math.sin(s * 4.2 + 0.6)) + 18 * nB.fbm(A / 110 + 7, B / 30 - 2, 3) * (0.4 + tp);
+      T = smax(T, st, 14);
+    }
+    const clean = sstep(150, 70, v);
+    // the veil: cottony dark-red cloud that seeps from the clots into the ground — wide in some places, absent in others
+    const reach = 20 + 150 * sstep(-0.25, 0.55, nB.fbm(x / 300 - 14, y / 300 + 22, 2));
+    const dT = 420 * ell(X, Y, 1000, 1250, 690, 420, 0) + 150 * (billow(nC, A / 300 - 3, B / 170 + 7) - 0.3);
+    fV[k] = Math.max((T + reach) / (reach + 40), (dT + 20) / 120) - 3 * sstep(175, 85, v);
+    fT[k] = Math.min(T, 120) - 600 * clean;      // the shoulder under the rim stays clean black
+    // the key light pools on the upper left of the mass; the blood deepens toward the bottom of frame
+    const pool = Math.exp(-(Math.pow((x - 800) / 640, 2) + Math.pow((y - 790) / 290, 2)));
+    fTone[k] = 0.52 + 0.18 * pool + 0.08 * nA.fbm(A / 420 + 5, B / 170 - 9, 2) - 0.2 * sstep(940, 1110, y);
+    fH[k] = sstep(-0.35, 0.5, nB.fbm(x / 210 - 6, y / 210 + 8, 2));            // how broken / dusty the edge is here
+    fSoft[k] = sstep(0.3, 0.75, nB.fbm(x / 260 + 40, y / 260 - 30, 2));        // where the blood lies a little deeper the edge goes soft
+    fP[k] = (0.5 * Math.exp(Math.min(0, T0) / 170) + 0.03) * (1 - clean);      // star clusters: thick near the mass, rare far from it
   }
-  const bil = (src, i, j) => {
-    const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * cw + i0;
-    const a0 = src[k], a1 = src[k + 1], b0 = src[k + cw], b1 = src[k + cw + 1];
-    return (a0 + (a1 - a0) * tx) * (1 - ty) + (b0 + (b1 - b0) * tx) * ty;
-  };
+  let bk = 0, btx = 0, bty = 0;
+  const at = (i, j) => { const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0; btx = fx - i0; bty = fy - j0; bk = j0 * cw + i0; };
+  const bil = (src) => { const a0 = src[bk], a1 = src[bk + 1], b0 = src[bk + cw], b1 = src[bk + cw + 1]; return (a0 + (a1 - a0) * btx) * (1 - bty) + (b0 + (b1 - b0) * btx) * bty; };
 
-  const rampF = L.makeRamp(BLOOD), lut = new Uint8ClampedArray(256 * 3);
-  for (let i = 0; i < 256; i++) { const c = rampF(i / 255); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
-  const img = new ImageData(RW, RH), d = img.data;      // the black ground
-  const gim = new ImageData(RW, RH), e = gim.data;      // the blood alone
+  // ── pass 1: the ragged edge field at full resolution ──
+  const NP = RW * RH, TJ = new Float32Array(NP).fill(-999), F2 = new Float32Array(NP);
+  for (let j = 0; j < RH; j++) for (let i = 0; i < RW; i++) {
+    at(i, j);
+    const T = bil(fT);
+    if (T < -150) continue;
+    const q = j * RW + i, A = bil(fA), B = bil(fB), frz = bil(fH);
+    const f1 = nC.n2(A / 50 + 3.3, B / 34 - 1.7), f2 = nC.n2(A / 23 - 8.1, B / 16 + 6.4), f3 = nC.n2(A / 10.5 + 4.7, B / 8 - 2.2), f4 = nC.n2(A / 5.2 - 6.3, B / 4.4 + 8.8);
+    F2[q] = f2;
+    TJ[q] = T + (10 + 12 * frz) * f1 + (7 + 7 * frz) * f2 + (3.6 + 4 * frz) * f3 + (1.4 + 1.6 * frz) * f4;
+  }
+
+  // ── pass 2: shade ──
+  const lut = lutOf(BLOOD), rimLut = lutOf(RIM);
+  const gd = new Uint8ClampedArray(NP * 4), bd = new Uint8ClampedArray(NP * 4), gl = new Uint8ClampedArray(NP * 4);
+  // per-column terms of the rim light and of the soft reflection
+  const rimI = new Float32Array(RW), rimJ = new Float32Array(RW), rimW = new Float32Array(RW), glV0 = new Float32Array(RW), glWx = new Float32Array(RW);
+  for (let i = 0; i < RW; i++) {
+    const x = X0 + i, th = Math.asin((x - cx) / R), s = th * R;
+    const n1 = nR.fbm(s / 140, 2.2, 3) * 0.5 + 0.5, n2 = nR.n2(s / 9, 7.7) * 0.5 + 0.5;
+    const key = 0.62 + 0.38 * Math.exp(-Math.pow((th + 0.12) / 0.22, 2));
+    rimI[i] = L.clamp((0.3 + 0.7 * n1) * key);
+    rimJ[i] = L.clamp(rimI[i] + 0.1 * (n2 - 0.5));
+    rimW[i] = 1.1 + 1.3 * n1 * key + 0.3 * n2;
+    glV0[i] = 150 + 7 * nG.n2(x / 560, 3.3) + 2 * nG.n2(x / 110, 7.7);       // the upper edge of the reflection, a little wavy: the face was polished by hand
+    glWx[i] = sstep(140, 520, x) * (1 - sstep(980, 1500, x));
+  }
+  const gprof = (e) => sstep(-10, 6, e) * ((1 - sstep(40, 125, e)) * 0.55 + 0.18 * Math.exp(-Math.max(0, e) / 150));
+  const glossAt = (x, y) => { const i = L.clamp(Math.round(x - X0), 0, RW - 1), e = R - Math.hypot(x - cx, y - cy) - glV0[i]; return e > -12 ? gprof(e) * glWx[i] : 0; };
   const rs = L.rng('s33glint'), glints = [];
-  for (let j = 0; j < RH; j++) {
+  for (let j = 1; j < RH - 1; j++) {
     const y = Y0 + j;
-    for (let i = 0; i < RW; i++) {
-      const x = X0 + i, o = (j * RW + i) * 4;
-      const w = bil(fW, i, j), hp = h2(x, y);
-      d[o] = 5 + 8 * w + 2 * hp; d[o + 1] = 3 + 5 * w + hp; d[o + 2] = 3 + 5 * w + hp; d[o + 3] = 255;
-      const T = bil(fT, i, j);
-      if (T < -100) continue;
-      const Tj = T + 10 * nB.n2(x / 12, y / 12) + 4.5 * nB.n2(x / 4.4 + 7, y / 4.4);
-      const thin = bil(fS, i, j);
-      const D = sstep(-72 * bil(fH, i, j), 4, Tj) * (1 - 0.36 * thin), paste = sstep(-3, 4, Tj) * (1 - 0.72 * thin);
-      const wgx = bil(fGx, i, j), wgy = bil(fGy, i, j);
-      // a sparse population of bigger crystals among the fine ones
-      cell(x / 13.5 + wgy * 0.5 + 7.3, y / 13.5 - wgx * 0.5 + 2.9);
-      const bigR = 0.2 + 0.2 * cId2, big = cId < 0.2 * D ? sstep(bigR, bigR * 0.6, cD) : 0, bigTone = cId2;
-      cell(x / 6.2 + wgx, y / 6.2 + wgy);
-      const rad = 0.24 + 0.3 * cId2;
-      let grain = cId < D * D ? sstep(rad, rad * 0.45, cD) : 0;
-      if (big > grain) grain = big;
-      const cover = paste > grain ? paste : grain;
-      if (cover < 0.003) continue;
-      const edge = 1 - sstep(0, 46, T), gId = cId, gD = cD;
-      // each grain is a little bead lit from the upper left; one in thirty turns a facet straight at the light
-      const bead = L.clamp((cDx + cDy) * 0.7071 / rad, -1, 1), flash = cId2 > 0.96 && cD < rad * 0.62 && D > 0.4;
-      // every grain is a crystal lying its own way: most sit near the local red, a few flash, a few stay dark
-      let gv = (gId - 0.5) * 0.3 + (cId2 > 0.9 ? 0.2 : cId2 < 0.12 ? -0.2 : 0);
-      cell(x / 23 + 31.7, y / 23 - 12.4);       // clots: the grains come in lumps of slightly different red
-      let t = bil(fTone, i, j) + 0.34 * edge + gv + (cId - 0.5) * 0.12 - 0.17 * sstep(0.26, 0.6, gD) * paste + (hp - 0.5) * 0.08 + 0.13 * bead - 0.2 * thin;
-      if (flash) t = Math.max(t, 0.93 + 0.07 * hp); else if (t > 0.9) t = 0.9;
-      if (big > 0.5) t += 0.1 + 0.22 * (bigTone - 0.35);
-      if (paste < 0.5) t += 0.12 * (1 - thin);        // loose grains at the fringe catch the most light
-      const li = ((t < 0 ? 0 : t > 1 ? 1 : t) * 255 | 0) * 3;
-      e[o] = lut[li]; e[o + 1] = lut[li + 1]; e[o + 2] = lut[li + 2]; e[o + 3] = cover * 255;
-      if (paste > 0.9 && T > 6 && rs() < 0.0003 * (1 + 2 * edge)) glints.push({ x, y, s: rs.range(0.6, 1.7), ph: rs(), k: rs() });
+    for (let i = 1; i < RW - 1; i++) {
+      const x = X0 + i, q = j * RW + i, o = q * 4;
+      const ddx = x - cx, ddy = y - cy, dr = Math.sqrt(ddx * ddx + ddy * ddy) - R;
+      if (dr > 0.5) continue;
+      const v = -dr, hp = h2(x, y), hq = h2(x + 911, y - 373);
+      at(i, j);
+      // the ground: lacquer black with faint grey-black wisps; toward the limb it mirrors a little of the red void behind it
+      const w = bil(fW);
+      let r = 5 + 8.5 * w, g = 3.4 + 5.6 * w, b = 3.4 + 5.4 * w;
+      if (v < 90) {
+        const ci = (i - (ddx / R) * v) | 0, ii = ci < 0 ? 0 : ci >= RW ? RW - 1 : ci;      // the column this point hangs under, measured along the limb
+        const fz = (0.3 * Math.exp(-v / 15) + 0.07 * Math.exp(-v / 55)) * (0.35 + 0.65 * rimI[ii]);
+        r += 205 * fz; g += 34 * fz; b += 22 * fz;
+        if (v < 16) {
+          const p = rimJ[ii] * Math.exp(-Math.max(0, v - 0.4) / rimW[ii]) + rimI[ii] * 0.16 * Math.exp(-v / 6), li = ((p > 1 ? 1 : p) * 255 | 0) * 3;
+          r += rimLut[li]; g += rimLut[li + 1]; b += rimLut[li + 2];
+        }
+      }
+      gd[o] = r + hp - 0.5; gd[o + 1] = g + hq - 0.5; gd[o + 2] = b + hp - 0.5; gd[o + 3] = dr < -0.5 ? 255 : (0.5 - dr) * 255;
+
+      // the soft reflection of the key light
+      const e = v - glV0[i];
+      if (e > -12 && glWx[i] > 0) {
+        const G = gprof(e) * glWx[i];
+        gl[o] = 138 * G + hp - 0.5; gl[o + 1] = 46 * G + hq - 0.5; gl[o + 2] = 35 * G + hp - 0.5; gl[o + 3] = 255;
+      }
+
+      // the blood
+      if (bil(fT) < -400) continue;
+      const A = bil(fA), B = bil(fB), frz = bil(fH), tone0 = bil(fTone);
+      // the veil, always in wisps
+      let va = 0, vt = 0;
+      const V = bil(fV);
+      if (V > -0.75) {
+        const wsp = nC.fbm(A / 190 + 5.5, B / 46 - 8.5, 3, 2, 0.5);
+        va = sstep(0.3, 1.0, 0.55 * (V < 1 ? V : 1) + 0.8 * wsp + 0.12);
+        vt = 0.1 + 0.26 * va + 0.5 * (tone0 - 0.52) + 0.05 * wsp;
+        va *= 0.62;
+      }
+      const Tj = TJ[q];
+      let al = 0, t = 0;
+      if (Tj > -150) {
+        let cov = 0, dot = 0, dTone = 0;
+        if (Tj > -12) {
+          // anti-alias from the screen-space gradient of the field; where the blood lies deeper the edge spreads
+          const l = TJ[q - 1], rt = TJ[q + 1], u = TJ[q - RW], d = TJ[q + RW];
+          let gm = (l < -500 || rt < -500 || u < -500 || d < -500) ? 1 : Math.hypot((rt - l) * 0.5, (d - u) * 0.5);
+          if (gm < 0.5) gm = 0.5;
+          cov = L.clamp(0.5 + Tj / (gm * (1.5 + 11 * bil(fSoft))));
+          cov = cov * cov * (3 - 2 * cov);
+        }
+        // the body of the blood: clots of slightly different red, built of fine crystals
+        cell(A / 6.2 + 1.9, B / 5.2 + 7.3);
+        t = tone0 + 0.11 * nC.fbm(A / 92 + 21, B / 58 - 6, 3) + 0.04 * F2[q] + (cId - 0.5) * 0.075 - 0.055 * sstep(0.3, 0.62, cD) - 0.05 * sstep(0.4, 0.8, nC.n2(A / 210 - 3, B / 17 + 9)) + (hp - 0.5) * 0.02;
+        if (Tj < 4) {
+          // fine grains strewn off the edge, thinning out with distance; whole star clusters further away; grains hang in the veil too
+          let dens = 0.9 * Math.exp(Tj / (4 + 22 * frz * frz));
+          const Pk = bil(fP);
+          if (Pk > 0.002) {
+            cell(A / 74 + 11.1, B / 60 - 4.2);
+            if (cId < Pk) { const sg = 5 + 15 * cId2, dd = cD * 66 / sg, c2 = (0.5 + 0.5 * cId) * Math.exp(-dd * dd); if (c2 > dens) dens = c2; }
+          }
+          if (0.22 * va > dens) dens = 0.22 * va;
+          if (dens > 0.012) {
+            cell(A / 7 + 7.3, B / 6 + 2.9);
+            if (cId < dens) {
+              const rpx = (1.0 + 1.5 * cId2 * cId2) * (0.8 + 0.4 * (dens < 1 ? dens : 1)), dpx = Math.hypot(cDx * 7, cDy * 6);
+              dot = L.clamp((rpx - dpx) / 1.3 + 0.5);
+              dTone = (cId2 - 0.45) * 0.3 + (cId / (dens + 0.001) - 0.5) * 0.12;
+            }
+          }
+        } else {
+          // … and the reverse inside: pin-holes of ground in the blood, crowding toward the edge
+          cell(A / 8 + 3.1, B / 6.5 - 9.7);
+          if (cId < 0.45 * Math.exp(-Tj / (4 + 12 * frz)) + 0.018) {
+            const rpx = 0.9 + 1.5 * cId2, dpx = Math.hypot(cDx * 8, cDy * 6.5);
+            cov *= 1 - 0.65 * L.clamp((rpx - dpx) / 1.3 + 0.5);
+          } else if (cov > 0.95 && rs() < 0.00005 * (1 + 5 * sstep(0.5, 0.7, tone0)) * (Tj < 30 ? 2.5 : 1)) glints.push({ x, y, s: rs.range(0.5, 1.5), ph: rs(), k: rs() });
+        }
+        al = cov;
+        if (dot > al) { al = dot; t += dTone; }
+      }
+      // crisp blood over the veil
+      const ao = al + va * (1 - al);
+      if (ao < 0.004) continue;
+      const li = ((t < 0 ? 0 : t > 1 ? 1 : t) * 255 | 0) * 3, lv = ((vt < 0 ? 0 : vt > 1 ? 1 : vt) * 255 | 0) * 3, k1 = al / ao, k2 = 1 - k1;
+      bd[o] = lut[li] * k1 + lut[lv] * k2; bd[o + 1] = lut[li + 1] * k1 + lut[lv + 1] * k2; bd[o + 2] = lut[li + 2] * k1 + lut[lv + 2] * k2; bd[o + 3] = ao * 255;
     }
   }
-  const cnv = L.makeCanvas(RW, RH); cnv.getContext('2d').putImageData(img, 0, 0);
-  const blood = L.makeCanvas(RW, RH), bg = blood.getContext('2d'); bg.putImageData(gim, 0, 0);
-  // star points: small loose clots of grains strewn round the mass, thinning out with distance
-  const rc = L.rng('s33clot');
-  bg.translate(-X0, -Y0);
-  for (let n = 0, made = 0; n < 4000 && made < 46; n++) {
-    const x = rc.range(-PAD, W + PAD), y = rc.range(700, H + PAD);
-    const T0 = (1 - Math.hypot((x - 950) / 650, (y - 1235) / 430)) * 400;
-    if (T0 > -40 || a.drAt(x, y) > -130 || rc() > Math.exp(T0 / 150)) continue;
-    made++;
-    const cnt = rc.int(2, 12), sig = rc.range(1.5, 6), ang = PHI + rc.range(-0.4, 0.4), tone = rc.range(0.55, 0.95);
-    for (let q = 0; q < cnt; q++) {
-      const u = rc.gauss() * sig * 2.2, v = rc.gauss() * sig, c = rampF(L.clamp(tone + rc.range(-0.15, 0.1)));
-      bg.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`; bg.globalAlpha = rc.range(0.6, 1);
-      bg.beginPath(); bg.ellipse(x + u * Math.cos(ang) - v * Math.sin(ang), y + u * Math.sin(ang) + v * Math.cos(ang), rc.range(0.8, 2.7), rc.range(0.7, 2.1), rc() * 3.14, 0, L.TAU); bg.fill();
-    }
-  }
-  return { cnv, blood, X0, Y0, glints };
+  return { X0, Y0, RW, RH, gd, bd, gl, glossAt, glints };
 }
 
-/** the stone layer: dark gutter outside the rim, the body, the rim light */
+/** the stone layer (band of shadow outside the rim, the body) and the reflection layer */
 function buildStone(env) {
   const a = env.arc, R = a.R;
-  const body = buildBody(env);
-  const Y0 = Math.floor(a.crestY) - 70, Y1 = H + PAD;
+  const sh = shadeStone(a);
+  const put = (data) => { const c = L.makeCanvas(sh.RW, sh.RH); c.getContext('2d').putImageData(new ImageData(data, sh.RW, sh.RH), 0, 0); return c; };
+  const ground = put(sh.gd), blood = put(sh.bd), gloss = put(sh.gl);
+  gloss._x0 = sh.X0; gloss._y0 = sh.Y0;
+  const Y0 = Math.floor(a.crestY) - 70, Y1 = H + PB;
   const full = (g) => g.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-  const sp = a.span(PAD + 40);
   const layer = band(PAD, Y0, Y1, (g) => {
-    // the gutter: a narrow dark trench hugging the outside of the rim, with a faint lit lip beyond it
-    g.fillStyle = L.radial(g, a.cx, a.cy, R - 2, R + 38, [[0, 'rgba(4,2,2,1)'], [0.74, 'rgba(4,2,2,0.97)'], [0.9, 'rgba(4,2,2,0.5)'], [1, 'rgba(4,2,2,0)']]);
-    a.pathBand(g, 40, -3); g.fill();
-    g.fillStyle = L.radial(g, a.cx, a.cy, R + 33, R + 52, [[0, 'rgba(150,44,26,0)'], [0.25, 'rgba(150,44,26,0.3)'], [1, 'rgba(150,44,26,0)']]);
-    a.pathBand(g, 54, 31); g.fill();
-
-    {
-      const rl = L.rng('s33lip'), nl = L.makeNoise('s33lip'), mr = L.makeRamp(MOTE);
-      for (let i = 0; i < 5200; i++) {
-        const th = rl.range(-sp, sp);
-        if (rl() > 0.25 + 0.75 * (nl.fbm(th * R / 110, 4.2, 2) * 0.5 + 0.5)) continue;
-        const dd = 41 + Math.abs(rl.gauss()) * 5 + (rl.chance(0.2) ? rl.range(0, 14) : 0);
-        const p = a.pt(th, dd), c = mr(Math.pow(rl(), 1.5));
-        g.globalAlpha = rl.range(0.3, 0.95); g.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
-        const rad = rl.range(0.4, 1.25);
-        g.fillRect(p.x - rad, p.y - rad, rad * 2, rad * 2);
-      }
-      g.globalAlpha = 1;
-    }
-
-    g.save(); a.clipBelow(g, 0);
-    g.drawImage(body.cnv, body.X0, body.Y0);
-    // the polished dome mirrors a soft light: one long reflection lying along the limb on the key-light side
-    const refl = band(PAD, Y0, Y1, (s) => {
-      const box2 = (x0, x1, k) => {
-        const t = band(PAD, Y0, Y1, (q) => {
-          q.fillStyle = L.radial(q, a.cx, a.cy, R - 330, R - 236, [[0, 'rgba(176,28,18,0)'], [0.35, `rgba(176,28,18,${0.3 * k})`], [0.75, `rgba(176,28,18,${0.4 * k})`], [1, 'rgba(176,28,18,0)']]);
-          q.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-          q.globalCompositeOperation = 'destination-in';
-          const e0 = 150 / W;
-          q.fillStyle = L.linear(q, 0, 0, W, 0, [[0, 'rgba(0,0,0,0)'], [x0 / W, 'rgba(0,0,0,0)'], [x0 / W + e0, 'rgba(0,0,0,1)'], [x1 / W - e0, 'rgba(0,0,0,1)'], [x1 / W, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']]);
-          q.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-        });
-        s.drawImage(t, -PAD, Y0);
-      };
-      const box = (x0, x1, k) => {
-        const t = band(PAD, Y0, Y1, (q) => {
-          q.fillStyle = L.radial(q, a.cx, a.cy, R - 76, R - 26, [[0, 'rgba(150,22,14,0)'], [0.3, `rgba(150,22,14,${0.12 * k})`], [0.7, `rgba(170,26,16,${0.34 * k})`], [0.9, `rgba(176,28,18,${0.4 * k})`], [1, 'rgba(176,28,18,0)']]);
-          q.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-          q.globalCompositeOperation = 'destination-in';
-          const e0 = 170 / W;
-          q.fillStyle = L.linear(q, 0, 0, W, 0, [[0, 'rgba(0,0,0,0)'], [x0 / W, 'rgba(0,0,0,0)'], [x0 / W + e0, 'rgba(0,0,0,1)'], [x1 / W - e0, 'rgba(0,0,0,1)'], [x1 / W, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']]);
-          q.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-        });
-        s.drawImage(t, -PAD, Y0);
-      };
-      box(250, 900, 0.85); box(1180, 1560, 0.3);
-      // the polish is only "seen" where it mirrors the light: hairline scratches and settled dust show up inside the strips
-      const rr = L.rng('s33scr');
-      s.globalCompositeOperation = 'source-atop'; s.lineCap = 'round';
-      for (let i = 0; i < 26; i++) {
-        const th = a.thetaAtX(rr.range(300, 1450)), dr0 = -rr.range(26, 76), len = rr.range(30, 150) / R, tilt = rr.range(-16, 16);
-        const p0 = a.pt(th - len / 2, dr0 - tilt / 2), p1 = a.pt(th + len / 2, dr0 + tilt / 2);
-        s.strokeStyle = rr.chance(0.5) ? `rgba(255,96,64,${rr.range(0.25, 0.6)})` : `rgba(20,2,2,${rr.range(0.3, 0.7)})`; s.lineWidth = rr.range(0.6, 1.1);
-        s.beginPath(); s.moveTo(p0.x, p0.y); s.lineTo(p1.x, p1.y); s.stroke();
-      }
-      for (let i = 0; i < 260; i++) {
-        const p = a.pt(a.thetaAtX(rr.range(300, 1450)), -rr.range(26, 76));
-        s.fillStyle = rr.chance(0.6) ? `rgba(255,110,76,${rr.range(0.3, 0.9)})` : `rgba(14,2,2,${rr.range(0.3, 0.7)})`;
-        s.beginPath(); s.arc(p.x, p.y, rr.range(0.4, 1.2), 0, L.TAU); s.fill();
-      }
-    });
+    // the stone stands in front of the dust: just outside the limb the void falls into its shadow
+    g.fillStyle = L.radial(g, a.cx, a.cy, R - 2, R + 46, [[0, 'rgba(4,2,2,1)'], [0.26, 'rgba(4,2,2,0.97)'], [0.5, 'rgba(4,2,2,0.72)'], [0.78, 'rgba(4,2,2,0.24)'], [1, 'rgba(4,2,2,0)']]);
+    a.pathBand(g, 48, -3); g.fill();
+    g.drawImage(ground, sh.X0, sh.Y0);
+    g.save(); a.clipBelow(g, -1);
+    // cinnabar lies in a faintly translucent matrix: the blood glows a little way into the ground round it
     g.globalCompositeOperation = 'lighter';
-    // cinnabar lies in a faintly translucent matrix: the deeper grains show as a soft red haze round the crisp ones
-    g.filter = 'blur(7px)'; g.globalAlpha = 0.16; g.drawImage(body.blood, body.X0, body.Y0);
-    g.filter = 'blur(30px)'; g.globalAlpha = 0.1; g.drawImage(body.blood, body.X0, body.Y0);
+    g.filter = 'blur(7px)'; g.globalAlpha = 0.1; g.drawImage(blood, sh.X0, sh.Y0);
+    g.filter = 'blur(30px)'; g.globalAlpha = 0.07; g.drawImage(blood, sh.X0, sh.Y0);
     g.filter = 'none'; g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-    g.drawImage(body.blood, body.X0, body.Y0);
-    g.globalCompositeOperation = 'lighter';
-    g.drawImage(refl, -PAD, Y0);
-    // the limb itself mirrors a little of the red void behind it
-    const sheen = band(PAD, Y0, Y1, (s) => {
-      s.fillStyle = L.radial(s, a.cx, a.cy, R - 60, R, [[0, 'rgba(120,20,12,0)'], [0.6, 'rgba(130,22,14,0.08)'], [0.9, 'rgba(170,28,18,0.22)'], [1, 'rgba(200,34,22,0.4)']]);
-      s.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-      s.globalCompositeOperation = 'destination-in';
-      s.fillStyle = L.linear(s, 0, 0, W, 0, [[0, 'rgba(0,0,0,0.45)'], [0.3, 'rgba(0,0,0,1)'], [0.55, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0.25)']]);
-      s.fillRect(-PAD, Y0, W + PAD * 2, Y1 - Y0);
-    });
-    g.drawImage(sheen, -PAD, Y0);
-    g.restore();
-
-    // ── the rim light ──
-    const nz = L.makeNoise('s33rim'), r = L.rng('s33rim');
-    const rimRamp = L.makeRamp([[0, '#7a100c'], [0.5, '#d81e1a'], [0.85, '#ff4a32'], [1, '#ff7a58']]), mote = L.makeRamp(MOTE);
-    g.save();
-    g.globalCompositeOperation = 'lighter';
-    g.filter = 'blur(3px)'; g.strokeStyle = 'rgba(216,30,26,0.22)'; g.lineWidth = 7; a.stroke(g, -3, -sp, sp);
-    g.filter = 'none'; g.globalCompositeOperation = 'source-over';
-    const step = 3 / R;
-    for (let th = -sp; th < sp; th += step) {
-      const s = th * R;
-      const n1 = nz.fbm(s / 140, 2.2, 3) * 0.5 + 0.5, n2 = nz.n2(s / 9, 7.7) * 0.5 + 0.5;
-      const key = 0.7 + 0.3 * Math.exp(-Math.pow((th + 0.12) / 0.22, 2));
-      const I = L.clamp((0.35 + 0.65 * n1) * key + 0.15 * (n2 - 0.5));
-      const w = 1.5 + 1.3 * n1 * key + 0.5 * n2;
-      g.strokeStyle = L.css(rimRamp(I)); g.globalAlpha = 0.75 + 0.25 * I; g.lineWidth = w;
-      g.beginPath(); g.arc(a.cx, a.cy, R - w / 2, th - Math.PI / 2, th + step * 1.3 - Math.PI / 2); g.stroke();
+    g.drawImage(blood, sh.X0, sh.Y0);
+    // what a macro lens always finds on a polished face, and only where it mirrors the light:
+    // a few hairlines left by the polishing wheel, a little settled dust
+    const rr = L.rng('s33scr');
+    g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
+    for (let i = 0; i < 60; i++) {
+      const p = a.pt(a.thetaAtX(rr.range(200, 1420)), -rr.range(150, 300)), G = sh.glossAt(p.x, p.y);
+      const ang = rr.range(-0.5, 0.25), len = rr.range(36, 170), bow = rr.range(-0.1, 0.1) * len, cs = Math.cos(ang), sn = Math.sin(ang);
+      if (G < 0.12) continue;
+      g.strokeStyle = `rgba(255,150,122,${(G * rr.range(0.16, 0.34)).toFixed(3)})`; g.lineWidth = rr.range(1.2, 1.6);
+      g.beginPath(); g.moveTo(p.x - cs * len / 2, p.y - sn * len / 2);
+      g.quadraticCurveTo(p.x - sn * bow, p.y + cs * bow, p.x + cs * len / 2, p.y + sn * len / 2); g.stroke();
     }
-    // cinnabar specks just inside the edge catch the same light
-    const DC = ['#d81e1a', '#ff4a32', '#8c120e', '#ff7a58', '#d81e1a'];
-    for (let i = 0; i < 4200; i++) {
-      const th = r.range(-sp, sp), s = th * R;
-      const clump = nz.fbm(s / 60, 9.1, 2) * 0.5 + 0.5;
-      if (r() > 0.2 + 0.8 * clump) continue;
-      const dd = Math.pow(r(), 2.2) * 20;
-      const p = a.pt(th, 1 - dd), rad = r.range(0.4, 1.3) * (r.chance(0.06) ? 1.8 : 1);
-      g.globalAlpha = r.range(0.35, 1) * (1 - dd / 26);
-      g.fillStyle = r.pick(DC);
+    for (let i = 0; i < 260; i++) {
+      const p = a.pt(a.thetaAtX(rr.range(180, 1450)), -rr.range(146, 310)), G = sh.glossAt(p.x, p.y), rad = rr.range(0.7, 1.35), al = rr.range(0.35, 0.9);
+      if (G < 0.1) continue;
+      g.fillStyle = `rgba(255,172,142,${(G * al).toFixed(3)})`;
       g.beginPath(); g.arc(p.x, p.y, rad, 0, L.TAU); g.fill();
-    }
-    // … and loose grains have settled on the edge itself, in little drifts
-    for (let i = 0; i < 2600; i++) {
-      const th = r.range(-sp, sp), s = th * R;
-      const drift = sstep(0.5, 0.78, nz.fbm(s / 95, 23.4, 3) * 0.5 + 0.5);
-      if (r() > 0.04 + 0.96 * drift) continue;
-      const dd = Math.abs(r.gauss()) * (1.6 + 3.4 * drift);
-      const p = a.pt(th, dd + 0.4), c = mote(L.clamp(Math.pow(r(), 1.6) * 1.05));
-      g.globalAlpha = r.range(0.55, 1); g.fillStyle = `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
-      const rad = r.range(0.6, 1.7) * (r.chance(0.08) ? 1.6 : 1);
-      g.beginPath(); g.ellipse(p.x, p.y, rad, rad * r.range(0.6, 1), r() * 3.14, 0, L.TAU); g.fill();
     }
     g.restore();
   });
@@ -305,9 +305,9 @@ function buildStone(env) {
     lg.globalCompositeOperation = 'lighter'; lg.drawImage(soft, -PAD, Y0);
     lg.globalCompositeOperation = 'source-over';
   };
-  dof(1.7, L.linear(lg, 0, 0, W, 0, [[0, 'rgba(0,0,0,1)'], [0.16, 'rgba(0,0,0,0.5)'], [0.32, 'rgba(0,0,0,0)'], [0.7, 'rgba(0,0,0,0)'], [0.86, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,1)']]));
-  dof(2.6, L.linear(lg, 0, 985, 0, H + 30, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0.85)']]));
-  return { stone: layer, glints: body.glints };
+  dof(1.7, L.linear(lg, 0, 0, W, 0, [[0, 'rgba(0,0,0,1)'], [0.14, 'rgba(0,0,0,0.5)'], [0.28, 'rgba(0,0,0,0)'], [0.74, 'rgba(0,0,0,0)'], [0.88, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,1)']]));
+  dof(2.6, L.linear(lg, 0, 990, 0, H + PB, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0.9)']]));
+  return { stone: layer, gloss, glints: sh.glints };
 }
 
 /** the void behind the stone, dusted with cinnabar motes */
@@ -344,7 +344,7 @@ function buildBack(env) {
   };
   for (let n = 0; n < 215000; n++) {
     const x = r.range(-BP, W + BP), y = r.range(Y0, Y1);
-    if (a.drAt(x, y) < 24) continue;
+    if (a.drAt(x, y) < 8) continue;
     const dn = Math.hypot((x - a.cx) / 1010, (y - (a.crestY - 110)) / 600);
     const calm = sstep(0.85, 1.9, Math.hypot((x - a.cx) / 430, (y - tcy) / 175));     // 0 behind the tagline
     const dens = (0.5 + 0.5 * sstep(0.2, 1.1, dn)) * (0.24 + 0.76 * calm) * (0.55 + 0.9 * (nz.fbm(x / 240, y / 240, 3) * 0.5 + 0.5));
@@ -424,14 +424,16 @@ export default {
 
     // the stone
     blitAt(ctx, env, S.stone, { rot });
+    // the soft reflection sweeps across it with the light, faster than the stone turns
+    blitAt(ctx, env, S.gloss, { rot: L.lerp(-0.02, 0.02, p), blend: 'lighter' });
 
-    // star points in the blood
+    // crystal faces in the blood catch the light as it passes
     L.cam(ctx, env, { rot }, () => {
       ctx.globalCompositeOperation = 'lighter';
       for (const q of S.glints) {
-        const f = 0.3 + 0.7 * Math.pow(Math.max(0, Math.cos(L.TAU * (t / 5.6 + q.ph))), 3);
-        const sz = (2.4 + q.s * 2.4) * (0.7 + 0.3 * f);
-        ctx.globalAlpha = f * (0.45 + 0.55 * q.k);
+        const f = 0.25 + 0.75 * Math.pow(Math.max(0, Math.cos(L.TAU * (t / 5.6 + q.ph))), 3);
+        const sz = (2.0 + q.s * 2.0) * (0.7 + 0.3 * f);
+        ctx.globalAlpha = f * (0.4 + 0.5 * q.k);
         ctx.drawImage(S.spr, q.x - sz, q.y - sz, sz * 2, sz * 2);
       }
     });

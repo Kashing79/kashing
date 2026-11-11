@@ -1,11 +1,12 @@
 // s17 — 锈色显微. The corrosion crust of a bronze coin under the stereo microscope, pushed to pure pigment:
 //   below the arc  → malachite (石绿): a bright, flat crust of granules and botryoidal knobs, mottled with yellow-green
-//   on the arc     → a hair-thin seam of cuprite vermilion (朱) between the two crusts, slightly ragged
+//   on the arc     → a hair-thin seam of cuprite vermilion (朱) between the two crusts
 //   above the arc  → azurite (石青): big deep-blue blades slanting down to the right like the barbs of a feather, cuprite red and
 //                    purple-black showing in the slits; the blades fuse into one calm blue face above the crest (tagline zone)
 // Both crusts are built once in init() as a height field + pigment colour per pixel, lit by one raking light from the upper
-// right, then given a shallow depth of field (focus on the crest of the arc). draw() only slides the two layers against each
-// other along the arc and lets a few out-of-focus sparkles come and go.
+// right, then given a shallow depth of field (focus on the crest of the arc). The seam is a third, static layer drawn at exact
+// pixel coverage, so the shared arc stays razor-clean in every frame while the two crusts slide against each other under it.
+// The sparkle is not an overlay either: draw() lets a handful of the crusts' own highlights flare for a frame each.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
@@ -38,12 +39,13 @@ function cell(x, y) {
 
 // ── a crust of rounded lumps: the union of paraboloid caps of random radius, one per lattice cell ──
 // lV = cap value of the winning lump (1 at its top, 0 at its rim, < 0 outside every lump; -9 if there is none),
-// lV2 = runner-up (lV - lV2 small → the crease between two lumps), lId / lR / lDx,lDy = id, radius, vector pixel→centre.
+// lV2 = runner-up (lV - lV2 small → the crease between two lumps), lId / lR / lDx,lDy = id, radius, vector pixel→centre;
+// lId2 / lDx2,lDy2 = the same for the runner-up (so the border between two touching lumps can be antialiased).
 // pres < 1 thins the lumps out (only cells with a low id survive, and they shrink before they vanish).
-let lV = 0, lV2 = 0, lId = 0, lR = 1, lDx = 0, lDy = 0;
+let lV = 0, lV2 = 0, lId = 0, lId2 = 0, lR = 1, lDx = 0, lDy = 0, lDx2 = 0, lDy2 = 0;
 function lumps(x, y, rMin, rVar, pres) {
   const xi = Math.floor(x), yi = Math.floor(y);
-  let b1 = -9, b2 = -9, id = 0, bx = 0, by = 0, br = 1;
+  let b1 = -9, b2 = -9, id = 0, id2 = 0, bx = 0, by = 0, bx2 = 0, by2 = 0, br = 1;
   for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
     const cx = xi + ox, cy = yi + oy;
     let h = (Math.imul(cx, 374761393) + Math.imul(cy, 668265263)) | 0;
@@ -53,9 +55,10 @@ function lumps(x, y, rMin, rVar, pres) {
     if (pres < 1) { let amp = (pres * 1.3 - cid) * 3.3333; if (amp <= 0) continue; if (amp > 1) amp = 1; r *= 0.55 + 0.45 * amp; }
     const dx = cx + (h & 1023) * 0.0009775 - x, dy = cy + ((h >>> 10) & 1023) * 0.0009775 - y;
     const v = 1 - (dx * dx + dy * dy) / (r * r);
-    if (v > b1) { b2 = b1; b1 = v; id = cid; bx = dx; by = dy; br = r; } else if (v > b2) b2 = v;
+    if (v > b1) { b2 = b1; id2 = id; bx2 = bx; by2 = by; b1 = v; id = cid; bx = dx; by = dy; br = r; }
+    else if (v > b2) { b2 = v; id2 = cid; bx2 = dx; by2 = dy; }
   }
-  lV = b1; lV2 = b2; lId = id; lR = br; lDx = bx; lDy = by;
+  lV = b1; lV2 = b2; lId = id; lId2 = id2; lR = br; lDx = bx; lDy = by; lDx2 = bx2; lDy2 = by2;
 }
 
 // slow fields on a coarse grid, bilinear-sampled per pixel
@@ -69,12 +72,20 @@ function bil(f, i, j) {
   const a0 = a[k], a1 = a[k + 1], b0 = a[k + f.cw], b1 = a[k + f.cw + 1];
   return (a0 + (a1 - a0) * tx) * (1 - ty) + (b0 + (b1 - b0) * tx) * ty;
 }
+/** a table of random steps, read with linear interpolation: the cross-section of a bundle of fibres / growth lines */
+function fibreTable(seed) {
+  const t = new Float32Array(1025), r = L.rng(seed);
+  for (let n = 0; n < 1024; n++) t[n] = r() * 2 - 1;
+  t[1024] = t[0];
+  return t;
+}
 
 /**
  * Light a pigment-colour image in place from its height field.
  * hB = height (px), sB = occlusion / cast shadow / falloff multiplier, gB = gloss (0..1).
  * Shadows sink toward the ambient colour (never dead black); highlights push the pigment up and let the clipped channel
  * spill into the others, so a lit blue goes azure-white and a lit green goes mint instead of grey.
+ * Nothing random happens here: every bit of texture in the result is relief that was put into the height field.
  */
 function relight(d, hB, sB, gB, RW, RH, o) {
   const { kd, amb, spec, pw } = o;
@@ -104,15 +115,25 @@ function relight(d, hB, sB, gB, RW, RH, o) {
         const nh = (-hx * HX - hy * HY + HZ) * inv;
         if (nh > 0.93) { const s = Math.pow(nh, pw) * gl * sB[p]; r += spec[0] * s; g += spec[1] * s; b += spec[2] * s; }
       }
-      const gr = 0.972 + 0.056 * hsh(i, j);          // pigment tooth
-      d[q] = r * gr; d[q + 1] = g * gr; d[q + 2] = b * gr;
+      d[q] = r; d[q + 1] = g; d[q + 2] = b;
     }
+  }
+}
+
+/** stamp a tiny dome (amp > 0) or pit (amp < 0) into a height field at a sub-pixel position; the f² profile leaves no hard rim */
+function stamp(hB, sB, RW, px, py, r, amp, occ) {
+  const ir = Math.ceil(r), r2 = r * r, x0 = Math.floor(px), y0 = Math.floor(py);
+  for (let yy = -ir; yy <= ir + 1; yy++) for (let xx = -ir; xx <= ir + 1; xx++) {
+    const ex = x0 + xx - px, ey = y0 + yy - py, d2 = ex * ex + ey * ey;
+    if (d2 >= r2) continue;
+    const f = 1 - d2 / r2, p = (y0 + yy) * RW + x0 + xx;
+    hB[p] += amp * f * f;
+    if (occ) sB[p] *= 1 - occ * f;
   }
 }
 
 // focus sits on the crest of the arc; this is how far (in "focus radii") a frame point is from it
 const FOC = { rx: 700, ry: 330, dy: 24 };
-const focusDist = (a, x, y) => Math.hypot((x - a.cx) / FOC.rx, (y - (a.crestY + FOC.dy)) / FOC.ry);
 
 /** shallow depth of field: progressively blurred copies are laid over the sharp layer away from the focus; the arc edge itself stays crisp */
 function depthOfField(env, src, X0, Y0) {
@@ -157,9 +178,73 @@ function featherMask(a, x, y, wob) {
   return sstep(0.8, 1.5, Math.sqrt(ex * ex + ey * ey) + 0.22 * wob);
 }
 
+/**
+ * The sparkle of the shot is made of its own highlights. Pick sites on real lit facets of a finished layer (after the depth of
+ * field, so far ones are already soft) and cut a round, soft-edged patch of just the bright pixels around each into an atlas.
+ * draw() adds a random handful of them back every frame: a blade edge or a granule facet flares for one frame in its true shape.
+ * measure(d, o) says how "highlight" a pixel is; the thresholds are taken from the layer's own distribution.
+ */
+function flares(cnv, X0, Y0, rg, o) {
+  const { count, T, measure, tint, accept } = o;
+  const w = cnv.width, h = cnv.height, d = cnv.getContext('2d').getImageData(0, 0, w, h).data;
+  const hist = new Uint32Array(256);
+  let tot = 0;
+  for (let y = 3; y < h; y += 7) for (let x = 3; x < w; x += 7) {
+    const q = (y * w + x) * 4;
+    if (d[q + 3] < 255) continue;
+    const v = measure(d, q); hist[v < 0 ? 0 : v > 255 ? 255 : v | 0]++; tot++;
+  }
+  const pct = (f) => { let acc = 0; for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= tot * f) return v; } return 255; };
+  const m0 = pct(o.p0), m1 = Math.max(m0 + 24, pct(o.p1));
+  const sites = [], hT = T / 2;
+  for (let n = 0; n < count * 40 && sites.length < count; n++) {
+    const x0 = rg.int(T, w - T - 1), y0 = rg.int(T, h - T - 1);
+    let best = -1, bx = x0, by = y0;
+    for (let dy = -9; dy <= 9; dy += 3) for (let dx = -9; dx <= 9; dx += 3) {
+      const q = ((y0 + dy) * w + x0 + dx) * 4;
+      if (d[q + 3] < 255) continue;
+      const v = measure(d, q);
+      if (v > best) { best = v; bx = x0 + dx; by = y0 + dy; }
+    }
+    if (best < m0 + 0.5 * (m1 - m0)) continue;
+    if (accept && !accept(bx + X0, by + Y0)) continue;
+    let ok = true;
+    for (let s = 0; s < sites.length; s++) { const q = sites[s]; if (Math.abs(q.px - bx) < T * 0.55 && Math.abs(q.py - by) < T * 0.55) { ok = false; break; } }
+    if (ok) sites.push({ px: bx, py: by });
+  }
+  const cols = 16, at = L.makeCanvas(cols * T, Math.max(1, Math.ceil(sites.length / cols)) * T), ag = at.getContext('2d');
+  const img = ag.createImageData(at.width, at.height), ad = img.data;
+  sites.forEach((s, k) => {
+    const ox = (k % cols) * T, oy = Math.floor(k / cols) * T;
+    for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+      const rx = (i + 0.5 - hT) / hT, ry = (j + 0.5 - hT) / hT, r2 = rx * rx + ry * ry;
+      if (r2 >= 1) continue;
+      const q = ((s.py - hT + j) * w + s.px - hT + i) * 4;
+      const al = clamp01((measure(d, q) - m0) / (m1 - m0)) * (1 - r2) * (1 - r2) * (d[q + 3] / 255);
+      const t = ((oy + j) * at.width + ox + i) * 4;
+      ad[t] = tint[0]; ad[t + 1] = tint[1]; ad[t + 2] = tint[2]; ad[t + 3] = 255 * al;
+    }
+    s.ax = ox; s.ay = oy; s.x = s.px + X0 - hT; s.y = s.py + Y0 - hT;
+  });
+  ag.putImageData(img, 0, 0);
+  return { atlas: at, sites, T };
+}
+
+/** let a different handful of highlights flare each frame (call inside the layer's camera transform) */
+function flare(ctx, F, fr, salt, rate, gain) {
+  const T = F.T, s = F.sites;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < s.length; i++) {
+    const tw = hsh(i, fr * salt + 1);
+    if (tw > rate) continue;
+    ctx.globalAlpha = gain * (0.35 + 0.65 * (1 - tw / rate));
+    ctx.drawImage(F.atlas, s[i].ax, s[i].ay, T, T, s[i].x, s[i].y, T, T);
+  }
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+}
+
 // ───────────────────────── azurite (above the arc) ─────────────────────────
 function buildUpper(env) {
-  const T0 = performance.now();
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
   const X0 = -PAD, Y0 = -PAD;
   const RW = W + PAD * 2, RH = Math.ceil(a.yAt(-PAD)) + 36 - Y0;
@@ -169,10 +254,9 @@ function buildUpper(env) {
   const fQ = coarse(X0, Y0, RW, RH, CS, (x, y) => nB.fbm(x / 310 + 9, y / 310, 3));
   const fGap = coarse(X0, Y0, RW, RH, CS, (x, y) => nA.fbm(x / 260 - 40, y / 260 + 17, 3));
   const fHue = coarse(X0, Y0, RW, RH, CS, (x, y) => nB.fbm(x / 540, y / 540 + 90, 3));
+  const fBev = coarse(X0, Y0, RW, RH, CS, (x, y) => nA.fbm(x / 120 + 71, y / 120 - 33, 2));   // how the sheen pools along a blade
   const MT = microTile('s17micro', 2.9);
-  const SR = new Float32Array(1025), rs0 = L.rng('s17stri');
-  for (let n = 0; n < 1024; n++) SR[n] = rs0() * 2 - 1;
-  SR[1024] = SR[0];
+  const SR = fibreTable('s17stri');
 
   // the "feather": long shafts (羽轴) running slightly up to the right, big blades (羽枝) between them slanting down to the right.
   // each band between two shafts gets its own blade angle / pitch / curl so neighbouring bands never line up.
@@ -207,41 +291,63 @@ function buildUpper(env) {
       let gw = 0.2 + 0.2 * hs + 0.24 * bil(fGap, i, j);
       gw = (gw < 0.1 ? 0.1 : gw > 0.44 ? 0.44 : gw) * (0.2 + 0.8 * pinS) * m;   // slit width: lens-shaped, pinched at the shafts
       const gapPx = gw * P, Wb = P - gapPx, xb = f * P;
-      // each blade is broken along its length into cleavage segments, every one a slightly different pair of facets
+      // each blade is broken along its length into cleavage segments, every one a slightly different pair of facets.
+      // a cleavage crack is neither ruler-straight nor square to the blade: it leans a little and wanders as it crosses
       const segLen = P * (1.1 + 1.9 * hs2);
-      const sl = along / segLen + hs * 13, ai = Math.floor(sl), af = sl - ai;
-      const hseg = hsh(ai, si * 31 + bi * 7), hseg2 = hsh(ai, si * 17 + bi * 29 + 5), hseg3 = hsh(ai, si * 7 + bi * 3 + 11);
+      const cwv = xb * 0.1 + hs * 61, cwi = cwv | 0, cwk = cwi & 1023;
+      const wob = SR[cwk] + (SR[cwk + 1] - SR[cwk]) * (cwv - cwi);
+      const sl = (along + (hs3 - 0.5) * 0.7 * xb + 2.4 * wob) / segLen + hs * 13, ai = Math.floor(sl), af = sl - ai;
+      let hseg = hsh(ai, si * 31 + bi * 7), hseg2 = hsh(ai, si * 17 + bi * 29 + 5), hseg3 = hsh(ai, si * 7 + bi * 3 + 11);
+      let tilt = (af - 0.5) * (hseg - 0.5);
+      const afPx = af * segLen;
+      if (afPx < 3) {
+        // just past a crack: ease out of the previous segment's facets over three pixels, so the step is a lit / shaded
+        // little cliff with a soft foot instead of a one-pixel hairline
+        const wq = sstep(0, 3, afPx);
+        const pA = hsh(ai - 1, si * 31 + bi * 7), pB = hsh(ai - 1, si * 17 + bi * 29 + 5), pC = hsh(ai - 1, si * 7 + bi * 3 + 11);
+        tilt = (af + 0.5) * (pA - 0.5) * (1 - wq) + tilt * wq;
+        hseg = pA + (hseg - pA) * wq; hseg2 = pB + (hseg2 - pB) * wq; hseg3 = pC + (hseg3 - pC) * wq;
+      }
+      const bv = bil(fBev, i, j);
       const Hb = (11 + 10 * hs3) * (0.3 + 0.7 * pinS) * k * (1 + 0.4 * (hseg - 0.5) * vary);
-      let bw = 5 + 11 * hseg2; if (bw > Wb * 0.45) bw = Wb * 0.45;       // the bevel that faces the light
+      let bw = (5 + 11 * hseg2) * (1 + 0.32 * bv * vary); if (bw > Wb * 0.45) bw = Wb * 0.45;       // the bevel that faces the light
       const back = 0.36 + (0.95 * hseg3 - 0.48) * vary;                    // how far the main facet falls away behind it
       const xc = xb < Wb ? xb : Wb;
       let h = xc < bw ? Hb * xc / bw : Hb * (1 - back * (xc - bw) / (Wb - bw));
       const hEdge = Hb * (1 - back);
       if (m < 0.98) h *= 1 - sstep(Wb - 16 * (1 - m), Wb, xc);            // in the calm face the blades melt into each other
-      h += (af - 0.5) * segLen * (hseg - 0.5) * 0.11 * k * m;             // cleavage steps
+      h += tilt * segLen * 0.085 * k * m;                                   // cleavage steps
       // growth striations, dead parallel to the blade: some facets silky, some glass-smooth
       const c1 = q * 15 + along * 0.004 + hs * 37 + 4096, c2 = q * 38 - along * 0.007 + hs * 11 + 8192;
       const i1 = c1 | 0, i2 = c2 | 0, k1 = i1 & 1023, k2 = i2 & 1023;
       const stri = SR[k1] + (SR[k1 + 1] - SR[k1]) * (c1 - i1), stri2 = SR[k2] + (SR[k2 + 1] - SR[k2]) * (c2 - i2);
-      h += (0.25 + 0.75 * k * hseg2) * (0.55 * stri + 0.3 * stri2);
+      h += (0.34 + 0.66 * k * hseg2) * (0.55 * stri + 0.4 * stri2);
       const tone = 1 + (0.24 * (hs - 0.5) + 0.12 * (hseg - 0.5)) * k;
       let cr = 27 * tone, cg = 72 * tone, cb = 176 * tone, sh = 1, gloss = 0.85;
+      // the lit bevel is a mirror for the lamp, not a flat ribbon: its sheen pools and thins along the blade, and the growth
+      // lines show in it as fine darker threads
+      if (xc < bw + 1.2 && m > 0.03) {
+        const wbv = (1 - sstep(bw - 1.2, bw + 1.2, xc)) * sstep(0.03, 0.3, m);
+        sh += ((1.0 + 0.2 * bv) * (1 - 0.09 * (stri2 + 1) - 0.05 * (stri + 1)) - 1) * wbv;
+      }
 
-      // the slit between two blades: cuprite red on the floor, purple-black in the shadow of the blade that overhangs it
+      // the slit between two blades: a druse of tiny cuprite crystals on the floor, purple-black in the shadow of the blade
+      // that overhangs it
       if (gapPx > 0.5 && xb > Wb - 0.7) {
         let bg = sstep(Wb - 0.7, Wb + 0.7, xb) * (1 - sstep(P - 1.4, P, xb));
         if (gapPx < 2) bg *= gapPx / 2;
         const gp = xb - Wb;
-        cell(x / 5.6, y / 5.6);
-        const bump = 1 - 1.7 * Math.sqrt(cD1), gv = 0.84 + 0.3 * cId;
+        cell(x / 7.4, y / 7.4);
+        const d1 = Math.sqrt(cD1), bump = 1 - 1.55 * d1, ed = sstep(0, 0.14, Math.sqrt(cD2) - d1);     // ed → 0 on the border between two crystals
+        const gv = 1 + (0.3 * cId - 0.16) * ed;
         let gr = 229 * gv, gG = 54 * gv, gb = 30 * gv;
-        if (cId > 0.9) { gr = 255; gG = 112; gb = 58; }
+        if (cId > 0.92) { gr += (252 - gr) * ed; gG += (100 - gG) * ed; gb += (50 - gb) * ed; }          // a few thin, glowing ones
         const Ls = 1.25 * (hEdge > 0 ? hEdge : 0) + 2.5;
         let shd = 0.1 + 0.9 * sstep(Ls * 0.5, Ls * 1.15, gp);
         if (hs3 < 0.23) shd *= cId > 0.8 ? 0.75 : 0.22;                 // some slits stay almost entirely purple-black, a few red embers
-        if (gp > 0) { const wall = sstep(0, 2.4 + 12 * (1 - m), gp); h += ((bump > 0 ? bump * 1.5 : 0) - h) * wall; }
+        if (gp > 0) { const wall = sstep(0, 2.4 + 12 * (1 - m), gp); h += ((bump > 0 ? bump * 2.1 : 0) - h) * wall; }
         cr += (gr - cr) * bg; cg += (gG - cg) * bg; cb += (gb - cb) * bg;
-        sh += (shd - 1) * bg; gloss += (0.12 - gloss) * bg;
+        sh += (shd - 1) * bg; gloss += (0.3 - gloss) * bg;
       }
 
       // the shaft: a raised spine catching the light, with a cuprite / purple-black seam hugging its underside
@@ -261,40 +367,57 @@ function buildUpper(env) {
 
       // the crust below stands proud of this one: a soft occlusion shadow along the seam
       if (rr2 < rAO2) sh *= 0.8 + 0.2 * sstep(4, 60, Math.sqrt(rr2) - R);
-      // slow hue drift (ultramarine ↔ cobalt), illumination falloff, micro surface
+      // slow hue drift (ultramarine ↔ cobalt), illumination falloff, a breath of surface tooth
       const hv = bil(fHue, i, j);
       const dx0 = x - 960, dy0 = y - 330;
       sh *= 1.05 - 0.17 * sstep(420, 1250, Math.sqrt(dx0 * dx0 + dy0 * dy0));
-      h += 0.36 * MT[((y & 255) << 8) | (x & 255)];
+      h += 0.16 * MT[((y & 255) << 8) | (x & 255)];
       const p = j * RW + i, o = p * 4;
       d[o] = cr * (1 + 0.5 * hv); d[o + 1] = cg * (1 - 0.2 * hv); d[o + 2] = cb; d[o + 3] = 255;
       hB[p] = h; sB[p] = sh; gB[p] = gloss;
     }
   }
-  const T1 = performance.now();
+
+  // what only a height field can give the crystal faces: pin-prick etch pits and a dusting of tiny crystallites,
+  // each one lit and shaded by the same lamp (sparser in the calm window over the crest)
+  const rp = L.rng('s17pits');
+  for (let n = 0; n < 5200; n++) {
+    const px = rp.range(8, RW - 9), py = rp.range(8, RH - 9), r0 = rp(), u = rp(), v = rp();
+    const p0 = (py | 0) * RW + (px | 0);
+    if (gB[p0] < 0.6 || d[p0 * 4 + 3] === 0) continue;                  // faces only: not the slits, not the seams
+    if (u > 0.22 + 0.78 * featherMask(a, px + X0, py + Y0, 0)) continue;
+    if (r0 < 0.55) stamp(hB, sB, RW, px, py, 1.7 + 2.1 * v, -(0.7 + 1.1 * v), 0.3);       // pit
+    else stamp(hB, sB, RW, px, py, 1.6 + 2.6 * v * v, 0.9 + 1.5 * v, 0);                   // crystallite
+  }
+
   relight(d, hB, sB, gB, RW, RH, { kd: 0.92, amb: [24, 13, 56], spec: [190, 215, 255], pw: 46 });
-  const T2 = performance.now();
   const raw = L.makeCanvas(RW, RH);
   raw.getContext('2d').putImageData(img, 0, 0);
   const cnv = depthOfField(env, raw, X0, Y0);
-  cnv.getContext('2d').getImageData(0, 0, 1, 1);
-  console.warn('TIMING upper pass1', (T1 - T0) | 0, 'relight', (T2 - T1) | 0, 'dof', (performance.now() - T2) | 0);
-
-  // crystal glints for the per-frame twinkle
-  const rg = L.rng('s17glintU'), glints = [];
-  for (let n = 0; n < 900 && glints.length < 120; n++) {
-    const x = rg.range(-PAD, W + PAD), y = rg.range(-PAD, a.yAt(x) - 26);
-    const m = featherMask(a, x, y, 0), u = rg(), sz = rg.range(2.2, 5.5);
-    if (m < 0.45 || u > m) continue;
-    const fd = focusDist(a, x, y);
-    glints.push({ x, y, r: sz * (1 + 1.5 * clamp01((fd - 1) / 1.2)), soft: fd > 1.45, k: rg.int(0, 1) });
-  }
-  return { cnv, X0, Y0, glints };
+  const fl = flares(cnv, X0, Y0, L.rng('s17glintU'), {
+    count: 120, T: 48, p0: 0.955, p1: 0.997, tint: [222, 238, 255],
+    measure: (dd, q) => dd[q + 1] - 0.35 * dd[q],                          // pale = lit crystal; keeps the red slits out
+    accept: (x, y) => featherMask(a, x, y, 0) > 0.5 && y < a.yAt(x) - 30,
+  });
+  return { cnv, X0, Y0, fl };
 }
 
-// ───────────────────────── malachite (below the arc) + the cuprite seam ─────────────────────────
+// one clean pigment colour per granule → gcR/gcG/gcB, gloss in gcGl. tm = slow green ↔ teal drift, yel = how yellow the drift
+// of lichen-like 明黄绿 is at the granule's own centre
+let gcR = 0, gcG = 0, gcB = 0, gcGl = 0;
+function grainCol(id, tm, yel) {
+  const j1 = (id * 7.31) % 1, j2 = (id * 23.17) % 1;
+  let r, g, b, gl = 0.2;
+  if (id > 0.975) { r = 18; g = 150; b = 108; }                                 // now and then a deeper one …
+  else if (id > 0.93) { r = 124; g = 238; b = 190; gl = 0.7; }                  // … or a pale, glassy one
+  else { const kk = 0.95 + 0.2 * j1; r = (58 - 38 * tm) * kk; g = (204 + 4 * tm) * kk; b = (132 + 54 * tm) * kk; }
+  const yk = sstep(-0.05, 0.05, 0.04 + 0.78 * yel - j2);
+  if (yk > 0) { const kk = 0.86 + 0.16 * j1; r += (200 * kk - r) * yk; g += (224 * kk - g) * yk; b += (74 * kk - b) * yk; }
+  gcR = r; gcG = g; gcB = b; gcGl = gl;
+}
+
+// ───────────────────────── malachite (below the arc) ─────────────────────────
 function buildLower(env) {
-  const T0 = performance.now();
   const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
   const X0 = -PAD, Y0 = Math.floor(a.crestY) - 26;
   const RW = W + PAD * 2, RH = H + PAD - Y0;
@@ -308,174 +431,174 @@ function buildLower(env) {
   const fWy = coarse(X0, Y0, RW, RH, CS, (x, y) => nB.n2(x / 70 - 31, y / 70 + 19));
   const GS = 19, BS = 54;                 // granule / botryoidal knob lattice sizes (px)
   const MT = microTile('s17grit', 2.6);
+  const SF = fibreTable('s17fibre');
   const img = new ImageData(RW, RH), d = img.data, NPX = RW * RH;
   const hB = new Float32Array(NPX), sB = new Float32Array(NPX), gB = new Float32Array(NPX);
-  const rOut2 = (R + 26) * (R + 26);
+  const EDGE = -0.3;                      // dr at which the crust stops; its last pixel lies under the vermilion of the seam layer
+  const rOut2 = (R + EDGE + 0.5) * (R + EDGE + 0.5);
   const lx0 = 1160, ly0 = a.crestY + 60;
+  const iMax = RW - 1, jMax = RH - 1;
   for (let j = 0; j < RH; j++) {
     const y = Y0 + j, ddy = cy - y;
     for (let i = 0; i < RW; i++) {
       const x = X0 + i, ddx = x - cx, rr2 = ddx * ddx + ddy * ddy;
-      if (rr2 > rOut2) continue;
-      const dr = Math.sqrt(rr2) - R;
+      if (rr2 >= rOut2) continue;
+      const dr = Math.sqrt(rr2) - R, u = dr - EDGE;        // u < 0 inside the crust
       const wx = bil(fWx, i, j), wy = bil(fWy, i, j);
       lumps(x / GS + wx * 0.5, y / GS + wy * 0.5, 0.5 + 0.22 * bil(fPack, i, j), 0.42, 1);
-      const gv = lV, gid = lId, gR = lR;
-      // the boundary: ragged at two scales and following the granules, so the edge is a fringe of whole grains
-      let u = -100, wl = 0, s = 0;
-      if (dr > -34) {
-        s = Math.atan2(ddx, ddy) * R;
-        let e = 2.2 * nA.n2(s / 33, 3.7) + 1.2 * nA.n2(s / 8.5, 11.3) + 2.0 * ((gv < 0 ? 0 : gv) - 0.5);
-        e = e < -3.6 ? -3.6 : e > 3.6 ? 3.6 : e;
-        const pocket = nB.n2(s / 190, 8.8) - 0.5;
-        wl = 3.3 + 1.6 * nB.n2(s / 64, 5.1) + (pocket > 0 ? pocket * 8 : 0);          // width of the vermilion seam
-        u = dr - (e - wl * 0.5);
-        if (u > wl + 12) continue;
+      const gv = lV, gv2 = lV2, gid = lId, gR = lR, gdx = lDx, gdy = lDy, eb = gv - gv2;
+      const tn = bil(fTone, i, j), tm = clamp01(0.5 + tn * 1.3);                 // slow drift green ↔ teal
+      // every granule is one clean pigment colour — 石绿, or whole drifts of them turned 明黄绿 the way lichen mottles a rock —
+      // decided at the granule's own centre, so no colour boundary ever cuts through a grain
+      let ic = i + gdx * GS, jc = j + gdy * GS;
+      ic = ic < 0 ? 0 : ic > iMax ? iMax : ic; jc = jc < 0 ? 0 : jc > jMax ? jMax : jc;
+      grainCol(gid, tm, sstep(0.0, 0.34, bil(fYel, ic, jc)));
+      let cr = gcR, cg = gcG, cb = gcB, gloss = gcGl;
+      if (eb < 0.1 && gv2 > -0.06) {
+        // where two grains touch, cross-fade their colours over one pixel instead of switching
+        let i2 = i + lDx2 * GS, j2 = j + lDy2 * GS;
+        i2 = i2 < 0 ? 0 : i2 > iMax ? iMax : i2; j2 = j2 < 0 ? 0 : j2 > jMax ? jMax : j2;
+        grainCol(lId2, tm, sstep(0.0, 0.34, bil(fYel, i2, j2)));
+        const wq = 0.5 * (1 - eb * 10) * sstep(-0.06, 0.04, gv2);
+        cr += (gcR - cr) * wq; cg += (gcG - cg) * wq; cb += (gcB - cb) * wq; gloss += (gcGl - gloss) * wq;
       }
-      let cr = 0, cg = 0, cb = 0, al = 255, h = 0, sh = 1, gloss = 0;
-      if (u < 0.7) {
-        const tn = bil(fTone, i, j), tm = clamp01(0.5 + tn * 1.3);                 // slow drift green ↔ teal
-        const j1 = (gid * 7.31) % 1, j2 = (gid * 23.17) % 1;
-        // every granule is one clean pigment colour: 石绿, now and then a paler or a deeper one …
-        if (gid > 0.975) { cr = 18; cg = 150; cb = 108; }
-        else if (gid > 0.93) { cr = 136; cg = 240; cb = 196; gloss = 0.5; }
-        else { const kk = 0.95 + 0.2 * j1; cr = (58 - 38 * tm) * kk; cg = (204 + 4 * tm) * kk; cb = (132 + 54 * tm) * kk; }
-        // … and whole drifts of them turned 明黄绿, the way lichen mottles a rock
-        const yk = sstep(-0.05, 0.05, 0.04 + 0.78 * sstep(0.0, 0.34, bil(fYel, i, j)) - j2);
-        if (yk > 0) { const kk = 0.86 + 0.16 * j1; cr += (200 * kk - cr) * yk; cg += (224 * kk - cg) * yk; cb += (74 * kk - cb) * yk; }
-        const g1 = gv > 0 ? gv : 0;
-        h = 0.3 * gR * GS * (0.6 * g1 + 0.4 * g1 * g1) * (0.7 + 0.6 * j1);
-        // bedded in a darker green matrix; close to the seam the red ground shows through instead
-        const gin = sstep(0, 0.14, gv);
-        const rk = dr > -17 ? sstep(-17, -2, dr) * 0.85 : 0;
-        const mr = 22 - 8 * tm + (204 - 18) * rk, mg = 160 + (42 - 160) * rk, mb = 112 + 34 * tm + (24 - 128) * rk;
-        cr = mr + (cr - mr) * gin; cg = mg + (cg - mg) * gin; cb = mb + (cb - mb) * gin;
-        sh = 0.72 + 0.28 * sstep(-0.05, 0.3, gv);
-        gloss += 0.2;
-        // botryoidal knobs (葡萄状): silky domes of very different sizes crowding each other in patches
-        let cover = 0;
-        const bm = sstep(0.2, 0.5, bil(fBot, i, j));
-        if (bm > 0.01) {
-          lumps(x / BS + wx * 0.14 + 3.3, y / BS + wy * 0.14 + 1.7, 0.4, 0.46, bm * 0.8);
-          if (lV > -8) {
-            if (lV > 0) {
-              const v = lV;
-              cover = sstep(0, 0.14, v);
-              const ring = 0.5 + 0.5 * Math.sin((1 - v) * 7 + lId * 50);     // malachite's concentric banding, very faint
-              const kk = (0.94 + 0.1 * ring) * (0.94 + 0.14 * ((lId * 53.3) % 1));
-              const kR = (50 - 30 * tm) * kk, kG = 206 * kk, kB = (134 + 50 * tm) * kk;
-              cr += (kR - cr) * cover; cg += (kG - cg) * cover; cb += (kB - cb) * cover;
-              h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v));
-              sh += (1 - sh) * cover * 0.85;
-              sh *= 0.8 + 0.2 * sstep(0, 0.14, v - (lV2 > 0 ? lV2 : 0));  // the crease where two domes meet
-              gloss += (0.6 - gloss) * cover;
-            } else {
-              const dd = Math.sqrt(lDx * lDx + lDy * lDy), rr = dd / lR;      // contact shadow on the side away from the light
-              if (rr < 1.5) { const sdw = (lDx * 0.64 - lDy * 0.77) / dd; if (sdw > 0) sh *= 1 - 0.5 * sdw * (1 - (rr - 1) / 0.5); }
-            }
+      // … and its own little crystal: most are rounded, a third are flat-topped chips, and each leans its own way, so the
+      // lamp finds some faces and misses others
+      const j1 = (gid * 7.31) % 1, j3 = (gid * 41.77) % 1, j4 = (gid * 89.3) % 1;
+      const g1 = gv > 0 ? gv : 0;
+      let cap;
+      if (j3 < 0.36) { const tt = g1 * 2.3; cap = 0.82 * (tt >= 1 ? 1 : tt * (2 - tt)); gloss += 0.25; }
+      else cap = 0.6 * g1 + 0.4 * g1 * g1;
+      let h = 0.3 * gR * GS * cap * (0.7 + 0.6 * j1);
+      const lean = 0.34 * ((j3 * 3.7) % 1) * GS * sstep(0, 0.3, g1), la = j4 * 6.2832;
+      h -= lean * (gdx * Math.cos(la) + gdy * Math.sin(la));
+      // bedded in a darker green matrix
+      const gin = sstep(0, 0.14, gv);
+      const mr = 22 - 8 * tm, mg = 160, mb = 112 + 34 * tm;
+      cr = mr + (cr - mr) * gin; cg = mg + (cg - mg) * gin; cb = mb + (cb - mb) * gin; gloss *= gin;
+      let sh = 0.64 + 0.36 * sstep(-0.1, 0.3, gv);
+      if (gv2 > 0) sh *= 0.87 + 0.13 * sstep(0, 0.2, eb);                        // the crease where two grains touch
+      // botryoidal knobs (葡萄状): silky domes of very different sizes crowding each other in patches
+      let cover = 0;
+      const bm = sstep(0.2, 0.5, bil(fBot, i, j));
+      if (bm > 0.01) {
+        lumps(x / BS + wx * 0.14 + 3.3, y / BS + wy * 0.14 + 1.7, 0.4, 0.46, bm * 0.8);
+        if (lV > -8) {
+          if (lV > 0) {
+            const v = lV;
+            cover = sstep(0, 0.14, v);
+            const ring = 0.5 + 0.5 * Math.sin((1 - v) * 7 + lId * 50);     // malachite's concentric banding, very faint
+            const kk = (0.94 + 0.1 * ring) * (0.94 + 0.14 * ((lId * 53.3) % 1));
+            const kR = (50 - 30 * tm) * kk, kG = 206 * kk, kB = (134 + 50 * tm) * kk;
+            cr += (kR - cr) * cover; cg += (kG - cg) * cover; cb += (kB - cb) * cover;
+            // a knob is a bundle of needles seen end-on: fine fibres run from its pole down its flanks and give it the silk
+            const fc = Math.atan2(lDy, lDx) * (3 + 5 * lR) + lId * 97 + 64, fi = fc | 0, fk = fi & 1023;
+            const fib = (SF[fk] + (SF[fk + 1] - SF[fk]) * (fc - fi)) * sstep(0.04, 0.5, 1 - v);
+            h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v)) + 0.5 * fib * cover;
+            sh += (1 - sh) * cover * 0.85;
+            sh *= 0.8 + 0.2 * sstep(0, 0.14, v - (lV2 > 0 ? lV2 : 0));  // the crease where two domes meet
+            gloss += (0.6 - gloss) * cover;
+          } else {
+            const dd = Math.sqrt(lDx * lDx + lDy * lDy), rr = dd / lR;      // contact shadow on the side away from the light
+            if (rr < 1.5) { const sdw = (lDx * 0.64 - lDy * 0.77) / dd; if (sdw > 0) sh *= 1 - 0.5 * sdw * (1 - (rr - 1) / 0.5); }
           }
         }
-        // grit
-        h += 0.75 * MT[((y & 255) << 8) | (x & 255)] * (1 - 0.6 * cover);
-        // the rim of the mound catches the light; the light pools on its upper right shoulder
-        const dxv = x - lx0, dyv = y - ly0;
-        sh *= (1 + 0.14 * sstep(-26, -3, dr)) * (1.05 - 0.17 * sstep(300, 1350, Math.sqrt(dxv * dxv + dyv * dyv)));
       }
-      if (u > -0.7) {
-        // vermilion seam, then a short purple-black contact shadow fading out over the azurite
-        const vn = 0.9 + 0.22 * nB.n2(s / 4.5, dr / 2.6) + 0.14 * sstep(wl * 0.4, wl, u);
-        const tv = sstep(-0.7, 0.7, u);
-        cr += (229 * vn - cr) * tv; cg += (54 * vn - cg) * tv; cb += (30 * vn - cb) * tv;
-        h -= h * tv; sh += (1 - sh) * tv; gloss -= gloss * tv;
-        if (u > wl - 0.7) {
-          const ts = sstep(wl - 0.7, wl + 0.7, u), f = clamp01(1 - (u - wl) / 12);
-          cr += (36 - cr) * ts; cg += (14 - cg) * ts; cb += (52 - cb) * ts;
-          al = 255 + (255 * 0.66 * f * f - 255) * ts;
+      // fine drusy tooth
+      h += 0.4 * MT[((y & 255) << 8) | (x & 255)] * (1 - 0.6 * cover);
+      // the crust ends in a smooth, rounded lip — one clean bright line for the lamp to run along, right under the seam
+      if (u > -9) {
+        const s = Math.atan2(ddx, ddy) * R, lw = 6.4 + 1.8 * nA.n2(s / 47, 7.7);
+        if (u > -lw) {
+          const tb = (u + lw) / lw, wb = sstep(0, 0.45, tb), lt = 0.95 + 0.07 * nA.n2(s / 110, 2.2);
+          cr += (70 * lt - cr) * wb * 0.6; cg += (226 * lt - cg) * wb * 0.6; cb += (166 * lt - cb) * wb * 0.6;
+          h += (1.0 + 4.4 * (1 - tb * tb) - h) * wb; sh += (1 - sh) * wb; gloss += (0.55 - gloss) * wb;
         }
       }
+      // the rim of the mound catches the light; the light pools on its upper right shoulder
+      const dxv = x - lx0, dyv = y - ly0;
+      sh *= (1 + 0.14 * sstep(-26, -3, dr)) * (1.05 - 0.17 * sstep(300, 1350, Math.sqrt(dxv * dxv + dyv * dyv)));
       const p = j * RW + i, o = p * 4;
-      d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = al;
+      d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = 255 * clamp01(0.5 - u);
       hB[p] = h; sB[p] = sh; gB[p] = gloss;
     }
   }
-  const T1 = performance.now();
   relight(d, hB, sB, gB, RW, RH, { kd: 0.5, amb: [8, 62, 54], spec: [215, 255, 235], pw: 38 });
-  const T2 = performance.now();
   const raw = L.makeCanvas(RW, RH);
   raw.getContext('2d').putImageData(img, 0, 0);
   const cnv = depthOfField(env, raw, X0, Y0);
-  cnv.getContext('2d').getImageData(0, 0, 1, 1);
-  console.warn('TIMING lower pass1', (T1 - T0) | 0, 'relight', (T2 - T1) | 0, 'dof', (performance.now() - T2) | 0);
-
-  // sparkle sites on the granules
-  const rg = L.rng('s17glintL'), glints = [];
-  const span = a.span(PAD);
-  for (let n = 0; n < 300; n++) {
-    const th = rg.range(-span, span), dr = -8 - Math.pow(rg(), 1.25) * 640, pt = a.pt(th, dr);
-    const fd = focusDist(a, pt.x, pt.y);
-    glints.push({ x: pt.x, y: pt.y, r: rg.range(2, 4.6) * (1 + 1.9 * clamp01((fd - 1) / 1.2)), soft: fd > 1.45, k: rg.int(0, 2) });
-  }
-  return { cnv, X0, Y0, glints };
+  const fl = flares(cnv, X0, Y0, L.rng('s17glintL'), {
+    count: 260, T: 40, p0: 0.95, p1: 0.997, tint: [240, 255, 232],
+    measure: (dd, q) => (dd[q] < dd[q + 2] ? dd[q] : dd[q + 2]),             // white-ish = a facet mirroring the lamp
+    accept: (x, y) => y > a.yAt(x) + 12,
+  });
+  return { cnv, X0, Y0, fl };
 }
 
-/** a sparkle sprite: a tight hot point when in focus, a flat disc of confusion with a brighter rim when out of focus */
-function sprite(col, bokeh) {
-  const c = L.makeCanvas(64, 64), g = c.getContext('2d');
-  g.fillStyle = L.radial(g, 32, 32, 0, 32, bokeh
-    ? [[0, L.rgba(col, 0.42)], [0.7, L.rgba(col, 0.46)], [0.86, L.rgba(col, 0.62)], [1, L.rgba(col, 0)]]
-    : [[0, L.rgba(col, 1)], [0.22, L.rgba(col, 0.9)], [0.5, L.rgba(col, 0.25)], [1, L.rgba(col, 0)]]);
-  g.fillRect(0, 0, 64, 64);
-  return c;
-}
-
-function twinkle(ctx, gl, spr, fr, salt, rate) {
-  ctx.globalCompositeOperation = 'screen';
-  for (let i = 0; i < gl.length; i++) {
-    const tw = hsh(i, fr * salt + 1);
-    if (tw > rate) continue;
-    const q = gl[i], k = 1 - tw / rate, r = q.r * (0.75 + 0.5 * k);
-    ctx.globalAlpha = q.soft ? 0.3 + 0.4 * k : 0.5 + 0.5 * k;
-    ctx.drawImage(spr[q.k][q.soft ? 1 : 0], q.x - r, q.y - r, r * 2, r * 2);
+// ───────────────────────── the seam: a hair of cuprite vermilion exactly on the arc ─────────────────────────
+// Static (the arc does not move when the crusts slide along it) and computed at exact pixel coverage: a clean vermilion line
+// of slowly breathing width, lit from above so it has a top and a bottom, and the tight purple-black contact shadow it and the
+// malachite lip throw on the azurite behind them.
+function buildSeam(env) {
+  const a = env.arc, R = a.R, cx = a.cx, cy = a.cy;
+  const Y0 = Math.floor(a.crestY) - 26, RH = Math.ceil(a.yAt(0)) + 8 - Y0;
+  const n = L.makeNoise('s17seam');
+  const img = new ImageData(W, RH), d = img.data;
+  for (let i = 0; i < W; i++) {
+    const ddx = i - cx, yc = a.yAt(i);
+    const j0 = Math.max(0, Math.floor(yc - 26) - Y0), j1 = Math.min(RH - 1, Math.ceil(yc + 6) - Y0);
+    for (let j = j0; j <= j1; j++) {
+      const ddy = cy - (Y0 + j), dr = Math.sqrt(ddx * ddx + ddy * ddy) - R;
+      if (dr < -2.6 || dr > 24) continue;
+      const s = Math.atan2(ddx, ddy) * R;                                      // arc length from the crest
+      const e0 = -1.45 + 0.4 * n.n2(s / 75, 3.7);                              // lower edge of the vermilion (dr)
+      const pocket = n.n2(s / 190, 8.8) - 0.55;
+      const wl = 3.0 + 0.6 * n.n2(s / 120, 5.1) + (pocket > 0 ? pocket * 5 : 0);   // its width: 2.4–3.6 px, swelling to ~5 in a few pockets
+      const lt = 0.96 + 0.07 * n.n2(s / 26, 1.9);
+      const v = dr - e0;                                                       // 0 at the bottom of the line, wl at its top
+      if (v < -0.5 || v > wl + 17) continue;
+      const cR = clamp01(v + 0.5) * clamp01(wl - v + 0.5);
+      // contact shadow: a tight dark core hugging the line, then a short soft penumbra
+      const dS = v - wl;
+      let aS = 0;
+      if (dS > -wl * 0.5) { const dd = dS > 0 ? dS : 0, f = clamp01(1 - dd / 16); aS = 0.42 * Math.exp(-dd / 1.9) + 0.36 * f * f; }
+      const tz = clamp01(v / wl);                                            // 0 bottom (lit shoulder) … 1 top (in the corner)
+      const rr = (240 - 34 * tz) * lt, rg = (66 - 26 * tz) * lt, rb = (32 - 8 * tz) * lt;
+      const wS = aS * (1 - cR), al = cR + wS, kS = clamp01(dS / 3);
+      const sr = 62 - 26 * kS, sg = 14, sb = 44 + 8 * kS;                    // the shadow is warm next to the red, purple-black beyond
+      const o = (j * W + i) * 4;
+      if (al <= 0) continue;
+      d[o] = (rr * cR + sr * wS) / al; d[o + 1] = (rg * cR + sg * wS) / al; d[o + 2] = (rb * cR + sb * wS) / al; d[o + 3] = 255 * al;
+    }
   }
-  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  const cnv = L.makeCanvas(W, RH);
+  cnv.getContext('2d').putImageData(img, 0, 0);
+  return { cnv, Y0 };
 }
 
 export default {
   name: '锈色显微',
   tone: 'light',
   init(env) {
-    const t0 = performance.now(); const up = buildUpper(env); const t1 = performance.now(); const lo = buildLower(env); console.warn('s17 timing up', (t1 - t0) | 0, 'lo', (performance.now() - t1) | 0);
-    S = {
-      up, lo,
-      sprU: ['#ffffff', '#a9ccff'].map((c) => [sprite(c, false), sprite(c, true)]),
-      sprL: ['#ffffff', '#f1ffb0', '#c4ffe8'].map((c) => [sprite(c, false), sprite(c, true)]),
-      grain: L.grainTex(512, 512, { seed: 's17shimmer', amount: 0.55 }),
-    };
+    S = { up: buildUpper(env), lo: buildLower(env), seam: buildSeam(env) };
   },
   draw(ctx, env, p) {
-    const a = env.arc, fr = env.frame | 0;
+    const fr = env.frame | 0;
     // the two crusts creep in opposite directions along their boundary
     const rotU = L.lerp(0.0036, -0.0036, p), rotL = L.lerp(-0.0046, 0.0046, p);
     ctx.fillStyle = '#1f4fb0'; ctx.fillRect(0, 0, W, H);
 
     L.cam(ctx, env, { rot: rotU }, () => {
       ctx.drawImage(S.up.cnv, S.up.X0, S.up.Y0);
-      twinkle(ctx, S.up.glints, S.sprU, fr, 7, 0.3);       // blade edges flash for a single frame each
+      flare(ctx, S.up.fl, fr, 7, 0.3, 0.9);        // blade edges flash for a single frame each
     });
 
     L.cam(ctx, env, { rot: rotL }, () => {
       ctx.drawImage(S.lo.cnv, S.lo.X0, S.lo.Y0);
-      twinkle(ctx, S.lo.glints, S.sprL, fr, 13, 0.34);     // granules catch the light frame by frame
+      flare(ctx, S.lo.fl, fr, 13, 0.34, 0.85);     // granule facets catch the light frame by frame
     });
 
-    // live pigment grain on the malachite (a different offset every frame)
-    ctx.save();
-    a.clipBelow(ctx, -3);
-    ctx.globalCompositeOperation = 'overlay'; ctx.globalAlpha = 0.14;
-    const ox = Math.floor(hsh(fr, 11) * 512), oy = Math.floor(hsh(fr, 29) * 512);
-    ctx.translate(-ox, -oy);
-    ctx.fillStyle = ctx.createPattern(S.grain, 'repeat');
-    ctx.fillRect(ox, oy + a.crestY - 8, W, H - a.crestY + 8);
-    ctx.restore();
+    // the seam itself never moves and is never resampled
+    ctx.drawImage(S.seam.cnv, 0, S.seam.Y0);
   },
 };

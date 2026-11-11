@@ -1,6 +1,6 @@
 // s01 — 天青碗沿晨光. The opening "horizon" of 《中国古玩》: the far lip of a sky-blue (天青) glazed bowl in extreme
 // close-up, photographed against the light. The arc is the rim. Below it the bowl wall is in shadow — night blue, with
-// only a breath of glaze glowing just under the lip and a few hairline crackles (开片) catching the light. On the lip the
+// only a breath of glaze glowing just under the lip, and in that glow the crackle of the glaze (开片). On the lip the
 // glaze is thinnest, and it carries one soft moon-white highlight; above it the light blooms tianqing → blue-green →
 // night blue. Nothing else: the space above keeps darkening for well over a frame height, because the title card is
 // simply the camera tilted up into that darkness (see lib/titlecard.js) before it comes back down onto this exact image
@@ -12,7 +12,13 @@
 //   · the highlight has a shape — it is a band a few px deep that sits ON the lip (crisp upper edge, soft lower edge), its
 //     strength and depth wander along the rim, crackle lines nick it, and it blooms a little like a hot edge does on film;
 //   · two masses — light above, dark below, meeting on the arc; the glow under the lip falls away fast and then lingers;
-//   · the bands of light above are not perfect circles: they swell and thin slowly, a little deeper toward the left.
+//   · the light above is one clean gradient (no rings, no veils): it only swells and thins slowly along the rim, a little
+//     deeper toward the left;
+//   · the crackle is the fine, layered kind of Ru ware (蝉翼纹): the glaze has broken into flakes of every size, large
+//     ones next to patches of small ones, and the back light that travels inside the glaze leaks out at every crack — a
+//     hairline of light with a soft glow on its far side, and each flake a little brighter along its upper edge than its
+//     lower one, like scales laid over one another. It is faint, it is squeezed flat where the lip rolls away from the
+//     lens, it dies out down the wall and it is all but gone where the brand line sits.
 //
 // Everything static is shaded per pixel in init() with a dithered float pipeline (8-bit gradients this dark would band):
 //   base   — the "before dawn" state, tall enough for the tilt
@@ -35,10 +41,11 @@ const RL = 220;                  // the lip rolls away from the lens over this m
 const NR = 64;                   // the out-of-focus rim profiles cover this many px either side of the rim
 const HR = 96;                   // the lip highlight, bloom included, reaches this far from the rim
 const SAME = 830;                // from this distance above the rim upward "bright" and "base" are the same picture
-const DC = 210;                  // crackle is only ever visible this far down the wall
-const MU = 32, MT = 32, MTOP = 780;   // band-swell table: cell size along the rim / away from it, and how far up it applies
-const STU = 40, STT = 4, STN = Math.ceil(440 / STT) + 3, SUN = Math.ceil((UMAX * 2) / STU) + 2;   // strata table: cell size along the rim / away from it
-const STRATA = [[74, 10, -0.036], [110, 15, 0.042], [166, 12, -0.032], [238, 28, 0.036], [316, 22, -0.024]];   // [height above the rim, half-thickness, change in value]
+const DC = 190;                  // crackle is only ever visible this far down the wall
+const MU = 16, MT = 16, MTOP = 780;   // swell table: cell size along the rim / away from it, and how far up it applies
+const VU = 16;                   // cell size of the table that says where the crackle catches the light (px of glaze)
+const TONE = 0.3;                // how much the flakes of glaze differ in value, next to a crack at full strength
+const ZOOM = 0.014;              // the push-in over the shot
 const SIG = [0.5, 0.85, 1.4, 2.2, 3.3, 4.8, 6.8, 9];   // blur radii (px) the depth of field is tabulated for
 let S = null;
 
@@ -57,6 +64,30 @@ const BODY_DIM = [[0, '#5a9cae'], [1.3, '#4f93a6'], [3, '#3a7893'], [7, '#2a5f80
 const MOON = [233, 245, 241];    // the lip highlight (月白)
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
+
+/** colour ramp through [distance, css colour] stops as one smooth curve (monotone cubic: no kink at a stop, no overshoot between two) */
+function smoothRamp(stops) {
+  const xs = stops.map((st) => st[0]), cs = stops.map((st) => L.parseColor(st[1])), n = xs.length;
+  const ms = [0, 1, 2].map((ch) => {
+    const d = [], m = new Array(n);
+    for (let i = 0; i < n - 1; i++) d.push((cs[i + 1][ch] - cs[i][ch]) / (xs[i + 1] - xs[i]));
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (let i = 1; i < n - 1; i++) {
+      const h0 = xs[i] - xs[i - 1], h1 = xs[i + 1] - xs[i];
+      m[i] = d[i - 1] * d[i] <= 0 ? 0 : (3 * (h0 + h1)) / ((2 * h1 + h0) / d[i - 1] + (h1 + 2 * h0) / d[i]);
+    }
+    return m;
+  });
+  return (t) => {
+    if (t <= xs[0]) return cs[0];
+    if (t >= xs[n - 1]) return cs[n - 1];
+    let i = 0;
+    while (t > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], u = (t - xs[i]) / h, u2 = u * u, u3 = u2 * u;
+    const a = 2 * u3 - 3 * u2 + 1, b = (u3 - 2 * u2 + u) * h, c = 3 * u2 - 2 * u3, e = (u3 - u2) * h;
+    return [0, 1, 2].map((ch) => a * cs[i][ch] + b * ms[ch][i] + c * cs[i + 1][ch] + e * ms[ch][i + 1]);
+  };
+}
 
 /** colour function → Float32 LUT; the kinks between stops are rounded off more and more with distance from the rim (the rim itself stays crisp) */
 function buildLut(f) {
@@ -134,30 +165,21 @@ function lipProfiles() {
   return blurLevels(src, n, 1, pad, HR);
 }
 
-/** the bands of light above the rim swell and thin slowly along its length, and run a little deeper toward the left */
-function bandTable() {
+/**
+ * the light above the rim swells and thins along its length, in one long breath, and runs a little deeper toward the left.
+ * Nothing here ripples across the gradient: a ring or a veil that follows the rim would read as a colour band.
+ */
+function swellTable() {
   const nz = L.makeNoise('s01bands');
   const nu = Math.ceil((UMAX * 2) / MU) + 2, nt = Math.ceil(MTOP / MT) + 3, m = new Float32Array(nu * nt);
   for (let j = 0; j < nt; j++) {
     const t = j * MT, fade = 1 - sstep(520, 740, t);
     for (let i = 0; i < nu; i++) {
       const U = i * MU - UMAX;
-      m[j * nu + i] = 1 + fade * (0.09 * nz.fbm(U / 760 + 3.3, t / 330 + 1.1, 2) - 0.075 * L.clamp(U / 1000, -1.2, 1.2));
+      m[j * nu + i] = 1 + fade * (0.07 * nz.n2(U / 760 + 3.3, t / 560 + 1.1) - 0.075 * L.clamp(U / 1000, -1.2, 1.2));
     }
   }
-  // a few faint strata in the light, like thin mist lying in layers behind the bowl: each is one long veil that follows
-  // the rim, drifts a little in height, comes and goes along its length, and changes the value by only a few per cent
-  const ns = L.makeNoise('s01strata'), st = new Float32Array(STN * SUN);
-  for (let i = 0; i < SUN; i++) {
-    const U = i * STU - UMAX;
-    for (let j = 0; j < STN; j++) st[j * SUN + i] = 0.01 * sstep(14, 70, j * STT) * (1 - sstep(250, 430, j * STT)) * ns.n2(U / 1150 + 8.3, (j * STT) / 46);
-    for (let li = 0; li < STRATA.length; li++) {
-      const [T0, w, A] = STRATA[li];
-      const tc = T0 * (1 + 0.13 * ns.n2(U / 980 + li * 13.7, 0.5 + li)), amp = A * (0.5 + 0.5 * ns.n2(U / 640 - li * 7.3, 3.1 + li * 2));
-      for (let j = 0; j < STN; j++) { const e = (j * STT - tc) / w; st[j * SUN + i] += amp * Math.exp(-e * e); }
-    }
-  }
-  return { m, nu, st };
+  return { m, nu };
 }
 
 const LIP = RL * Math.PI / 2;    // surface distance covered by the rolled part of the lip
@@ -166,106 +188,225 @@ const surfV = (d) => (d < RL ? RL * Math.acos(1 - d / RL) : LIP + (d - RL));
 const depthOf = (V) => (V <= 0 ? 0 : V < LIP ? RL * (1 - Math.cos(V / RL)) : RL + (V - LIP));
 
 /**
- * 开片: crackle grows by subdivision — a new crack starts on an existing one, runs roughly square to it and stops at the
- * next crack it meets (T-junctions, never crossings). Built in glaze-surface coordinates (U along the rim, V down the wall)
- * and returned as polylines with a strength: the first, longest cracks are the boldest; a patch here and there crazes finer.
- * This close to the glaze the cells are big — only a handful of lines cross the lit strip under the lip.
+ * 开片, the fine layered kind (蝉翼纹). Crazing grows by subdivision: a new crack crosses a flake of glaze the short way,
+ * a little off-centre and off-square, bows as it goes and stops at the cracks it meets (T-junctions, never crossings).
+ * The first cracks are the longest and the boldest; every later generation is fainter. How far a flake goes on breaking
+ * is drawn afresh for each one, so big flakes are left standing right next to finely crazed patches (大小片相间), and
+ * here and there a crack has only started: it runs part of the way into a flake and tapers out.
+ * Built in glaze-surface coordinates (U along the rim, V down the wall). Returns the cracks as dense polylines with a
+ * strength, and the flakes as polygons that share those very points.
  */
 function crackle() {
-  const r = L.rng('s01crackle'), nzp = L.makeNoise('s01craze'), segs = [];
-  const split = (P, lvl) => {
-    const n = P.length;
-    let A = 0, cu = 0, cv = 0, li = 0, ll = 0;
-    const len = [];
-    for (let i = 0; i < n; i++) {
-      const p = P[i], q = P[(i + 1) % n];
-      A += p[0] * q[1] - q[0] * p[1]; cu += p[0]; cv += p[1];
-      const l = Math.hypot(q[0] - p[0], q[1] - p[1]); len.push(l); if (l > ll) { ll = l; li = i; }
-    }
-    A = Math.abs(A) / 2; cu /= n; cv /= n;
-    const fine = nzp.fbm(cu / 520 + 4.4, cv / 520 - 9.1, 2) > 0.2;
-    if (A < (fine ? r.range(3200, 8000) : r.range(11000, 30000)) || lvl > 13) return;
-    // usually the new crack springs from the longest side of the cell, now and then from another long one
-    if (r.chance(0.3)) { const cand = []; for (let i = 0; i < n; i++) if (len[i] > 0.6 * ll) cand.push(i); li = r.pick(cand); }
-    const p = P[li], q = P[(li + 1) % n], t = r.range(0.24, 0.76);
-    const ox = L.lerp(p[0], q[0], t), oy = L.lerp(p[1], q[1], t);
-    const ang = Math.atan2(q[1] - p[1], q[0] - p[0]) + Math.PI / 2 + L.clamp(r.gauss() * 0.42, -1, 1);
-    let dx = Math.cos(ang), dy = Math.sin(ang);
-    if (dx * (cu - ox) + dy * (cv - oy) < 0) { dx = -dx; dy = -dy; }
+  const r = L.rng('s01crackle'), nzp = L.makeNoise('s01craze'), cracks = [], cells = [];
+  const STEP = 7;   // spacing of the points along a crack (px of glaze)
+  /** first hit of a ray leaving an inside point with the flake's outline */
+  const cast = (P, ox, oy, dx, dy) => {
     let best = 1e9, hi = -1;
-    for (let i = 0; i < n; i++) {
-      if (i === li) continue;
+    for (let i = 0, n = P.length; i < n; i++) {
       const c = P[i], e = P[(i + 1) % n], ex = e[0] - c[0], ey = e[1] - c[1], den = dx * ey - dy * ex;
       if (Math.abs(den) < 1e-9) continue;
       const tt = ((c[0] - ox) * ey - (c[1] - oy) * ex) / den, ss = ((c[0] - ox) * dy - (c[1] - oy) * dx) / den;
       if (tt > 1e-6 && ss >= 0 && ss <= 1 && tt < best) { best = tt; hi = i; }
     }
-    if (hi < 0) return;
-    const o = [ox, oy], h = [ox + dx * best, oy + dy * best];
-    segs.push({ o, h, k: (lvl <= 2 ? 1 : Math.max(0.42, Math.pow(0.87, lvl - 2))) * r.range(0.62, 1) });
-    const P1 = [o], P2 = [h];
-    for (let i = (li + 1) % n; ; i = (i + 1) % n) { P1.push(P[i]); if (i === hi) break; }
-    P1.push(h);
-    for (let i = (hi + 1) % n; ; i = (i + 1) % n) { P2.push(P[i]); if (i === li) break; }
-    P2.push(o);
+    return hi < 0 ? null : { i: hi, t: best, x: ox + dx * best, y: oy + dy * best };
+  };
+  const inside = (P, x, y) => {
+    let c = false;
+    for (let i = 0, n = P.length, j = n - 1; i < n; j = i++) {
+      const p = P[i], q = P[j];
+      if ((p[1] > y) !== (q[1] > y) && x < ((q[0] - p[0]) * (y - p[1])) / (q[1] - p[1]) + p[0]) c = !c;
+    }
+    return c;
+  };
+  /** a crack from p to q that bows sideways by `bow` (a fraction of its length), as a dense polyline */
+  const bowed = (p, q, bow) => {
+    const n = Math.max(2, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / STEP)), out = [];
+    const mx = (p[0] + q[0]) / 2 - (q[1] - p[1]) * bow, my = (p[1] + q[1]) / 2 + (q[0] - p[0]) * bow;
+    for (let i = 0; i <= n; i++) { const t = i / n, u = 1 - t; out.push([u * u * p[0] + 2 * u * t * mx + t * t * q[0], u * u * p[1] + 2 * u * t * my + t * t * q[1]]); }
+    return out;
+  };
+  const strength = (A) => L.clamp(0.3 + 0.2 * Math.log2(A / 1200), 0.3, 1) * r.range(0.62, 1);
+  const split = (P, lvl) => {
+    const n = P.length;
+    let A2 = 0, cu = 0, cv = 0;
+    for (let i = 0; i < n; i++) { const p = P[i], q = P[(i + 1) % n], w = p[0] * q[1] - q[0] * p[1]; A2 += w; cu += (p[0] + q[0]) * w; cv += (p[1] + q[1]) * w; }
+    if (Math.abs(A2) < 16) return;
+    cu /= 3 * A2; cv /= 3 * A2;
+    const A = Math.abs(A2) / 2;
+    // the flake's long axis, from the second moments of its outline
+    let sxx = 0, sxy = 0, syy = 0;
+    for (let i = 0; i < n; i++) {
+      const p = P[i], q = P[(i + 1) % n], l = Math.hypot(q[0] - p[0], q[1] - p[1]), x = (p[0] + q[0]) / 2 - cu, y = (p[1] + q[1]) / 2 - cv;
+      sxx += l * x * x; sxy += l * x * y; syy += l * y * y;
+    }
+    const ax = 0.5 * Math.atan2(2 * sxy, sxx - syy), ex = Math.cos(ax), ey = Math.sin(ax);
+    let lo = 0, hi = 0;
+    for (let i = 0; i < n; i++) { const t = (P[i][0] - cu) * ex + (P[i][1] - cv) * ey; if (t < lo) lo = t; if (t > hi) hi = t; }
+    // 0 = the glaze has broken into large flakes here, 1 = it has crazed fine
+    const z = sstep(-0.45, 0.25, nzp.fbm(cu / 460 + 4.4, cv / 460 - 9.1, 2)), aMin = L.lerp(1500, 420, z), aMax = L.lerp(14000, 2400, z);
+    const stop = lvl > 20 || A < aMin * Math.pow(aMax / aMin, r());
+    const aim = (qx, qy, da) => {
+      if (!inside(P, qx, qy)) return null;
+      const dx = Math.cos(da), dy = Math.sin(da), h1 = cast(P, qx, qy, dx, dy), h2 = cast(P, qx, qy, -dx, -dy);
+      return h1 && h2 && h1.i !== h2.i ? { h1, h2 } : null;
+    };
+    const da = ax + Math.PI / 2 + L.clamp(r.gauss() * 0.28, -0.6, 0.6), off = r.range(-0.24, 0.24) * (hi - lo);
+    const hit = aim(cu + ex * off, cv + ey * off, da) || aim(cu, cv, da);
+    if (stop || !hit) {
+      // a flake: its value, and the way the light falls off across it (brightest along the edge that faces the rim)
+      const ga = Math.PI / 2 + L.clamp(r.gauss() * 0.4, -0.9, 0.9), gx = Math.cos(ga), gy = Math.sin(ga);
+      let ext = 1;
+      for (let i = 0; i < n; i++) { const t = Math.abs((P[i][0] - cu) * gx + (P[i][1] - cv) * gy); if (t > ext) ext = t; }
+      // one flake in a dozen lies at just the angle to throw the light back (the shimmer the crackle is named for)
+      const glint = r.chance(0.085);
+      cells.push({ P, cu, cv, gx, gy, ext, base: glint ? r.range(0.55, 1) : L.clamp(r.gauss() * 0.3, -0.7, 0.7), amp: glint ? r.range(0.3, 0.5) : r.range(0.22, 0.55) });
+      // now and then a crack has only started (it tapers out inside the flake), or one lies deeper in the glaze, under
+      // the surface: no hairline to it, only its glow
+      if (hit && A > 1000 && r.chance(0.42)) {
+        const { h1, h2 } = hit, deep = r.chance(0.45), f = deep ? 1 : r.range(0.3, 0.72);
+        cracks.push({ pts: bowed([h2.x, h2.y], [L.lerp(h2.x, h1.x, f), L.lerp(h2.y, h1.y, f)], L.clamp(r.gauss() * 0.07, -0.16, 0.16)), k: strength(A) * 0.85, taper: !deep, deep });
+      }
+      return;
+    }
+    const { h1, h2 } = hit, pts = bowed([h2.x, h2.y], [h1.x, h1.y], L.clamp(r.gauss() * 0.05, -0.13, 0.13));
+    cracks.push({ pts, k: strength(A), taper: false, deep: false });
+    const P1 = pts.slice(), P2 = pts.slice().reverse();
+    for (let i = (h1.i + 1) % n; ; i = (i + 1) % n) { P1.push(P[i]); if (i === h2.i) break; }
+    for (let i = (h2.i + 1) % n; ; i = (i + 1) % n) { P2.push(P[i]); if (i === h1.i) break; }
     split(P1, lvl + 1); split(P2, lvl + 1);
   };
-  split([[-UMAX, -70], [UMAX, -70], [UMAX, 560], [-UMAX, 560]], 0);
-  return segs;
+  split([[-UMAX, -46], [UMAX, -46], [UMAX, 420], [-UMAX, 420]], 0);
+  return { cracks, cells };
 }
 
-/** per-pixel fields of the bowl wall just under the rim: the hairline crackle (already out of focus where the lens is) and the glaze depth */
+/** outline of a line of varying half-width through screen points — filled, it anti-aliases cleanly and has no joints */
+function ribbon(g, pts, hw) {
+  const n = pts.length, lx = new Float32Array(n), ly = new Float32Array(n), rx = new Float32Array(n), ry = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i < 1 ? 0 : i - 1], q = pts[i > n - 2 ? n - 1 : i + 1];
+    let nx = p.y - q.y, ny = q.x - p.x;
+    const m = Math.hypot(nx, ny) || 1;
+    nx /= m; ny /= m;
+    lx[i] = pts[i].x + nx * hw[i]; ly[i] = pts[i].y + ny * hw[i]; rx[i] = pts[i].x - nx * hw[i]; ry[i] = pts[i].y - ny * hw[i];
+  }
+  g.beginPath(); g.moveTo(lx[0], ly[0]);
+  for (let i = 1; i < n; i++) g.lineTo(lx[i], ly[i]);
+  for (let i = n - 1; i >= 0; i--) g.lineTo(rx[i], ry[i]);
+  g.closePath();
+}
+
+/**
+ * per-pixel fields of the bowl wall just under the rim: how much light the crackle adds at each pixel (already out of
+ * focus where the lens is), where cracks cross the lip, and the glaze depth along the rim
+ */
 function buildFields(a) {
   const R = a.R, cx = a.cx, cy = a.cy;
   const y0 = Math.floor(a.crestY) - 1, hgt = Math.min(H + MX, Math.ceil(a.yAt(-MX)) + DC + 4) - y0;
-  const crk = new Float32Array(CW * hgt), ln = new Float32Array(CW * hgt);
-  const nz = L.makeNoise('s01glaze'), nw = L.makeNoise('s01warp');
+  const nz = L.makeNoise('s01glaze'), nw = L.makeNoise('s01warp'), rr = L.rng('s01hair');
   // glaze thickness along the rim: the glow sinks a little deeper here, a little shallower there
   const gmod = new Float32Array(UMAX * 2 + 2);
   for (let i = 0; i < gmod.length; i++) { const U = i - UMAX; gmod[i] = 1 + 0.26 * nz.fbm(U / 520 + 3.1, 0.7, 3) + 0.06 * nz.n2(U / 70, 9.4); }
-  // draw the cracks as hairlines: surface → screen (the lip rolls away, so they crowd together and flatten toward the rim)
-  const lines = L.makeCanvas(CW, hgt), lg = lines.getContext('2d', { willReadFrequently: true });
-  lg.translate(MX, -y0); lg.lineCap = 'round'; lg.lineJoin = 'round';
-  for (const sg of crackle()) {
-    const len = Math.hypot(sg.h[0] - sg.o[0], sg.h[1] - sg.o[1]), n = Math.max(2, Math.ceil(len / 9));
-    lg.beginPath();
-    for (let i = 0; i <= n; i++) {
-      const U0 = L.lerp(sg.o[0], sg.h[0], i / n), V0 = L.lerp(sg.o[1], sg.h[1], i / n);
-      // one smooth warp for every crack: they bow a little, and still meet exactly
-      const U = U0 + 22 * nw.n2(U0 / 320 + 5.2, V0 / 320) + 3 * nw.n2(U0 / 90 + 1.7, V0 / 90 + 3.3);
-      const V = V0 + 22 * nw.n2(U0 / 320 - 17.3, V0 / 320 + 40.1) + 3 * nw.n2(U0 / 90 - 22.9, V0 / 90 + 61.4);
-      const p = a.pt(U / R, -depthOf(V));
-      if (i) lg.lineTo(p.x, p.y); else lg.moveTo(p.x, p.y);
-    }
-    lg.strokeStyle = `rgba(255,255,255,${sg.k.toFixed(3)})`; lg.lineWidth = 1 + 0.6 * sg.k; lg.stroke();
+  // glaze surface → screen. One smooth warp for everything, so cracks and flakes wander a little and still meet exactly;
+  // then the lip rolls away from the lens: toward the rim the flakes are squeezed flat
+  const warpU = (U0, V0) => U0 + 22 * nw.n2(U0 / 320 + 5.2, V0 / 320) + 3 * nw.n2(U0 / 90 + 1.7, V0 / 90 + 3.3) + 1.1 * nw.n2(U0 / 23 + 9.1, V0 / 23 - 4.2);
+  const warpV = (U0, V0) => V0 + 22 * nw.n2(U0 / 320 - 17.3, V0 / 320 + 40.1) + 3 * nw.n2(U0 / 90 - 22.9, V0 / 90 + 61.4) + 1.1 * nw.n2(U0 / 23 - 31.7, V0 / 23 + 12.6);
+  const at = (U0, V0) => { const U = warpU(U0, V0), V = warpV(U0, V0), s = a.pt(U / R, -depthOf(V)); s.U = U; s.V = V; return s; };
+  const seen = new Map();
+  const scr = (p) => { let s = seen.get(p); if (!s) { s = at(p[0], p[1]); seen.set(p, s); } return s; };
+  const net = crackle();
+  // hard: red = value of the flakes (128 = neutral), green = the hairlines.  soft: green = the glow beside each crack
+  const hard = L.makeCanvas(CW, hgt), hg = hard.getContext('2d', { willReadFrequently: true });
+  const soft = L.makeCanvas(CW, hgt), sg = soft.getContext('2d');
+  hg.fillStyle = 'rgb(128,0,0)'; hg.fillRect(0, 0, CW, hgt);
+  sg.fillStyle = '#000'; sg.fillRect(0, 0, CW, hgt);
+  hg.translate(MX, -y0); sg.translate(MX, -y0);
+  for (const c of net.cells) {
+    const P = c.P, t = at(c.cu - c.gx * c.ext, c.cv - c.gy * c.ext), b = at(c.cu + c.gx * c.ext, c.cv + c.gy * c.ext);
+    const hi = Math.round(128 + 112 * L.clamp(c.base + c.amp, -1, 1)), lo = Math.round(128 + 112 * L.clamp(c.base - c.amp, -1, 1));
+    if (Math.hypot(b.x - t.x, b.y - t.y) > 1) {
+      const gr = hg.createLinearGradient(t.x, t.y, b.x, b.y);
+      gr.addColorStop(0, `rgb(${hi},0,0)`); gr.addColorStop(1, `rgb(${lo},0,0)`);
+      hg.fillStyle = gr;
+    } else hg.fillStyle = `rgb(${(hi + lo) >> 1},0,0)`;
+    hg.beginPath();
+    for (let i = 0; i < P.length; i++) { const p = scr(P[i]); if (i) hg.lineTo(p.x, p.y); else hg.moveTo(p.x, p.y); }
+    hg.closePath(); hg.fill();
   }
+  hg.globalCompositeOperation = 'lighten'; sg.globalCompositeOperation = 'lighter';
+  const nick = new Float32Array(UMAX * 2 + 2);
+  for (const c of net.cracks) {
+    const P = c.pts, n = P.length, pts = P.map(scr), hw = new Float32Array(n), tp = new Float32Array(n), nx = new Float32Array(n), ny = new Float32Array(n);
+    const ph = rr.range(0, 90), w0 = 1.2 + 0.5 * c.k, fw = (5 + 11 * c.k) * (c.deep ? 1.5 : 1), side = rr.sign(), thin = rr.range(0.15, 0.42) * (1.15 - 0.5 * c.k), from = rr.chance(0.5);
+    let len = 0, nv = 0;
+    for (let i = 0; i < n; i++) {
+      const p = P[i < 1 ? 0 : i - 1], q = P[i > n - 2 ? n - 1 : i + 1], m = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+      nx[i] = (p[1] - q[1]) / m; ny[i] = (q[0] - p[0]) / m; nv += ny[i];
+      if (i) len += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+      // a crack is boldest where it began and thins toward the end it ran to (蟹爪纹), swelling a little on the way;
+      // one that has only started tapers to nothing
+      const u = i / (n - 1);
+      tp[i] = c.taper ? Math.pow(L.clamp((1 - u) / 0.55), 0.8) : 1;
+      hw[i] = 0.5 * w0 * (1 + thin - 2 * thin * (c.taper || from ? u : 1 - u)) * (1 + 0.2 * nw.n2(len / 64 + ph, 7.7)) * tp[i];
+    }
+    if (!c.deep) { ribbon(hg, pts, hw); hg.fillStyle = `rgb(0,${Math.round(255 * c.k)},0)`; hg.fill(); }
+    // the light inside the glaze comes from beyond the rim and leaks out on the far side of each crack: a soft glow
+    // that begins at the hairline and dies away down the wall (for a crack that runs straight down the wall, either side)
+    const sgn = Math.abs(nv) > 0.3 * n ? Math.sign(nv) : side;
+    for (const [f, v] of [[1, 0.17], [0.6, 0.18], [0.28, 0.25]]) {
+      sg.beginPath();
+      for (let i = 0; i < n; i++) { if (i) sg.lineTo(pts[i].x, pts[i].y); else sg.moveTo(pts[i].x, pts[i].y); }
+      for (let i = n - 1; i >= 0; i--) { const o = sgn * fw * f * tp[i], q = at(P[i][0] + nx[i] * o, P[i][1] + ny[i] * o); sg.lineTo(q.x, q.y); }
+      sg.closePath();
+      sg.fillStyle = `rgb(0,${Math.round(255 * v * c.k)},0)`; sg.fill();
+    }
+    // a bold crack that crosses the lip nicks the highlight there
+    const dep = 0.5 * Math.pow(L.clamp((c.k - 0.5) / 0.5), 1.2);
+    if (dep > 0.01) for (let i = 1; i < n; i++) {
+      if ((pts[i - 1].V - 2) * (pts[i].V - 2) >= 0) continue;
+      const U = L.lerp(pts[i - 1].U, pts[i].U, (2 - pts[i - 1].V) / (pts[i].V - pts[i - 1].V)), sw = 1 + 0.7 * sigmaOf(U), dd = dep * Math.pow(1.35 / sw, 0.7);
+      for (let j = Math.max(0, Math.floor(U + UMAX - sw * 3)); j <= Math.min(nick.length - 1, Math.ceil(U + UMAX + sw * 3)); j++) {
+        const e = (j - UMAX - U) / sw, v = dd * Math.exp(-0.5 * e * e);
+        if (v > nick[j]) nick[j] = v;
+      }
+    }
+  }
+  // where the crackle catches the light at all: whole stretches of the network stay all but invisible
+  const VN = Math.ceil(surfV(DC) / VU) + 3, UN = Math.ceil((UMAX * 2) / VU) + 2, vis = new Float32Array(VN * UN);
+  for (let j = 0; j < VN; j++) for (let i = 0; i < UN; i++) vis[j * UN + i] = 0.32 + 0.68 * sstep(-0.42, 0.34, nz.fbm((i * VU - UMAX) / 430 + 71, (j * VU) / 430 - 8, 3));
+  // the light a crack can leak, by depth below the rim: it follows the glow in the glaze, and is gone by DC
+  const light = new Float32Array((DC + 2) * 4);
+  for (let i = 0; i < light.length; i++) { const d = i / 4; light[i] = (0.36 * Math.exp(-d / 40) + 0.1 * Math.exp(-d / 110)) * (1 - sstep(DC - 110, DC, d)); }
   const read = (c) => c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, CW, hgt).data;
-  const l0 = lg.getImageData(0, 0, CW, hgt).data, l1 = read(L.blurred(lines, 1.6)), l2 = read(L.blurred(lines, 4.5));
+  const h0 = hg.getImageData(0, 0, CW, hgt).data, h1 = read(L.blurred(hard, 1.6)), h2 = read(L.blurred(hard, 4.5));
+  const s0 = read(L.blurred(soft, 1.8)), s2 = read(L.blurred(soft, 5));
+  const lit = new Float32Array(CW * hgt), yb = a.crestY;
   for (let j = 0; j < hgt; j++) {
-    const ddy = cy - (y0 + j + 0.5), ddy2 = ddy * ddy;
+    const y = y0 + j + 0.5, ddy = cy - y, ddy2 = ddy * ddy, by = sstep(yb + 70, yb + 125, y);
     for (let i = 0; i < CW; i++) {
-      const ddx = i - MX + 0.5 - cx, d = R - Math.sqrt(ddx * ddx + ddy2);
-      if (d < 0.5 || d > DC) continue;
-      const k = j * CW + i, q = k * 4 + 3;
-      if (!(l0[q] | l1[q] | l2[q])) continue;
-      const U = Math.atan2(ddx, ddy) * R, sg = sigmaOf(U);
-      // out of focus the hairlines swell and fade
-      const w1 = L.clamp((sg - 0.6) / 1.2), w2 = L.clamp((sg - 1.8) / 3.2);
-      let line = l0[q] + (l1[q] * 1.25 - l0[q]) * w1;
-      line = (line + (l2[q] * 1.7 - line) * w2) / 255 * (1 - 0.5 * L.clamp((sg - 1.5) / 5));
-      ln[k] = line;
-      // whole stretches of the network stay all but invisible; it fades out down the wall
-      const vis = sstep(-0.42, 0.34, nz.fbm(U / 430 + 71, surfV(d) / 430 - 8, 3));
-      crk[k] = line * (0.34 + 0.66 * vis) * sstep(0.5, 5, d) * (1 - sstep(DC - 90, DC, d));
+      const x = i - MX + 0.5, ddx = x - cx, d = R - Math.sqrt(ddx * ddx + ddy2);
+      if (d < 0.5 || d >= DC) continue;
+      const k = j * CW + i, q = k * 4, U = Math.atan2(ddx, ddy) * R, sig = sigmaOf(U);
+      // out of focus the hairlines spread and all but vanish, and the flakes run together
+      const w1 = L.clamp((sig - 0.6) / 1.2), w2 = L.clamp((sig - 1.8) / 3.2);
+      let tone = h0[q] + (h1[q] - h0[q]) * w1, line = h0[q + 1] + (h1[q + 1] - h0[q + 1]) * w1;
+      tone += (h2[q] - tone) * w2; line += (h2[q + 1] - line) * w2;
+      const glow = s0[q + 1] + (s2[q + 1] - s0[q + 1]) * w2;
+      const fu = (U + UMAX) / VU, iu = fu | 0, tu = fu - iu, fv = surfV(d) / VU, iv = fv | 0, tv = fv - iv, k0 = iv * UN + iu;
+      const see = (vis[k0] + (vis[k0 + 1] - vis[k0]) * tu) * (1 - tv) + (vis[k0 + UN] + (vis[k0 + UN + 1] - vis[k0 + UN]) * tu) * tv;
+      // seen edge-on where the lip rolls away, a crack all but disappears
+      const e = 1 - (d < RL ? d : RL) / RL, fore = Math.min(1, 2.2 * Math.sqrt(1 - e * e)) * sstep(0.5, 3, d);
+      // the brand line sits in the dark below the crest: the crackle is fainter still there
+      const calm = 1 - 0.62 * by * sstep(520, 640, x) * (1 - sstep(1280, 1400, x));
+      lit[k] = ((0.9 * line + 0.5 * glow) / 255 * see + TONE * (tone - 128) / 112 * (0.55 + 0.45 * see)) * fore * calm;
     }
   }
-  return { y0, hgt, crk, ln, gmod };
+  return { y0, hgt, lit, light, nick, gmod };
 }
 
 /** shade rows y0..y1 of the picture: sky above the rim, bowl wall below, dithered so the dark gradients never band */
-function paint(a, y0, y1, sky, body, F, T, gain, strata, seed) {
+function paint(a, y0, y1, sky, body, F, T, gain, seed) {
   const R = a.R, cx = a.cx, cy = a.cy;
-  const near = rimProfiles(sky, body), lvl = T.lvl, bm = T.band.m, nu = T.band.nu, st = T.band.st, last = SIG.length - 1;
+  const near = rimProfiles(sky, body), lvl = T.lvl, bm = T.swell.m, nu = T.swell.nu, lit = F.lit, light = F.light, last = SIG.length - 1;
   const hgt = y1 - y0, img = new ImageData(CW, hgt), o8 = img.data;
   let s = seed | 0 || 1, o = 0;
   for (let j = 0; j < hgt; j++) {
@@ -303,20 +444,16 @@ function paint(a, y0, y1, sky, body, F, T, gain, strata, seed) {
           const nr = ar + (br - ar) * lf, ng = ag + (bg - ag) * lf, nb = ab + (bb - ab) * lf;
           r += (nr - r) * wn; g += (ng - g) * wn; b += (nb - b) * wn;
         }
-        if (dr > 12 && dr < 432) {
-          const fu = (U + UMAX) / STU, iu = fu | 0, tu = fu - iu, ft = dr / STT, it = ft | 0, tt = ft - it, k0 = it * SUN + iu;
-          const v = 1 + strata * ((st[k0] + (st[k0 + 1] - st[k0]) * tu) * (1 - tt) + (st[k0 + SUN] + (st[k0 + SUN + 1] - st[k0 + SUN]) * tu) * tt);
-          r *= v; g *= v; b *= v;
-        }
-        if (dr < 0 && fj >= 0 && fj < F.hgt) {
-          const kI = F.crk[fj * CW + i];
-          if (kI > 0.004) { const d = -dr, w = kI * gain * (0.36 * Math.exp(-d / 40) + 0.1 * Math.exp(-d / 110)); r += 143 * w; g += 201 * w; b += 196 * w; }
+        if (dr < -0.5 && dr > -DC && fj >= 0 && fj < F.hgt) {
+          // the crackle: light leaking out of the glaze (天青; the boldest glints near the lip turn moon-white), a shade less where a flake lies darker
+          const kI = lit[fj * CW + i];
+          if (kI > 0.002 || kI < -0.002) { const w = kI * gain * light[(-dr * 4) | 0], hot = w > 0.4 ? 1 : w > 0 ? w * 2.5 : 0; r += (143 + 80 * hot) * w; g += (201 + 40 * hot) * w; b += (196 + 42 * hot) * w; }
         }
       }
-      // very fine grain (triangular noise), a little stronger in the light; doubles as dither
+      // the faintest grain (triangular noise, well under what the film grain adds later): it is the dither that keeps these dark gradients from banding
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n1 = (s >>> 0) / 4294967296;
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n2 = (s >>> 0) / 4294967296;
-      const gn = (n1 + n2 - 1) * (1.15 + 0.017 * (0.3 * r + 0.6 * g + 0.1 * b));
+      const gn = (n1 + n2 - 1) * (1.7 + 0.004 * (0.3 * r + 0.6 * g + 0.1 * b));
       o8[o] = r + gn; o8[o + 1] = g + gn; o8[o + 2] = b + gn; o8[o + 3] = 255;
     }
   }
@@ -338,7 +475,7 @@ function paintLip(a, F, T) {
   const img = new ImageData(CW, hgt), o8 = img.data;
   let s = 6021023, o = 0;
   for (let j = 0; j < hgt; j++) {
-    const ddy = cy - (y0 + j + 0.5), ddy2 = ddy * ddy, fj = y0 + j - F.y0;
+    const ddy = cy - (y0 + j + 0.5), ddy2 = ddy * ddy;
     for (let i = 0; i < CW; i++, o += 4) {
       const ddx = i - MX + 0.5 - cx, d = R - Math.sqrt(ddx * ddx + ddy2);
       o8[o] = MOON[0]; o8[o + 1] = MOON[1]; o8[o + 2] = MOON[2];
@@ -349,7 +486,7 @@ function paintLip(a, F, T) {
       const t = (dk + HR) * Q, i0 = t | 0, f = t - i0;
       const ha = A[i0] + (A[i0 + 1] - A[i0]) * f, hb = B[i0] + (B[i0 + 1] - B[i0]) * f;
       let al = (ha + (hb - ha) * lf) * inten[iu];
-      if (d > 0 && fj >= 0 && fj < F.hgt) al *= 1 - 0.6 * Math.min(1, F.ln[fj * CW + i] * 1.6);   // a crack crossing the lip nicks the highlight
+      al *= 1 - F.nick[iu] * (d > 0 ? 1 : 0.4);   // a bold crack crossing the lip nicks the highlight
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n1 = (s >>> 0) / 4294967296;
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n2 = (s >>> 0) / 4294967296;
       o8[o + 3] = al * 255 + (n1 + n2 - 1) * 0.8 + 0.5;
@@ -377,11 +514,11 @@ function bubbles(a, canvas, yTop, gain) {
 export function initOpening(env) {
   const a = env.arc, key = `${a.R}/${a.crestY}/${a.cx}`;
   if (S && S.key === key) return S;
-  const F = buildFields(a), T = { lvl: levelTable(), band: bandTable() };
+  const F = buildFields(a), T = { lvl: levelTable(), swell: swellTable() };
   const yB0 = Math.floor(a.crestY) - SAME;                      // above this row "bright" and "base" are identical
-  const fDim = L.makeRamp(SKY_DIM), skyDim = buildLut(fDim), skyBright = buildLut(handOver(L.makeRamp(SKY_BRIGHT), fDim, 590, 760));
-  const base = paint(a, -TOP, H + MX, skyDim, buildLut(L.makeRamp(BODY_DIM)), F, T, 0.42, 0.7, 90210);
-  const bright = paint(a, yB0, H + MX, skyBright, buildLut(L.makeRamp(BODY_BRIGHT)), F, T, 1, 1, 271828);
+  const fDim = smoothRamp(SKY_DIM), skyDim = buildLut(fDim), skyBright = buildLut(handOver(smoothRamp(SKY_BRIGHT), fDim, 590, 760));
+  const base = paint(a, -TOP, H + MX, skyDim, buildLut(smoothRamp(BODY_DIM)), F, T, 0.42, 90210);
+  const bright = paint(a, yB0, H + MX, skyBright, buildLut(smoothRamp(BODY_BRIGHT)), F, T, 1, 271828);
   bubbles(a, base, -TOP, 0.35);
   bubbles(a, bright, yB0, 1);
   const lip = paintLip(a, F, T);
@@ -418,7 +555,7 @@ function through(g, src, env) {
 export function drawOpening(ctx, env, { tilt = 0, k = 0 } = {}) {
   const a = env.arc, s = initOpening(env);
   const u = L.smooth(L.clamp(k) / 0.86);          // settles a few frames before the end so the loop joins cleanly
-  const zoom = 1 + 0.014 * u;
+  const zoom = 1 + ZOOM * u;
   ctx.save();
   ctx.fillStyle = '#04080f'; ctx.fillRect(0, 0, W, H);
   ctx.translate(0, tilt);
