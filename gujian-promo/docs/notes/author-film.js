@@ -12,7 +12,7 @@ const topic = { arch: '中国古建筑', coins: '中国古钱币', antiques: '�
 const scenesDir = `${PROJECT}/src/films/${film}/scenes`
 const previewDir = `${PROJECT}/build/${film}/preview`
 const storyboard = `${PROJECT}/docs/storyboard-${film}.json`
-const researchFile = `${SCRATCH}/research/${film}.json`
+const researchGlob = `${PROJECT}/docs/research/${film}-*.json`
 
 const SCHEMA = {
   type: 'object',
@@ -58,10 +58,10 @@ function prompt(id) {
    - 预览命令要加影片参数：\`cd ${PROJECT} && node tools/preview.js ${id} --film ${film}\`，输出在 ${previewDir}/${id}_sheet.jpg 和 ${previewDir}/${id}_mid.jpg。
 2. 读 ${storyboard}，找到 id 为 "${id}" 的任务单（file / name / frames / beat / tone / refDesc / brief / palette / motion / accuracy）；顺便读一下文件开头的 tagline、colourJourney，了解全片气质。
 3. 用 Read 工具看参考画面：${SCRATCH}/ref/analog/ref_${id}.jpg —— 这是参考广告片里同一位置的镜头。体会它的构图、质感密度、明暗关系（画面角落的"抖音"水印和白色英文字与你无关）。你要画的是它在本题材里的"对应物"，内容以任务单为准，不要照抄参考画面的内容。
-4. 如果 ${researchFile} 存在，读其中与你这个镜头题材相关的条目（depiction / pitfalls / captionFacts），形制以它为准；不存在就按任务单里的 accuracy 画，不要等。
+4. 看看 ${researchGlob} 是否存在（用 ls；可能有一两个文件，也可能还没生成）：存在就用 grep 找出与你这个镜头题材相关的条目来读（depiction / pitfalls / captionFacts），形制以它为准；不存在就按任务单里的 accuracy 画，不要等。
 5. 读工具库 ${PROJECT}/src/lib/core.js，以及两个范例：${PROJECT}/src/scenes/s02-liuli-wadang.js（分层预渲染 + blit 运动 + 沿弧排布）和 ${PROJECT}/src/scenes/s03-door-stud.js（微距质感：高度图浮雕光影、景深虚化背景）。
 6. 写你的场景文件。**只允许创建/修改这一个文件**（很多作者在并行写别的场景；不要动 core.js、timeline.js、player.js、tools/、docs/、别人的场景）。${id === 's01' ? OPENING : ''}
-7. 跑预览，然后用 Read 工具**亲眼查看** sheet 和 mid，对照参考画面和任务单挑毛病，修改，再渲染。至少迭代 3 轮；值得的话多迭代几轮（上限约 8 轮）。每一轮都要真的看图。
+7. 跑预览，然后用 Read 工具**亲眼查看** sheet 和 mid，对照参考画面和任务单挑毛病，修改，再渲染。至少迭代 3 轮，上限 6 轮（每轮只看 sheet 和 mid 两张图，别反复裁切放大）。每一轮都要真的看图。
 
 验收标准（自己逐条核对）：
 - 画面最显著的边缘精确落在 env.arc 上（看 sheet 第 4 格的洋红参考线），横贯全宽，弧顶在正中。
@@ -77,7 +77,7 @@ function prompt(id) {
 - 这是一支正式的宣传片，请拿出你最好的画面水准；宁可把少数元素画得有质感、有体积，也不要堆砌一堆简陋的小图形。
 - 多用"先预渲染成图层、再 blit"的做法保证性能；ImageData 级别的逐像素运算放在 init 里并降低分辨率。
 - 机器上同时有很多人在渲染，预览命令偶尔会慢，耐心等它完成；不要并行跑多个预览。
-- 完成后只返回结构化结果（最终文件已写入磁盘即可，不要把代码贴回来）。如实填写 selfCritique 和 factsUsed（凭自己记忆而未核实的要标明"未核实"）。`
+- 完成后只返回结构化结果（最终文件已写入磁盘即可，不要把代码贴回来）。selfCritique 控制在 200 字以内，只写最要紧的 3 条不足；factsUsed 最多 5 条（凭自己记忆而未核实的要标明"未核实"）；libIssues 最多 2 条。`
 }
 
 phase('Author')
@@ -86,4 +86,5 @@ const results = await parallel(ids.map(id => () =>
 ))
 const done = results.filter(Boolean)
 log(`scenes returned: ${done.length}/${ids.length}`)
-return { film, missing: ids.filter((id, i) => !results[i]), results: done }
+// compact return: details stay in the journal
+return { film, done: done.filter(r => r.status === 'done' && r.previewClean).map(r => r.id), notClean: done.filter(r => !(r.status === 'done' && r.previewClean)).map(r => r.id), missing: ids.filter((id, i) => !results[i]) }

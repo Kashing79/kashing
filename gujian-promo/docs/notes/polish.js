@@ -29,7 +29,7 @@ const CONTEXT = (id) => `项目：${PROJECT} —— 系列宣传短片之《${to
 - 任务单：${storyboard} 里 id 为 "${id}" 的那条（brief / palette / motion / accuracy / tone / beat）；场景文件就是其中 file 字段指的那个，位于 ${scenesDir}/
 - 全片调色脚本（如果文件存在）：${colourScript} —— 里面有本镜头的目标配色与相邻镜头的反差要求
 - 参考广告片同位置的镜头：${SCRATCH}/ref/analog/ref_${id}.jpg（只借它的构图、质感密度、明暗关系）
-- 资料核实文件目录（存在就查与本镜头题材相关的 depiction / pitfalls）：${SCRATCH}/research/
+- 资料核实文件目录（存在就用 grep 查与本镜头题材相关的 depiction / pitfalls；arch 用 g*.json，其他影片用 ${film}-*.json）：${PROJECT}/docs/research/
 - 预览命令：\`cd ${PROJECT} && node tools/preview.js ${id}${filmFlag}\` → ${previewDir}/${id}_sheet.jpg（2×2：开头/中间/结尾/中间+弧线与文字安全区参考线）和 ${previewDir}/${id}_mid.jpg（1920×1080 中间帧，带标语文字）
 - 相邻镜头的中间帧（硬切前后紧挨着它的画面；文件不存在就跳过）：${num(id) > 1 ? `${previewDir}/${sid(num(id) - 1)}_mid.jpg` : '（无上一镜头）'} 和 ${num(id) < 37 ? `${previewDir}/${sid(num(id) + 1)}_mid.jpg` : '（下一个是深色的片名卡）'}`
 
@@ -98,7 +98,7 @@ ${CONTEXT(id)}
 6. 如果镜头带标语（任务单 beat ≠ 0）：文字是否清晰、文字安全区是否干净、tone 是否正确。
 7. 形制准确性：对照任务单 accuracy 和资料核实文件，有没有画错的地方。
 ${notes[id] ? `\n总导演对这个镜头的特别意见（必须纳入修改清单，优先级 1）：${notes[id]}\n` : ''}
-产出要求：fixes 最多 8 条，按优先级排序，每条都要具体到"改哪里、改成什么（颜色给色值、尺寸给像素量级）"，让打磨的同事不用再猜；keep 列出已经做得好的、不许丢的东西。如果镜头已经很好、只需小修，也照实写（needsPolish 仍可为 true，只给 2—3 条小修）；只有在确实挑不出值得动的地方时才填 needsPolish=false。`
+产出要求：fixes 最多 6 条，按优先级排序，每条都要具体到"改哪里、改成什么（颜色给色值、尺寸给像素量级）"，让打磨的同事不用再猜；keep 列出已经做得好的、不许丢的东西。如果镜头已经很好、只需小修，也照实写（needsPolish 仍可为 true，只给 2—3 条小修）；只有在确实挑不出值得动的地方时才填 needsPolish=false。`
 }
 
 function polishPrompt(id, crit) {
@@ -117,7 +117,7 @@ ${CONTEXT(id)}
 1. 先备份：\`mkdir -p ${reviewDir} && cp ${scenesDir}/<file> ${reviewDir}/${id}.orig.js\`（<file> 用任务单里的文件名；如果 ${reviewDir}/${id}.orig.js 已存在就不要覆盖）。
 2. 读 AUTHORING.md、src/lib/core.js、场景文件；用 Read 看"打磨前"的图 ${reviewDir}/${id}_before_sheet.jpg 和 ${reviewDir}/${id}_before_mid.jpg，以及参考画面和相邻镜头。
 3. 按优先级实现修改清单（P1 全做，P2 尽量做，P3 看性价比）。**只允许修改这一个场景文件。** 在现有代码上改，不要推倒重写；保留清单里"必须保留"的东西。
-4. 每改一轮就跑预览、用 Read 看 sheet 和 mid，和"打磨前"的图对比。至少 2 轮，通常 3—5 轮。重点自查：
+4. 每改一轮就跑预览、用 Read 看 sheet 和 mid，和"打磨前"的图对比。至少 2 轮，上限 5 轮。重点自查：
    - 色调是否更有趣、更明确，并且与前后镜头形成强反差（看相邻镜头的中间帧）；不要把画面改脏、改灰、改花。
    - 细节收尾：边缘、接缝、高光、投影、颗粒、景深；弧线仍是最显著的边缘并且对齐（sheet 第 4 格）；带标语的镜头文字依然清晰、安全区干净。
    - 首帧、末帧没有露边穿帮；预览退出码 0、无 ERRORS；init ≤ 4000 ms、draw ≤ 120 ms/帧；没有 Math.random / Date。
@@ -162,13 +162,12 @@ const results = await pipeline(
     return agent(verifyPrompt(id, st.crit, st.pol), { label: `verify:${film}:${id}`, phase: 'Verify', schema: VERIFY_SCHEMA, agentType: 'general-purpose' }).then((ver) => ({ id, crit: st.crit, pol: st.pol, ver }))
   },
 )
+// compact return (full critiques, summaries and verdict reasons stay in the journal)
 return results.map((r, i) => r ? {
   id: ids[i],
-  scores: r.crit && r.crit.scores,
-  fixes: r.crit ? r.crit.fixes.length : 0,
+  colour: r.crit && r.crit.scores ? r.crit.scores.colourInterest : null,
   polished: !!(r.pol && r.pol.changed),
-  summary: r.pol && r.pol.summary,
   verdict: r.ver ? r.ver.verdict : (r.pol ? 'unchanged' : 'no-polish-needed'),
-  finalScore: r.ver && r.ver.finalScore,
-  remaining: r.ver ? r.ver.remaining : [],
+  score: r.ver ? r.ver.finalScore : null,
+  left: r.ver && r.ver.remaining ? r.ver.remaining.length : 0,
 } : { id: ids[i], failed: true })
