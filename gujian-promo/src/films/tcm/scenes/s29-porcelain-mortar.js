@@ -65,7 +65,7 @@ function buildBowl(env) {
     let nr;
     if (s <= s1) nr = -(s - aL) / aL;                                              // the lip: a half-round bead
     else if (s <= s2) nr = L.lerp(-(s1 - aL) / aL, -0.05, sstep(s1, s2, s));       // undercut fillet back to the wall
-    else nr = -0.05 - 0.36 * Math.pow((s - s2) / 600, 1.2);                        // the belly slowly turns under
+    else nr = -0.05 - 0.62 * Math.pow((s - s2) / 560, 1.15);                       // the deep belly turns under
     tNr[i] = nr;
     const q = (s - LIP * 0.97) / (LIP * 0.16);
     tAo[i] = 1 - 0.27 * Math.exp(-q * q);
@@ -77,7 +77,7 @@ function buildBowl(env) {
   const tW = new Float32Array(UN), tC = new Float32Array(UN), tD = new Float32Array(UN), tLip = new Float32Array(UN), tGrv = new Float32Array(UN);
   for (let i = 0; i < UN; i++) {
     const U = i - UO;
-    tW[i] = 12.5 + 3 * nA.n2(U / 430, 21.3) + 1.1 * nA.n2(U / 61, 3.3) + 0.4 * nA.n2(U / 13, 8.8);     // half-width of the cobalt line
+    tW[i] = 12.5 + 4.2 * nA.n2(U / 430, 21.3) + 1.5 * nA.n2(U / 61, 3.3) + 0.4 * nA.n2(U / 13, 8.8);     // half-width of the cobalt line
     tC[i] = 2 * nB.n2(U / 520, 4.2) + 0.6 * nB.n2(U / 47, 17.7);                                         // its centre wanders a hair
     tD[i] = 0.5 + 0.5 * nB.fbm(U / 210, 31.9, 3);                                                        // how loaded the brush was
     tLip[i] = Math.max(0, nA.fbm(U / 240, 77.1, 3) + 0.05) * 2;                                          // powder fallen on the lip
@@ -117,7 +117,7 @@ function buildBowl(env) {
   // ── pinholes (棕眼): small pits where the glaze crawled back from a burst bubble ──
   const rp = L.rng('s29pits');
   const pits = [[-585, 262, 5.2], [-95, 236, 3.6], [-430, 418, 6.2], [228, 318, 4.2], [-790, 305, 3.4], [352, 452, 5], [-20, 300, 2.6]];
-  for (let n = 0; n < 7; n++) pits.push([rp.range(-1200, 1200), rp.range(LIP * 1.9, 600), rp.range(2.2, 4.4)]);
+  for (let n = 0; n < 5; n++) pits.push([rp.range(-1200, 1200), rp.range(LIP * 1.9, 600), rp.range(2.4, 4.4)]);
   for (const [U0, s0, rad] of pits) {
     const [px, py] = toXY(U0, s0), depth = rad * 0.42, e = Math.ceil(rad * 1.6) + 2;
     for (let j = Math.max(1, Math.floor(py - e - Y0)); j <= Math.min(RH - 2, Math.ceil(py + e - Y0)); j++) {
@@ -134,38 +134,39 @@ function buildBowl(env) {
   // ── finger marks: a dusty fingertip pressed on the glaze and slipped downward — a pad with broken friction ridges
   //    and a streaky tail of dragged powder ──
   function smudge(U0, s0, ra, rb, ang, lam, strength, drag, so) {
-    const [px, py] = toXY(U0, s0), ca = Math.cos(ang), sa = Math.sin(ang), e = Math.ceil(Math.max(ra, rb) * 1.3 + drag) + 4;
+    const [px, py] = toXY(U0, s0), ca = Math.cos(ang), sa = Math.sin(ang), e = Math.ceil(Math.max(ra, rb) * 1.5 + drag) + 4;
     const i0 = Math.max(0, Math.floor(px - e - X0)), i1 = Math.min(RW - 1, Math.ceil(px + e - X0));
     const j0 = Math.max(0, Math.floor(py - e - Y0)), j1 = Math.min(RH - 1, Math.ceil(py + e - Y0));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const k = j * RW + i; if (Sa[k] < 0) continue;
       const dx = X0 + i - px, dy = Y0 + j - py, u = dx * ca + dy * sa, v = -dx * sa + dy * ca;   // u across the finger, +v the way it slipped
-      if (v < -rb * 1.3 || v > drag * 1.05 + rb || Math.abs(u) > ra * 1.5) continue;
-      const rag = 1 + 0.34 * (vn(i / 74 + so, j / 74) - 0.5) + 0.16 * (vn(i / 21, j / 21 + so) - 0.5);
-      const dd = Math.sqrt((u / ra) * (u / ra) + (v / rb) * (v / rb)) * rag;
+      if (v < -rb * 1.5 || v > drag * 1.05 + rb || Math.abs(u) > ra * 1.7) continue;
+      const rag = 1 + 0.5 * (vn(i / 96 + so, j / 96) - 0.5) + 0.22 * (vn(i / 27, j / 27 + so) - 0.5);
+      const dd = Math.sqrt((u / (u > 0 ? ra * 1.12 : ra * 0.92)) * (u / (u > 0 ? ra * 1.12 : ra * 0.92)) + (v / (v < 0 ? rb * 0.9 : rb * 1.1)) * (v / (v < 0 ? rb * 0.9 : rb * 1.1))) * rag;
       let val = 0;
-      if (dd < 1.15) {
-        const pad = 1 - sstep(0.5, 1.12, dd);
+      if (dd < 1.25) {
+        const pad = 1 - sstep(0.42, 1.2, dd);
         // gently arched ridges, warped and worn away in patches
-        const ph = Math.hypot(u * 0.9, v + rb * 1.7) + 16 * (vn(i / 64 + 3 + so, j / 64 + 7) - 0.5);
+        const ph = Math.hypot(u * 0.9, v + rb * 1.7) + 22 * (vn(i / 70 + 3 + so, j / 70 + 7) - 0.5);
         const rd = 0.5 + 0.5 * Math.cos(ph * 6.2832 / lam);
-        const keep = sstep(0.28, 0.6, vn(i / 41 + 60 + so, j / 41 + 13));
-        const q = (dd - 0.82) / 0.13;
-        const cres = Math.exp(-q * q) * sstep(-0.1, 0.8, -v / rb) * 0.5;       // a denser crescent where the pad first touched
-        val = pad * (0.34 + 0.66 * rd * rd * keep + 0.25 * (1 - keep)) * (0.55 + 0.45 * vn(i / 33 + so, j / 33 + 5)) + cres;
+        const keep = sstep(0.36, 0.62, vn(i / 52 + 60 + so, j / 52 + 13));
+        const q = (dd - 0.8) / 0.15;
+        const cres = Math.exp(-q * q) * sstep(-0.1, 0.8, -v / rb) * sstep(-0.9, 0.5, -u / ra) * 0.42;   // denser where the pad first touched
+        const side = 0.75 + 0.35 * c01(0.5 - u / (2 * ra));                                              // more powder on one side of the pad
+        val = pad * (0.4 + 0.5 * rd * rd * keep + 0.22 * (1 - keep)) * (0.5 + 0.5 * vn(i / 37 + so, j / 37 + 5)) * side + cres;
       }
       if (v > 0) {
-        const tv = v / drag, wq = u / (ra * (0.86 - 0.4 * tv));
-        const tail = Math.exp(-wq * wq * 1.4) * (1 - sstep(0.1, 1, tv)) * 0.62;
-        const tl = tail * (0.2 + 0.8 * vn(u / 4.6 + so, v / 130 + 2)) * (0.6 + 0.4 * vn(u / 17 + 9, v / 60 + so));
+        const tv = v / drag, wq = (u + 14 * Math.sin(v / 70 + so)) / (ra * (0.9 - 0.45 * tv));
+        const tail = Math.exp(-wq * wq * 1.4) * (1 - sstep(0.05, 1, tv)) * 0.6;
+        const tl = tail * (0.12 + 0.88 * vn(u / 5.2 + so, v / 150 + 2)) * (0.5 + 0.5 * vn(u / 19 + 9, v / 70 + so));
         if (tl > val) val = tl;
       }
       val *= strength;
       if (val > PM[k]) PM[k] = val;
     }
   }
-  smudge(-190, 318, 80, 104, 0.3, 11, 0.74, 250, 0);
-  smudge(96, 366, 66, 88, 0.14, 11, 0.46, 190, 40);
+  smudge(-170, 322, 84, 106, 0.3, 11.5, 0.66, 270, 0);
+  smudge(120, 372, 68, 88, 0.12, 11.5, 0.42, 200, 40);
 
   // ── pass 2: shade ──
   const img = new ImageData(RW, RH), d = img.data, simg = new ImageData(RW, RH), sd = simg.data;
@@ -178,7 +179,7 @@ function buildBowl(env) {
   for (let j = 1; j < RH - 1; j++) {
     const y = Y0 + j, ddy = cy - y, yy = y - crestY;
     // edge of the cast shadow: runs from just right of the crest diagonally down to the right, softening as it goes
-    const xb0 = 1112 + 0.84 * yy + 22 * Math.sin(yy / 150 + 0.4), pen = 26 + 0.12 * Math.max(0, yy);
+    const xb0 = 1105 + 0.86 * yy + 24 * Math.sin(yy / 150 + 0.4), pen = 54 + 0.1 * Math.max(0, yy);
     for (let i = 1; i < RW - 1; i++) {
       const k = j * RW + i; let s = Sa[k];
       if (s < -1) continue;
@@ -193,12 +194,15 @@ function buildBowl(env) {
       const Lt = LX * cs - LY * sn, Lr = LX * sn + LY * cs;
       const lit = sstep(-0.15, 0.92, ntp * Lt + nrp * Lr + nz * LZ);
       // the cast shadow over the right third (the lip stands proud, so the edge steps sideways across it)
-      const xs = x + 16 * Math.sin(Math.PI * c01(s / LIP)) * onLip + 5 * (vn(x / 90, y / 90) - 0.5);
-      const sh = sstep(xb0 - pen, xb0 + pen, xs), deep = sh * sstep(0, 900, xs - xb0);
-      const direct = lit * (1 - 0.96 * sh);
-      const ambK = sAt(tAo, s) * (1 - 0.06 * sstep(280, 640, s)) * (1 - 0.24 * deep);
-      const up = nrp > 0 ? nrp : 0;
-      const eR = 0.76 * ambK + 0.05 * up + 0.24 * direct, eG = 0.72 * ambK + 0.012 * up + 0.28 * direct, eB = 0.675 * ambK - 0.03 * up + 0.325 * direct + 0.014 * sh;
+      const xs = x + 6 * (vn(x / 90, y / 90) - 0.5);
+      const sh = sstep(xb0 - pen, xb0 + pen, xs), deep = sh * sstep(0, 700, xs - xb0);
+      // the proud lip also throws a soft band of shadow onto the wall right beneath it
+      const shl = sstep(LIP * 0.72, LIP * 0.92, s) * (1 - sstep(LIP * 1.02, LIP * 1.42, s));
+      const direct = lit * (1 - 0.97 * sh) * (1 - 0.72 * shl);
+      const ambK = sAt(tAo, s) * (1 - 0.15 * sstep(240, 640, s)) * (1 - 0.1 * sh - 0.3 * deep);
+      const up = nrp > 0 ? nrp : 0, warm = sh * Math.exp(-s / 170);
+      const eR = 0.76 * ambK + 0.05 * up + 0.24 * direct + 0.055 * warm - 0.02 * deep, eG = 0.72 * ambK + 0.012 * up + 0.28 * direct + 0.012 * warm - 0.006 * deep,
+        eB = 0.675 * ambK - 0.03 * up + 0.325 * direct - 0.03 * warm + 0.035 * deep;
 
       // ── albedo ──
       const tone = bil(cTone, i, j), hk = Hh[k];
@@ -206,16 +210,16 @@ function buildBowl(env) {
       const pq = (s - LIP * 1.05) / (LIP * 0.085), pool = Math.exp(-pq * pq);          // glaze pools a touch greener under the lip
       ar *= 1 - 0.07 * pool; ag *= 1 - 0.025 * pool; ab *= 1 - 0.01 * pool;
       // the cobalt line, painted on the wheel under the glaze
-      let jb = 0; if (U > -700 && U < -590) jb = Math.sin(Math.PI * (U + 700) / 110);  // where the brush lapped its own start
+      let blue = 0, jb = 0; if (U > -700 && U < -590) jb = Math.sin(Math.PI * (U + 700) / 110);  // where the brush lapped its own start
       const hw = uAt(tW, U) + 3 * jb, sC = SB + uAt(tC, U) + 2 * jb, e = Math.abs(s - sC) - hw;
       if (e < 18) {
         const m = 1 - sstep(-1.5, 1.5, e), halo = e > 0 ? 0.2 * Math.exp(-e / 3.6) : 0.2;
-        const dn = 0.6 + 0.3 * uAt(tD, U) + 0.16 * sstep(-hw, hw, s - sC) - 0.36 * (vn(U / 60, s / 2) - 0.5) + 0.22 * jb
+        const dn = 0.5 + 0.46 * uAt(tD, U) + 0.16 * sstep(-hw, hw, s - sC) - 0.36 * (vn(U / 60, s / 2) - 0.5) + 0.22 * jb
           + 0.28 * sstep(0.7, 0.9, vn(U / 24 + 9, s / 7 + 3));                         // heaped-and-piled dark flecks
         const t = c01((dn - 0.3) / 0.9);
         const cr = (50 - 34 * t) / 255, cg = (102 - 58 * t) / 255, cb = (196 - 80 * t) / 255;
         const mm = Math.max(m * Math.min(1, 0.55 + 0.5 * dn), halo * (1 - m));
-        ar += (cr - ar) * mm; ag += (cg - ag) * mm; ab += (cb - ab) * mm;
+        ar += (cr - ar) * mm; ag += (cg - ag) * mm; ab += (cb - ab) * mm; blue = m;
       }
       // pinholes: brown inside
       const cav = Cv[k];
@@ -225,8 +229,10 @@ function buildBowl(env) {
       const gq = (s - LIP * 1.03) / 5;
       pm += 0.45 * uAt(tGrv, U) * Math.exp(-gq * gq);
       const h1 = hash(i, j), hc = hash(i >> 1, j >> 1);
-      let ma = pm * (0.55 + 0.9 * h1);
-      if (hc < 0.00025 + 0.012 * uAt(tLip, U) * Math.exp(-s / 18)) ma = 0.75;          // single grains
+      // powder is made of grains: a thin film plus specks whose number follows the density
+      let ma = 0;
+      if (pm > 0.012) { const th = 0.13 + 0.4 * pm; ma = 0.62 * pm * (0.7 + 0.6 * h1) + 0.5 * (1 - sstep(th - 0.07, th + 0.07, vn(x / 1.7 + 11, y / 1.7 + 3))) * (0.7 + 0.3 * h1); }
+      if (hc < 0.0002 + 0.003 * uAt(tLip, U) * Math.exp(-s / 18)) ma = 0.7;          // single grains
       if (ma > 0.9) ma = 0.9;
       if (ma > 0.002) {
         const gv = 0.72 + 0.5 * hash(i + 37, j + 91);
@@ -247,10 +253,11 @@ function buildBowl(env) {
       const lc = (nrp - 0.34) / 0.12;
       sp = sp * onLip + 0.1 * Math.exp(-lc * lc) * onLip;                               // + a faint sheen all along the lip
       // soft-box reflection on the wall: a broad band and a slim companion
-      const vfade = sstep(LIP * 1.2, LIP * 1.55, s) * (1 - sstep(260, 560, s));
-      const bq = Math.abs(ntp - NT0), bq2 = Math.abs(ntp - (NT0 - 0.14));
-      sp += (0.8 * (1 - sstep(0.04, 0.072, bq)) + 0.45 * (1 - sstep(0.008, 0.022, bq2))) * vfade;
-      sp *= (1 - 0.97 * sh) * (1 - Math.min(1, ma * 1.6)) * (1 - 0.8 * cav);
+      const vfade = sstep(LIP * 1.15, LIP * 1.5, s) * (1 - sstep(250, 520, s));
+      const nb = NT0 + 0.00011 * (s - 200);                                             // the reflection leans a little as the wall turns
+      const bq = Math.abs(ntp - nb), bq2 = Math.abs(ntp - (nb - 0.14));
+      sp += (0.72 * (1 - sstep(0.04, 0.074, bq)) + 0.4 * (1 - sstep(0.008, 0.024, bq2))) * vfade * (1 - 0.5 * blue);
+      sp *= (1 - 0.97 * sh) * (1 - 0.6 * shl) * (1 - Math.min(1, ma * 1.6)) * (1 - 0.8 * cav);
       if (sp > 0.004) { sd[o] = 255; sd[o + 1] = 254; sd[o + 2] = 250; sd[o + 3] = Math.min(1, sp) * cov * 255; }
     }
   }
@@ -286,8 +293,15 @@ function buildBowl(env) {
   defocus(bowl, 1.8, (g) => ring(g, 430, 820));
   defocus(bowl, 4.2, (g) => ring(g, 760, 1250));
   defocus(spec, 2.4, (g) => ring(g, 520, 1100));
-  bowl._x0 = X0; bowl._y0 = Y0; spec._x0 = X0; spec._y0 = Y0;
-  return { bowl, spec };
+  // bloom of the highlights + a soft edge light riding the lit part of the rim (it may spill a little over the silhouette)
+  const GH = 48, gl0 = L.makeCanvas(RW, RH + GH), gg = gl0.getContext('2d');
+  gg.drawImage(spec, 0, GH);
+  gg.translate(-X0, GH - Y0);
+  gg.strokeStyle = L.linear(gg, X0, 0, X0 + RW, 0, [[0, 'rgba(255,250,238,0.5)'], [0.32, 'rgba(255,250,238,0.85)'], [0.5, 'rgba(255,250,238,0.55)'], [0.585, 'rgba(255,250,238,0)'], [1, 'rgba(255,250,238,0)']]);
+  gg.lineWidth = 5; a.stroke(gg, -2.5);
+  const glow = L.blurred(gl0, 9);
+  bowl._x0 = X0; bowl._y0 = Y0; spec._x0 = X0; spec._y0 = Y0; glow._x0 = X0; glow._y0 = Y0 - GH;
+  return { bowl, spec, glow };
 }
 
 /** the ground powder heaped behind the mortar: everything above the arc */
@@ -297,22 +311,22 @@ function buildPowder(env) {
   const PW = W + PAD * 2, PH = Math.ceil(a.yAt(X0)) + 10 - Y0, N = PW * PH;
   const nA = L.makeNoise('s29p'), nB = L.makeNoise('s29q');
   // the powder settles into a smooth hollow over the crest (the text-safe zone sits well inside it)
-  const flat = (x, y) => { const ex = (x - cx) / 600, ey = (y - (crestY - 110)) / 350; return 1 - sstep(0.74, 1.3, Math.sqrt(ex * ex + ey * ey)); };
+  const flat = (x, y) => { const ex = (x - cx) / 545, ey = (y - (crestY - 110)) / 350; return 1 - sstep(0.74, 1.3, Math.sqrt(ex * ex + ey * ey)); };
 
   // ── dunes on a coarse grid: crests run from lower left to upper right, across the light ──
   const CS = 4, gw = Math.ceil(PW / CS) + 3, gh = Math.ceil(PH / CS) + 3;
   const Hd = new Float32Array(gw * gh), Fl = new Float32Array(gw * gh), Cv = new Float32Array(gw * gh), Lc = new Float32Array(gw * gh);
-  const WL = 430, RISE = 0.7;
+  const WL = 390, RISE = 0.72;
   for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
     const x = X0 + i * CS, y = Y0 + j * CS, k = j * gw + i, f = flat(x, y);
     Fl[k] = f;
     const p = x * 0.788 - y * 0.616, q = x * 0.616 + y * 0.788;          // along the crests / across them (toward the lee side)
-    let ph = (q + 120 * nA.fbm(x / 620 + 5, y / 620 - 2, 2)) / WL + 0.3 * nA.fbm(p / 900 + 3, q / 700, 2) + 0.18;
+    let ph = (q + 80 * nA.fbm(x / 620 + 5, y / 620 - 2, 2)) / WL + 0.2 * nA.fbm(p / 900 + 3, q / 700, 2) + 0.3;
     ph -= Math.floor(ph);
-    const prof = ph < RISE ? 0.5 - 0.5 * Math.cos(Math.PI * ph / RISE) : 0.5 + 0.5 * Math.cos(Math.PI * (ph - RISE) / (1 - RISE));   // long windward slope, short slip face
-    const amp = 44 * (0.5 + 0.5 * c01(0.5 + 0.9 * nB.fbm(x / 520 + 7, y / 520 + 1, 2)));
+    const prof = ph < RISE ? Math.pow(ph / RISE, 1.3) : Math.pow(1 - (ph - RISE) / (1 - RISE), 1.8);   // long windward slope, sharp crest, short slip face
+    const amp = 40 * (0.72 + 0.28 * c01(0.5 + 0.9 * nB.fbm(x / 520 + 7, y / 520 + 1, 2)));
     const big = nA.fbm(x / 900 + 3, y / 620 + 9, 2), sm = nB.fbm(x / 130 + 13, y / 105 - 7, 2);
-    Hd[k] = (amp * prof + 22 * big + 4 * sm) * (1 - 0.975 * f) + 1.1 * sm * f;
+    Hd[k] = (amp * prof + 14 * big + 4 * sm) * (1 - 0.975 * f) + 1.1 * sm * f;
     Cv[k] = nA.fbm(x / 300 - 20, y / 300 + 40, 3);
   }
   const hAt = (fx, fy) => {
@@ -330,7 +344,7 @@ function buildPowder(env) {
     const nd = (-hx * lx - hy * ly + lz) / Math.sqrt(1 + hx * hx + hy * hy);
     let occ = 0; const h0 = Hd[k];
     for (let t = 1; t <= 20; t++) { const dd = t * 7, o = hAt(i - 0.78 * dd / CS, j - 0.62 * dd / CS) - h0 - dd * tanE; if (o > occ) occ = o; }
-    Lc[k] = Math.max(0.1, nd) * 1.1 * (1 - 0.5 * sstep(0, 9, occ));
+    Lc[k] = Math.max(0.2, nd) * 1.1 * (1 - 0.42 * sstep(0, 9, occ));
   }
   const bil = (src, i, j) => {
     const fx = i / CS, fy = j / CS, i0 = fx | 0, j0 = fy | 0, tx = fx - i0, ty = fy - j0, k = j0 * gw + i0;
@@ -347,7 +361,7 @@ function buildPowder(env) {
       const x = X0 + i, ddx = x - cx;
       if (ddx * ddx + ddy * ddy < Rin) continue;
       const k = j * PW + i;
-      Hm[k] = 1.5 * vn(x / 23, y / 20) * (1 - 0.6 * bil(Fl, i, j)) + 0.9 * vn(x / 6.3 + 20, y / 5.9 + 11) + 0.45 * hash(i, j);
+      Hm[k] = 1.7 * vn(x / 23, y / 20) * (1 - 0.6 * bil(Fl, i, j)) + 1.1 * vn(x / 6.3 + 20, y / 5.9 + 11) + 0.5 * hash(i, j);
     }
   }
   // clods, dark coarse grains and pale chips: a bump in the height field, a tint, and a short shadow to the lower right
@@ -386,7 +400,7 @@ function buildPowder(env) {
   }
 
   // ── shade ──
-  const ramp = L.makeRamp([[0, '#2a1709'], [0.115, '#422711'], [0.23, '#5d3a1b'], [0.33, '#744a23'], [0.423, '#8a5a2e'], [0.577, '#a66f37'], [0.73, '#bd8646'], [0.92, '#d09c5a'], [1, '#d9a866']]);
+  const ramp = L.makeRamp([[0, '#2a1709'], [0.115, '#422711'], [0.23, '#5d3a1b'], [0.33, '#744a23'], [0.423, '#8a5a2e'], [0.577, '#a96d33'], [0.73, '#c2853f'], [0.92, '#d59b50'], [1, '#dca75c']]);
   const NL = 1024, lut = new Float32Array(NL * 3);
   for (let i = 0; i < NL; i++) { const c = ramp(i / (NL - 1)); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const img = new ImageData(PW, PH), d = img.data;
@@ -428,7 +442,7 @@ function buildPowder(env) {
   // depth of field: the heap falls out of focus as it recedes from the rim
   const band = (g, d0, d1) => { g.fillStyle = L.radial(g, cx - X0, cy - Y0, R + d0, R + d1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); g.fillRect(0, 0, PW, PH); };
   defocus(c, 2, (g) => band(g, 70, 260));
-  defocus(c, 5, (g) => band(g, 240, 640));
+  defocus(c, 3.2, (g) => band(g, 360, 820));
   c._x0 = X0; c._y0 = Y0;
 
   // a few grains that catch the light (drawn live so they can twinkle)
@@ -455,9 +469,9 @@ export default {
   name: '白瓷研钵',
   tone: 'light',
   init(env) {
-    const { bowl, spec } = buildBowl(env);
+    const { bowl, spec, glow } = buildBowl(env);
     const { powder, sparks } = buildPowder(env);
-    S = { bowl, spec, powder, sparks };
+    S = { bowl, spec, glow, powder, sparks };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -476,6 +490,10 @@ export default {
     // the mortar: surface detail slides along the arc …
     put(ctx, a, S.bowl, rot);
     // … and the glossy highlights drift a little further than the glaze they sit on
-    put(ctx, a, S.spec, rot + L.lerp(-0.0055, 0.0055, p));
+    const rs = rot + L.lerp(-0.0055, 0.0055, p);
+    put(ctx, a, S.spec, rs);
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.55;
+    put(ctx, a, S.glow, rs);
+    ctx.restore();
   },
 };

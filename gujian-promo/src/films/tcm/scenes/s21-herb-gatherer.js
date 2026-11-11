@@ -429,7 +429,7 @@ function buildRidge(env) {
   const objs = L.makeLayer(PAD, (g) => {
     g.fillStyle = INK; g.strokeStyle = INK;
     // scrub and small grass clumps along the ridge (none under the text zone)
-    for (const [x, w, h] of [[-40, 56, 10], [286, 46, 7], [398, 40, 8], [706, 44, 5], [846, 34, 4], [1058, 50, 4.5], [1236, 40, 5.5], [1470, 52, 8], [1508, 36, 9], [1702, 44, 8], [1880, 40, 7], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x, Math.abs(x - 960) > 340);   // bare low mounds under the text zone
+    for (const [x, w, h] of [[-40, 56, 10], [286, 46, 7], [398, 40, 8], [706, 44, 5], [1236, 40, 5.5], [1470, 52, 8], [1508, 36, 9], [1702, 44, 8], [1880, 40, 7], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x);
     for (const [x, sz] of [[78, 26], [330, 22], [452, 20], [636, 16], [1318, 19], [1490, 24], [1668, 22], [1870, 26], [1990, 30]]) grassClump(g, x, on(x), sz, 'gc' + x, 0);
     // the two or three low clumps of grass on the right
     grassClump(g, 1392, on(1392), 56, 'A', 2);
@@ -477,19 +477,32 @@ function buildRidge(env) {
   });
 }
 
+/** halation: the sky above the ridge, blurred, to be screened back over the frame so the light eats a little into every dark edge */
+const HP = 40;
+function buildHalo(env, sky) {
+  const c = L.makeCanvas(W + HP * 2, H + HP * 2), g = c.getContext('2d');
+  g.drawImage(sky, HP, HP);
+  // stretch the border pixels outward so the blur does not fade toward the frame edges
+  g.drawImage(sky, 0, 0, 1, H, 0, HP, HP, H); g.drawImage(sky, W - 1, 0, 1, H, W + HP, HP, HP, H);
+  g.drawImage(sky, 0, 0, W, 1, HP, 0, W, HP);
+  g.translate(HP, HP);
+  env.arc.fillBelow(g, '#000', -1);                   // no light comes from inside the mountain
+  return L.blurred(c, 15);
+}
+
 export default {
   name: '采药人剪影',
   tone: 'light',
   init(env) {
-    S = { sky: buildSky(env), ridge: buildRidge(env) };
+    const sky = buildSky(env);
+    S = { sky, halo: buildHalo(env, sky), ridge: buildRidge(env) };
   },
   draw(ctx, env, p) {
-    const a = env.arc;
     ctx.drawImage(S.sky, 0, 0);                              // the afterglow does not move
     const rot = L.lerp(-0.0055, 0.0065, p);                  // man and pine drift along the ridge
     L.blit(ctx, env, S.ridge, { rot });
-    // a little flare spilling over the crest where the light is strongest
-    const gp = a.pt(U0 / a.R, 10);
-    L.glow(ctx, gp.x, gp.y, 460, '#f2541b', 0.07);
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.11;
+    ctx.drawImage(S.halo, -HP, -HP);
+    ctx.restore();
   },
 };

@@ -204,8 +204,8 @@ function torso(g, N, P, st, o = {}) {
   const at = (s, d) => [N[0] + ax[0] * s + q[0] * d, N[1] + ax[1] * s + q[1] * d];   // s down the spine, d toward the child's front
   const poly = cr([at(-6, -24), at(14, -50), at(len * 0.5, -55), at(len + 16, -71), at(len + 31, -36), at(len + 36, 4), at(len + 28, 46), at(len + 12, 68), at(len * 0.56, 61), at(18, 47), at(-6, 22)], true, 5);
   const folds = [
-    [at(48, 12), at(len * 0.62, 21), at(len + 30, 27)],
-    [at(len * 0.5, -51), at(len * 0.78, -33), at(len + 24, -43)],
+    [at(74, -27), at(len * 0.74, -19), at(len + 30, -13)],              // the closing edge, down the wearer's right side
+    [at(len * 0.56, -53), at(len * 0.8, -41), at(len + 20, -50)],
     [at(len * 0.66, 58), at(len * 0.84, 42), at(len + 22, 50)],
   ];
   piece(g, poly, {
@@ -217,8 +217,9 @@ function torso(g, N, P, st, o = {}) {
     piece(g, t.poly, { base: o.sash.base, deep: o.sash.deep, ew: 0.3, outline: false });
     ink(g, t.left, 1.9, { taper: [0.03, 0.03], color: o.sash.line }); ink(g, t.right, 1.9, { taper: [0.03, 0.03], color: o.sash.line });
   }
-  // crossed lapels in the trim colour
-  for (const cpts of [[at(-8, 22), at(18, 20), at(46, 6)], [at(-8, -24), at(20, -16), at(48, 5), at(72, 30)]]) {
+  // crossed lapels in the trim colour, closing to the wearer's right (右衽): in this view the child's left side is the far one,
+  // so the upper lapel starts at the far side of the neck and runs down toward the near armpit
+  for (const cpts of [[at(-8, -22), at(18, -20), at(46, -6)], [at(-8, 24), at(20, 16), at(48, -5), at(72, -30)]]) {
     const t = tube(cpts, cpts.map(() => 12.5));
     piece(g, t.poly, { base: st.trim.base, deep: st.trim.deep, ew: 0.3, outline: false });
     ink(g, t.left, 1.8, { taper: [0.03, 0.03], color: st.trim.line }); ink(g, t.right, 1.8, { taper: [0.03, 0.03], color: st.trim.line });
@@ -618,7 +619,7 @@ function buildGloss(env) {
         // light catching the thickness of the green enamel: a broken streak that follows the slope
         const u = Math.atan2(ddx, ddy) * a.R, d0 = dr + 58 + 5 * nz.n2(u / 120, 4.4);
         const brk = ss(-0.25, 0.35, nz.n2(u / 46, dr / 16 + 30));
-        v = 0.34 * Math.exp(-(d0 * d0) / (2 * 8.5 * 8.5)) * brk * Math.exp(-Math.pow((u + 260) / 620, 2));
+        v = 0.42 * Math.exp(-(d0 * d0) / (2 * 8.5 * 8.5)) * brk * Math.exp(-Math.pow((u + 260) / 620, 2));
       } else if (dr < -150) {
         const u = Math.atan2(ddx, ddy) * a.R;
         const wob = 2.2 * nz.n2(u / 70, dr / 70) + 0.9 * nz.n2(u / 22 + 9, dr / 22);     // the glaze's orange-peel just ruffles the reflection's edge
@@ -657,13 +658,13 @@ export default {
   draw(ctx, env, p) {
     // the painted wall turns slowly: children and slope slide along the arc
     const rot = L.lerp(-0.015, 0.015, p);
-    L.blit(ctx, env, S.surface, { rot });
+    L.blit(ctx, env, S.surface, { rot, zoom: L.lerp(1.0, 1.014, p) });
     // the light does not turn with it: the wall rolls away toward the bottom and the corners …
     ctx.save(); ctx.globalCompositeOperation = 'multiply';
     const a = env.arc;
     ctx.fillStyle = L.radial(ctx, 760, 260, 300, 1750, [[0, '#ffffff'], [0.55, '#fcf7ec'], [1, '#f2e6cd']]);
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 660, a.R - 150, [[0, '#e2d6bd'], [0.36, '#f1e9d7'], [0.62, '#f4eddd'], [0.86, '#f8f3e7'], [1, '#ffffff']]);
+    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 660, a.R - 150, [[0, '#e7dcc5'], [0.36, '#f2ebda'], [0.62, '#f4eddd'], [0.86, '#f8f3e7'], [1, '#ffffff']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
     // … and the windows' reflections lie still on the glaze

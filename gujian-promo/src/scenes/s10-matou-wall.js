@@ -454,48 +454,71 @@ function build(env) {
   const T = buildTextures();
   const tmp = L.makeLayer(PAD);
 
-  // Pushed right in on one great 五叠 gable: five wall-heads stepping symmetrically up to the crest, the outermost
-  // pair of a second gable behind it closing the frame edges → seven tiers in all, every 鹊尾 tip on the arc.
-  const K = 3, KB = 2.5;
-  const wC = renderWall(T, tmp, { tiers: symTiers(a, K, [190, 500, 790]), k: K, seed: 's10C', cracks: 5, chips: 1, moss: true,
-    patches: [[cx - 540, 975, 24], [cx + 410, 1030, 13]] });
-  const wL = renderWall(T, tmp, { tiers: sideTiers(a, KB, [-1080], -640), k: KB, seed: 's10L', haze: 0.12, cracks: 2, chips: 0,
-    patches: [[cx - 905, 1010, 16]] });
-  const wR = renderWall(T, tmp, { tiers: sideTiers(a, KB, [1080], 640), k: KB, seed: 's10R', haze: 0.12, cracks: 2, chips: 0 });
+  // far → near. every tip sits on the arc; walls further back are smaller in detail and paler (aerial haze = a breath of sky).
+  // Strictly mirrored about the crest, so the visible tips fall at ±120, ±290, ±455, ±640, ±790, ±915: twelve teeth, 125–240 px apart.
+  const wLL = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [-1040, -1160, -1280, -1400], -860), k: 0.7, seed: 's10LL', haze: 0.18, cracks: 2, chips: 0 });
+  const wRR = renderWall(T, tmp, { tiers: sideTiers(a, 0.7, [1040, 1160, 1280, 1400], 860), k: 0.7, seed: 's10RR', haze: 0.18, cracks: 2, chips: 0 });
+  const wL = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [-790, -915], -560), k: 0.9, seed: 's10L', haze: 0.1, cracks: 4, chips: 1,
+    windows: [[cx - 668, 842, 1]], patches: [[cx - 806, 914, 34]] });
+  const wR = renderWall(T, tmp, { tiers: sideTiers(a, 0.9, [790, 915], 560), k: 0.9, seed: 's10R', haze: 0.1, cracks: 4, chips: 1,
+    windows: [[cx + 686, 864, 0.95]], patches: [[cx + 812, 930, 44]] });
+  // a second rank just showing its caps over the main wall's shoulders
+  const wPL = renderWall(T, tmp, { tiers: sideTiers(a, 0.8, [-290], -50), k: 0.8, seed: 's10PL', haze: 0.1, cracks: 0, chips: 0 });
+  const wPR = renderWall(T, tmp, { tiers: sideTiers(a, 0.8, [290], 50), k: 0.8, seed: 's10PR', haze: 0.1, cracks: 0, chips: 0 });
+  // the front wall: 五叠, wounds only at its foot and corners
+  const wC = renderWall(T, tmp, { tiers: symTiers(a, 1.05, [120, 455, 640]), k: 1.05, seed: 's10C', cracks: 7, chips: 1, moss: true,
+    windows: [[cx - 318, 762, 0.92], [cx + 262, 778, 0.85]], patches: [[cx - 478, 902, 56], [cx + 470, 928, 26]] });
 
-  // the rear gable: a touch out of focus, and in the front wall's sky-blue shadow (one sun, upper left)
+  // one sun, upper left: every wall throws the same sky-blue shadow (34, 18) onto whatever stands behind it
   const far = L.makeLayer(PAD, (g) => {
-    g.drawImage(wL, -PAD, -PAD); g.drawImage(wR, -PAD, -PAD);
-    stack(g, wC, { alpha: 0.36, draw: false, dx: 64, dy: 30, blur: 5 });
+    g.drawImage(wLL, -PAD, -PAD); g.drawImage(wRR, -PAD, -PAD);
+    stack(g, wL); stack(g, wR);
+    stack(g, wPL); stack(g, wPR);
+    stack(g, wC, { alpha: 0.34, draw: false });
   });
-  const main = L.makeLayer(PAD, (g) => { g.drawImage(wC, -PAD, -PAD); });
 
-  // one sun for the whole wall: warm and bright from the upper left, cooler toward the lower right; rising damp at the foot
-  for (const lay of [far, main]) {
+  // foreground: a row of tiled roofs stepping up toward the centre, an echo of the skyline
+  const r = L.rng('s10roof');
+  const near = L.makeLayer(PAD, (g) => {
+    const roofs = [
+      [cx - 1420, cx - 870, 1018], [cx + 850, cx + 1420, 1030],
+      [cx - 905, cx - 300, 948], [cx + 300, cx + 885, 960],
+      [cx - 345, cx + 332, 894],
+    ];
+    const one = L.makeLayer(PAD); const og = one.getContext('2d');
+    for (const [x0, x1, yR] of roofs) {
+      clearLayer(one); drawRoof(og, r, x0, x1, yR, 1.5);
+      stack(g, one, { alpha: 0.55, dx: 16, dy: 8, color: '#090d12', q: 8, blur: 1.6 });
+    }
+    // lichen, dust and uneven firing over all the tiles
+    g.globalCompositeOperation = 'source-atop';
+    g.globalAlpha = 0.5;
+    g.drawImage(tex({ seed: 's10rf', scale: 120, octaves: 4, warp: 0.6, res: 0.2,
+      ramp: [[0, 'rgba(0,0,0,0.55)'], [0.45, 'rgba(0,0,0,0)'], [0.62, 'rgba(127,163,182,0)'], [1, 'rgba(127,163,182,0.32)']] }), -PAD, Y0);
+    g.globalAlpha = 1;
+    L.speckle(g, { seed: 's10lich', count: 2200, x: -PAD, y: 820, w: LW, h: 520, rMin: 0.5, rMax: 2.4, colors: ['#8a938a', '#7f8f6c', '#aab0a6', '#566546'], alpha: [0.1, 0.42] });
+    g.globalCompositeOperation = 'source-over';
+  });
+
+  const main = L.makeLayer(PAD, (g) => {
+    g.drawImage(wC, -PAD, -PAD);
+    // the alley between this wall and the roofs in front is dim
+    stack(g, near, { alpha: 0.22, dx: 0, dy: -12, draw: false });
+  });
+  const g2 = far.getContext('2d');
+  stack(g2, near, { alpha: 0.22, dx: 0, dy: -12, draw: false });
+
+  // one sun for the whole village: warm and bright from the upper left, cooler and dimmer toward the lower right
+  for (const lay of [far, main, near]) {
     const g = lay.getContext('2d');
     g.globalCompositeOperation = 'source-atop';
     g.fillStyle = L.linear(g, 200, 520, 1750, 1120, [[0, 'rgba(255,244,224,0.10)'], [0.45, 'rgba(255,244,224,0)'], [0.6, 'rgba(22,110,150,0)'], [1, 'rgba(22,110,150,0.14)']]);
     g.fillRect(-PAD, -PAD, LW, LH);
-    g.globalCompositeOperation = 'multiply';
-    g.fillStyle = L.linear(g, 0, 880, 0, H + 40, [[0, '#ffffff'], [1, '#c3d0d2']]);
-    g.fillRect(-PAD, 880, LW, LH);
     g.globalCompositeOperation = 'source-over';
   }
 
-  // depth of field: sharp on the crest, falling soft toward the frame's foot and flanks
-  const dof = (lay, px, r0, r1) => {
-    const b = L.blurred(lay, px); const bg = b.getContext('2d');
-    bg.globalCompositeOperation = 'destination-in';
-    bg.fillStyle = L.radial(bg, cx + PAD, 430 + PAD, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
-    bg.fillRect(0, 0, b.width, b.height);
-    const g = lay.getContext('2d');
-    g.drawImage(b, -PAD, -PAD);
-    return lay;
-  };
-  dof(main, 4, 420, 1250);
-  const farSoft = dof(L.makeLayer(PAD, (g) => g.drawImage(L.blurred(far, 1.6), -PAD, -PAD)), 5, 300, 1000);
-
-  // one flat peacock-blue sky, a single value corner to corner (only paper grain)
+  // one flat peacock-blue sky, a single value corner to corner (only paper grain): the wedges between the wall-heads
+  // show nothing but this, so the saw-tooth skyline itself is what draws the arc
   const sky = L.makeCanvas(W, H);
   {
     const g = sky.getContext('2d');
@@ -505,7 +528,7 @@ function build(env) {
     g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.3;
     g.drawImage(L.grainTex(W, H, { seed: 's10sg', amount: 0.14 }), 0, 0);
   }
-  return { back: sky, far: farSoft, main };
+  return { back: sky, far, main, near: L.blurred(near, 0.8) };
 }
 
 /** L.blit for these layers, but rasterising only the rows that hold anything (above frame row TOP0 they are empty sky) */
@@ -534,5 +557,6 @@ export default {
     ctx.drawImage(S.back, 0, 0);
     blitLow(ctx, env, S.far, rot * 0.72, 1 + (z - 1) * 0.7);
     blitLow(ctx, env, S.main, rot, z);
+    blitLow(ctx, env, S.near, rot * 1.4, 1 + (z - 1) * 1.5);
   },
 };

@@ -136,9 +136,10 @@ function buildLand(env, sunX) {
     hang('s01gullyW', 40, '#ff7a50', (x) => a.yAt(x, -36));
     // nearer ridges stepping down toward the camera; the haze between them cools from ember red to 石青 as it leaves the light
     const nz = L.makeNoise('s01ridge');
-    const ridges = [[70, 0.9, '#1a0c12', 'rgba(190,60,40,', 0.2, '#ff7a5a'], [170, 1.6, '#110a12', 'rgba(120,50,96,', 0.15, '#d878a8'],
-      [300, 2.4, '#0a0810', 'rgba(52,70,140,', 0.12, '#8c8ce0'], [450, 3.1, '#050508', 'rgba(30,48,104,', 0.1, '#6f86d8']];
-    ridges.forEach(([drop, freq, col, mistCol, mist, tint], k) => {
+    const ridges = [[70, 0.9, '#1a0c12', [190, 60, 40], 0.2, '#ff7a5a'], [170, 1.6, '#110a12', [120, 50, 96], 0.15, '#d878a8'],
+      [300, 2.4, '#0a0810', [52, 70, 140], 0.12, '#8c8ce0'], [450, 3.1, '#050508', [30, 48, 104], 0.1, '#6f86d8']];
+    const Q = 4, bw = Math.ceil((X1 - X0) / Q), bh = Math.ceil((H + PAD * 2) / Q); // the mist is worked out at quarter resolution
+    ridges.forEach(([drop, freq, col, mistRGB, mist, tint], k) => {
       const pts = [], disp = [];
       for (let i = 0; i <= N; i++) {
         const u = i / N, x = L.lerp(X0, X1, u);
@@ -152,20 +153,28 @@ function buildLand(env, sunX) {
       g.save(); trace(); g.clip();
       g.fillStyle = col; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 3);
       g.restore();
-      // mist pooled in the valley behind this ridge: thicker where the crest dips and we see further in.
-      // (One soft sprite stamped many times, not many gradient fills: the browser dithers every gradient with the same ordered
-      // pattern, and dozens of them stacked on a near-black ground add up to a visible weave.)
-      const puff = L.makeCanvas(256, 256), pg = puff.getContext('2d');
-      pg.fillStyle = L.radial(pg, 128, 128, 0, 128, [[0, `${mistCol}1)`], [1, `${mistCol}0)`]]); pg.fillRect(0, 0, 256, 256);
-      g.save();
-      g.globalCompositeOperation = 'screen';
+      // mist pooled in the valley behind this ridge: thicker where the crest dips and we see further in. The puffs are summed in
+      // floats and screened on in ONE pass: the browser dithers every gradient fill with the same ordered pattern, and dozens of
+      // faint ones stacked on a near-black ground add up to a visible weave.
+      const P = [0, 1, 2].map(() => new Float32Array(bw * bh).fill(1));
       for (let i = 0; i <= N; i += 12) {
         const [x, y] = pts[i];
         const pool = L.clamp(0.75 + disp[i] / 70 + 0.35 * nz.n2(i * 0.021 + k * 3.7, 9.4), 0.3, 1.5);
-        const r = 150 * (0.8 + 0.25 * pool);
-        g.globalAlpha = mist * (k ? 0.56 : 0.44) * pool;
-        g.drawImage(puff, x - r, y - 8 - r, r * 2, r * 2);
+        const rb = 150 * (0.8 + 0.25 * pool) / Q, al = mist * (k ? 0.56 : 0.44) * pool;
+        const bx = (x - X0) / Q - 0.5, by = (y - 8 + PAD) / Q - 0.5;
+        for (let j = Math.max(0, Math.floor(by - rb)); j <= Math.min(bh - 1, Math.ceil(by + rb)); j++) {
+          for (let i2 = Math.max(0, Math.floor(bx - rb)); i2 <= Math.min(bw - 1, Math.ceil(bx + rb)); i2++) {
+            const f = 1 - Math.hypot(i2 - bx, j - by) / rb;
+            if (f <= 0) continue;
+            for (let c = 0; c < 3; c++) P[c][j * bw + i2] *= 1 - al * f * mistRGB[c] / 255;
+          }
+        }
       }
+      const haze = new ImageData(bw, bh);
+      for (let j = 0; j < bw * bh; j++) { for (let c = 0; c < 3; c++) haze.data[j * 4 + c] = 255 * (1 - P[c][j]); haze.data[j * 4 + 3] = 255; }
+      const hc = L.makeCanvas(bw, bh); hc.getContext('2d').putImageData(haze, 0, 0);
+      g.save(); g.globalCompositeOperation = 'screen'; g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(hc, X0, -PAD, bw * Q, bh * Q);
       g.restore();
       g.save(); trace(); g.clip(); g.fillStyle = col; g.globalAlpha = 0.8; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 3); g.restore();
       hang('s01gully' + k, 46 + k * 12, tint, yFn);

@@ -120,7 +120,7 @@ function arcPull(g, a, t0, t1, widthAt, loadAt, drOf, key, NB = 24) {
   }
 }
 /** how far a twig may climb: it may only just butt the rim under the caption; far out to the sides it may poke through */
-const tipLimit = (a) => (x) => { const d = Math.abs(x - a.cx); return d < 430 ? -1.5 : L.lerp(-1.5, 56, L.smooth((d - 430) / 130)); };
+const tipLimit = (a) => (x) => { const d = Math.abs(x - a.cx); return d < 430 ? -1.5 : L.lerp(-1.5, 30, L.smooth((d - 430) / 130)); };
 function capTo(a, x0, y0, x1, y1, lim) {
   let bx = x0, by = y0;
   for (let i = 1; i <= 32; i++) {
@@ -137,8 +137,8 @@ function drawRim(g, gl, a) {
   const r = L.rng('s35q-rim');
   // first pull: enters from the left, presses twice (顿), thins, runs dry into flying-white and lifts off right of centre
   arcPull(g, a, -s, 0.322,
-    (th) => (25 + 10 * bump(th, -0.345, 0.04) + 7 * bump(th, -0.045, 0.07) - 7 * bump(th, -0.2, 0.06) + 3.5 * bump(th, 0.085, 0.03) - 5 * sstep(0.13, 0.29, th) + 2.2 * NZ.n2(th * 16, 2.2)) * (1 - 0.7 * sstep(0.288, 0.322, th)),
-    (th) => 1.1 - 0.36 * bump(th, -0.21, 0.05) - 0.62 * sstep(0.12, 0.25, th) - 0.2 * sstep(0.29, 0.322, th),
+    (th) => (25 + 10 * bump(th, -0.345, 0.04) + 7 * bump(th, -0.045, 0.07) - 7 * bump(th, -0.2, 0.06) + 3.5 * bump(th, 0.085, 0.03) - 3 * sstep(0.13, 0.29, th) + 2.2 * NZ.n2(th * 16, 2.2)) * (1 - 0.7 * sstep(0.288, 0.322, th)),
+    (th) => 1.1 - 0.36 * bump(th, -0.21, 0.05) - 0.54 * sstep(0.12, 0.25, th) - 0.2 * sstep(0.29, 0.322, th),
     (th) => 1.2 * NZ.n2(th * 7, 4.4) - 0.2, 1.7, 30);
   // second pull (复笔): brush re-charged, set down again a touch low, overlapping the dry tail
   arcPull(g, a, 0.262, s,
@@ -187,39 +187,43 @@ function bud(g, r, x, y, R, ang, sd) {
   blot(g, x - Math.cos(ang) * R * 0.95, y - Math.sin(ang) * R * 0.95, R * 0.45, sd + 1);
 }
 function drawPlum(g, gl, a) {
-  const r = L.rng('s35q-plum-2'), lim = tipLimit(a);
-  // old wood: angular, a knuckle at every turn; dragged with a dry brush (枯笔) and edged with two quick lines
+  const r = L.rng('s35q-plum-3'), lim = tipLimit(a);
+  // old wood: gnarled and tapering. One dry drag of the brush up the limb (枯笔), then its two edges in broken lines that never quite agree
   const TR = [
-    { pts: [[985, 1210], [1012, 990], [928, 864], [988, 742], [942, 652]], w: 44 },
-    { pts: [[1084, 1210], [1112, 1012], [1182, 884], [1150, 764], [1214, 668]], w: 31 },
-    { pts: [[930, 1210], [880, 1056], [800, 948], [812, 826], [758, 728]], w: 20 },
+    { pts: [[978, 1210], [1000, 1080], [1018, 985], [960, 905], [930, 858], [972, 790], [990, 738], [958, 690], [940, 650]], w: 46 },
+    { pts: [[1090, 1210], [1104, 1090], [1116, 1010], [1160, 930], [1184, 880], [1160, 815], [1150, 762], [1186, 710], [1214, 668]], w: 32 },
+    { pts: [[936, 1210], [900, 1110], [878, 1052], [826, 990], [800, 946], [812, 880], [810, 824], [780, 770], [758, 728]], w: 21 },
   ];
-  const seg = (p0, p1, w, sd) => {
-    const dx = p1[0] - p0[0], dy = p1[1] - p0[1], l = Math.hypot(dx, dy), ux = dx / l, uy = dy / l, nx = -uy, ny = ux;
-    const q0 = [p0[0] - ux * w * 0.3, p0[1] - uy * w * 0.3], q1 = [p1[0] + ux * w * 0.4, p1[1] + uy * w * 0.4];
-    const bow = r.range(-0.05, 0.05) * l, mid = [(q0[0] + q1[0]) / 2 + nx * bow, (q0[1] + q1[1]) / 2 + ny * bow];
-    brush(g, [q0, mid, q1], { w, prof: 'flat', dry: 0.62, wob: 0.3, wlen: 70, seed: sd, cap: false });
-    const e = w * 0.5, sg = nx > 0 ? 1 : -1;       // the edge away from the light is the heavier one
-    brush(g, [[q0[0] + sg * nx * e, q0[1] + sg * ny * e], [mid[0] + sg * nx * e * 1.06, mid[1] + sg * ny * e * 1.06], [q1[0] + sg * nx * e * 0.9, q1[1] + sg * ny * e * 0.9]], { w: Math.max(6, w * 0.26), dry: 0.22, tout: 0.2, jit: 2, seed: sd + 0.3 });
-    brush(g, [[q0[0] - sg * nx * e, q0[1] - sg * ny * e], [mid[0] - sg * nx * e * 1.06, mid[1] - sg * ny * e * 1.06], [q1[0] - sg * nx * e * 0.9, q1[1] - sg * ny * e * 0.9]], { w: Math.max(4.5, w * 0.16), dry: 0.42, tout: 0.3, jit: 2, seed: sd + 0.6 });
-  };
   TR.forEach((t, ti) => {
-    const n = t.pts.length - 1;
-    for (let i = 0; i < n; i++) seg(t.pts[i], t.pts[i + 1], t.w * L.lerp(1, 0.5, i / (n - 1)), 100 + ti * 20 + i);
-    // scars at the knuckles (节疤) and moss dots (苔点)
-    for (let i = 1; i < n; i++) {
-      const [kx, ky] = t.pts[i], R = t.w * L.lerp(0.36, 0.26, i / n), pts = [];
-      for (let j = 0; j <= 9; j++) { const an = 0.6 + (L.TAU * 0.86 * j) / 9; pts.push([kx + Math.cos(an) * R, ky + Math.sin(an) * R * 0.8]); }
-      brush(g, pts, { w: 5, tout: 0.3, dry: 0.3, seed: 160 + ti * 9 + i, step: 2.5 });
-      for (let k = 0; k < 2; k++) blot(g, kx + r.sign() * r.range(0.7, 1.2) * t.w, ky + r.range(-1.2, 1.2) * t.w, r.range(4.5, 8), ti * 10 + i + k, 0.7);
+    const p = L.smoothPath(t.pts, 5), n = p.length;
+    const wAt = (u) => t.w * L.lerp(1, 0.46, u) * (1 + 0.18 * NZ.n2(u * 5 + ti * 7.7, 3.1));
+    brush(g, p, { w: t.w, wf: (u) => wAt(u) / t.w, wob: 0.1, dry: [0.4, 0.46, 0.5][ti], seed: 100 + ti, cap: false, step: 5 });
+    const nrm = (i) => { const a0 = p[Math.max(0, i - 2)], b0 = p[Math.min(n - 1, i + 2)], nx = -(b0[1] - a0[1]), ny = b0[0] - a0[0], m = Math.hypot(nx, ny) || 1; return [nx / m, ny / m]; };
+    const off = (sgn, u0, u1) => {
+      const pts = [], i0 = Math.floor(L.clamp(u0) * (n - 1)), i1 = Math.floor(L.clamp(u1) * (n - 1));
+      for (let i = i0; i <= i1; i += 3) { const [nx, ny] = nrm(i), e = sgn * wAt(i / (n - 1)) * 0.5; pts.push([p[i][0] + nx * e, p[i][1] + ny * e]); }
+      return pts;
+    };
+    [[0, 0.4], [0.34, 0.7], [0.66, 1]].forEach(([u0, u1], ci) => {
+      const j0 = r.range(-0.03, 0.03), j1 = r.range(-0.03, 0.03);
+      const e1 = off(1, u0 + j0, u1 + j1), e2 = off(-1, u0 - j1, u1 - j0);        // +: the side away from the light, the heavier line
+      if (e1.length > 2) brush(g, e1, { w: Math.max(6.5, t.w * 0.24), head: 1.4, tout: 0.3, dry: 0.26, jit: 2.4, wob: 0.4, seed: 110 + ti * 10 + ci, step: 4 });
+      if (e2.length > 2) brush(g, e2, { w: Math.max(4.6, t.w * 0.15), head: 1.3, tout: 0.4, dry: 0.44, jit: 2.4, wob: 0.4, seed: 140 + ti * 10 + ci, step: 4 });
+    });
+    // bark: a few hooked ticks across the limb, moss dots (苔点) dabbed beside it
+    for (let k = 0; k < 4; k++) {
+      const i = Math.floor(r.range(0.12, 0.9) * (n - 1)), [nx, ny] = nrm(i), e = wAt(i / (n - 1)) * 0.5, tx = -ny, ty = nx;
+      brush(g, [[p[i][0] - nx * e * 0.8, p[i][1] - ny * e * 0.8], [p[i][0] + tx * e * 0.5, p[i][1] + ty * e * 0.5], [p[i][0] + nx * e * 0.9, p[i][1] + ny * e * 0.9]], { w: 5.2, tout: 0.4, dry: 0.4, seed: 170 + ti * 9 + k });
+      const j = Math.floor(r.range(0.1, 0.95) * (n - 1)), [mx, my] = nrm(j), sgn = r.sign(), d = wAt(j / (n - 1)) * r.range(0.75, 1.1);
+      blot(g, p[j][0] + mx * sgn * d, p[j][1] + my * sgn * d, r.range(4.5, 8.5), ti * 10 + k, 0.7);
     }
   });
-  // this year's shoots (气条): long, fast, nearly straight; each carries a spur or two with a blossom or a bud
-  const SH = [ // base x, y → tip x, dr at the tip (≤ 0: under the rim; > 0: pokes through), width, number of spurs
-    [928, 864, 866, -2, 12.5, 3], [988, 742, 1026, -2, 11.5, 2], [942, 652, 930, -1, 9.5, 1],
-    [1012, 990, 1108, -30, 10.5, 3],
-    [1182, 884, 1296, -4, 12.5, 3], [1150, 764, 1138, -2, 11, 2], [1214, 668, 1240, -1, 9.5, 1],
-    [800, 948, 664, -70, 11, 3], [812, 826, 786, -2, 11, 2], [758, 728, 716, -2, 9.5, 1],
+  // this year's shoots (气条): long, fast, a whip of a line; each carries a spur or two with a blossom or a bud
+  const SH = [ // base x, y → tip x, dr at the tip (≤ 0: under the rim), width, number of spurs
+    [930, 858, 862, -2, 14, 3], [990, 738, 1030, -2, 13, 2], [940, 650, 926, -1, 11, 1],
+    [1018, 985, 1112, -30, 12, 3],
+    [1184, 880, 1300, -4, 14, 3], [1150, 762, 1136, -2, 12.5, 2], [1214, 668, 1242, -1, 11, 1],
+    [800, 946, 660, -70, 12.5, 3], [810, 824, 784, -2, 12.5, 2], [758, 728, 714, -2, 11, 1],
   ];
   const placed = [];
   const room = (cx, cy, R) => {
@@ -228,11 +232,11 @@ function drawPlum(g, gl, a) {
     placed.push([cx, cy, R]); return true;
   };
   SH.forEach(([x0, y0, tx, dr, w, ns], si) => {
-    const x1 = tx, y1 = a.yAt(tx) - dr, dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
-    const bow = r.range(-0.04, 0.04) * len, mx = (x0 + x1) / 2 - Math.sin(ang) * bow, my = (y0 + y1) / 2 + Math.cos(ang) * bow;
-    const cx2 = 2 * mx - (x0 + x1) / 2, cy2 = 2 * my - (y0 + y1) / 2;
-    const at = (t) => [x0 * (1 - t) * (1 - t) + 2 * cx2 * t * (1 - t) + x1 * t * t, y0 * (1 - t) * (1 - t) + 2 * cy2 * t * (1 - t) + y1 * t * t];
-    brush(g, [[x0, y0], [mx, my], [x1, y1]], { w, seed: 200 + si, head: 1.45, tin: 0.05, tout: 0.5, dry: r.range(0.25, 0.5), wob: 0.34 });
+    const x1 = tx, y1 = a.yAt(tx) - dr, dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx), nx = -Math.sin(ang), ny = Math.cos(ang);
+    const b1 = r.range(-0.075, 0.075) * len, b2 = -b1 * r.range(0.2, 0.9);
+    const sp = L.smoothPath([[x0, y0], [x0 + dx * 0.33 + nx * b1, y0 + dy * 0.33 + ny * b1], [x0 + dx * 0.7 + nx * b2, y0 + dy * 0.7 + ny * b2], [x1, y1]], 6);
+    const at = (t) => sp[Math.min(sp.length - 1, Math.round(t * (sp.length - 1)))];
+    brush(g, sp, { w, seed: 200 + si, head: 1.5, tin: 0.05, tout: 0.5, dry: r.range(0.25, 0.5), wob: 0.36, step: 6 });
     const flip = r.sign();
     for (let i = 0; i < ns; i++) {
       const t = L.lerp(0.24, 0.9, (i + r.range(0.2, 0.8)) / ns), [bx, by] = at(t), side = (i % 2 ? 1 : -1) * flip;
@@ -241,8 +245,8 @@ function drawPlum(g, gl, a) {
       const l2 = Math.hypot(ex - bx, ey - by); if (l2 < 16) continue;
       brush(i === 1 && si % 3 === 0 ? gl : g, [[bx, by], [(bx + ex) / 2 + r.range(-4, 4), (by + ey) / 2 + r.range(-4, 4)], [ex, ey]], { w: w * r.range(0.56, 0.7), seed: 300 + si * 20 + i, head: 1.45, tin: 0.08, tout: 0.5, dry: r.range(0.2, 0.45) });
       const k = r();
-      if (k < 0.62) {
-        const R = r.range(30, 41), fx = ex + Math.cos(ta) * R * 0.8, fy = ey + Math.sin(ta) * R * 0.8;
+      if (k < 0.72) {
+        const R = r.range(34, 46), fx = ex + Math.cos(ta) * R * 0.8, fy = ey + Math.sin(ta) * R * 0.8;
         if (room(fx, fy, R)) blossom(g, r, fx, fy, R, 600 + si * 30 + i, r.chance(0.25));
         else { const R2 = r.range(11, 15); if (room(ex + Math.cos(ta) * R2 * 0.7, ey + Math.sin(ta) * R2 * 0.7, R2)) bud(g, r, ex + Math.cos(ta) * R2 * 0.7, ey + Math.sin(ta) * R2 * 0.7, R2, ta, 700 + si * 30 + i); }
       } else {
@@ -251,20 +255,22 @@ function drawPlum(g, gl, a) {
       }
     }
   });
-  // tangles of fine twigs gathering upward (乱线): the brush races up, back down and up again without lifting
-  const TG = [[884, 800, 80, 0, 6.5], [1066, 790, 70, 0, 6], [1196, 742, 60, 1, 6], [742, 762, 60, 0, 6], [1000, 690, 60, 1, 5.5]];
-  TG.forEach(([bx, by, sp, pale, w], ti) => {
-    const pts = [], k = r.int(3, 4);
-    let x = bx + r.range(-12, 12);
-    for (let i = 0; i < k; i++) {
-      pts.push([x, by + r.range(-16, 26)]);
-      const tx = bx + r.range(-1, 1) * sp * 1.5, ty = a.yAt(tx) - r.pick([-3, -5, -14, -34]);
-      const [ex, ey] = capTo(a, x, by, tx, ty, lim);
-      pts.push([ex, ey]);
-      x = bx + r.range(-1, 1) * sp * 0.7;
+  // tangles of fine twigs gathering upward (乱线): the brush races up to the rim, back down and up again without lifting
+  const zig = (c, x0, x1, yb, n, w, sd) => {
+    const pts = [];
+    let x = x0;
+    for (let i = 0; i <= n; i++) {
+      if (i % 2 === 0) pts.push([x + r.range(-8, 8), yb + r.range(-80, 46) * (i ? 1 : 0.3)]);
+      else { const xx = x + r.range(-22, 22); pts.push([xx, a.yAt(xx) + r.pick([5, 7, 12, 30, 58])]); }
+      x += ((x1 - x0) / n) * r.range(0.5, 1.5);
     }
-    brush(pale ? gl : g, pts, { w, seed: 800 + ti, head: 1.25, tin: 0.03, tout: 0.14, dry: 0.45, wob: 0.5, wlen: 60, step: 3 });
-  });
+    brush(c, pts, { w, seed: sd, head: 1.3, tin: 0.03, tout: 0.1, dry: 0.42, wob: 0.5, wlen: 70, step: 3 });
+  };
+  zig(g, 842, 930, 806, 6, 9, 801);
+  zig(g, 1040, 1128, 786, 5, 8.4, 802);
+  zig(gl, 1228, 1292, 736, 4, 7.4, 803);
+  zig(g, 716, 782, 772, 4, 7.6, 804);
+  zig(gl, 952, 1012, 704, 4, 7, 805);
 }
 
 // ───────────────────────── bamboo (双钩竹): a culm leaning out of the sheaf, big leaves in outline ─────────────────────────
@@ -311,11 +317,8 @@ function drawBamboo(g, gl, a) {
   };
   // left of the plum: a culm leaning out toward the vase; leaves hang from the joints, the top spray reaches along under the rim
   culm([[842, 1210], [754, 1010], [662, 846], [572, 676]], 25, 4, 1200, {
-    1: [[-1, 52, 3, 196, 2.2]], 2: [[1, 44, 2, 170, 1.15], [-1, 56, 3, 206, 2.55]], 3: [[-1, 30, 3, 214, 3.02]],
+    1: [[-1, 52, 3, 196, 2.2]], 2: [[1, 44, 2, 170, 1.15], [-1, 56, 3, 206, 2.55]], 3: [[-1, 36, 3, 196, 2.48]],
   });
-  // right of it: one spray on a thin stalk from behind the old wood
-  brush(g, [[1168, 960], [1250, 838], [1306, 752]], { w: 7, seed: 1290, head: 1.3, tout: 0.3, dry: 0.34 });
-  fan(1306, 752, 0.42, 3, 196, 1300);
 }
 
 // ───────────────────────── a small-mouthed vase, a few strokes (小口古瓶) ─────────────────────────
@@ -342,7 +345,7 @@ function drawVase(g, gl) {
 // ───────────────────────── a pot of sweet-flag (菖蒲) ─────────────────────────
 function drawCalamus(g, gl, a) {
   const r = L.rng('s35q-calamus-2');
-  const cx = 1478, ry0 = 996, RX = 160;
+  const cx = 1462, ry0 = 964, RX = 160;
   const ell = (ex, ey, rx, ry, t0, t1, k = 16) => { const pts = []; for (let i = 0; i <= k; i++) { const t = L.lerp(t0, t1, i / k); pts.push([ex + Math.cos(t) * rx, ey + Math.sin(t) * ry]); } return pts; };
   // blades: clumped, each one a quick arc that presses at the root and flicks off at the tip
   const blades = [];
@@ -373,38 +376,38 @@ function drawCalamus(g, gl, a) {
 
 // ───────────────────────── a Buddha's-hand citron, a few ring lines (佛手) ─────────────────────────
 function drawFoshou(g, gl) {
-  const r = L.rng('s35q-foshou-2');
-  const C = [1852, 1052], N = 6;
+  const r = L.rng('s35q-foshou-4');
+  const C = [1838, 1058], LEN = [178, 236, 206, 258, 216, 246, 190], N = LEN.length;
   for (let i = 0; i < N; i++) {
     const u = i / (N - 1);
-    const ang = L.lerp(Math.PI * 1.17, Math.PI * 1.585, u) + r.range(-0.04, 0.04);       // fingers fan from "left-up" round to "up"
-    const len = L.lerp(206, 262, Math.sin(Math.PI * (0.2 + 0.6 * u))) * r.range(0.92, 1.06), root = 64, wid = r.range(50, 62);
-    const c = Math.cos(ang), s = Math.sin(ang), nx = -s, ny = c, curl = (i % 2 ? 1 : -1) * r.range(0.3, 0.7);
-    const P = (t, o) => { const d = L.lerp(root, len, t), bend = curl * Math.pow(t, 2.2) * 54, k = wid * 0.5 * L.lerp(1, 0.6, t); return [C[0] + c * d + nx * (bend + o * k), C[1] + s * d + ny * (bend + o * k)]; };
-    brush(g, [P(0, 1), P(0.35, 1.08), P(0.7, 1), P(0.93, 0.8), P(1.04, 0), P(0.93, -0.8), P(0.7, -1), P(0.35, -1.06), P(0.04, -0.9)],
-      { w: 10.5, seed: 1700 + i, head: 1.3, tin: 0.05, tout: 0.22, dry: r.range(0.22, 0.44), wob: 0.4 });
-    // a wrinkle across the knuckle
-    if (r.chance(0.8)) { const t = r.range(0.4, 0.66); brush(i % 2 ? gl : g, [P(t, 0.72), P(t + 0.05, 0), P(t - 0.01, -0.6)], { w: 5, seed: 1720 + i, tout: 0.5, dry: 0.3 }); }
+    const ang = L.lerp(Math.PI * 1.3, Math.PI * 1.65, u) + r.range(-0.03, 0.03);       // the fingers rise in a sheaf, leaning a little to the left
+    const len = LEN[i] * r.range(0.95, 1.05), root = 66, wid = r.range(44, 56);
+    const c = Math.cos(ang), s = Math.sin(ang), nx = -s, ny = c, curl = (i % 2 ? 1 : -1) * r.range(0.3, 0.9);
+    // a plump finger: sides nearly parallel, a blunt round tip that hooks over
+    const P = (t, o) => { const d = L.lerp(root, len, t), bend = curl * Math.pow(t, 2.6) * 50, k = wid * 0.5 * L.lerp(1, 0.84, Math.min(1, t / 0.8)); return [C[0] + c * d + nx * (bend + o * k), C[1] + s * d + ny * (bend + o * k)]; };
+    brush(i === 2 || i === 5 ? gl : g, [P(0, 1), P(0.3, 1.05), P(0.62, 1), P(0.86, 0.98), P(0.99, 0.7), P(1.06, 0), P(0.99, -0.7), P(0.86, -0.98), P(0.62, -1), P(0.3, -1.04), P(0.04, -0.9)],
+      { w: i === 2 || i === 5 ? 9 : 10.5, seed: 1700 + i, head: 1.3, tin: 0.05, tout: 0.2, dry: r.range(0.22, 0.44), wob: 0.4 });
+    // pitted rind: a few dots down each finger
+    for (let k = 0; k < 2; k++) { const q = P(r.range(0.25, 0.85), r.range(-0.45, 0.45)); blot(g, q[0], q[1], r.range(2.8, 4.4), 1760 + i * 5 + k); }
   }
   // the heel of the fruit swelling out of frame
-  brush(g, [[C[0] - 62, C[1] - 6], [C[0] - 40, C[1] + 40], [C[0] + 10, C[1] + 70]], { w: 12, seed: 1741, head: 1.3, tout: 0.3, dry: 0.34, wob: 0.4 });
-  // pitted rind: a scatter of dots near the heel
-  for (let i = 0; i < 8; i++) blot(gl, C[0] + r.range(-40, 40), C[1] + r.range(-50, 10), r.range(2.6, 4.4), 1760 + i);
+  brush(g, [[C[0] - 70, C[1] - 52], [C[0] - 96, C[1] - 4], [C[0] - 70, C[1] + 56]], { w: 12, seed: 1741, head: 1.3, tout: 0.3, dry: 0.34, wob: 0.4 });
+  brush(g, [[C[0] + 36, C[1] - 70], [C[0] + 72, C[1] - 22], [C[0] + 74, C[1] + 40]], { w: 11, seed: 1742, head: 1.3, tout: 0.3, dry: 0.36, wob: 0.4 });
 }
 
 // ───────────────────────── blots, flung drops, careless flicks ─────────────────────────
-const BLOTS = [[372, 688, 12], [1694, 792, 14], [1012, 990, 12], [596, 962, 9]];   // where the brush rested and the ink bled (洇)
+const BLOTS = [[372, 688, 12], [1694, 786, 14], [1018, 985, 12], [596, 962, 9]];   // where the brush rested and the ink bled (洇)
 function drawAccents(g, gl, a) {
   const r = L.rng('s35q-acc');
   BLOTS.forEach(([x, y, rad], i) => blot(g, x, y, rad, 1.1 + i * 1.3));
-  spatter(g, r, 1694, 792, -0.75, 7, 104, 6);
+  spatter(g, r, 1694, 786, -0.75, 7, 104, 6);
   spatter(g, r, 372, 688, -2.3, 5, 80, 5);
   spatter(g, r, 1150, 1020, 0.4, 5, 90, 5.4);
   // a few stars that landed above the rim, far out to the sides
   const p0 = a.pt(-0.335, 50); spatter(g, r, p0.x, p0.y, -2.5, 4, 60, 4.6);
   const p1 = a.pt(0.325, 58); spatter(g, r, p1.x, p1.y, -0.5, 4, 54, 4.4);
   // long careless flicks across the foot of the sheet
-  for (const [x0, y0, x1, y1, bow, sd, c] of [[1300, 1150, 1338, 940, 26, 2, 1], [1668, 1140, 1700, 900, -20, 3, 0], [60, 1150, 40, 900, 18, 4, 1]]) {
+  for (const [x0, y0, x1, y1, bow, sd, c] of [[1300, 1150, 1338, 940, 26, 2, 1], [60, 1150, 40, 900, 18, 4, 1]]) {
     brush(c ? gl : g, [[x0, y0], [(x0 + x1) / 2 + bow, (y0 + y1) / 2], [x1, y1]], { w: 7, seed: 2800 + sd, head: 1.3, tin: 0.04, tout: 0.6, dry: 0.42 });
   }
 }
@@ -422,7 +425,7 @@ function buildPaper(env) {
   return L.makeLayer(PAD, (g) => {
     const full = () => g.fillRect(-PAD, -PAD, w, h);
     // apricot-yellow sheet: one clean colour, a little more luminous in the middle, a little deeper toward the edges
-    g.fillStyle = L.radial(g, 930, 420, 200, 1500, [[0, '#e8d096'], [0.45, '#e0c88e'], [0.8, '#d8bc7c'], [1, '#cfae68']]); full();
+    g.fillStyle = L.radial(g, 930, 420, 200, 1500, [[0, '#f1da9c'], [0.45, '#e9d192'], [0.8, '#e0c480'], [1, '#d4b26a']]); full();
     // slow clouding inside the same hue (no brown veil)
     g.globalCompositeOperation = 'multiply';
     g.globalAlpha = 0.5;
@@ -464,9 +467,9 @@ function buildPaper(env) {
     g.globalCompositeOperation = 'source-over';
     // the fibre of the sheet: long strands, light and dark, lying every which way (the paper's own "grain")
     g.lineCap = 'round';
-    for (let i = 0; i < 1500; i++) {
+    for (let i = 0; i < 1100; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), len = r.range(14, 90) * (r.chance(0.08) ? 2 : 1), an = r() * Math.PI;
-      g.strokeStyle = r.chance(0.5) ? L.rgba('#9a6c22', r.range(0.1, 0.3)) : L.rgba('#fff8de', r.range(0.16, 0.42));
+      g.strokeStyle = r.chance(0.5) ? L.rgba('#a67626', r.range(0.08, 0.26)) : L.rgba('#fff8de', r.range(0.14, 0.38));
       g.lineWidth = r.range(0.7, 1.9);
       g.beginPath(); g.moveTo(x, y); g.bezierCurveTo(x + Math.cos(an) * len * 0.33 + r.range(-9, 9), y + Math.sin(an) * len * 0.33 + r.range(-9, 9), x + Math.cos(an) * len * 0.66 + r.range(-9, 9), y + Math.sin(an) * len * 0.66 + r.range(-9, 9), x + Math.cos(an) * len, y + Math.sin(an) * len); g.stroke();
     }

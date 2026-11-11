@@ -14,7 +14,7 @@ const SEG = 126;       // one round tile is about twice as long as it is wide �
 const HEAD = 110;      // … the eave tile (勾头) a little shorter
 const LAP = 42;        // exposed length of one pan tile (压七露三 → roughly three laps per round tile)
 const DEPTH = 1150;
-const DY = 0;          // the eave silhouette runs ±6 px around the layer's arc (勾头 crown −6, 滴水 dip +6) → no nudge needed
+const DY = 1.5;        // the eave silhouette runs −6…+6 px around the layer's arc (勾头 crown / 滴水 dip), its mean ≈ −1.5 px → tiny nudge
 let S = null;
 
 function ridgeAngles(a) {
@@ -168,7 +168,9 @@ function buildTiles(env) {
           s.fillStyle = L.rgba('#f4faff', r.range(0.6, 0.95));
           s.beginPath(); s.moveTo(hx(c0) - 1.1, c0); s.quadraticCurveTo(hx(20) + bend - 3.3, 20, hx(c1), c1); s.quadraticCurveTo(hx(20) + bend + 3.3, 20, hx(c0) + 1.1, c0);
           s.arc(hx(c0), c0, 1.1, 0, Math.PI, true); s.fill();
-          s.strokeStyle = 'rgba(255,255,255,0.85)'; s.lineWidth = 1.6;
+          s.strokeStyle = 'rgba(255,250,222,0.5)'; s.lineWidth = 3.4;
+          s.beginPath(); s.ellipse(0, 6, HALF - 1, 9, 0, Math.PI + 0.32, Math.PI + 1.45); s.stroke();
+          s.strokeStyle = 'rgba(255,255,255,0.9)'; s.lineWidth = 1.6;
           s.beginPath(); s.ellipse(0, 6, HALF + 0.5, 10.5, 0, Math.PI + 0.5, Math.PI + 1.2); s.stroke();
           // nail cap (钉帽): a glazed half-dome sitting on the tile, its shadow kept on the tile's back
           const cy = 54, cr = 12;
@@ -204,7 +206,7 @@ function buildRoof(env) {
   const g = roof.getContext('2d');
   g.drawImage(buildTiles(env), -PAD, -PAD);
   // 4) glaze mottling in soft clouds (no lengthwise streaks) + pinholes; everything lands on existing pixels only
-  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 70, sx: 1, sy: 1.4, octaves: 4, contrast: 1.5, res: 0.4, ramp: [[0, '#6e4a12'], [0.5, '#b89a48'], [1, '#fff0a0']] }), { blend: 'soft-light', alpha: 0.34 });
+  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 70, sx: 1, sy: 1.4, octaves: 3, gain: 0.45, contrast: 1.5, res: 0.4, ramp: [[0, '#6e4a12'], [0.5, '#b89a48'], [1, '#fff0a0']] }), { blend: 'soft-light', alpha: 0.3 });
   // the light pool on the eave left of the crest: glaze lifts inside it, the roof turns amber toward the far corners
   const pc = a.pt(-0.05, -150);
   L.overlayOn(roof, L.makeLayer(PAD, (c) => {
@@ -218,13 +220,13 @@ function buildRoof(env) {
   g.globalCompositeOperation = 'source-atop';
   L.speckle(g, { seed: 's02pin', count: 1700, x: -PAD, y: 480, w: W + PAD * 2, h: H + PAD - 480, rMin: 0.4, rMax: 1.3, colors: ['#7a4a0a', '#fff6c8'], alpha: [0.15, 0.5] });
   // 5) depth: the roof sinks into deep amber toward the bottom of frame, only the eave band stays bright
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 150, [[0, 'rgba(60,28,2,0.84)'], [0.45, 'rgba(60,28,2,0.52)'], [1, 'rgba(60,28,2,0)']]);
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 620, a.R - 160, [[0, 'rgba(60,28,2,0.88)'], [0.45, 'rgba(60,28,2,0.6)'], [1, 'rgba(60,28,2,0)']]);
   g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   g.globalCompositeOperation = 'source-over';
   // 6) depth of field: sharpest in the 260 px under the eave, softening toward the bottom of frame
-  const soft = L.blurred(roof, 5), sg = soft.getContext('2d');
+  const soft = L.blurred(roof, 6), sg = soft.getContext('2d');
   sg.globalCompositeOperation = 'destination-in';
-  sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 620, a.R - 260, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+  sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 600, a.R - 250, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
   sg.fillRect(0, 0, soft.width, soft.height);
   g.drawImage(soft, -PAD, -PAD);
   return roof;
@@ -242,7 +244,7 @@ function buildBack(env) {
       let x, y;
       if (warm) { const p = a.pt([-0.2, -0.11, 0.05, 0.17][i - 14] + r.range(-0.02, 0.02), r.range(40, 105)); x = p.x; y = p.y; } else { x = r.range(-PAD * 0.4, W + PAD * 0.4); y = r.range(-60, 470); }
       const rad = warm ? r.range(11, 22) : r.range(30, 90), c = warm ? '#ffcf3a' : pale ? '#7fb2e6' : '#2b5fae';
-      const al = warm ? r.range(0.16, 0.26) : pale ? r.range(0.05, 0.08) : r.range(0.10, 0.18);
+      const al = warm ? r.range(0.13, 0.21) : pale ? r.range(0.05, 0.08) : r.range(0.10, 0.18);
       g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(c, al * 0.8)], [0.66, L.rgba(c, al)], [0.84, L.rgba(c, al * 0.7)], [1, L.rgba(c, 0)]]);
       g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
     }
@@ -287,14 +289,15 @@ export default {
     L.blit(ctx, env, S.dust, { rot: rot * 0.6, zoom, dy: -10 * p, alpha: 0.9 });
     // a little warm bounce hugging the eave (kept low so the night above stays black)
     L.glow(ctx, a.cx - 180, a.crestY + 40, 260, '#ffb53a', 0.10);
-    L.blit(ctx, env, S.roof, { rot, zoom, dy: DY });   // the light pool is baked into the roof, so it rides along with rot
+    const dy = DY + 2 * p;   // zoom pivots on the crest and lifts the far ends of the arc ~5 px: settle the layer 2 px to split the error
+    L.blit(ctx, env, S.roof, { rot, zoom, dy });   // the light pool is baked into the roof, so it rides along with rot
     // sun glint travelling along the eave: it only lifts the glaze, never fogs the black above
     const glT = L.lerp(-0.16, 0.02, p), gl = a.pt(glT, -30);
     ctx.save(); a.clipBelow(ctx, 10);
     L.glow(ctx, gl.x, gl.y, 150, '#fff2c0', 0.3, 'soft-light');
     ctx.restore();
     // … and the nail caps it passes over flare one after another (drawn in the roof's own moving frame)
-    L.cam(ctx, env, { rot, zoom, dy: DY }, () => {
+    L.cam(ctx, env, { rot, zoom, dy }, () => {
       for (const th of S.angles) {
         const k = 1 - Math.abs(th + rot - glT) / 0.075;
         if (k <= 0) continue;

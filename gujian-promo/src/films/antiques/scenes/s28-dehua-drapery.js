@@ -19,7 +19,7 @@ const PAD = 100;          // margin for the rot / zoom drift
 const TOP = 76;           // rows rendered above the crest: room for the bloom to die out to the pure background
 const FAN = 950;          // the folds radiate from a point this far above the arc
 const RHO = 74;           // radius of the roll where the robe turns over the top
-const E_LO = -4.5, E_HI = 8.5, E_REF = 46;   // silhouette ripple (px relative to the arc) for fold height 0 … E_REF at the limb
+const E_LO = -4.5, E_HI = 9, E_REF = 46;   // silhouette ripple (px relative to the arc) for fold height 0 … E_REF at the limb
 const BG = [4, 4, 4];
 const D_MIN = -40, ND = 1100;
 let S = null;
@@ -34,18 +34,18 @@ const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), pa
 const FOLDS = [
   { s: -1340, wl: 140, wr: 34, a: 44, sharp: 0.25 },
   { s: -1135, wl: 46, wr: 60, a: 36, sharp: 0.45, out: 420 },
-  { s: -962, wl: 32, wr: 170, a: 46, sharp: 0.3 },
+  { s: -962, wl: 32, wr: 205, a: 46, sharp: 0.3, out: 430, outLen: 260 },
   { s: -704, wl: 205, wr: 32, a: 56, sharp: 0.25 },
   { s: -578, wl: 36, wr: 50, a: 34, sharp: 0.7, in: 60 },
-  { s: -424, wl: 56, wr: 70, a: 50, sharp: 0.12 },
+  { s: -424, wl: 56, wr: 70, a: 50, sharp: 0.12, kid: { mode: 'merge', at: 300, len: 260, off: -100, wl: 30, wr: 38, a: 0.6, sharp: 0.6 } },
   { s: -252, wl: 132, wr: 30, a: 54, sharp: 0.3, kid: { mode: 'split', at: 190, len: 270, off: 86, wl: 44, wr: 34, a: 0.8, sharp: 0.45 } },
   { s: -106, wl: 34, wr: 44, a: 32, sharp: 0.65, out: 300, outLen: 230 },
-  { s: 34, wl: 36, wr: 150, a: 50, sharp: 0.35 },
+  { s: 34, wl: 36, wr: 210, a: 44, sharp: 0.35 },
   { s: 236, wl: 60, wr: 50, a: 54, sharp: 0.1, kid: { mode: 'merge', at: 350, len: 290, off: 122, wl: 36, wr: 40, a: 0.72, sharp: 0.5 } },
   { s: 542, wl: 172, wr: 30, a: 58, sharp: 0.28 },
   { s: 652, wl: 34, wr: 46, a: 32, sharp: 0.7, in: 110 },
   { s: 802, wl: 112, wr: 32, a: 50, sharp: 0.3, kid: { mode: 'split', at: 235, len: 250, off: -78, wl: 34, wr: 46, a: 0.78, sharp: 0.5 } },
-  { s: 944, wl: 34, wr: 132, a: 44, sharp: 0.4 },
+  { s: 944, wl: 34, wr: 170, a: 44, sharp: 0.4 },
   { s: 1122, wl: 56, wr: 52, a: 46, sharp: 0.15 },
   { s: 1292, wl: 140, wr: 32, a: 48, sharp: 0.3 },
   { s: 1440, wl: 50, wr: 60, a: 40, sharp: 0.3 },
@@ -170,7 +170,7 @@ function buildFields(arc) {
   for (let i = 0; i < E_N; i++) { const sl = E_S0 + i; eRaw[i] = E_LO + (E_HI - E_LO) * Math.min(1.15, foldH(sl + warpAt(sl, 0), 0) / E_REF); }
   for (let pass = 0; pass < 2; pass++) {       // round the waves off
     const src = pass ? edge.slice() : eRaw;
-    for (let i = 0; i < E_N; i++) { let a = 0; for (let q = -9; q <= 9; q++) a += src[Math.min(E_N - 1, Math.max(0, i + q))]; edge[i] = a / 19; }
+    for (let i = 0; i < E_N; i++) { let a = 0; for (let q = -12; q <= 12; q++) a += src[Math.min(E_N - 1, Math.max(0, i + q))]; edge[i] = a / 25; }
   }
 
   const Hh = new Float32Array(N).fill(-1000), Ff = new Float32Array(N), Al = new Float32Array(N), De = new Float32Array(N), Gz = new Float32Array(N);
@@ -185,7 +185,8 @@ function buildFields(arc) {
       if (de < -3) continue;
       const sw = th * rr * FAN / (FAN + (d > 0 ? d : 0)) + bil(gWarp, i, j);
       const f = foldH(sw, d) + bil(gLump, i, j);
-      const fine = 0.07 * nF.n2(sw / 11, d / 420 + 3.3) + 0.05 * nF.n2((X0 + i) / 4.1, y / 4.1 + 70);  // modelling strokes down the folds · orange peel
+      const fine = 0.07 * nF.n2(sw / 11, d / 420 + 3.3) + 0.05 * nF.n2((X0 + i) / 4.1, y / 4.1 + 70)   // modelling strokes down the folds · orange peel
+        + 0.52 * nF.n2(sw / 44 + 17, d / 76 - 8) + 0.11 * nF.n2((X0 + i) / 17 - 40, y / 17 + 11);        // the thumb-smoothed clay under the glaze
       const u = Math.min(de + 5, RHO), k = j * RW + i;
       Ff[k] = f; De[k] = de; Al[k] = de <= -0.5 ? 0 : de >= 0.5 ? 1 : de + 0.5; Gz[k] = bil(gGlaze, i, j);
       Hh[k] = Math.sqrt(RHO * RHO - (RHO - u) * (RHO - u)) + 70 * (1 - Math.exp(-(de > 0 ? de : 0) / 380)) + f + fine;
@@ -200,8 +201,8 @@ function buildFields(arc) {
 
 // luminance → porcelain colour: black · warm shadow · 影灰 · 积釉暖黄 · 象牙白 · white
 const RAMP = (() => {
-  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.42, '#a3977a'], [0.54, '#cbb98b'], [0.64, '#dfcfa1'],
-    [0.74, '#ede3c4'], [0.84, '#f4eedb'], [0.93, '#faf6e8'], [1, '#fffdf5']].map(([t, c]) => [t, hex(c)]);
+  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.42, '#ad9a74'], [0.54, '#d5c194'], [0.64, '#e2d5b0'],
+    [0.74, '#ece5cd'], [0.84, '#f3ecd8'], [0.93, '#faf6e9'], [1, '#fffdf6']].map(([t, c]) => [t, hex(c)]);
   const n = 1024, out = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1); let q = 1; while (q < st.length - 1 && st[q][0] < t) q++;
@@ -211,25 +212,36 @@ const RAMP = (() => {
   return out;
 })();
 
-const EL = 28, KE = 2.6, KB = 0.26, FILL = 0.035, PEN = 3;
+const EL = 28, KE = 2.9, KB = 0.3, FILL = 0.035, PEN = 2.2;
 
 /** light one state of the key into RGBA bytes `px` (opaque, on the black field); `bloom` gets the hot parts at quarter size */
-function shade(F, az, px, bloom) {
+function shade(F, az, gx0, px, bloom) {
   const { X0, Y0, RW, RH, Hh, Al, De, Gz, Pool, tmp, Sh, Ed, Eb, Sp, Nb, Fl } = F;
   const ra = (az * Math.PI) / 180, re = (EL * Math.PI) / 180;
   const lx = -Math.cos(ra) * Math.cos(re), ly = -Math.sin(ra) * Math.cos(re), lz = Math.sin(re);
-  let hx = lx, hy = ly, hz = lz + 1; const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl;
-  const bx = 0.74, by = 0.12, bz = 0.66;      // bounce comes back off the lit flank of the next ridge to the right
+  const bx = 0.9, by = 0.1, bz = 0.42;        // bounce comes back off the lit flank of the next ridge to the right
   const fx = 0.42, fy = -0.42, fz = 0.8;       // a whisper of fill from the upper right, so the shadow sides still turn
 
-  // 1) cast shadows: sweep the shadow ceiling across the field, away from the light
+  // 1) cast shadows. March every line that runs with the light (a sheared copy of the field), carrying the shadow
+  //    ceiling along it; then read the depth-in-shadow back at the pixels. No smearing, so the edges stay clean.
   const ta = Math.tan(ra), drop = Math.tan(re) / Math.cos(ra);
-  for (let j = 0; j < RH; j++) {
-    const o = j * RW; Sh[o] = Hh[o];
-    for (let i = 1; i < RW; i++) {
-      const k = o + i, a0 = Sh[k - 1], up = (j > 0 ? a0 + (Sh[k - 1 - RW] - a0) * ta : a0) - drop, h = Hh[k];
-      Sh[k] = up > h ? up : h;
+  const cMin = Math.floor(-ta * (RW - 1)) - 1, nC = RH - cMin + 1;
+  if (!F.shear || F.shear.length < nC * RW) F.shear = new Float32Array(nC * RW);
+  const D = F.shear;
+  for (let ci = 0; ci < nC; ci++) {
+    const c = cMin + ci, o = ci * RW; let top = -1e4;
+    for (let x = 0; x < RW; x++) {
+      const y = c + ta * x;
+      if (y < 0 || y >= RH - 1) { D[o + x] = 0; continue; }
+      const j = y | 0, k = j * RW + x, h0 = Hh[k], h1 = Hh[k + RW];
+      const h = h0 < -500 ? h1 : h1 < -500 ? h0 : h0 + (h1 - h0) * (y - j);
+      top -= drop; if (h > top) top = h;
+      D[o + x] = h < -500 ? 0 : top - h;
     }
+  }
+  for (let j = 0; j < RH; j++) for (let x = 0; x < RW; x++) {
+    const c = j - ta * x - cMin, ci = c | 0, a0 = D[ci * RW + x];
+    Sh[j * RW + x] = a0 + (D[(ci + 1) * RW + x] - a0) * (c - ci);
   }
   // 2) direct light, glaze highlight, bounce weight
   Ed.fill(0); Sp.fill(0);
@@ -240,17 +252,18 @@ function shade(F, az, px, bloom) {
       if (Al[k] <= 0) continue;
       const gx = (Hh[k + 1] - Hh[k - 1]) * 0.5, gy = (Hh[k + RW] - Hh[k - RW]) * 0.5, inv = 1 / Math.sqrt(gx * gx + gy * gy + 1);
       const nx = -gx * inv, ny = -gy * inv, nzv = inv;
-      const sh = 1 - sstep(0.25, PEN, Sh[k] - Hh[k]);
+      const sh = 1 - sstep(0.2, PEN, Sh[k]);
       const x = X0 + i, de = De[k];
-      const fall = (1 - 0.4 * sstep(0.3, 1.2, Math.hypot(x - 380, (y - 600) * 1.2) / 1700)) * (1 - 0.3 * sstep(140, 640, de));
+      const fall = (1 - 0.4 * sstep(0.3, 1.2, Math.hypot(x - 440, (y - 600) * 1.2) / 1700)) * (1 - 0.42 * sstep(100, 600, de));
       const nb = nx * bx + ny * by + nzv * bz;
       Nb[k] = nb > 0 ? nb : 0;
       Fl[k] = (0.5 + 0.5 * (nx * fx + ny * fy + nzv * fz)) * fall;
       if (sh <= 0) continue;
       let wr = (nx * lx + ny * ly + nzv * lz + 0.1) / 1.1; if (wr < 0) wr = 0;
       Ed[k] = wr * sh * fall;
-      const ndh = nx * hx + ny * hy + nzv * hz;
-      if (ndh > 0.8) Sp[k] = sh * fall * (0.8 * Math.pow(ndh, 140) + 0.13 * Math.pow(ndh, 18));
+      // the glaze mirrors a tall strip light: a bright line wherever the flank tilts toward it by just the right amount
+      const sy = (gy - 0.14) / 0.42, ey = sy * sy;
+      if (ey < 6) { const s1 = (gx - gx0) / 0.085, s2 = (gx - gx0) / 0.24; const s3 = (gx - 0.2) / 0.13; Sp[k] = sh * fall * (0.85 * Math.exp(-s1 * s1 - ey) + 0.12 * Math.exp(-s2 * s2 - ey) + 0.07 * Math.exp(-s3 * s3 - ey)); }
     }
   }
   // 3) light bouncing around inside the white valleys
@@ -264,15 +277,15 @@ function shade(F, az, px, bloom) {
       if (al <= 0) { px[o] = BG[0]; px[o + 1] = BG[1]; px[o + 2] = BG[2]; continue; }
       const de = De[k], conc = Pool[k], gz = Gz[k];
       const ao = 1 - 0.8 * sstep(2, 26, conc);                                   // the hollows see less of everything
-      let E = Ed[k] + FILL * Fl[k] * ao + KB * Eb[k] * (0.25 + 0.75 * Nb[k]) * (0.55 + 0.45 * ao);
+      let E = Ed[k] * (1 + 0.05 * gz) + FILL * Fl[k] * ao + KB * Eb[k] * (0.12 + 0.88 * Nb[k] * Nb[k]) * (0.55 + 0.45 * ao);
       if (de < 24) E += 0.05 * Math.exp(-(de > 0 ? de : 0) / 5);                 // a breath of rim light keeps the contour alive inside the shadow notches
       const lum = 1 - Math.exp(-KE * E), li = ((lum * 1023) | 0) * 3;
       let r = RAMP[li], g = RAMP[li + 1], b = RAMP[li + 2];
       let warm = 0.95 * sstep(1.5, 14, conc) + 0.2 * gz + 0.06; warm = warm < 0 ? 0 : warm > 1 ? 1 : warm;
-      r *= 1 - 0.045 * warm; g *= 1 - 0.115 * warm; b *= 1 - 0.33 * warm;
+      r *= 1 - 0.09 * warm; g *= 1 - 0.135 * warm; b *= 1 - 0.29 * warm;
       const cv = sstep(2, 13, -conc) * lum * lum * 0.4;
       r += (255 - r) * cv; g += (253 - g) * cv; b += (246 - b) * cv;
-      const sp = Sp[k] * (0.55 + 0.45 * sstep(-4, 6, -conc));
+      const sp = Sp[k] * (0.25 + 0.75 * sstep(-2, 8, -conc));
       r += 255 * sp; g += 252 * sp; b += 238 * sp;
       px[o] = BG[0] + (r - BG[0]) * al; px[o + 1] = BG[1] + (g - BG[1]) * al; px[o + 2] = BG[2] + (b - BG[2]) * al;
       const hot = (lum > 0.8 ? (lum - 0.8) * 5 : 0) * 0.5 + sp * 1.4;
@@ -312,7 +325,8 @@ function stampPits(px, RW, RH, pits) {
   }
 }
 
-const AZ = [26, 30.5, 35];   // the key swings a few degrees during the shot
+const AZ = [27, 30.5, 34];        // the key swings a few degrees during the shot …
+const GX = [0.45, 0.52, 0.59];    // … and its reflection in the glaze creeps across the shoulders of the ridges
 
 export default {
   name: '德化白瓷衣褶',
@@ -322,9 +336,9 @@ export default {
     const BS = 4, bw = Math.ceil(F.RW / BS), bh = Math.ceil(F.RH / BS);
     const bloom = { w: bw, h: bh, s: BS, d: new Float32Array(bw * bh) };
     let pits = null;
-    const states = AZ.map((az) => {
+    const states = AZ.map((az, q) => {
       const img = new ImageData(F.RW, F.RH);
-      shade(F, az, img.data, bloom);
+      shade(F, az, GX[q], img.data, bloom);
       if (!pits) pits = pickPits(F, env.arc);
       stampPits(img.data, F.RW, F.RH, pits);
       const c = L.makeCanvas(F.RW, F.RH), g = c.getContext('2d');

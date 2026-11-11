@@ -147,41 +147,36 @@ function paintMask(env, map) {
         const lift = r.range(0, 7);
         const pts = [];
         for (let u = U; u <= U + len + 1; u += 16) { const t = (u - U) / len; pts.push([u, rowV(u) - lift * t * t * t]); }
-        brush(g, map, pts, { w: 24 * r.range(0.9, 1.14), seed: seed++, head: r.range(0.05, 0.3), tail: r.range(0.1, 0.2), slope: 0.72, dry: r.range(0.4, 1), mid: r.range(0, 1.2),
-          point: r.chance(0.5), fw: 0.35 + 0.65 * comp(V0) });
+        brush(g, map, pts, { w: 26 * r.range(0.9, 1.14), seed: seed++, head: r.range(0, 0.16), tail: r.range(0.1, 0.2), slope: 0.62, dry: r.range(0.4, 1), mid: r.range(0, 1.2), alpha: r.range(0.8, 0.95),
+          point: r.chance(0.7), fw: 0.35 + 0.65 * comp(V0) });
         U += len + r.range(-34, 8);     // lift, reload, carry on where the last stroke gave out
       }
     });
 
-    // ── scrolling tendrils (卷草): an undulating stem, a curl in every hollow, a pair of leaves sprouting beside each curl ──
-    const VC = 804, VA = 54, LAM = 520, PH = 0.9;
-    const stemV = (U) => VC + VA * Math.sin((TAU * U) / LAM + PH) + 5 * NZ.n2(U / 300, 7.7);
-    for (let U = -UM - 80; U < UM;) {
-      const len = LAM * r.range(1.3, 2.1);
-      const pts = [];
-      for (let u = U; u <= U + len + 1; u += 24) pts.push([u, stemV(u)]);
-      brush(g, map, pts, { w: 33 * r.range(0.92, 1.1), seed: seed++, head: 0.25, tail: r.range(0.14, 0.24), slope: 0.55, dry: r.range(0.4, 0.9), mid: 1 });
-      U += len - r.range(10, 44);
-    }
-    const j0 = Math.floor(((-UM / LAM) * TAU + PH - Math.PI / 2) / Math.PI), j1 = Math.ceil(((UM / LAM) * TAU + PH - Math.PI / 2) / Math.PI);
+    // ── scrolling tendrils (卷草): a running scroll. Each stroke springs from the back of the last curl, sweeps across and winds
+    //    into a curl of its own, alternately above and below the middle of the band; a leaf fills the pocket beside each curl ──
+    const VC = 804, STEP = 262, OFF = 34;
+    const j0 = Math.floor(-UM / STEP) - 1, j1 = Math.ceil(UM / STEP) + 1;
     for (let j = j0; j <= j1; j++) {
-      const Uj = ((Math.PI / 2 + j * Math.PI - PH) * LAM) / TAU;
-      const up = (((j % 2) + 2) % 2) === 0;        // stem at its lowest here → the hollow, and the curl, sit above it
-      const sgn = up ? -1 : 1;
-      const cU = Uj + r.range(-8, 8), cV = VC + sgn * 43, rx = 98 * r.range(0.94, 1.06), ry = 64 * r.range(0.94, 1.04);
-      const turns = r.range(1.36, 1.56);
-      const pts = [[Uj - 192, stemV(Uj - 192) + sgn * 4]];
-      const a0 = up ? (225 * Math.PI) / 180 : (135 * Math.PI) / 180, dir = up ? 1 : -1;
-      for (let i = 0; i <= 44; i++) {
-        const t = i / 44, ang = a0 + dir * t * turns * TAU, rad = 1 - 0.87 * Math.pow(t, 0.85);
+      const sgn = (((j % 2) + 2) % 2) === 0 ? -1 : 1;      // −1: this curl sits above the middle line, +1: below it
+      const Uj = j * STEP + 40;
+      const cU = Uj + r.range(-9, 9), cV = VC + sgn * OFF + r.range(-4, 4), rx = 92 * r.range(0.94, 1.07), ry = 66 * r.range(0.94, 1.05);
+      const turns = r.range(1.42, 1.62), a0 = (-sgn * 110 * Math.PI) / 180;
+      const pts = [[Uj - STEP + 26, VC + sgn * 31], [Uj - 138, VC - sgn * r.range(0, 5)]];
+      for (let i = 0; i <= 46; i++) {
+        const t = i / 46, ang = a0 + sgn * t * turns * TAU, rad = 1 - 0.86 * Math.pow(t, 0.85);
         pts.push([cU + rx * rad * Math.cos(ang), cV + ry * rad * Math.sin(ang)]);
       }
-      brush(g, map, pts, { w: 29 * r.range(0.92, 1.1), seed: seed++, head: 0.2, tail: 0.6, end: 0.08, dry: r.range(0.3, 0.8), fw: 0.8 });
-      // one comma leaf in the spandrel to the right of the curl: fat where the brush lands, thinning into the stem
-      const jU = Uj + 206 + r.range(-8, 8), jV = stemV(jU) + sgn * 5;
-      const tU = Uj + 112 + r.range(-10, 12), tV = VC + sgn * (104 + r.range(-8, 6));
-      brush(g, map, [[tU, tV], [tU + 34, tV - sgn * r.range(0, 8)], [jU - 24, jV + sgn * 36], [jU, jV]],
-        { w: 40 * r.range(0.88, 1.12), seed: seed++, head: 0.45, tail: 0.64, end: 0.2, dry: 0.3, fw: 0.8 });
+      brush(g, map, pts, { w: 33 * r.range(0.92, 1.1), seed: seed++, head: 0.22, tail: 0.5, end: 0.07, dry: r.range(0.35, 0.85), mid: 1, fw: 0.85 });
+      // leaves: the tip of the brush lands on the stem, the belly presses down, the point flicks off
+      const lJ = [cU - 30 + r.range(-8, 8), VC - sgn * 37], lT = [cU + 64 + r.range(-12, 12), VC - sgn * (108 + r.range(-6, 5))];
+      brush(g, map, [lJ, [lJ[0] + 26, lJ[1] - sgn * 44], lT],
+        { w: 40 * r.range(0.9, 1.12), seed: seed++, head: 0, tail: 0.42, dry: 0.25, point: true, fw: 0.85 });
+      if (r.chance(0.6)) {
+        const mJ = [cU - 52 + r.range(-6, 6), VC - sgn * 35], mT = [cU - 96 + r.range(-10, 10), VC - sgn * (94 + r.range(-8, 8))];
+        brush(g, map, [mJ, [mJ[0] - 10, mJ[1] - sgn * 34], mT],
+          { w: 28 * r.range(0.9, 1.1), seed: seed++, head: 0, tail: 0.42, dry: 0.2, point: true, fw: 0.85 });
+      }
     }
 
     // ── pigment is never even: thinner blotches fire iron brown; the hairs of the brush leave faint streaks ──
@@ -262,7 +257,7 @@ function buildJar(env) {
     g.fillStyle = L.radial(g, a.cx - 300, a.crestY + 150, 80, 1500, [[0, '#faf5e8'], [0.3, '#f3ecda'], [0.65, '#ebe0c8'], [1, '#dccdb0']]); full(g);
     // the slip was brushed on round the pot: faint streaks along the arc, slow mottling, a few kiln stains
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.34;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's30slip', scale: 26, sx: 16, sy: 0.7, octaves: 3, res: 0.4, contrast: 1.5 }), -PAD, -PAD);
+    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's30slip', scale: 26, sx: 16, sy: 0.7, octaves: 2, res: 0.4, contrast: 1.5 }), -PAD, -PAD);
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.55;
     g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's30stain', scale: 300, sx: 1.6, octaves: 4, warp: 0.6, res: 0.22,
       ramp: [[0, '#dcc99c'], [0.4, '#f6efdc'], [0.62, '#ffffff'], [1, '#ffffff']] }), -PAD, -PAD);
@@ -355,7 +350,7 @@ function buildDish(env) {
     g.drawImage(L.noiseLayer(PAD, { seed: 's30tone', scale: 560, octaves: 3, res: 0.2, warp: 0.5,
       ramp: [[0, 'rgba(232,176,8,0.13)'], [0.45, 'rgba(240,190,20,0)'], [0.6, 'rgba(250,222,100,0)'], [1, 'rgba(250,224,108,0.13)']] }), -PAD, -PAD);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.1;
-    g.drawImage(L.bumpLight(L.noiseLayer(PAD, { seed: 's30peel', scale: 16, octaves: 2, res: 0.5 }), { angle: 45, strength: 1.2, res: 0.5 }), -PAD, -PAD);
+    g.drawImage(L.bumpLight(L.noiseLayer(PAD, { seed: 's30peel', scale: 16, octaves: 2, res: 0.34 }), { angle: 45, strength: 1.2, res: 0.34 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
 
     // a few hairline scratches from use — kept to the sides, clear of the words
@@ -368,26 +363,23 @@ function buildDish(env) {
       L.sketchLine(g, pts.map(([x, y]) => [x + 1.2, y + 1.4]), { width: 1.5, color: '#c08a04', seed: 30 + i, wobble: 1.4, passes: 1, alpha: 0.5 });
       L.sketchLine(g, pts, { width: 1.5, color: '#fdeea6', seed: 30 + i, wobble: 1.4, passes: 1, alpha: 0.72 });
     });
-    // one small place where the glaze has flaked and rubbed through to the white body: angular, with a rim worn thin and a few flecks
-    const wr = L.rng('s30worn'), wx = 1634, wy = 250;
-    const flake = (cx, cy, rad, k, rot) => {
-      const n = 9;
-      g.beginPath();
-      for (let i = 0; i < n; i++) {
-        const an = rot + ((i + wr.range(-0.3, 0.3)) / n) * TAU, q = rad * wr.range(0.62, 1.12);
-        const x = cx + Math.cos(an) * q * k, y = cy + Math.sin(an) * q;
-        if (i) g.lineTo(x, y); else g.moveTo(x, y);
+    // one small scuff rubbed through to the white body: a bundle of short abrasions all running the same way
+    const wr = L.rng('s30worn');
+    g.save(); g.translate(1640, 252); g.rotate(-0.58); g.lineCap = 'round';
+    const scuff = (color, grow) => {
+      const q = L.rng('s30scuff');
+      g.strokeStyle = color;
+      for (let i = 0; i < 17; i++) {
+        const y = q.range(-10, 10), len = q.range(8, 46), x = q.range(-30, 30) + y * 1.3, wd = q.range(1.4, 5);
+        g.globalAlpha = q.range(0.55, 1); g.lineWidth = wd + grow; g.beginPath(); g.moveTo(x - len / 2 - grow, y); g.quadraticCurveTo(x, y + q.range(-2.5, 2.5), x + len / 2 + grow, y + q.range(-1.5, 1.5)); g.stroke();
       }
-      g.closePath(); g.fill();
     };
-    g.save(); g.translate(wx, wy); g.rotate(-0.62);
-    g.fillStyle = 'rgba(250,230,134,0.9)'; flake(0, 0, 31, 1.5, 0.3);
-    g.fillStyle = '#f5eeda'; flake(1, 0.5, 24, 1.5, 0.3);
-    g.fillStyle = 'rgba(224,212,186,0.7)'; flake(5, 2, 10, 1.6, 1.1);
-    for (let i = 0; i < 7; i++) {
-      const an = wr.range(0, TAU), dd = wr.range(40, 74);
-      g.fillStyle = wr.chance(0.55) ? '#f5eeda' : 'rgba(250,232,140,0.9)';
-      flake(Math.cos(an) * dd * 1.3, Math.sin(an) * dd * 0.5, wr.range(1.8, 5.5), 1.3, wr.range(0, 3));
+    scuff('rgba(251,232,140,0.85)', 5);      // glaze worn thin round it
+    scuff('#f5eeda', 0);
+    for (let i = 0; i < 9; i++) {            // stray nicks trailing off along the same line
+      const x = wr.range(-120, 120), y = wr.range(-22, 22), len = wr.range(4, 20);
+      g.strokeStyle = wr.chance(0.5) ? '#f5eeda' : 'rgba(251,232,140,0.9)'; g.lineWidth = wr.range(1, 2.6);
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + len, y + wr.range(-1, 1)); g.stroke();
     }
     g.restore();
   });
