@@ -24,14 +24,16 @@ const HEAPX = 1060;
 let S = null;
 
 // black → ember → red → orange → gold (the only colours in this shot)
-const HEAT = [[0, '#040303'], [0.05, '#150504'], [0.14, '#3d0b07'], [0.28, '#8a140c'], [0.45, '#cc2412'], [0.6, '#ff3b1f'], [0.78, '#ff9a2a'], [1, '#ffe08a']];
-const SPARK = [[0, '#4a0b07'], [0.22, '#8a140c'], [0.5, '#ff3b1f'], [0.76, '#ff9a2a'], [1, '#ffe08a']];
+// Three poles only: lacquer black, cinnabar / crimson, gold. Cooling sparks lean crimson, fresh ones gold — no brown.
+const HEAT = [[0, '#040303'], [0.05, '#0a0303'], [0.14, '#38070a'], [0.28, '#8a1014'], [0.45, '#d21e1c'], [0.6, '#ff3b1f'], [0.78, '#ffa62a'], [1, '#ffe59a']];
+const SPARK = [[0, '#4a060c'], [0.22, '#8a0f18'], [0.5, '#ff3b1f'], [0.76, '#ffae2c'], [1, '#ffe9a0']];
+const EMBER = [[0, '#040303'], [0.1, '#1c0407'], [0.28, '#8a0f1a'], [0.46, '#d81e28'], [0.62, '#ff461f'], [0.8, '#ffb52e'], [1, '#fff0b0']];
 
 // float spark colours for the pixel plotter; values above 255 overexpose toward white-gold
 const NLUT = 64;
 const SLUT = new Float32Array(NLUT * 3);
 {
-  const ts = [0, 0.25, 0.5, 0.75, 1], cs = [[64, 9, 5], [150, 22, 12], [255, 62, 28], [305, 152, 46], [335, 265, 165]];
+  const ts = [0, 0.25, 0.5, 0.75, 1], cs = [[70, 6, 12], [176, 16, 24], [255, 62, 28], [310, 178, 44], [345, 290, 150]];
   for (let i = 0; i < NLUT; i++) {
     const h = i / (NLUT - 1); let k = 0; while (k < 3 && h > ts[k + 1]) k++;
     const u = (h - ts[k]) / (ts[k + 1] - ts[k]);
@@ -49,13 +51,28 @@ function hash2(x, y) {
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
-/** 1 inside the tagline zone above the crest, falling softly to 0 around it */
-function zoneMask(x, y, crestY) {
-  const dx = Math.abs(x - 960) / 425, dy = Math.abs(y - (crestY - 135)) / 160;
-  if (dx > 1.31 || dy > 1.31) return 0;
-  const dx2 = dx * dx, dy2 = dy * dy;
-  const d = Math.sqrt(Math.sqrt(dx2 * dx2 + dy2 * dy2));
-  return 1 - L.smooth((d - 0.8) / 0.5);
+// The lull under the crown of the burst, where the tagline sits: 1 deep inside, easing to 0 a long way out.
+// A wide-feathered, noise-warped ellipse (no straight edge, no corner anywhere), tabulated at quarter resolution.
+const QS = 4, QW = W / QS, QH = H / QS;
+let QUIET = null;
+function buildQuiet(crestY) {
+  const nz = L.makeNoise('s33quiet');
+  const q = new Float32Array(QW * QH), cy = crestY - 135;
+  for (let j = 0; j < QH; j++) for (let i = 0; i < QW; i++) {
+    const x = i * QS + QS / 2, y = j * QS + QS / 2;
+    const dx = Math.abs(x - 960) / 440, dy = Math.abs(y - cy) / (y < cy ? 150 : 175);
+    if (dx > 1.9 || dy > 1.9) continue;
+    const d = Math.pow(Math.pow(dx, 2.2) + Math.pow(dy, 2.2), 1 / 2.2) + 0.13 * nz.n2(x / 210, y / 210) + 0.05 * nz.n2(x / 75 + 9, y / 75);
+    q[j * QW + i] = 1 - L.smooth((d - 0.8) / 0.72);
+  }
+  QUIET = q;
+}
+function zoneMask(x, y) {
+  const u = x / QS - 0.5, v = y / QS - 0.5;
+  const i = Math.floor(u), j = Math.floor(v);
+  if (i < 0 || j < 0 || i >= QW - 1 || j >= QH - 1) return 0;
+  const fx = u - i, fy = v - j, k = j * QW + i;
+  return (QUIET[k] * (1 - fx) + QUIET[k + 1] * fx) * (1 - fy) + (QUIET[k + QW] * (1 - fx) + QUIET[k + QW + 1] * fx) * fy;
 }
 /** rough density of the falling canopy at a wall point (two lobes either side of the impact) */
 function canopy(x, y) {

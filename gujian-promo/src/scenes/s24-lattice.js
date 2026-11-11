@@ -16,15 +16,15 @@ const INK = '#050505';
 const FACE = '#f5f2ea';       // painted timber
 const GREY = '#8a867c';       // thickness / worn paint
 const FRAME_W = 56;           // outer frame: dr 0 … -56
-const FRAME_EXT = 6;          // how far the frame's thickness shows under it
-const FRET_H = 50;            // key-fret band between frame and rail
-const FB = 6, FQ = 13;        // fret bar width / pitch
-const RAIL_W = 9;
+const FRAME_EXT = 7;          // how far the frame's thickness shows under it
+const FRET_H = 54;            // key-fret band between frame and rail
+const FB = 6.8, FQ = 14;      // fret bar width / pitch
+const RAIL_W = 10;
 const RAILC = -(FRAME_W + FRET_H + RAIL_W / 2);   // centre line of the inner rail
-const BAR = 7.6;              // ice-crack bar width
-const FLW = 16;               // blossom radius
-const EXT = 3.6;              // thickness showing under every lattice bar
-const TARGET = 4100;          // typical area of one ice-crack cell (px²)
+const BAR = 9.2;              // ice-crack bar width (each bar is planed by hand: ± a little)
+const FLW = 17;               // blossom radius
+const EXT = 4.6;              // thickness showing under every lattice bar
+const TARGET = 4300;          // typical area of one ice-crack cell (px²)
 
 // ───────────────────────── geometry ─────────────────────────
 function buildGeometry(a) {
@@ -83,7 +83,7 @@ function buildGeometry(a) {
   const bars = [], seams = [];
   /** look for a good crack across one cell; `lax` loosens the rules for cells that would otherwise stay too big */
   const search = (poly, near, A, lax) => {
-    const SIN_MIN = Math.sin(L.deg(lax ? 33 : 40)), MINJ = lax ? 15 : 22, MINCELL = TARGET * (lax ? 0.24 : 0.3), QMIN = lax ? 0.42 : 0.5, WMIN = lax ? 20 : 23;
+    const SIN_MIN = Math.sin(L.deg(lax ? 33 : 40)), MINJ = lax ? 17 : 25, MINCELL = TARGET * (lax ? 0.24 : 0.3), QMIN = lax ? 0.42 : 0.5, WMIN = lax ? 21 : 24;
     const m = poly.length;
     const len = [], cum = []; let tot = 0;
     for (let i = 0; i < m; i++) { const u = poly[i], v = poly[(i + 1) % m]; const l = Math.hypot(v.x - u.x, v.y - u.y); len.push(l); tot += l; cum.push(tot); }
@@ -139,6 +139,7 @@ function buildGeometry(a) {
     return best;
   };
   const stack = [poly0];
+  const wr = L.rng('s24-plane');
   let guard = 0;
   while (stack.length && guard++ < 8000) {
     const poly = stack.pop();
@@ -149,7 +150,7 @@ function buildGeometry(a) {
     if (!best && A > TARGET * 1.3) best = search(poly, near, A, true);
     if (!best) continue;
     const { P, Q } = best;
-    bars.push({ x0: P.x, y0: P.y, x1: Q.x, y1: Q.y, tone: r() });
+    bars.push({ x0: P.x, y0: P.y, x1: Q.x, y1: Q.y, tone: r(), w: BAR + wr.range(-0.75, 0.75) });
     joints.push([P.x, P.y], [Q.x, Q.y]);
     seams.push({ x: P.x, y: P.y, ex: best.e1x, ey: best.e1y, dx: best.ux, dy: best.uy }, { x: Q.x, y: Q.y, ex: best.e2x, ey: best.e2y, dx: -best.ux, dy: -best.uy });
     stack.push(best.pa, best.pb);
@@ -172,9 +173,9 @@ function buildGeometry(a) {
 function medallion(g, m, shrink) {
   const R = m.R;
   g.lineJoin = 'round'; g.lineCap = 'butt';
-  g.lineWidth = (m.kind === 'bubu' ? 11 : 9.5) - 2 * shrink;
+  g.lineWidth = (m.kind === 'bubu' ? 14.5 : 13) - 2 * shrink;
   g.beginPath(); g.arc(0, 0, R, 0, L.TAU); g.stroke();
-  g.lineWidth = 8 - 2 * shrink;
+  g.lineWidth = (m.kind === 'bubu' ? 10 : 9.6) - 2 * shrink;
   if (m.kind === 'bubu') {
     // 步步锦: rectangles stepping inward, each tied to the next by short staggered bars
     const s1 = (R - 2) / Math.SQRT2, s2 = s1 * 0.655, s3 = s1 * 0.31, o = s2 * 0.52;
@@ -227,10 +228,7 @@ function drawFret(g, a, geo, shrink) {
 /** all lattice timber (everything except the outer frame) as white on transparent; shrink trims every edge */
 function drawLattice(g, a, geo, shrink) {
   g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineCap = 'butt';
-  g.lineWidth = BAR - 2 * shrink;
-  g.beginPath();
-  for (const b of geo.bars) { g.moveTo(b.x0, b.y0); g.lineTo(b.x1, b.y1); }
-  g.stroke();
+  for (const b of geo.bars) { g.lineWidth = b.w - 2 * shrink; g.beginPath(); g.moveTo(b.x0, b.y0); g.lineTo(b.x1, b.y1); g.stroke(); }
   for (const m of geo.meds) {
     g.save(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(m.x, m.y, m.R, 0, L.TAU); g.fill(); g.restore();
     g.save(); g.translate(m.x, m.y); g.rotate(m.theta); medallion(g, m, shrink); g.restore();
@@ -279,13 +277,13 @@ function buildLattice(env, geo) {
     const r = L.rng('s24grain');
     g.lineCap = 'butt';
     for (const b of geo.bars) {
-      g.strokeStyle = L.mix(FACE, GREY, 0.11 * b.tone * b.tone); g.lineWidth = BAR + 1;
+      g.strokeStyle = L.mix(FACE, GREY, 0.2 * b.tone * b.tone); g.lineWidth = b.w + 1;
       g.beginPath(); g.moveTo(b.x0, b.y0); g.lineTo(b.x1, b.y1); g.stroke();
     }
     for (const b of geo.bars) {
       const dx = b.x1 - b.x0, dy = b.y1 - b.y0, len = Math.hypot(dx, dy), nx = -dy / len, ny = dx / len;
       for (let k = 0; k < 2; k++) {
-        const o = r.range(-0.36, 0.36) * BAR, t0 = r.range(0, 0.35), t1 = r.range(0.6, 1);
+        const o = r.range(-0.36, 0.36) * b.w, t0 = r.range(0, 0.35), t1 = r.range(0.6, 1);
         g.strokeStyle = L.rgba('#6d695f', r.range(0.12, 0.3)); g.lineWidth = r.range(0.6, 1.1);
         g.beginPath();
         for (let i = 0; i <= 5; i++) { const t = L.lerp(t0, t1, i / 5), w = o + r.range(-0.5, 0.5); const x = b.x0 + dx * t + nx * w, y = b.y0 + dy * t + ny * w; if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
@@ -311,8 +309,11 @@ function buildLattice(env, geo) {
     }
     // soft, broad unevenness of old paint
     g.globalAlpha = 0.6;
-    g.drawImage(L.noiseLayer(PAD, { seed: 's24tone', scale: 210, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.32)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.3)']] }), -PAD, -PAD);
+    g.drawImage(L.noiseLayer(PAD, { seed: 's24tone', scale: 210, octaves: 3, res: 0.2, ramp: [[0, 'rgba(112,106,94,0.26)'], [0.5, 'rgba(112,106,94,0)'], [1, 'rgba(255,255,255,0.4)']] }), -PAD, -PAD);
+    // where the paint has thinned: a few irregular patches a tone greyer (never a second hue)
     g.globalAlpha = 1;
+    g.drawImage(L.noiseLayer(PAD, { seed: 's24thin', scale: 46, octaves: 3, gain: 0.55, res: 0.25, warp: 0.5, contrast: 1.25,
+      ramp: [[0, 'rgba(150,145,134,0)'], [0.69, 'rgba(150,145,134,0)'], [0.75, 'rgba(150,145,134,0.34)'], [1, 'rgba(126,121,111,0.5)']] }), -PAD, -PAD);
     // a few chips straight through the paint
     g.fillStyle = chipPattern(g, 'sparse'); g.fillRect(-PAD, -PAD, LW, LH);
   });
@@ -384,8 +385,33 @@ function buildFrame(env) {
   g.setTransform(1, 0, 0, 1, 0, 0);
   const bump = L.bumpLight(L.blurred(height, 1), { angle: 45, strength: 2.6, res: 0.5 });
   g.globalAlpha = 0.8; g.globalCompositeOperation = 'hard-light'; g.drawImage(bump, 0, 0);
+  // edge light: the outer arris — the arc itself — catches the key light along its whole length
+  g.setTransform(1, 0, 0, 1, PAD, PAD); g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 0.55; g.strokeStyle = '#fffefa'; g.lineWidth = 5; a.stroke(g, -2.2);
+  g.globalAlpha = 0.95; g.lineWidth = 2.2; a.stroke(g, -1.1);
+  g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(mask, 0, 0);
   return assemble(mask, face, FRAME_EXT);
+}
+
+/** depth of field: tack-sharp around the crest, a little softer step by step toward the sides and the bottom corners */
+function lensFalloff(env, src) {
+  const a = env.arc, fx = a.cx + PAD, fy = a.crestY + 110 + PAD;
+  const R0 = 520, R1 = 960, R2 = 1500;
+  const out = L.makeCanvas(LW, LH); out._pad = PAD;
+  const og = out.getContext('2d');
+  const part = (img, stops) => {
+    const c = L.makeCanvas(LW, LH), g = c.getContext('2d');
+    g.drawImage(img, 0, 0);
+    g.globalCompositeOperation = 'destination-in';
+    g.fillStyle = L.radial(g, fx, fy, 0, R2, stops.map(([r, al]) => [r / R2, `rgba(0,0,0,${al})`]));
+    g.fillRect(0, 0, LW, LH);
+    og.globalCompositeOperation = 'lighter'; og.drawImage(c, 0, 0);
+  };
+  part(src, [[0, 1], [R0, 1], [R1, 0], [R2, 0]]);
+  part(L.blurred(src, 1.3), [[0, 0], [R0, 0], [R1, 1], [R2, 0]]);
+  part(L.blurred(src, 2.8), [[0, 0], [R1, 0], [R2, 1]]);
+  return out;
 }
 
 export default {
@@ -400,9 +426,9 @@ export default {
     // halation: a breath of glow around the white timber, baked under it
     const out = L.makeCanvas(LW, LH); out._pad = PAD;
     const g = out.getContext('2d');
-    g.globalAlpha = 0.17; g.drawImage(L.blurred(win, 12), 0, 0);
+    g.globalAlpha = 0.2; g.drawImage(L.blurred(win, 12), 0, 0);
     g.globalAlpha = 1; g.drawImage(win, 0, 0);
-    S = { win: out };
+    S = { win: lensFalloff(env, out) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -410,8 +436,8 @@ export default {
     ctx.fillStyle = INK; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.win, { rot, zoom });
     // a pool of light drifting along the frame (falls off into shade; the black ground stays black)
-    const lp = a.pt(L.lerp(-0.075, 0.045, p), -120);
-    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1250, [[0, 'rgba(0,0,0,0)'], [0.26, 'rgba(0,0,0,0.03)'], [0.58, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0.7)']]);
+    const lp = a.pt(L.lerp(-0.075, 0.045, p), -140);
+    ctx.fillStyle = L.radial(ctx, lp.x, lp.y, 0, 1350, [[0, 'rgba(0,0,0,0)'], [0.3, 'rgba(0,0,0,0.02)'], [0.62, 'rgba(0,0,0,0.2)'], [1, 'rgba(0,0,0,0.5)']]);
     ctx.fillRect(0, 0, W, H);
   },
 };

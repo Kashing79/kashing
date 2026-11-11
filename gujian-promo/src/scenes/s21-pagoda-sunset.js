@@ -6,28 +6,31 @@ import * as L from '../lib/core.js';
 
 const { W, H } = L;
 const PAD = 240;
-const INK = '#0a0506';
+const INK = '#050305';
 const TOWER_X = 484;      // pagoda axis at mid-shot — well clear of the tagline zone (x ≥ 630)
 const PAV_X = 1574;       // the little pavilion, far along the ridge on the other side
 let S = null;
 
 const sunOf = (a) => ({ x: 460, y: a.yAt(460) - 76, r: 120 });
 
-// "heat" → colour. 0 = cold plum at the top of the sky, ~0.88 = the ember band on the ridge, >1 = glare round the sun
-const HEAT = [
-  [0.0, '#10040a'], [0.1, '#1e060e'], [0.2, '#3a0a14'], [0.34, '#621018'], [0.48, '#8a171a'], [0.6, '#b0201a'],
-  [0.7, '#d0351a'], [0.8, '#ee511c'], [0.88, '#ff6a1f'], [0.98, '#ff8530'], [1.1, '#ffa548'],
+// height above the ridge (px) → colour, after「塞上燕脂凝夜紫」: a thin ember line on the ridge, a quick fall to
+// rouge (the calm band the tagline sits in), then plum and night-purple overhead — never down to black
+const SKY = [
+  [0, '#ffbe55'], [5, '#ffb347'], [12, '#ff8a2a'], [22, '#ee4f2a'], [34, '#c22a3a'], [56, '#a82241'],
+  [260, '#8e1d48'], [370, '#64205a'], [470, '#422256'], [640, '#24143a'],
 ];
+const HMAX = 720;
+const SKY_BOTTOM = 900;   // no sky is ever seen below this row (the ridge at the far end of the padded layer)
 
 // ───────────────────────── sky ─────────────────────────
 function buildSky(env) {
   const a = env.arc, sun = sunOf(a);
-  const LW = W + PAD * 2, LH = H + PAD * 2, res = 0.25;
+  const LW = W + PAD * 2, LH = SKY_BOTTOM + PAD, res = 0.5;
   const cw = Math.round(LW * res), ch = Math.round(LH * res);
-  const ramp = L.makeRamp(HEAT);
-  const NL = 2048, TMAX = 1.1;
+  const ramp = L.makeRamp(SKY);
+  const NL = HMAX * 4 + 1;
   const lut = new Uint8ClampedArray(NL * 3);
-  for (let i = 0; i < NL; i++) { const c = ramp((i / (NL - 1)) * TMAX); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
+  for (let i = 0; i < NL; i++) { const c = ramp(i / 4); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const nz = L.makeNoise('s21sky');
   const img = new ImageData(cw, ch); const d = img.data;
   let k = 0;
@@ -36,19 +39,17 @@ function buildSky(env) {
     for (let i = 0; i < cw; i++) {
       const x = (i + 0.5) / res - PAD;
       const dr = Math.max(0, a.drAt(x, y));
-      // bands hugging the ridge: a thin ember line, a quick fall to crimson, a long tail into plum
-      let t = 0.11 + 0.15 * Math.exp(-dr / 16) + 0.3 * Math.exp(-dr / 60) + 0.34 * Math.exp(-dr / 330);
-      // the sun's haze: wide along the horizon, and leaning into the upper-left sky
-      const ds = Math.hypot((x - sun.x) / 1.55, y - sun.y);
-      const lean = 0.35 + 0.65 * L.smooth((sun.x + 700 - x) / 700);
-      t += 0.27 * Math.exp(-ds / 240) + 0.26 * lean * Math.exp(-ds / 650);
-      // the far side of the sky sinks toward plum
-      t -= 0.1 * L.smooth((x - 1050) / 1000) * (0.4 + 0.6 * L.clamp(dr / 300));
-      // slow breathing so it is not a mathematically clean gradient
-      t += 0.028 * nz.fbm(x / 900, y / 240, 3);
-      // soft shoulder so the glare never burns out flat
-      if (t > 0.8) t = 0.8 + 0.22 * (1 - Math.exp(-(t - 0.8) / 0.3));
-      const li = Math.min(NL - 1, Math.max(0, ((t / TMAX) * (NL - 1)) | 0)) * 3;
+      const up = L.smooth((dr - 40) / 220);                 // 0 inside the ember line, 1 in the open sky
+      // the ember line: its thickness breathes, and away from the sun it cools from yellow to orange
+      let h1 = dr;
+      if (up < 1) h1 = dr * (1 + 0.2 * nz.n2(x / 230, 3.3)) + 8 * L.smooth((Math.abs(x - sun.x) - 320) / 1100);
+      // the open sky: purple comes a little lower on the side away from the sun; slow breathing so it is not a clean gradient
+      if (up > 0) h1 = L.lerp(h1, dr * (0.94 + 0.26 * L.smooth((x - 200) / 1900)) * (1 + 0.09 * nz.fbm(x / 820, y / 240, 3)), up);
+      // the sun's aureole, as a "height" of its own: hot against the disc, back to the plain sky ~130 px out
+      const ds = Math.max(0, Math.hypot((x - sun.x) / 1.15, y - sun.y) - sun.r * 0.96);
+      const h2 = 9 + 0.42 * ds * (1 + (ds * ds) / 90000);
+      const h = Math.pow(Math.pow(h1 + 0.5, -1.5) + Math.pow(h2 + 0.5, -1.5), -1 / 1.5);
+      const li = Math.min(NL - 1, Math.max(0, (h * 4) | 0)) * 3;
       d[k++] = lut[li]; d[k++] = lut[li + 1]; d[k++] = lut[li + 2]; d[k++] = 255;
     }
   }
@@ -56,43 +57,60 @@ function buildSky(env) {
   return L.makeLayer(PAD, (g) => {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, -PAD, -PAD, LW, LH);
-    // halo
-    g.save(); g.globalCompositeOperation = 'lighter';
-    g.fillStyle = L.radial(g, sun.x, sun.y, sun.r * 0.9, sun.r * 2.5, [[0, 'rgba(255,150,70,0.34)'], [0.3, 'rgba(255,120,44,0.13)'], [1, 'rgba(255,90,20,0)']]);
-    g.fillRect(sun.x - 320, sun.y - 320, 640, 640);
-    g.restore();
     // the disc: soft-edged, a little flattened and reddened toward its foot by the thick air
     const DS = sun.r * 2 + 48, disc = L.makeCanvas(DS, DS), dg = disc.getContext('2d');
     dg.save();
     dg.filter = 'blur(2.4px)';
     dg.translate(DS / 2, DS / 2); dg.scale(1, 0.955);
-    dg.fillStyle = L.linear(dg, 0, -sun.r, 0, sun.r * 0.75, [[0, '#fff3c6'], [0.45, '#ffe19a'], [0.8, '#ffc56a'], [1, '#ffa646']]);
+    dg.fillStyle = L.linear(dg, 0, -sun.r, 0, sun.r * 0.75, [[0, '#ffe680'], [0.5, '#ffc24a'], [0.85, '#ff9a30'], [1, '#ff7a2a']]);
     dg.beginPath(); dg.arc(0, 0, sun.r, 0, L.TAU); dg.fill();
     dg.restore();
     dg.globalCompositeOperation = 'source-atop';                                   // limb darkening, inside the disc only
-    dg.fillStyle = L.radial(dg, DS / 2, DS / 2, sun.r * 0.5, sun.r * 1.03, [[0, 'rgba(255,150,60,0)'], [1, 'rgba(255,136,52,0.6)']]);
+    dg.fillStyle = L.radial(dg, DS / 2, DS / 2, sun.r * 0.5, sun.r * 1.03, [[0, 'rgba(255,110,40,0)'], [1, 'rgba(255,110,40,0.55)']]);
     dg.fillRect(0, 0, DS, DS);
     g.drawImage(disc, sun.x - DS / 2, sun.y - DS / 2);
     // bars of cloud lying across it
     g.save(); g.filter = 'blur(2.6px)';
     const bars = [[-70, 2.6, 170, 0.6, 40], [-58, 1.3, 120, 0.4, -60], [-12, 1.5, 150, 0.36, 70], [22, 6, 250, 0.72, -10], [36, 1.8, 180, 0.5, 60]];
     for (const [dy, ry, rx, al, ox] of bars) {
-      g.fillStyle = L.rgba('#c9361b', al);
+      g.fillStyle = L.rgba('#b3243c', al);
       g.beginPath(); g.ellipse(sun.x + ox, sun.y + dy, rx, ry, -0.01, 0, L.TAU); g.fill();
     }
     g.restore();
   });
 }
 
+/** the light the bloom pass spreads over whatever stands in front of the sun: the disc and the tight glare round it */
+const BLOOM_R = 320;
+function buildSunLight(env) {
+  const sun = sunOf(env.arc), N = BLOOM_R * 2;
+  const c = L.makeCanvas(N, N), g = c.getContext('2d');
+  g.translate(N / 2, N / 2);
+  g.fillStyle = L.radial(g, 0, 0, sun.r * 0.94, sun.r * 1.8, [[0, 'rgba(255,150,60,0.5)'], [0.3, 'rgba(255,110,50,0.18)'], [1, 'rgba(255,80,40,0)']]);
+  g.fillRect(-N / 2, -N / 2, N, N);
+  g.fillStyle = L.linear(g, 0, -sun.r, 0, sun.r, [[0, '#ffe890'], [0.55, '#ffc050'], [1, '#ff8a30']]);
+  g.beginPath(); g.ellipse(0, 0, sun.r, sun.r * 0.955, 0, 0, L.TAU); g.fill();
+  return c;
+}
+
 // ───────────────────────── clouds ─────────────────────────
 function buildClouds(env) {
   const a = env.arc, sun = sunOf(a);
   const LW = W + PAD * 2, LH = 860 + PAD;            // only the part above the ridge is ever seen
-  // long horizontal fibres…
-  const fibres = (seed, scale, sx, sy, lo, hi) => L.noiseTex(LW, LH, {
-    seed, scale, sx, sy, octaves: 4, gain: 0.55, warp: 0.6, warpScale: 3, contrast: 1.5, res: 0.5,
-    ramp: [[0, 'rgba(255,255,255,0)'], [lo, 'rgba(255,255,255,0)'], [hi, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,1)']],
-  });
+  // long fibres: coarse strands with finer ones combed through them, lying at a slight slant rather than dead level
+  const MX = 200, MY = 160;
+  const fibres = (seed, scale, sx, sy, lo, hi, tilt) => {
+    const mk = (sd, sc, sxx) => L.noiseTex(LW + MX, LH + MY, {
+      seed: sd, scale: sc, sx: sxx, sy, octaves: 4, gain: 0.55, warp: 0.6, warpScale: 3, contrast: 1.5, res: 0.5,
+      ramp: [[0, 'rgba(255,255,255,0)'], [lo, 'rgba(255,255,255,0)'], [hi, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,1)']],
+    });
+    const c = L.makeCanvas(LW, LH), g = c.getContext('2d');
+    g.translate(LW / 2, LH / 2); g.rotate(tilt);
+    g.drawImage(mk(seed, scale, sx), -(LW + MX) / 2, -(LH + MY) / 2);
+    g.globalAlpha = 0.5; g.drawImage(mk(seed + 'fine', scale * 0.48, sx * 1.35), -(LW + MX) / 2, -(LH + MY) / 2);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1;
+    return c;
+  };
   // …gathered into a few banks [x, y, rx, ry, strength] (frame coords), with clear sky between them
   const gather = (g, banks) => {
     const m = L.makeCanvas(LW, LH); const mg = m.getContext('2d');
@@ -104,27 +122,27 @@ function buildClouds(env) {
     g.globalCompositeOperation = 'destination-in'; g.drawImage(m, 0, 0);
     // the tagline's pocket stays quiet
     g.globalCompositeOperation = 'destination-out';
-    g.save(); g.translate(a.cx + PAD, a.crestY - 135 + PAD); g.scale(1, 0.5);
-    g.fillStyle = L.radial(g, 0, 0, 200, 600, [[0, 'rgba(0,0,0,0.95)'], [1, 'rgba(0,0,0,0)']]);
-    g.fillRect(-640, -640, 1280, 1280);
+    g.save(); g.translate(a.cx + PAD, a.crestY - 135 + PAD); g.scale(1, 0.55);
+    g.fillStyle = L.radial(g, 0, 0, 340, 700, [[0, 'rgba(0,0,0,0.97)'], [1, 'rgba(0,0,0,0)']]);
+    g.fillRect(-720, -720, 1440, 1440);
     g.restore();
   };
-  // 1) high cirrus, lit from below: brighter than the sky behind it
-  const lit = fibres('s21cirrus', 46, 30, 0.75, 0.4, 0.82);
+  // 1) high cirrus, lit from below: brighter than the sky behind it — peach by the sun, rose and mauve far from it
+  const lit = fibres('s21cirrus', 46, 30, 0.75, 0.46, 0.72, -0.022);
   let g = lit.getContext('2d');
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = L.radial(g, sun.x + PAD, sun.y + PAD, 0, 1700, [[0, '#ffc27a'], [0.16, '#ff8a40'], [0.36, '#e4522c'], [0.66, '#a82e24'], [1, '#641c22']]);
+  g.fillStyle = L.radial(g, sun.x + PAD, sun.y + PAD, 0, 1700, [[0, '#ffc890'], [0.16, '#ff9a5a'], [0.36, '#ed5736'], [0.6, '#db5a6b'], [1, '#8c4356']]);
   g.fillRect(0, 0, LW, LH);
   gather(g, [[430, 96, 760, 78, 1], [1500, 176, 640, 62, 0.95], [70, 292, 430, 44, 0.8], [1790, 20, 520, 56, 0.8], [1010, -8, 520, 46, 0.7], [1860, 372, 300, 30, 0.6]]);
   lit._pad = PAD;
-  // 2) low streaks across the ember band: darker than the sky behind them
-  const dark = fibres('s21streak', 58, 26, 0.8, 0.4, 0.78);
+  // 2) low streaks across the ember line: darker than the sky behind them
+  const dark = fibres('s21streak', 58, 26, 0.8, 0.42, 0.74, 0.012);
   g = dark.getContext('2d');
   g.globalCompositeOperation = 'source-in';
-  g.fillStyle = '#560f12'; g.fillRect(0, 0, LW, LH);
+  g.fillStyle = '#3d1238'; g.fillRect(0, 0, LW, LH);
   gather(g, [[1640, 512, 400, 30, 0.85], [40, 552, 400, 30, 0.62], [330, 432, 330, 20, 0.7], [1900, 650, 330, 26, 0.8], [-80, 690, 300, 26, 0.7], [1380, 468, 190, 12, 0.5]]);
   dark._pad = PAD;
-  return { lit: L.blurred(lit, 0.8), dark: L.blurred(dark, 1.1) };
+  return { lit: L.blurred(lit, 0.4), dark: L.blurred(dark, 1.1) };
 }
 
 // ───────────────────────── buildings ─────────────────────────
@@ -172,7 +190,7 @@ function drawPagoda(g, cx, by, k) {
       // 风铎 under the corner
       rect(s * (tipX - 2.2) - 0.45, tipY - 5.5, 0.9, 5);
       g.beginPath(); g.arc(X(s * (tipX - 2.2)), Y(tipY - 6.6), 1.6 * k, 0, L.TAU); g.fill();
-      glints.push({ s, bw, e, T, rH, tipX, tipY, last });
+      glints.push({ s, bw, e, T, rH, tipX, tipY, last, low: i < 3 });
     }
     doors.push({ y: y + (i ? 3.4 : 2), w: bw * 0.27, h: h * 0.36 });
     if (last) {
@@ -201,11 +219,11 @@ function drawPagoda(g, cx, by, k) {
   // the roof slopes face the sky and catch a thread of its colour
   g.save(); g.lineCap = 'round';
   for (const q of glints) {
-    const { s, bw: b, e: ev, T, rH, tipX, tipY, last } = q;
+    const { s, bw: b, e: ev, T, rH, tipX, tipY, last, low } = q;
     g.beginPath();
     if (last) { g.moveTo(X(s * 1.5), Y(T + 27)); g.bezierCurveTo(X(s * b * 0.26), Y(T + 7.6), X(s * (b + ev * 0.4)), Y(T - rH * 0.98 - 1.4), X(s * (tipX - 2)), Y(tipY - 1.6)); }
     else { g.moveTo(X(s * (b * 0.9 + 9)), Y(T - 5)); g.quadraticCurveTo(X(s * (b + ev * 0.5)), Y(T - rH - 1.2), X(s * (tipX - 2)), Y(tipY - 1.6)); }
-    g.strokeStyle = 'rgba(255,128,56,0.5)'; g.lineWidth = 1.2 * k; g.stroke();
+    g.strokeStyle = low ? 'rgba(255,160,70,0.5)' : 'rgba(214,60,90,0.45)'; g.lineWidth = 1.2 * k; g.stroke();
   }
   g.restore();
 }
@@ -229,7 +247,7 @@ function drawPavilion(g, cx, by, k) {
     g.closePath(); g.fill();
   }
   rect(-1.7, 77, 3.4, 6); g.beginPath(); g.arc(X(0), Y(86), 3.7 * k, 0, L.TAU); g.fill();
-  g.save(); g.lineCap = 'round'; g.strokeStyle = 'rgba(214,80,36,0.42)'; g.lineWidth = 1.1 * k;
+  g.save(); g.lineCap = 'round'; g.strokeStyle = 'rgba(200,50,80,0.42)'; g.lineWidth = 1.1 * k;
   for (const s of [-1, 1]) { g.beginPath(); g.moveTo(X(s * 2), Y(75)); g.bezierCurveTo(X(s * 7), Y(55), X(s * 27), Y(41.3), X(s * 46), Y(45.8)); g.stroke(); }
   g.restore();
 }
@@ -287,12 +305,12 @@ function buildHill(env) {
     const crown = (cx, cy, rad, lobesN, depth, skyline) => {
       const prox = Math.exp(-Math.abs(cx - sun.x) / 480);
       // rim light on the upper edge
-      const col = L.mix('#93261a', '#ff8c3c', prox);
+      const col = L.mix('#b02a4a', '#ffa040', prox);
       const al = (0.38 + 0.55 * prox) * Math.exp(-depth / 19) * (r.chance(0.3) ? 0.3 : 1);
       // body tone: each crown is a dim red-brown dome, in drifting patches of lit and shadowed forest, dying away down the slope
       const patch = L.clamp(0.5 + 0.95 * nz.fbm(cx / 120, cy / 64, 3));
       const k = 0.5 * (0.15 + 0.85 * patch) * Math.exp(-depth / 58) * (skyline ? 0.5 : 1) * (0.5 + 0.5 * prox);
-      const lit = L.mix('#5c1a10', '#b5461c', prox);
+      const lit = L.mix('#3a1030', '#8a2438', prox);
       const c0 = L.mix(INK, lit, k), c1 = L.mix(INK, lit, k * 0.38), c2 = L.mix(INK, lit, k * 0.2);
       const lobes = [[0, 0, rad]];
       for (let i = 0; i < lobesN; i++) {
@@ -352,7 +370,7 @@ function buildHill(env) {
     // 4) forest sheen: lumps of canopy catching the red of the sky — strongest along the tree line and toward the sun,
     //    gone a couple of hundred px down the slope (the hill stays near-black)
     const mottle = L.polarNoiseLayer(env, PAD, { seed: 's21mottle', scale: 30, sx: 1.9, sy: 0.9, octaves: 5, gain: 0.6, contrast: 1.5, res: 0.4,
-      ramp: [[0, 'rgba(120,34,18,0)'], [0.48, 'rgba(120,34,18,0)'], [1, 'rgba(150,44,20,0.2)']] });
+      ramp: [[0, 'rgba(96,26,60,0)'], [0.48, 'rgba(96,26,60,0)'], [1, 'rgba(128,34,72,0.2)']] });
     const sheen = L.makeCanvas(layer.width, layer.height), sg = sheen.getContext('2d');
     sg.drawImage(mottle, 0, 0);
     sg.globalCompositeOperation = 'destination-in';
@@ -381,7 +399,7 @@ function buildHill(env) {
       g.save(); g.globalCompositeOperation = 'screen';
       for (let i = 0; i < pts.length; i += 11) {
         const p = pts[i], prox = Math.exp(-Math.abs(p[0] - sun.x) / 900);
-        g.fillStyle = L.radial(g, p[0], p[1] - 4, 0, 140, [[0, `rgba(120,30,16,${haze * (0.4 + 0.6 * prox)})`], [1, 'rgba(120,30,16,0)']]);
+        g.fillStyle = L.radial(g, p[0], p[1] - 4, 0, 140, [[0, `rgba(88,36,104,${haze * 1.5 * (0.4 + 0.6 * prox)})`], [1, 'rgba(88,36,104,0)']]);
         g.fillRect(p[0] - 140, p[1] - 144, 280, 280);
       }
       g.restore();
@@ -390,18 +408,16 @@ function buildHill(env) {
       for (const p of pts) g.lineTo(p[0], p[1]);
       g.lineTo(W + PAD + 30, H + PAD * 2); g.lineTo(-PAD - 30, H + PAD * 2); g.closePath(); g.fill();
     });
-    // a whisper of the same mottling on the near slopes, and the last light spilling over the ridge by the sun
+    // a whisper of the same mottling on the near slopes
     g.globalCompositeOperation = 'screen';
     g.globalAlpha = 0.16; g.drawImage(mottle, -PAD, -PAD + 9); g.globalAlpha = 1;
-    g.fillStyle = L.radial(g, sun.x, a.yAt(sun.x), 0, 520, [[0, 'rgba(120,30,14,0.2)'], [0.4, 'rgba(90,22,12,0.07)'], [1, 'rgba(80,18,10,0)']]);
-    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.restore();
   });
 }
 
 // ───────────────────────── birds ─────────────────────────
 const BIRDS = [ // x, y, size, flap phase
-  [1392, 262, 1.0, 0.0], [1452, 298, 0.82, 1.7], [1518, 250, 0.7, 3.1], [1588, 320, 0.9, 4.4], [1664, 278, 0.6, 2.3], [1352, 338, 0.58, 5.2], [1738, 356, 0.5, 0.9],
+  [1392, 262, 1.5, 0.0], [1452, 298, 1.2, 1.7], [1518, 250, 0.7, 3.1], [1588, 320, 1.3, 4.4], [1664, 278, 0.6, 2.3], [1352, 338, 0.58, 5.2], [1738, 356, 0.5, 0.9],
   [226, 316, 0.6, 2.9], [286, 350, 0.48, 4.0],
 ];
 function drawBird(ctx, x, y, s, flap) {
@@ -420,15 +436,24 @@ export default {
   name: '古塔夕照',
   tone: 'light',
   init(env) {
+    const a = env.arc, sun = sunOf(a);
     const clouds = buildClouds(env);
-    S = { sky: buildSky(env), lit: clouds.lit, dark: clouds.dark, hill: buildHill(env) };
+    const hill = buildHill(env);
+    // what stands in front of the sun (pagoda, trees, ridge), cut out of the hill layer for the bloom pass
+    const CW = 820, CH = 780, cx0 = Math.round(sun.x - 400), cy0 = Math.round(sun.y - 430);
+    const occ = L.makeCanvas(CW, CH);
+    occ.getContext('2d').drawImage(hill, cx0 + PAD, cy0 + PAD, CW, CH, 0, 0, CW, CH);
+    const BN = BLOOM_R / 2;                              // bloom buffers at quarter size
+    S = { sky: buildSky(env), lit: clouds.lit, dark: clouds.dark, hill, sunLight: buildSunLight(env), occ, occX: cx0, occY: cy0,
+      b0: L.makeCanvas(BN, BN), b1: L.makeCanvas(BN, BN) };
   },
   draw(ctx, env, p) {
     const a = env.arc, sun = sunOf(a);
     const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(1.0, 1.02, p);
-    L.blit(ctx, env, S.sky, { rot: rot * 0.15, zoom: 1 + (zoom - 1) * 0.3 });
+    const skyRot = rot * 0.15, skyZoom = 1 + (zoom - 1) * 0.6;
+    L.blit(ctx, env, S.sky, { rot: skyRot, zoom: skyZoom });
     // cloud parallax: the high cirrus barely moves, the low streaks slide the other way
-    L.blit(ctx, env, S.lit, { dx: L.lerp(6, -6, p), zoom: 1 + (zoom - 1) * 0.4, blend: 'screen', alpha: 0.7 });
+    L.blit(ctx, env, S.lit, { dx: L.lerp(6, -6, p), zoom: 1 + (zoom - 1) * 0.4, blend: 'screen', alpha: 0.8 });
     L.blit(ctx, env, S.dark, { dx: L.lerp(-13, 13, p), zoom: 1 + (zoom - 1) * 0.6, alpha: 0.85 });
     // birds heading home toward the pagoda
     ctx.save(); ctx.fillStyle = INK; ctx.globalAlpha = 0.92;
@@ -436,8 +461,27 @@ export default {
     ctx.restore();
     // hill, trees, pagoda: slide along the ridge
     L.blit(ctx, env, S.hill, { rot, zoom });
-    // glare wrapping over the silhouette near the sun
-    L.glow(ctx, sun.x, sun.y + 20, 330, '#ff7a2a', 0.13);
-    L.vignette(ctx, { strength: 0.3 });
+
+    // bloom: the sun's light, minus whatever stands in front of it, spread and laid back over the frame — so the disc
+    // eats into the edges of the pagoda, the doorways flare, and the black lifts to a warm brown inside the glare
+    const c = Math.cos(skyRot), sn = Math.sin(skyRot), ux = sun.x - a.cx, uy = sun.y - a.cy;
+    const sx = a.cx + (ux * c - uy * sn) * skyZoom, sy = a.crestY + (a.cy - a.crestY + ux * sn + uy * c) * skyZoom;   // where the sky's move puts the sun
+    const q = 0.25, x0 = sx - BLOOM_R, y0 = sy - BLOOM_R, N = BLOOM_R * 2;
+    const g0 = S.b0.getContext('2d'), g1 = S.b1.getContext('2d');
+    g0.setTransform(1, 0, 0, 1, 0, 0); g0.globalCompositeOperation = 'source-over'; g0.clearRect(0, 0, S.b0.width, S.b0.height);
+    g0.setTransform(q, 0, 0, q, -x0 * q, -y0 * q);
+    g0.drawImage(S.sunLight, x0, y0);
+    g0.globalCompositeOperation = 'destination-out';
+    L.cam(g0, env, { rot, zoom }, () => g0.drawImage(S.occ, S.occX, S.occY));
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    for (const [blur, alpha] of [[1.8, 0.42], [8, 0.34]]) {
+      g1.setTransform(1, 0, 0, 1, 0, 0); g1.clearRect(0, 0, S.b1.width, S.b1.height);
+      g1.filter = `blur(${blur}px)`; g1.drawImage(S.b0, 0, 0); g1.filter = 'none';
+      ctx.globalAlpha = alpha; ctx.drawImage(S.b1, x0, y0, N, N);
+    }
+    ctx.restore();
+    // a veil of glare over the foot of the pagoda
+    L.glow(ctx, sx, sy + 20, 210, '#ff8a3a', 0.12);
+    L.vignette(ctx, { strength: 0.18 });
   },
 };

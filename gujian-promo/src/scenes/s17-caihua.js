@@ -336,8 +336,9 @@ function paintLacquer(g, env) {
 
 function buildMain(env) {
   const a = env.arc, B = botRect(a);
-  const gold = buildGold(env);
-  const { crack, flake } = buildAging(env);
+  let T0 = performance.now(); const tick = (n) => { const t = performance.now(); console.warn('TIME ' + n + ' ' + (t - T0).toFixed(0)); T0 = t; };
+  const gold = buildGold(env); tick('gold');
+  const { crack, flake } = buildAging(env); tick('aging');
   const grain = L.grainTex(FW >> 1, FH >> 1, { seed: 's17pg', amount: 0.85 });
 
   // height map → relief light
@@ -354,9 +355,11 @@ function buildMain(env) {
     g.save(); a.clipAbove(g, 0); g.globalAlpha = 0.22; g.drawImage(crack, -PAD, -PAD); g.restore();
   });
 
+  tick('height');
   // NB: with white = high, bumpLight's angle 45 is what lights raised detail from the upper left
   const bump = L.bumpLight(height, { angle: 45, strength: 3.2, blur: 0.7, res: 0.6 });
 
+  tick('bump');
   // the bare 地仗 ground that shows where paint has flaked
   const chips = L.makeLayer(PAD, (g) => {
     g.drawImage(L.noiseTex(FW >> 1, FH >> 1, { seed: 's17ground', scale: 22, octaves: 3, res: 0.5, contrast: 1.6, ramp: [[0, '#372b22'], [0.5, '#6a5846'], [1, '#a08c6c']] }), -PAD, -PAD, FW, FH);
@@ -365,9 +368,10 @@ function buildMain(env) {
     g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(46,10,6,0.62)'; a.pathAbove(g, 0); g.fill();
   });
 
+  tick('chips');
   const main = L.makeLayer(PAD, (g) => {
-    paintLacquer(g, env);
-    drawPattern(g, env, COL);
+    paintLacquer(g, env); tick('lacquer');
+    drawPattern(g, env, COL); tick('pattern');
     // mineral pigment: uneven density, brush drag, coarse crystals, grime
     g.save(); a.clipBelow(g, 0);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
@@ -383,6 +387,7 @@ function buildMain(env) {
     g.drawImage(rectNoise(env, B, { seed: 's17grime', scale: 250, octaves: 4, warp: 0.8, res: 0.14, contrast: 1.5, ramp: [[0, '#6f5d40'], [0.55, '#ffffff'], [1, '#ffffff']] }), B.x, B.y);
     g.restore();
 
+    tick('pigment');
     // gilding stands proud of the paint
     g.save(); g.shadowColor = 'rgba(3,5,18,0.7)'; g.shadowBlur = 5; g.shadowOffsetX = 2.5; g.shadowOffsetY = 3.5;
     g.drawImage(gold, -PAD, -PAD);
@@ -400,7 +405,8 @@ function buildMain(env) {
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 250, [[0, 'rgba(8,8,26,0.45)'], [1, 'rgba(8,8,26,0)']]);
     a.pathBelow(g, -200); g.fill();
   });
-  return { main: L.filtered(main, 'saturate(1.2) contrast(1.06)'), gold };
+  tick('compose'); const fm = L.filtered(main, 'saturate(1.2) contrast(1.06)'); fm.getContext('2d').getImageData(0,0,1,1); tick('filtered');
+  return { main: fm, gold };
 }
 
 function flare(ctx, x, y, size, alpha) {
@@ -430,7 +436,9 @@ export default {
     [-0.31, -0.118, 0.052, 0.236].forEach((th, i) => { const q = a.pt(th, -4); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 20 }); });
     // everything drawn per frame is baked into ImageBitmaps: plain images blit cheaply, whereas using the canvases
     // themselves (built from thousands of small draws) as sources forced a slow synchronous flush on every frame
+    let T1 = performance.now();
     const [mainB, sparkA, sparkB] = await Promise.all([main, buildSpark(env, gold, 's17spA'), buildSpark(env, gold, 's17spB')].map((c) => createImageBitmap(c)));
+    console.warn('TIME bitmaps+spark ' + (performance.now() - T1).toFixed(0));
     S = { main: mainB, sparkA, sparkB, bx: B.x, by: B.y, glints };
   },
   draw(ctx, env, p) {

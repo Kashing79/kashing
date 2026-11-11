@@ -4,7 +4,8 @@
 // between wash and outline. Above the rings the glaze is left blank.
 //
 // How it is made: everything blue is first accumulated as PIGMENT DENSITY, not colour —
-//   · the scroll is drawn into four masks (outline, wash 1/2/3) in painter's order, each new blade erasing what it covers;
+//   · the scroll is drawn into masks (outline, wash 1/2/3, plus one for the faint tips above the rings) in painter's order,
+//     each new blade erasing what it covers;
 //   · tide lines = mask × (1 − blurred mask); the masks are packed into the R/G/B channels of one canvas and read back once;
 //   · the two rings are computed per pixel in polar coordinates (u = px along the arc, v = px below it): brush-hair streaks,
 //     pooled edges, 飞白 where the brush runs dry, and a joint where the lap closes (接笔);
@@ -72,12 +73,12 @@ function lap(nb, u, v, e0, e1, load, dry, so, gr) {
   const fine = nb.n2(u / 95 + so, v / 1.8) * 0.5 + 0.5;
   const dd = dry * (1 - 0.6 * ed * ed * ed);                       // the edges of a stroke hold their colour longest
   const fw = sstep(0.8 - 0.55 * dd, 0.93 - 0.55 * dd, hair * 0.8 + fine * 0.2 + 0.12 * (gr - 0.5));
-  const body = load * (0.74 + 0.3 * Math.pow(ed, 2.6)) * (0.84 + 0.3 * hair) * (0.84 + 0.32 * gr);
-  return c * (body * (1 - 0.95 * fw) + fw * 0.26 * sstep(0.55, 0.8, gr));
+  const body = load * (0.74 + 0.3 * Math.pow(ed, 2.6)) * (0.74 + 0.5 * hair) * (0.76 + 0.48 * gr) + 0.3 * load * sstep(0.8, 0.96, nb.n2(u / 7.3 + so, v / 5.1) * 0.5 + 0.5);
+  return c * (body * (1 - 0.95 * fw) + fw * 0.34 * sstep(0.5, 0.78, gr));
 }
 function ringDensity(nb, u, v, x, y) {
   let d = 0;
-  const gr = nb.n2(x / 3.1, y / 3.1) * 0.5 + 0.5;                  // cobalt granulation
+  const gr = nb.n2(x / 3.5, y / 3.5) * 0.5 + 0.5;                  // cobalt granulation
   if (v < TH + 16) {
     const rag = 1.1 * nb.n2(u / 13, 5.5);
     const w0 = 2.0 * nb.n2(u / 260, 1.3) + rag * 0.8;
@@ -87,7 +88,7 @@ function ringDensity(nb, u, v, x, y) {
       // the end of the turn: thinner colour, running dry, drifting off register and lifting just past the joint
       const tail = sstep(UJ - 900, UJ, u), lift = sstep(UJ + 10, UJ + 185, u), drift = sstep(UJ - 460, UJ, u);
       const e0 = w0 + 3 * drift + lift * TH * 0.36, e1 = TH + w1 - 5 * drift - lift * TH * 0.52;
-      if (e1 - e0 > 1) dA = lap(nb, u, v, e0, e1, 0.84 + 0.1 * nb.n2(u / 420, 9.9) - 0.2 * tail, 0.2 + 0.2 * nb.n2(u / 640, 15.5) + 0.4 * tail + 0.3 * lift, 0, gr);
+      if (e1 - e0 > 1) dA = lap(nb, u, v, e0, e1, 0.9 + 0.1 * nb.n2(u / 420, 9.9) - 0.17 * tail, 0.2 + 0.2 * nb.n2(u / 640, 15.5) + 0.34 * tail + 0.3 * lift, 0, gr);
     }
     if (u > UJ - 14) {
       // the fresh start: a blunt, well loaded head, then a long even run that slowly dries
@@ -95,14 +96,14 @@ function ringDensity(nb, u, v, x, y) {
       const start = sstep(-8, 7, k - 6 * nb.n2(v / 9, 77.7));
       const e0 = w0 - 1.6 * blob, e1 = TH + w1 + 6 * blob;
       dB = start * lap(nb, u, v, e0, e1, 1.0 + 0.12 * blob - 0.1 * sstep(0, 1200, k) + 0.08 * nb.n2(u / 420, 33.3),
-        0.05 + 0.16 * (nb.n2(u / 640, 44.4) * 0.5 + 0.5) + 0.32 * sstep(500, 1750, k), 50, gr);
+        0.13 + 0.16 * (nb.n2(u / 640, 44.4) * 0.5 + 0.5) + 0.3 * sstep(500, 1750, k), 50, gr);
     }
     d = dA + dB * (1 - 0.5 * Math.min(1, dA));
   }
   if (v > N_C - 26 && v < N_C + 26) {
     const k = u - UJ2, blob = Math.exp(-(((k - 16) / 30) ** 2));
     const c0 = N_C + 2.2 * nb.n2(u / 330, 40.2) + 0.8 * nb.n2(u / 50, 47.1);
-    const hw = N_H + 2.4 * nb.n2(u / 210, 51.7) + 3 * blob;
+    const hw = N_H + 3.4 * nb.n2(u / 230, 51.7) + 3 * blob;
     const before = k < 0 ? sstep(-520, 0, k) : 0;
     d += lap(nb, u, v, c0 - hw, c0 + hw, 0.88 + 0.14 * nb.n2(u / 380, 60.6) + 0.2 * blob - 0.2 * before,
       0.12 + 0.3 * (nb.n2(u / 560, 70.7) * 0.5 + 0.5) + 0.4 * before, 120, gr);
@@ -115,7 +116,7 @@ function buildPigment(env) {
   const a = env.arc, R = a.R;
   const P = (u, v) => { const th = u / R, r = R - v; return [a.cx + r * Math.sin(th), a.cy - r * Math.cos(th)]; };
   const mk = () => { const g = L.makeCanvas(MW, MH).getContext('2d'); g.translate(PAD, -Y0); g.lineJoin = 'round'; g.lineCap = 'round'; return g; };
-  const LN = mk(), W1 = mk(), W2 = mk(), W3 = mk(), WS = [W1, W2, W3];
+  const LN = mk(), W1 = mk(), W2 = mk(), W3 = mk(), W0 = mk(), WS = [W1, W2, W3];
   const nzB = L.makeNoise('s26blade');
 
   const trace = (g, uv) => { g.beginPath(); for (let i = 0; i < uv.length; i++) { const q = P(uv[i][0], uv[i][1]); if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); } g.closePath(); };
@@ -133,40 +134,42 @@ function buildPigment(env) {
   /** outline stroke: loaded at its head, thinning and paling toward its tail */
   const line = (uv, w, o = {}) => {
     const pts = uv.map((q) => P(q[0], q[1])), al = o.alpha === undefined ? 0.95 : o.alpha;
-    const opt = { width: w, color: '#fff', seed: 's26l' + (nLine++), taper: o.taper || [0.04, 0.3], wobble: o.wobble === undefined ? 0.3 : o.wobble, smoothStep: 2.5 };
+    const opt = { width: w, color: '#fff', seed: 's26l' + (nLine++), taper: o.taper || [0.04, 0.3], wobble: o.wobble === undefined ? 0.4 : o.wobble, smoothStep: 2.5 };
     L.inkStroke(LN, pts, { ...opt, alpha: al * 0.84 });
     if (pts.length > 8 && !o.even) L.inkStroke(LN, pts.slice(0, Math.ceil(pts.length * 0.62)), { ...opt, taper: [opt.taper[0], 0.5], alpha: al * 0.6 });
   };
 
   /**
    * one outlined, water-shaded blade (petal or leaf) along a control polyline.
-   * ws: up to three washes [from, to, widthFactor, side, back, alpha] — side ±1 keeps the wash to one flank of the axis.
+   * ws: up to three washes [from, to, widthFactor, side, back] — side ±1 keeps the wash to one flank of the axis.
+   * Washes are always filled opaque: a translucent mask would leave a false tide-line residue all over its inside
+   * (mask × (1 − blurred mask) ≠ 0 there), so paleness is set by the channel weights instead; `faint` → the W0 mask.
    */
   let nBlade = 0;
   function blade(ctrl, hw, PROF, o = {}) {
-    const { ws, lw = 6, la = 0.95, rib = 0 } = o;
+    const { ws, lw = 6, la = 0.95, rib = 0, faint = 0 } = o;
     const k = (nBlade++) * 3.71 + 0.5;
     const axis = L.smoothPath(ctrl, 4);
     const wf = (s) => hw * PROF(s);
     const out = ribbon(axis, wf);
     erase(out.poly);
-    const in1 = (s) => Math.max(0, wf(s) - GAP * (0.78 + 0.5 * nzB.n2(s * 3.5, k)));     // the 水路 is never quite even
+    const in1 = (s) => Math.max(0, wf(s) - GAP * (0.8 + 0.62 * nzB.n2(s * 3.2, k)));     // the 水路 is never quite even
     ws.forEach((w, i) => {
       if (!w) return;
-      const [a0, b0, kf = 1, side = 0, back = 0, al = 1] = w;
+      const [a0, b0, kf = 1, side = 0, back = 0] = w;
       const b = b0 * (1 + 0.05 * nzB.n2(k, i * 7.7));
       const full = (s) => in1(s) * kf * win(s, a0, b) * (1 + (i ? 0.1 * nzB.n2(s * 4.5, k + 9 * i) : 0));
       const far = side ? (s) => -in1(s) * back * win(s, a0, b) : full;
-      fill(WS[i], ribbon(axis, side < 0 ? far : full, side > 0 ? far : full, Math.max(0, a0), Math.min(1, b)).poly, al);
+      fill(faint ? W0 : WS[i], ribbon(axis, side < 0 ? far : full, side > 0 ? far : full, Math.max(0, a0), Math.min(1, b)).poly);
     });
     line(out.left, lw, { alpha: la });
     line(out.right, lw, { alpha: la });
     if (rib) line(axis.slice(3, Math.floor(axis.length * rib)), lw * 0.62, { alpha: la * 0.9, taper: [0.03, 0.55] });
   }
-  const pet = (fu, fv, phi, r0, r1, hw, bend, e1, e2, a1) => {
+  const pet = (fu, fv, phi, r0, r1, hw, bend, e1, e2) => {
     const b = [fu + r0 * Math.sin(phi), fv - r0 * Math.cos(phi)], t = [fu + r1 * Math.sin(phi), fv - r1 * Math.cos(phi)];
     blade([b, [(b[0] + t[0]) / 2 + (t[1] - b[1]) * bend, (b[1] + t[1]) / 2 - (t[0] - b[0]) * bend], t], hw, PETAL,
-      { ws: [[-0.35, 0.9, 1, 0, 0, a1], [-0.35, e1, 0.8], [-0.35, e2, 0.56]] });
+      { ws: [[-0.35, 0.86, 1], [-0.35, e1, 0.82], [-0.35, e2, 0.6]] });
   };
   /** 卷叶: pale all over, deeper along the inside of the roll, darkest in the curl itself */
   const leaf = (bu, bv, ang, len, hw, curl, o = {}) => {
@@ -176,7 +179,7 @@ function buildPigment(env) {
   /** a stem: one wet stroke, no outline — the colour pools along both edges as it dries */
   const nzS = L.makeNoise('s26stem');
   const stem = (pts, w, darks) => {
-    const axis = L.smoothPath(pts, 5), wf = (s) => (w / 2) * (1 + 0.2 * nzS.n2(s * 13, w));
+    const axis = L.smoothPath(pts, 5), wf = (s) => (w / 2) * (1 + 0.28 * nzS.n2(s * 13, w));
     erase(ribbon(axis, wf).poly, GAP * 0.7);
     fill(W1, ribbon(axis, wf).poly); fill(W2, ribbon(axis, (s) => wf(s) * 0.92).poly);
     for (const [p, q] of darks) fill(W3, ribbon(axis, (s) => wf(s) * 0.84 * win(s, p, q), undefined, p, q).poly);
@@ -188,18 +191,19 @@ function buildPigment(env) {
     const up = (p) => Math.abs(Math.atan2(Math.sin(p), Math.cos(p)));
     const tier = (off, r0, r1, hw) => {
       const items = [];
-      for (let i = 0; i < N; i++) items.push({ phi: rot + ((i + off + r.range(-0.07, 0.07)) * TAU) / N, k: r.range(0.95, 1.05), b: r.range(-0.06, 0.06), e1: r.range(0.5, 0.66), e2: r.range(0.24, 0.36), a1: r.range(0.8, 1) });
+      for (let i = 0; i < N; i++) items.push({ phi: rot + ((i + off + r.range(-0.11, 0.11)) * TAU) / N, k: r.range(0.92, 1.07), h: r.range(0.92, 1.08), b: r.range(-0.09, 0.09), e1: r.range(0.56, 0.72), e2: r.range(0.3, 0.44) });
       items.sort((p, q) => up(q.phi) - up(p.phi));                 // lowest petals first, the top one last → it sits in front
-      for (const it of items) pet(fu, fv, it.phi, Rf * r0, Rf * r1 * it.k, Rf * hw, it.b, it.e1, it.e2, it.a1);
+      for (const it of items) pet(fu, fv, it.phi, Rf * r0, Rf * r1 * it.k, Rf * hw * it.h, it.b, it.e1, it.e2);
     };
     tier(0, 0.34, 1.0, 0.27);
     tier(0.5, 0.13, 0.68, 0.2);
     const circ = (rad, n = 44, cu = fu, cv = fv) => { const pts = []; for (let i = 0; i < n; i++) { const t = (i / n) * TAU; pts.push([cu + rad * Math.sin(t), cv - rad * Math.cos(t)]); } return pts; };
     erase(circ(Rf * 0.3), 0);
-    for (let i = 0; i < 24; i++) {                                   // stamens
-      const t = ((i + r.range(-0.2, 0.2)) / 24) * TAU, r0 = Rf * 0.218, r1 = Rf * r.range(0.258, 0.284);
-      line([[fu + r0 * Math.sin(t), fv - r0 * Math.cos(t)], [fu + r1 * Math.sin(t), fv - r1 * Math.cos(t)]], 4.6, { taper: [0, 0], alpha: 0.9, even: 1 });
-      dot(fu + r1 * Math.sin(t), fv - r1 * Math.cos(t), r.range(5, 6.2), 0.95);
+    for (let i = 0; i < 30; i++) {                                   // stamens: a loose fringe, no two alike
+      if (r.chance(0.12)) continue;
+      const t = ((i + r.range(-0.32, 0.32)) / 30) * TAU, r0 = Rf * 0.214, r1 = Rf * r.range(0.244, 0.288), t1 = t + r.range(-0.05, 0.05);
+      line([[fu + r0 * Math.sin(t), fv - r0 * Math.cos(t)], [fu + r1 * Math.sin(t1), fv - r1 * Math.cos(t1)]], r.range(3, 4.2), { taper: [0, 0], alpha: 0.88, even: 1 });
+      dot(fu + r1 * Math.sin(t1), fv - r1 * Math.cos(t1), r.range(3.8, 5.6), 0.95);
     }
     const rp = Rf * 0.19;                                            // seed pod
     fill(W1, circ(rp - GAP * 0.75), 1);
@@ -218,12 +222,12 @@ function buildPigment(env) {
   leaf(-545, vsL(-545), Math.PI + 2.45, 345, 58, 3.4);
   leaf(-735, vsL(-735), Math.PI - 1.08, 285, 50, -3.3);
   leaf(-930, vsL(-930), Math.PI + 0.5, 215, 40, -3.3);
-  { const pts = []; for (let u = 120; u <= 1320; u += 40) pts.push([u, vsR(u) + 4 * nzS.n2(u / 170, 3.1)]); stem(pts, 16, [[0.02, 0.3], [0.44, 0.63], [0.7, 0.98]]); }
-  { const pts = []; for (let u = -120; u >= -1320; u -= 40) pts.push([u, vsL(u) + 4 * nzS.n2(u / 170, 8.6)]); stem(pts, 17, [[0.0, 0.24], [0.36, 0.5], [0.6, 0.9]]); }
+  { const pts = []; for (let u = 120; u <= 1320; u += 40) pts.push([u, vsR(u) + 4 * nzS.n2(u / 170, 3.1)]); stem(pts, 22, [[0.02, 0.3], [0.46, 0.6], [0.72, 0.98]]); }
+  { const pts = []; for (let u = -120; u >= -1320; u -= 40) pts.push([u, vsL(u) + 4 * nzS.n2(u / 170, 8.6)]); stem(pts, 23, [[0.0, 0.24], [0.38, 0.5], [0.62, 0.9]]); }
   lotusFront(0, 478, 292, 0.04, 's26lotus');
   // a breath of the next band, far out on either side above the rings
-  blade(curlAxis(-1060, -330, 0.2, 420, 2.4), 54, SCROLL, { ws: [[-0.25, 0.975, 1, 0, 0, 0.62], null, null], la: 0.3, lw: 6 });
-  blade(curlAxis(1050, -322, Math.PI - 0.24, 400, -2.3), 52, SCROLL, { ws: [[-0.25, 0.975, 1, 0, 0, 0.56], null, null], la: 0.28, lw: 6 });
+  blade(curlAxis(-1108, -338, 0.2, 420, 2.4), 48, SCROLL, { ws: [[-0.25, 0.975, 1]], la: 0.16, lw: 5.5, faint: 1 });
+  blade(curlAxis(1100, -330, Math.PI - 0.24, 400, -2.3), 46, SCROLL, { ws: [[-0.25, 0.975, 1]], la: 0.14, lw: 5.5, faint: 1 });
 
   // ── pack the masks: R = outline, G = wash strength, B = tide lines ──
   const comp = L.makeCanvas(MW, MH), cg = comp.getContext('2d');
@@ -236,11 +240,12 @@ function buildPigment(env) {
   };
   const rim = (mask, px) => { const g = L.makeCanvas(MW, MH).getContext('2d'); g.drawImage(mask, 0, 0); g.globalCompositeOperation = 'destination-out'; g.drawImage(L.blurred(mask, px), 0, 0); return g.canvas; };
   add(LN.canvas, '#ff0000', 1);
-  add(L.blurred(W1.canvas, 1.2), '#00ff00', 0.2);
-  add(L.blurred(W2.canvas, 2.6), '#00ff00', 0.26);                 // the deeper washes went on wet: soft fronts
-  add(L.blurred(W3.canvas, 2.6), '#00ff00', 0.3);
-  add(rim(W1.canvas, 4), '#0000ff', 1); add(rim(W1.canvas, 16), '#0000ff', 0.4);
-  add(rim(W2.canvas, 5), '#0000ff', 0.6); add(rim(W3.canvas, 5), '#0000ff', 0.6);
+  add(L.blurred(W1.canvas, 1.2), '#00ff00', 0.13);
+  add(L.blurred(W2.canvas, 2.6), '#00ff00', 0.22);                 // the deeper washes went on wet: soft fronts
+  add(L.blurred(W3.canvas, 2.6), '#00ff00', 0.34);
+  add(L.blurred(W0.canvas, 2), '#00ff00', 0.06);
+  add(rim(W1.canvas, 4), '#0000ff', 0.9); add(rim(W1.canvas, 16), '#0000ff', 0.22);
+  add(rim(W2.canvas, 5), '#0000ff', 0.6); add(rim(W3.canvas, 5), '#0000ff', 0.6); add(rim(W0.canvas, 5), '#0000ff', 0.16);
   cg.globalAlpha = 0.2; cg.drawImage(L.blurred(comp, 4), 0, 0);    // 晕散: the blue bleeds a little into the glaze
   cg.globalAlpha = 1; cg.globalCompositeOperation = 'source-over';
 
@@ -255,7 +260,7 @@ function buildPigment(env) {
     const ln = src[o], wa = src[o + 1], rm = src[o + 2];
     if (ln + wa + rm < 3) continue;
     const l = lo[o] / 255, c = cl[o] / 255, m = mi[o] / 255, w = wa / 255;
-    dens[k] = w * (0.56 + 0.5 * l + 0.4 * c) + (rm / 255) * (0.45 + 0.9 * m) + w * sstep(0.6, 0.88, c * 0.62 + m * 0.38) * 0.36 + (ln / 255) * (0.74 + 0.5 * m);
+    dens[k] = w * (0.56 + 0.5 * l + 0.4 * c) * (0.86 + 0.28 * m) + (rm / 255) * (0.45 + 0.9 * m) + w * sstep(0.6, 0.88, c * 0.62 + m * 0.38) * 0.3 + (ln / 255) * (0.74 + 0.5 * m);
   }
   const nb = L.makeNoise('s26ring');
   for (let i = 0; i < MW; i++) {
@@ -292,20 +297,16 @@ function buildLayer(env, pig) {
     const full = () => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.fillStyle = '#e4edf2'; full();
     // key light from the upper left; 釉影 gathers toward the lower right
-    g.fillStyle = L.linear(g, 150, 0, W - 150, H, [[0, 'rgba(244,249,252,0.9)'], [0.42, 'rgba(228,237,242,0)'], [1, 'rgba(186,204,218,0.9)']]); full();
+    g.fillStyle = L.linear(g, 150, 0, W - 150, H, [[0, 'rgba(240,246,250,0.6)'], [0.4, 'rgba(228,237,242,0)'], [1, 'rgba(190,207,221,0.72)']]); full();
+    // a broad, smooth bloom of that light on the gloss, well clear of the caption
+    g.fillStyle = L.radial(g, 290, 130, 0, 780, [[0, 'rgba(255,255,255,0.9)'], [0.22, 'rgba(252,254,255,0.55)'], [0.6, 'rgba(246,250,253,0.14)'], [1, 'rgba(244,249,252,0)']]); full();
     // below the rings the wall of the dish falls away from the light
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 130, [[0, 'rgba(198,213,224,0.5)'], [0.72, 'rgba(198,213,224,0.26)'], [1, 'rgba(198,213,224,0)']]); full();
-    g.globalAlpha = 0.28;
-    g.drawImage(L.noiseLayer(PAD, { seed: 's26cloud', scale: 520, octaves: 2, res: 0.2, warp: 0.5, ramp: [[0, 'rgba(196,212,224,0.55)'], [0.5, 'rgba(214,226,234,0)'], [1, 'rgba(248,251,253,0.5)']] }), -PAD, -PAD);
-    g.globalAlpha = 1;
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 640, a.R - 132, [[0, 'rgba(198,213,224,0.5)'], [0.7, 'rgba(198,213,224,0.3)'], [1, 'rgba(198,213,224,0)']]); full();
     g.drawImage(pig, -PAD, Y0);
-    // the glaze over the painting: pin-holes, bubbles (they only show over the blue), the faintest orange-peel
+    // the glaze over the painting: a few pin-holes, and bubbles that only show over the blue
     const clear = (x, y) => !(x > 590 && x < 1330 && y > a.crestY - 300 && y < a.crestY - 2);   // keep the caption area spotless
     L.speckle(g, { seed: 's26pin', count: 110, x: -PAD, y: -PAD, w: W + PAD * 2, h: H + PAD * 2, rMin: 0.9, rMax: 2.4, colors: ['#9fb3c6', '#8a9db4', '#b3c4d4'], alpha: [0.25, 0.6], test: clear });
     L.speckle(g, { seed: 's26bub', count: 5200, x: -PAD, y: -PAD, w: W + PAD * 2, h: H + PAD * 2, rMin: 0.6, rMax: 1.9, colors: ['#ffffff', '#e6f0ff'], alpha: [0.08, 0.4] });
-    g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.13;
-    g.drawImage(L.bumpLight(L.noiseLayer(PAD, { seed: 's26peel', scale: 26, octaves: 2, res: 0.5 }), { angle: 45, strength: 1.5, res: 0.5 }), -PAD, -PAD);
-    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   });
   // shallow focus: sharp round the crest, softening toward the sides and the bottom corners
   const lg = layer.getContext('2d');
@@ -322,7 +323,7 @@ function buildLayer(env, pig) {
   return layer;
 }
 
-/** 釉光: the reflection of a strip of window light, bent round the dish — a clean upper edge, feathering downward */
+/** 釉光: the soft reflection of a strip of window light, bent round the dish and lying across both rings */
 function buildSheen(env) {
   const a = env.arc, nz = L.makeNoise('s26sheen');
   const cw = SW / 2, ch = SH / 2, img = new ImageData(cw, ch), d = img.data;
@@ -330,9 +331,8 @@ function buildSheen(env) {
     const x = SX + i * 2 + 1, y = SY + j * 2 + 1, dx = x - a.cx, dy = a.cy - y;
     const u = Math.atan2(dx, dy) * a.R;
     const v = a.R - Math.sqrt(dx * dx + dy * dy) + 3 * nz.n2(u / 70, y / 50) + 1.2 * nz.n2(u / 19, y / 17);   // the glaze is never optically flat
-    if (v < 40 || v > 260) continue;
-    const prof = sstep(46, 55, v) * (0.25 + 0.75 * Math.exp(-(v - 55) / 46)) * (1 - sstep(170, 250, v));
-    const al = prof * sstep(-940, -700, u) * (1 - sstep(-380, -170, u)) * 0.5;
+    if (v < -40 || v > 240) continue;
+    const al = Math.exp(-(((v - 86) / 48) ** 2)) * sstep(-940, -640, u) * (1 - sstep(-430, -150, u)) * 0.64;
     const o = (j * cw + i) * 4;
     d[o] = 250; d[o + 1] = 253; d[o + 2] = 255; d[o + 3] = al * 255;
   }
