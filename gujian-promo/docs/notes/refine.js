@@ -14,6 +14,7 @@ const ids = args.ids
 const notes = args.notes || {}               // director's notes per shot id
 const MODEL = args.model || undefined        // model override for every agent (omit to inherit the session model)
 const CYCLES = args.cycles || 2
+const UNFINISHED = new Set(args.unfinished || [])   // shots whose first author was cut off: the file may be an early draft
 const filmFlag = film === 'arch' ? '' : ` --film ${film}`
 const scenesDir = film === 'arch' ? `${PROJECT}/src/scenes` : `${PROJECT}/src/films/${film}/scenes`
 const previewDir = film === 'arch' ? `${PROJECT}/build/preview` : `${PROJECT}/build/${film}/preview`
@@ -36,6 +37,7 @@ const CONTEXT = (id) => `项目：${PROJECT} —— 系列宣传短片之《${to
 - 任务单：${storyboard} 里 id 为 "${id}" 的那条（brief / palette / motion / accuracy / tone / beat）；场景文件就是其中 file 字段指的那个，位于 ${scenesDir}/
 - 全片调色说明（文件存在就读本镜头的条目）：${colourScript}
 - 资料核实文件（用 grep 查与本镜头题材相关的 depiction / pitfalls；arch 用 g*.json，其他影片用 ${film}-*.json）：${PROJECT}/docs/research/
+- **预览要排队**：机器同时只允许 3 个渲染进程（内存有限）。预览命令会自动排队，看到「[render queue] … waiting for a turn」是正常的，等着就行；给跑预览的 Bash 设置 timeout: 600000，不要同时开多个预览、不要放到后台轮询、不要自己写等待脚本。
 - 预览命令：\`cd ${PROJECT} && node tools/preview.js ${id}${filmFlag}\` → 在 ${previewDir}/ 生成三张图：
   · ${id}_compare.jpg —— **左半是参考片的同一镜头（上：中间帧；下：首帧/末帧），右半是我们的画面**
   · ${id}_sheet.jpg —— 2×2：开头 / 中间 / 结尾 / 中间+弧线与文字安全区参考线
@@ -88,7 +90,7 @@ ${CONTEXT(id)}
 ${cycle === 1
     ? `\n【上一轮美术指导的审片意见】如果文件 ${reviewDir}/${id}_crit.json 存在就先读它（whatISee / keep / fixes / paletteTarget）：其中关于色调和细节收尾的意见仍然有效，采纳你认同的；与总导演意见冲突时以总导演为准。不存在就跳过。\n`
     : `\n【上一轮复核留下的问题 —— 这一轮就是来解决它们的】\n${(prev.remaining || []).map((r, i) => `${i + 1}. ${r}`).join('\n')}\n（上一轮复核给的"与参考片的差距"分：${prev.parity}/10，总分：${prev.finalScore}/10）\n`}
-步骤：
+${UNFINISHED.has(id) && cycle === 1 ? `【注意】这个镜头的第一位作者中途被打断，磁盘上的文件可能只是初稿甚至写到一半：先对照任务单把该画的内容画完整（需要时读 ${PROJECT}/src/scenes/s02-liuli-wadang.js 和 s03-door-stud.js 两个范例的做法），再做下面的对照参考片打磨。这种情况下轮数上限放宽到 8 轮。\n` : ''}步骤：
 0. **建立基线**：先跑一次预览，然后 \`mkdir -p ${reviewDir}\`，把场景文件备份为 ${reviewDir}/${id}.${jsTag}.js，把 ${previewDir}/${id}_mid.jpg 和 ${id}_sheet.jpg 复制为 ${reviewDir}/${id}_${imgTag}_mid.jpg 和 ${id}_${imgTag}_sheet.jpg。${keepBaseline}。如果当前文件预览就报错，先把它修到能正常渲染，再建基线。
 1. 读 AUTHORING.md（「对照参考片」一节逐条读）、任务单、场景文件源码；按需读 ${PROJECT}/src/lib/core.js。
 2. 用 Read 看 ${id}_compare.jpg、${id}_sheet.jpg，再直接看参考片原帧 ref_${id}_b.jpg（需要时看 _a、_c）和相邻两个镜头的中间帧。
