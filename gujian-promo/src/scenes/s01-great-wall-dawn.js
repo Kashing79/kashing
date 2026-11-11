@@ -152,15 +152,19 @@ function buildLand(env, sunX) {
       g.save(); trace(); g.clip();
       g.fillStyle = col; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 3);
       g.restore();
-      // mist pooled in the valley behind this ridge: thicker where the crest dips and we see further in
+      // mist pooled in the valley behind this ridge: thicker where the crest dips and we see further in.
+      // (One soft sprite stamped many times, not many gradient fills: the browser dithers every gradient with the same ordered
+      // pattern, and dozens of them stacked on a near-black ground add up to a visible weave.)
+      const puff = L.makeCanvas(256, 256), pg = puff.getContext('2d');
+      pg.fillStyle = L.radial(pg, 128, 128, 0, 128, [[0, `${mistCol}1)`], [1, `${mistCol}0)`]]); pg.fillRect(0, 0, 256, 256);
       g.save();
       g.globalCompositeOperation = 'screen';
       for (let i = 0; i <= N; i += 12) {
         const [x, y] = pts[i];
         const pool = L.clamp(0.75 + disp[i] / 70 + 0.35 * nz.n2(i * 0.021 + k * 3.7, 9.4), 0.3, 1.5);
-        const r = 150 * (0.8 + 0.25 * pool), al = (mist * (k ? 0.56 : 0.44) * pool).toFixed(3);
-        g.fillStyle = L.radial(g, x, y - 8, 0, r, [[0, `${mistCol}${al})`], [1, `${mistCol}0)`]]);
-        g.fillRect(x - r, y - 8 - r, r * 2, r * 2);
+        const r = 150 * (0.8 + 0.25 * pool);
+        g.globalAlpha = mist * (k ? 0.56 : 0.44) * pool;
+        g.drawImage(puff, x - r, y - 8 - r, r * 2, r * 2);
       }
       g.restore();
       g.save(); trace(); g.clip(); g.fillStyle = col; g.globalAlpha = 0.8; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 3); g.restore();

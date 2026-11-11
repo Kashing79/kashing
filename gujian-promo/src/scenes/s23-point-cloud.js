@@ -49,11 +49,11 @@ function buildThermal(env) {
   // ── columns above the arc (screen-vertical bands). amp < 0 → warmer (toward orange / magenta), > 0 → cooler (teal)
   const cols = [];
   for (let x = -PAD - 40; x < W + PAD + 60;) {
-    const w = r.range(14, 56);
+    const w = r.range(12, 40);
     const kind = r();
-    const amp = kind < 0.16 ? r.range(0.08, 0.15) : kind < 0.5 ? -r.range(0.18, 0.3) : -r.range(0.42, 0.6);
+    const amp = kind < 0.2 ? r.range(0.08, 0.15) : kind < 0.55 ? -r.range(0.14, 0.24) : -r.range(0.4, 0.58);
     cols.push({ x, w, amp, seed: r.range(0, 100) });
-    x += w + r.range(20, 96);
+    x += w + r.range(28, 96);
   }
   // per-row modulation of every column (each one fades in and out along its height)
   const colMod = cols.map((c) => {
@@ -67,8 +67,8 @@ function buildThermal(env) {
   const SP = a.span(PAD + 80) * R;
   for (let s = -SP + r.range(0, 60); s < SP;) {
     const cen = L.smooth((Math.abs(s) - 120) / 420);   // shorter under the tagline
-    teeth.push({ s, w: r.range(34, 50), h: r.range(52, 74) * L.lerp(0.62, 1, cen), v: r.range(0.1, 0.22), lean: r.range(-0.12, 0.12), sq: r.range(2.2, 3.4) });
-    s += r.range(104, 170);
+    teeth.push({ s, w: r.range(40, 56), h: r.range(84, 112) * L.lerp(0.55, 1, cen), v: r.range(0.27, 0.34), lean: r.range(-0.1, 0.1), sq: r.range(2.2, 3.2) });
+    s += r.range(150, 215);
   }
 
   const F = new Float32Array(cw * ch);
@@ -85,7 +85,7 @@ function buildThermal(env) {
         // façade: chartreuse with slow, vertically streaked mottling
         v = 0.8 + 0.07 * nz.fbm(x / 260, y / 900, 3) + 0.04 * nz.fbm(x / 60 + 7, y / 700, 2);
         // the band behind the tagline stays calm and even
-        const quiet = L.smooth((470 - Math.abs(x - W / 2)) / 180) * L.smooth((dr - 70) / 90);
+        const quiet = L.smooth((400 - Math.abs(x - W / 2)) / 150) * L.smooth((dr - 40) / 90);
         let cs = 0;
         for (let k = 0; k < cols.length; k++) {
           const c = cols[k], u = (x - c.x) / c.w;
@@ -93,8 +93,8 @@ function buildThermal(env) {
           const uw = u + 0.35 * nz.n2(c.seed + 40, y / 300);
           cs += c.amp * colMod[k][j] * Math.exp(-uw * uw * uw * uw * 0.5);
         }
-        v += cs * (1 - 0.8 * quiet);
-        v = L.lerp(v, 0.835 + 0.02 * nz.fbm(x / 400 + 3, y / 400, 2), quiet * 0.75);
+        v += cs * (1 - 0.72 * quiet);
+        v = L.lerp(v, 0.82 + 0.02 * nz.fbm(x / 400 + 3, y / 400, 2), quiet * 0.6);
         // a warm breath rising off the eave
         v -= 0.16 * Math.exp(-dr / 26);
       } else {
@@ -104,24 +104,25 @@ function buildThermal(env) {
         const de = d + wob;
         const eave = 0.33 + 0.05 * nz.fbm(s / 120, d / 60 + 4, 2);
         // roof tile courses: concentric bands, widening downward, broken along the arc
-        const ph = (de - 70) / L.lerp(118, 170, L.clamp(d / 700));
-        const amp = 0.22 + 0.1 * nz.fbm(s / 700 + 9, d / 300, 2);
+        const ph = (de - 92) / L.lerp(124, 180, L.clamp(d / 700));
+        const amp = 0.28 + 0.1 * nz.fbm(s / 700 + 9, d / 300, 2);
         const sw = Math.sin(ph * L.TAU - 1.1);
-        const band = 0.4 + amp * (sw + 0.25 * Math.sin(ph * L.TAU * 2 + 0.6)) + 0.07 * nz.fbm(s / 260 - 5, d / 110, 3);
-        const t = L.smooth((de - 56) / 40);
+        const sw2 = sw + 0.3 * Math.sin(ph * L.TAU * 2 + 0.6);
+        const band = 0.31 + amp * (1.75 * Math.pow(Math.max(0, sw2), 1.6) - 0.6 * Math.pow(Math.max(0, -sw2), 1.3)) + 0.06 * nz.fbm(s / 260 - 5, d / 110, 3);
+        const t = L.smooth((de - 74) / 44);
         v = L.lerp(eave, band, t);
         v -= 0.05 * L.smooth((d - 420) / 500);
       }
       // bracket blocks straddle the arc (sit on the eave, their feet melt into it)
-      if (dr > -30 && dr < 80) {
+      if (dr > -40 && dr < 90) {
         for (let k = 0; k < teeth.length; k++) {
           const q = teeth[k], u = s - q.s - q.lean * dr;
-          if (u < -70 || u > 70) continue;
-          const hu = (dr + 14) / q.h;
+          if (u < -80 || u > 80) continue;
+          const hu = (dr + 34) / q.h;
           if (hu < -0.2 || hu > 1.4) continue;
-          const e = Math.pow(Math.abs(u) / q.w, q.sq) + Math.pow(Math.abs(hu - 0.5) * 2, q.sq) + 0.25 * nz.n2(u / 22 + k, dr / 22);
+          const e = Math.pow(Math.abs(u) / q.w, q.sq) + Math.pow(Math.abs(hu - 0.5) * 2, q.sq) + 0.12 * nz.n2(u / 30 + k, dr / 30);
           const m = L.smooth((1.25 - e) / 0.6);
-          if (m > 0) v = L.lerp(v, q.v, m);
+          if (m > 0) v = L.lerp(v, q.v - 0.07 * L.smooth((0.9 - e) / 0.6), m);
         }
       }
       F[j * cw + i] = v;

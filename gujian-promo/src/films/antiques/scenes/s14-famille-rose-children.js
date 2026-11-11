@@ -100,7 +100,7 @@ function tube(center, widths, step = 5) {
  *    folds (polylines: wash + line), ew (wash width scale), edge (rim strength), lw (line width), outline, inkColor, pattern(g) (clipped)
  */
 function piece(g, poly, o = {}) {
-  const { base, deep = null, light = null, lightCol = '#ffffff', folds = [], ew = 1, edge = 1, lw = 2.4, outline = true, inkColor = C.ink, pattern = null, foldInk = true } = o;
+  const { base, deep = null, light = null, lightCol = '#ffffff', folds = [], ew = 1, edge = 1, lw = 2.4, outline = true, inkColor = C.ink, pattern = null, foldInk = true, foldLw = lw * 0.74, foldAlpha = 0.88 } = o;
   g.save();
   trace(g, poly, true); g.fillStyle = base; g.fill(); g.clip();
   g.lineJoin = 'round'; g.lineCap = 'round';
@@ -120,7 +120,7 @@ function piece(g, poly, o = {}) {
   if (pattern) pattern(g);
   g.restore();
   if (outline) ink(g, poly.concat([poly[0], poly[1]]), lw, { taper: [0.015, 0.03], color: inkColor });
-  if (foldInk) for (const f of folds) ink(g, f, lw * 0.74, { taper: [0.06, 0.55], color: inkColor });
+  if (foldInk) for (const f of folds) ink(g, f, foldLw, { taper: [0.06, 0.55], color: inkColor, alpha: foldAlpha });
 }
 /** short creases on the inside of a bent limb */
 function creases(g, t, a, b, c, col, lw = 1.8) {
@@ -155,8 +155,8 @@ function arm(g, sh, el, wr, col, trim, o = {}) {
   const d = nrm(sub(wr, el));
   hand(g, add(wr, d, 12), Math.atan2(d[1], d[0]));
   const t = tube([add(sh, nrm(sub(sh, el)), 8), el, wr], o.w || [48, 45, 52]), n = t.c.length;
-  const fl = []; for (let i = 3; i < n - 6; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.7));
-  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(2, n - 2)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [] });
+  const fl = []; for (let i = 5; i < n - 9; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.7));
+  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(2, n - 2)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [], foldLw: 1.5, foldAlpha: 0.6 });
   const k = Math.max(1, n - 4);
   piece(g, t.left.slice(k).concat(t.right.slice(k).reverse()), { base: trim.base, deep: trim.deep, ew: 0.3, outline: false });
   ink(g, t.left, 2.4, { taper: [0.05, 0.02], color: col.line }); ink(g, t.right, 2.4, { taper: [0.05, 0.02], color: col.line });
@@ -167,8 +167,8 @@ function arm(g, sh, el, wr, col, trim, o = {}) {
 function leg(g, hip, knee, ank, col, shoeCol, shoeAng = 0, o = {}) {
   shoe(g, ank, shoeAng, shoeCol);
   const t = tube([hip, knee, ank], o.w || [62, 52, 30]), n = t.c.length;
-  const fl = []; for (let i = 5; i < n - 5; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.32));
-  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(3, n - 3)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [] });
+  const fl = []; for (let i = 7; i < n - 9; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.32));
+  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(3, n - 3)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [], foldLw: 1.5, foldAlpha: 0.6 });
   ink(g, t.left, 2.4, { taper: [0.02, 0.02], color: col.line }); ink(g, t.right, 2.4, { taper: [0.02, 0.02], color: col.line });
   ink(g, [t.left[n - 1], t.right[n - 1]], 2.6, { taper: [0.04, 0.04], color: col.line });
   ink(g, [t.left[n - 3], t.right[n - 3]], 1.5, { taper: [0.04, 0.04], alpha: 0.75, color: col.line });
@@ -430,9 +430,10 @@ function kidHorse(g) {
       piece(g, t.poly, { base: '#9fce84', deep: ST.green.deep, ew: 0.3, lw: 2, light: [t.c], lightCol: '#f3fae2', inkColor: ST.green.line });
       for (const u of [0.08, 0.22, 0.36, 0.5, 0.64, 0.78, 0.93]) { const i = Math.round(u * (t.c.length - 1)); ink(g, [t.left[i], t.right[i]], 2.2, { taper: [0.02, 0.02], color: ST.green.line }); }
     },
-    front: () => {   // the switch he whips his horse with
-      ink(g, [[-70, -236], [-98, -276], [-128, -304], [-164, -314]], 2.6, { color: C.sepia, taper: [0.02, 0.4], alpha: 0.95 });
-      for (const [dx, dy] of [[-12, 26], [2, 34], [14, 24]]) ink(g, [[-164, -314], [-164 + dx * 0.5, -314 + dy * 0.5], [-164 + dx, -314 + dy]], 4.2, { color: ST.rouge.deep, taper: [0.05, 0.6], alpha: 0.9 });
+    front: () => {   // a willow switch for a whip
+      const tw = [[-70, -236], [-100, -274], [-134, -298], [-172, -302]];
+      ink(g, tw, 2.6, { color: C.sepia, taper: [0.02, 0.4], alpha: 0.95 });
+      leaf(g, -104, -278, -2.2, 30, 9, ST.green); leaf(g, -128, -295, 2.5, 32, 9, ST.green); leaf(g, -150, -302, -2.6, 28, 8, ST.green); leaf(g, -170, -302, 2.9, 30, 8, ST.green);
     },
   });
 }
@@ -562,8 +563,8 @@ function buildPaint(env) {
   L.overlayOn(paint, L.noiseLayer(PAD, { seed: 's14en', scale: 80, octaves: 3, contrast: 1.4, res: 0.25 }), { blend: 'soft-light', alpha: 0.16 });
   L.overlayOn(paint, L.noiseLayer(PAD, { seed: 's14en2', scale: 9, octaves: 2, contrast: 1.5, res: 0.5 }), { blend: 'soft-light', alpha: 0.14 });
   const relief = L.bumpLight(paint, { angle: 45, strength: 1.0, blur: 1.2, res: 0.75 });
-  L.overlayOn(paint, relief, { blend: 'overlay', alpha: 0.36 });
-  return paint;
+  L.overlayOn(paint, relief, { blend: 'overlay', alpha: 0.42 });
+  return L.blurred(paint, 0.5);
 }
 function buildSurface(env, paint) {
   const surf = L.makeLayer(PAD, (g) => {
@@ -613,7 +614,12 @@ function buildGloss(env) {
     for (let i = 0; i < GW; i++) {
       const x = i / res - PAD, ddx = x - a.cx, ddy = a.cy - y, rr = Math.sqrt(ddx * ddx + ddy * ddy), dr = rr - a.R;
       let v = 0;
-      if (dr < -150) {
+      if (dr < -24 && dr > -92) {
+        // light catching the thickness of the green enamel: a broken streak that follows the slope
+        const u = Math.atan2(ddx, ddy) * a.R, d0 = dr + 58 + 5 * nz.n2(u / 120, 4.4);
+        const brk = ss(-0.25, 0.35, nz.n2(u / 46, dr / 16 + 30));
+        v = 0.34 * Math.exp(-(d0 * d0) / (2 * 8.5 * 8.5)) * brk * Math.exp(-Math.pow((u + 260) / 620, 2));
+      } else if (dr < -150) {
         const u = Math.atan2(ddx, ddy) * a.R;
         const wob = 2.2 * nz.n2(u / 70, dr / 70) + 0.9 * nz.n2(u / 22 + 9, dr / 22);     // the glaze's orange-peel just ruffles the reflection's edge
         const d1 = Math.abs(dr + 302 + wob);
@@ -657,7 +663,7 @@ export default {
     const a = env.arc;
     ctx.fillStyle = L.radial(ctx, 760, 260, 300, 1750, [[0, '#ffffff'], [0.55, '#fcf7ec'], [1, '#f2e6cd']]);
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 660, a.R - 345, [[0, '#e4d9c1'], [0.55, '#f4eddd'], [1, '#ffffff']]);
+    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 660, a.R - 150, [[0, '#e2d6bd'], [0.36, '#f1e9d7'], [0.62, '#f4eddd'], [0.86, '#f8f3e7'], [1, '#ffffff']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
     // … and the windows' reflections lie still on the glaze

@@ -189,13 +189,13 @@ function drawSeam(g, a, edge) {
   g.globalAlpha = 1;
 }
 /** low mound of scrub: lumpy leaf masses with a few twigs poking out */
-function shrub(g, x, y, w, h, seed) {
+function shrub(g, x, y, w, h, seed, twigs = true) {
   const r = L.rng(seed), n = Math.round(w / 3.4);
   g.beginPath(); g.ellipse(x, y + 1, w * 0.5, h * 0.72, 0, Math.PI, L.TAU); g.fill();
   for (let i = 0; i < n; i++) {
     const k = r.range(-1, 1), px = x + k * w * 0.5, top = h * (1 - k * k) * r.range(0.6, 1), rad = r.range(2.4, 4.8);
     g.beginPath(); g.arc(px, y - top + rad * 0.4, rad, 0, L.TAU); g.fill();
-    if (r.chance(0.55)) {
+    if (twigs && r.chance(0.55)) {
       const ang = k * 0.9 + r.gauss() * 0.3, len = r.range(5, 10);
       blade(g, px, y - top, ang, len, 1.5, r.gauss() * 0.4);
       const ex = px + Math.sin(ang) * len, ey = y - top - Math.cos(ang) * len;
@@ -345,7 +345,7 @@ function drawGatherer(g, slope) {
   g.fillStyle = INK; g.strokeStyle = INK; g.lineJoin = 'round'; g.lineCap = 'round';
   // legs: trousers bound at the shin, cloth shoes
   soft(g, [[-13, -80], [-15, -55], [-14, -34], [-13, -14], [-14, -5], [-18, -1], [-18, 2], [0, 2], [1, -1], [-5, -6], [-5, -16], [-3, -36], [1, -58], [3, -80]]);
-  soft(g, [[0, -80], [3, -58], [7, -42], [9, -26], [10, -12 + gf], [8, -4 + gf], [8, 1 + gf], [29, 1 + gf], [29, -2 + gf], [20, -6 + gf], [18, -14 + gf], [18, -30], [18, -44], [16, -60], [15, -80]]);
+  soft(g, [[0, -80], [4, -60], [9, -44], [10, -28], [10, -12 + gf], [8, -4 + gf], [8, 1 + gf], [29, 1 + gf], [29, -2 + gf], [20, -6 + gf], [18.5, -14 + gf], [20, -30], [21.5, -45], [18, -62], [15, -80]]);
   // short belted tunic
   soft(g, [[-13, -128], [-2, -134], [9, -132], [15, -125], [16, -110], [13, -97], [13, -90], [18, -63], [4, -60], [-16, -62], [-11, -90], [-13, -104]]);
   // the pack basket (背篓): flared mouth with a thick rim, narrower rounded foot
@@ -429,7 +429,7 @@ function buildRidge(env) {
   const objs = L.makeLayer(PAD, (g) => {
     g.fillStyle = INK; g.strokeStyle = INK;
     // scrub and small grass clumps along the ridge (none under the text zone)
-    for (const [x, w, h] of [[-40, 56, 10], [286, 46, 7], [398, 40, 8], [706, 44, 5.5], [846, 34, 4.5], [1058, 50, 5], [1236, 40, 6], [1470, 52, 8], [1508, 36, 9], [1702, 44, 8], [1880, 40, 7], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x);
+    for (const [x, w, h] of [[-40, 56, 10], [286, 46, 7], [398, 40, 8], [706, 44, 5], [846, 34, 4], [1058, 50, 4.5], [1236, 40, 5.5], [1470, 52, 8], [1508, 36, 9], [1702, 44, 8], [1880, 40, 7], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x, Math.abs(x - 960) > 340);   // bare low mounds under the text zone
     for (const [x, sz] of [[78, 26], [330, 22], [452, 20], [636, 16], [1318, 19], [1490, 24], [1668, 22], [1870, 26], [1990, 30]]) grassClump(g, x, on(x), sz, 'gc' + x, 0);
     // the two or three low clumps of grass on the right
     grassClump(g, 1392, on(1392), 56, 'A', 2);
