@@ -38,14 +38,14 @@ function glazeStops(kind, tone) {
   return [[0, '#6e3d08'], [0.12, rise], [0.3, lit], [0.5, body], [0.78, turn], [0.93, '#8a520a'], [1, '#3a1e04']].map(([t, c]) => [t, L.shade(c, tone)]);
 }
 // across a trough: the ridge on the left drops its shadow on the left third, the far side catches a little light
-const CONCAVE = [[0, 'rgba(28,12,2,0.88)'], [0.36, 'rgba(28,12,2,0.42)'], [0.6, 'rgba(255,214,90,0.22)'], [0.88, 'rgba(60,30,4,0.5)'], [1, 'rgba(28,12,2,0.8)']];
+const CONCAVE = [[0, 'rgba(28,12,2,0.88)'], [0.36, 'rgba(28,12,2,0.42)'], [0.6, 'rgba(255,204,80,0.22)'], [0.88, 'rgba(60,30,4,0.5)'], [1, 'rgba(28,12,2,0.8)']];
 
 /** the troughs: pan tiles (板瓦), concave side up, yellow glaze lying in shadow; each trough ends in a drip-tile lip */
 function buildPan(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
     const angles = ridgeAngles(a), r = L.rng('s02pan');
-    const base = L.makeRamp([[0, '#3a1e04'], [0.55, '#8a560c'], [0.9, '#ad720d'], [1, '#b8860f']]);   // shadowed glaze turns amber, never olive
+    const base = L.makeRamp([[0, '#3a1e04'], [0.55, '#85500b'], [0.92, '#a8680c'], [1, '#b8860f']]);   // shadowed glaze turns amber, never olive
     const P2 = PITCH / 2, kEnd = conv(a, DEPTH);
     for (let i = 0; i < angles.length - 1; i++) {
       a.at(g, (angles[i] + angles[i + 1]) / 2, 0, () => {
@@ -67,7 +67,7 @@ function buildPan(env) {
           }
           g.beginPath(); g.moveTo(-pk, d0); g.lineTo(-w, d0); g.ellipse(0, d0, w, sag, 0, Math.PI, 0, true); g.lineTo(pk, d0);
           g.lineTo(pk, d1 + 12); g.lineTo(-pk, d1 + 12); g.closePath();
-          g.fillStyle = L.shade(L.css(base(L.clamp(1 - (d0 + d1) / 1240))), r.range(-0.08, 0.05)); g.fill();
+          g.fillStyle = L.shade(L.css(base(L.clamp(1 - (d0 + d1 + 4) / 1160))), r.range(-0.08, 0.04)); g.fill();
           g.fillStyle = L.linear(g, -w, 0, w, 0, CONCAVE); g.fill();
           g.fillStyle = L.linear(g, 0, d0 + sag, 0, d1 + 8, [[0, 'rgba(255,220,110,0.10)'], [0.4, 'rgba(40,18,2,0)'], [1, 'rgba(40,18,2,0.32)']]); g.fill();
           if (j) {   // bright glazed edge of the lap, strongest where the trough turns toward the light
@@ -144,7 +144,7 @@ function buildTiles(env) {
           s.beginPath(); s.ellipse(0, top, m - 1.5, arch - 1.5, 0, Math.PI + 0.3, Math.PI + 1.75); s.stroke();
           // soft sheen
           const b0 = lipY + 9, b1 = Math.min(b0 + len * r.range(0.7, 0.9) - 9, d1 - nextArch - 6);
-          s.strokeStyle = 'rgba(255,244,196,0.42)'; s.lineWidth = 8;
+          s.strokeStyle = 'rgba(255,241,176,0.38)'; s.lineWidth = 8;
           s.beginPath(); s.moveTo(hx(b0), b0); s.lineTo(hx(b1), b1); s.stroke();
           // crisp cold-white core: a tapered streak that wavers with the glaze and stops well short of the next joint
           const c0 = lipY + 12, c1 = c0 + len * r.range(0.35, 0.65), cm = L.lerp(c0, c1, 0.36), bend = r.range(-1.5, 1.5) * 2;
@@ -162,7 +162,7 @@ function buildTiles(env) {
           g.lineCap = 'butt';
           g.strokeStyle = 'rgba(92,48,10,0.9)'; g.lineWidth = 1.5; g.beginPath(); g.ellipse(0, 6.5, HALF - 4.2, 5.6, 0, Math.PI, 0); g.stroke();
           // sheen along the tile's back, either side of the nail cap
-          s.strokeStyle = 'rgba(255,244,196,0.42)'; s.lineWidth = 8;
+          s.strokeStyle = 'rgba(255,241,176,0.38)'; s.lineWidth = 8;
           s.beginPath(); s.moveTo(hx(14), 14); s.lineTo(hx(d1 - nextArch - 8), d1 - nextArch - 8); s.stroke();
           const c0 = 9, c1 = 38, bend = r.range(-1.2, 1.2) * 2;
           s.fillStyle = L.rgba('#f4faff', r.range(0.6, 0.95));
@@ -204,15 +204,15 @@ function buildRoof(env) {
   const g = roof.getContext('2d');
   g.drawImage(buildTiles(env), -PAD, -PAD);
   // 4) glaze mottling in soft clouds (no lengthwise streaks) + pinholes; everything lands on existing pixels only
-  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 70, sx: 1, sy: 1.4, octaves: 4, contrast: 1.5, res: 0.4 }), { blend: 'soft-light', alpha: 0.3 });
+  L.overlayOn(roof, L.polarNoiseLayer(env, PAD, { seed: 's02glaze', scale: 70, sx: 1, sy: 1.4, octaves: 4, contrast: 1.5, res: 0.4, ramp: [[0, '#6e4a12'], [0.5, '#b89a48'], [1, '#fff0a0']] }), { blend: 'soft-light', alpha: 0.34 });
   // the light pool on the eave left of the crest: glaze lifts inside it, the roof turns amber toward the far corners
   const pc = a.pt(-0.05, -150);
   L.overlayOn(roof, L.makeLayer(PAD, (c) => {
-    c.fillStyle = L.radial(c, pc.x, pc.y, 60, 640, [[0, 'rgba(255,248,214,0.85)'], [0.5, 'rgba(255,244,190,0.4)'], [1, 'rgba(255,244,190,0)']]);
+    c.fillStyle = L.radial(c, pc.x, pc.y, 60, 640, [[0, 'rgba(255,232,120,0.85)'], [0.5, 'rgba(255,226,100,0.4)'], [1, 'rgba(255,226,100,0)']]);
     c.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   }), { blend: 'soft-light', alpha: 1 });
   L.overlayOn(roof, L.makeLayer(PAD, (c) => {
-    c.fillStyle = L.radial(c, pc.x, pc.y, 520, 1500, [[0, 'rgba(176,112,30,0)'], [1, 'rgba(176,112,30,0.6)']]);
+    c.fillStyle = L.radial(c, pc.x, pc.y, 430, 1480, [[0, 'rgba(176,112,30,0)'], [1, 'rgba(176,112,30,0.85)']]);
     c.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   }), { blend: 'multiply', alpha: 1 });
   g.globalCompositeOperation = 'source-atop';
@@ -240,10 +240,10 @@ function buildBack(env) {
     for (let i = 0; i < 18; i++) {
       const warm = i >= 14, pale = i >= 11 && !warm;
       let x, y;
-      if (warm) { const p = a.pt([-0.2, -0.11, 0.05, 0.17][i - 14] + r.range(-0.02, 0.02), r.range(46, 120)); x = p.x; y = p.y; } else { x = r.range(-PAD * 0.4, W + PAD * 0.4); y = r.range(-60, 470); }
-      const rad = warm ? r.range(13, 24) : r.range(30, 90), c = warm ? '#ffcf3a' : pale ? '#7fb2e6' : '#2b5fae';
-      const al = warm ? r.range(0.2, 0.32) : pale ? r.range(0.05, 0.08) : r.range(0.10, 0.18);
-      g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(c, al * 0.75)], [0.74, L.rgba(c, al * 0.9)], [0.88, L.rgba(c, al)], [1, L.rgba(c, 0)]]);
+      if (warm) { const p = a.pt([-0.2, -0.11, 0.05, 0.17][i - 14] + r.range(-0.02, 0.02), r.range(40, 105)); x = p.x; y = p.y; } else { x = r.range(-PAD * 0.4, W + PAD * 0.4); y = r.range(-60, 470); }
+      const rad = warm ? r.range(11, 22) : r.range(30, 90), c = warm ? '#ffcf3a' : pale ? '#7fb2e6' : '#2b5fae';
+      const al = warm ? r.range(0.16, 0.26) : pale ? r.range(0.05, 0.08) : r.range(0.10, 0.18);
+      g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(c, al * 0.8)], [0.66, L.rgba(c, al)], [0.84, L.rgba(c, al * 0.7)], [1, L.rgba(c, 0)]]);
       g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
     }
   });
@@ -277,7 +277,7 @@ export default {
   name: '黄琉璃瓦檐口',
   tone: 'light',            // tagline colour if this shot carries text: 'light' on dark backgrounds, 'dark' on light ones
   init(env) {
-    S = { roof: buildRoof(env), back: buildBack(env), dust: buildDust(env) };
+    S = { roof: buildRoof(env), back: buildBack(env), dust: buildDust(env), angles: ridgeAngles(env.arc) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
@@ -289,10 +289,25 @@ export default {
     L.glow(ctx, a.cx - 180, a.crestY + 40, 260, '#ffb53a', 0.10);
     L.blit(ctx, env, S.roof, { rot, zoom, dy: DY });   // the light pool is baked into the roof, so it rides along with rot
     // sun glint travelling along the eave: it only lifts the glaze, never fogs the black above
-    const gl = a.pt(L.lerp(-0.16, 0.02, p), -30);
+    const glT = L.lerp(-0.16, 0.02, p), gl = a.pt(glT, -30);
     ctx.save(); a.clipBelow(ctx, 10);
     L.glow(ctx, gl.x, gl.y, 150, '#fff2c0', 0.3, 'soft-light');
     ctx.restore();
+    // … and the nail caps it passes over flare one after another (drawn in the roof's own moving frame)
+    L.cam(ctx, env, { rot, zoom, dy: DY }, () => {
+      for (const th of S.angles) {
+        const k = 1 - Math.abs(th + rot - glT) / 0.075;
+        if (k <= 0) continue;
+        const e = k * k * (3 - 2 * k);
+        a.at(ctx, th, 0, () => {
+          L.glow(ctx, -4.2, 48.8, 7 + 13 * e, '#fffbe6', 0.9 * e);
+          ctx.globalCompositeOperation = 'screen'; ctx.lineCap = 'round'; ctx.lineWidth = 1.3;
+          ctx.strokeStyle = L.rgba('#f4faff', 0.75 * e);
+          ctx.beginPath(); ctx.moveTo(-4.2 - 6 - 13 * e, 48.8); ctx.lineTo(-4.2 + 6 + 13 * e, 48.8); ctx.stroke();
+          L.glow(ctx, -13, -2.5, 4 + 7 * e, '#fffbe6', 0.7 * e);
+        });
+      }
+    });
     L.vignette(ctx, { strength: 0.35 });
   },
 };

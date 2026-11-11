@@ -49,11 +49,11 @@ function buildThermal(env) {
   // ── columns above the arc (screen-vertical bands). amp < 0 → warmer (toward orange / magenta), > 0 → cooler (teal)
   const cols = [];
   for (let x = -PAD - 40; x < W + PAD + 60;) {
-    const w = r.range(16, 52);
+    const w = r.range(14, 56);
     const kind = r();
     const amp = kind < 0.16 ? r.range(0.08, 0.15) : kind < 0.5 ? -r.range(0.18, 0.3) : -r.range(0.42, 0.6);
     cols.push({ x, w, amp, seed: r.range(0, 100) });
-    x += w + r.range(26, 120);
+    x += w + r.range(20, 96);
   }
   // per-row modulation of every column (each one fades in and out along its height)
   const colMod = cols.map((c) => {
@@ -66,8 +66,9 @@ function buildThermal(env) {
   const teeth = [];
   const SP = a.span(PAD + 80) * R;
   for (let s = -SP + r.range(0, 60); s < SP;) {
-    teeth.push({ s, w: r.range(30, 42), h: r.range(46, 64), v: r.range(0.12, 0.24), lean: r.range(-0.15, 0.15) });
-    s += r.range(96, 150);
+    const cen = L.smooth((Math.abs(s) - 120) / 420);   // shorter under the tagline
+    teeth.push({ s, w: r.range(34, 50), h: r.range(52, 74) * L.lerp(0.62, 1, cen), v: r.range(0.1, 0.22), lean: r.range(-0.12, 0.12), sq: r.range(2.2, 3.4) });
+    s += r.range(104, 170);
   }
 
   const F = new Float32Array(cw * ch);
@@ -82,28 +83,31 @@ function buildThermal(env) {
       let v;
       if (dr > 0) {
         // façade: chartreuse with slow, vertically streaked mottling
-        v = 0.82 + 0.06 * nz.fbm(x / 260, y / 900, 3) + 0.035 * nz.fbm(x / 60 + 7, y / 700, 2);
+        v = 0.8 + 0.07 * nz.fbm(x / 260, y / 900, 3) + 0.04 * nz.fbm(x / 60 + 7, y / 700, 2);
         // the band behind the tagline stays calm and even
         const quiet = L.smooth((470 - Math.abs(x - W / 2)) / 180) * L.smooth((dr - 70) / 90);
         let cs = 0;
         for (let k = 0; k < cols.length; k++) {
           const c = cols[k], u = (x - c.x) / c.w;
           if (u < -2.6 || u > 2.6) continue;
-          cs += c.amp * colMod[k][j] * Math.exp(-u * u * u * u * 0.5);
+          const uw = u + 0.35 * nz.n2(c.seed + 40, y / 300);
+          cs += c.amp * colMod[k][j] * Math.exp(-uw * uw * uw * uw * 0.5);
         }
-        v += cs * (1 - 0.88 * quiet);
+        v += cs * (1 - 0.8 * quiet);
         v = L.lerp(v, 0.835 + 0.02 * nz.fbm(x / 400 + 3, y / 400, 2), quiet * 0.75);
         // a warm breath rising off the eave
         v -= 0.16 * Math.exp(-dr / 26);
       } else {
         const d = -dr;
         // eave: hot magenta-red band, slightly ragged lower edge
-        const wob = 26 * nz.fbm(s / 380 + 11, d / 260, 2);
+        const wob = 30 * nz.fbm(s / 900 + 11, d / 400, 2) + 8 * nz.fbm(s / 160, d / 90 + 2, 2);
         const de = d + wob;
         const eave = 0.33 + 0.05 * nz.fbm(s / 120, d / 60 + 4, 2);
         // roof tile courses: concentric bands, widening downward, broken along the arc
         const ph = (de - 70) / L.lerp(118, 170, L.clamp(d / 700));
-        const band = 0.44 + 0.3 * Math.sin(ph * L.TAU - 1.1) + 0.06 * nz.fbm(s / 300 - 5, d / 120, 3);
+        const amp = 0.22 + 0.1 * nz.fbm(s / 700 + 9, d / 300, 2);
+        const sw = Math.sin(ph * L.TAU - 1.1);
+        const band = 0.4 + amp * (sw + 0.25 * Math.sin(ph * L.TAU * 2 + 0.6)) + 0.07 * nz.fbm(s / 260 - 5, d / 110, 3);
         const t = L.smooth((de - 56) / 40);
         v = L.lerp(eave, band, t);
         v -= 0.05 * L.smooth((d - 420) / 500);
@@ -115,7 +119,7 @@ function buildThermal(env) {
           if (u < -70 || u > 70) continue;
           const hu = (dr + 14) / q.h;
           if (hu < -0.2 || hu > 1.4) continue;
-          const e = Math.pow(Math.abs(u) / q.w, 3) + Math.pow(Math.abs(hu - 0.5) * 2, 3);
+          const e = Math.pow(Math.abs(u) / q.w, q.sq) + Math.pow(Math.abs(hu - 0.5) * 2, q.sq) + 0.25 * nz.n2(u / 22 + k, dr / 22);
           const m = L.smooth((1.25 - e) / 0.6);
           if (m > 0) v = L.lerp(v, q.v, m);
         }
@@ -141,6 +145,16 @@ function buildThermal(env) {
   g.filter = 'blur(3px)';
   g.drawImage(small, 0, 0, FW, FH);
   g.filter = 'none';
+  // depth of field: sharpest on the eave near the crest, melting toward the bottom and the far sides
+  const soft = L.blurred(big, 11);
+  const mask = L.makeCanvas(FW, FH), mg = mask.getContext('2d');
+  mg.drawImage(soft, 0, 0);
+  mg.globalCompositeOperation = 'destination-out';
+  const fx = a.cx + PAD, fy = a.crestY + PAD + 40;
+  mg.setTransform(1.9, 0, 0, 1, fx * (1 - 1.9), 0);
+  mg.fillStyle = L.radial(mg, fx, fy, 120, 560, [[0, 'rgba(0,0,0,1)'], [0.55, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0)']]);
+  mg.fillRect(-FW, -FH, FW * 3, FH * 3);
+  g.drawImage(mask, 0, 0);
   big._pad = PAD;
   return big;
 }

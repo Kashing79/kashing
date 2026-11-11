@@ -27,12 +27,12 @@ const full = (g) => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
  * slope = press on the way down / lift on the way up; dry = amount of flying-white in the tail; fw = flying-white line scale.
  */
 function brush(g, map, pts, o = {}) {
-  const { w = 24, seed = 1, head = 0.25, tail = 0.3, slope = 0, dry = 0.5, alpha = 0.92, rough = 1, fw = 1, end = 0, mid = 0 } = o;
+  const { w = 24, seed = 1, head = 0.25, tail = 0.3, slope = 0, dry = 0.5, alpha = 0.92, rough = 1, fw = 1, end = 0, mid = 0, point = false } = o;
   const P = L.smoothPath(pts, 5), n = P.length;
   if (n < 4) return;
   const len = new Float32Array(n);
   for (let i = 1; i < n; i++) len[i] = len[i - 1] + Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
-  const tot = len[n - 1], cap = w * 0.5, sd = seed * 1.618;
+  const tot = len[n - 1], cap = w * (point ? 1.5 : 0.5), sd = seed * 1.618;
   const A = new Array(n), B = new Array(n);
   let iHead = n - 1;
   for (let i = 0; i < n; i++) {
@@ -41,7 +41,7 @@ function brush(g, map, pts, o = {}) {
     const s = len[i], t = s / tot;
     if (s > w * 1.7 && iHead === n - 1) iHead = i;
     let wv = 1;
-    if (s < cap) { const q = 1 - s / cap; wv *= 0.12 + 0.88 * Math.sqrt(1 - q * q); }     // blunt round landing
+    if (s < cap) { const q = 1 - s / cap; wv *= point ? 0.1 + 0.9 * Math.pow(s / cap, 0.75) : 0.12 + 0.88 * Math.sqrt(1 - q * q); }   // the tip lands first, or a blunt round landing
     const hd = (s - 0.6 * w) / (0.9 * w); wv *= 1 + head * Math.exp(-hd * hd);            // the loaded head swells
     if (t > 1 - tail) wv *= end + (1 - end) * Math.pow((1 - t) / tail, 0.8);              // lifting off
     wv *= L.clamp(1 + slope * ty, 0.5, 1.7);
@@ -107,7 +107,7 @@ function ring(g, map, V, px, seed) {
   g.closePath(); g.fill(); g.restore();
 }
 
-const skew = (x) => Math.sin(x + 0.5 * Math.sin(x));   // a wave that rises slowly and drops fast
+const skew = (x) => Math.sin(x + 0.3 * Math.sin(x));   // a wave that rises slowly and drops fast
 
 /** everything painted in black: returns the density mask as a padded layer */
 function paintMask(env, map) {
@@ -118,11 +118,11 @@ function paintMask(env, map) {
 
     // ── banding lines ──
     ring(g, map, 197, 6.5, 1); ring(g, map, 237, 2.8, 2);
-    ring(g, map, 653, 3, 3); ring(g, map, 672, 7.5, 4);
-    ring(g, map, 970, 7.5, 5); ring(g, map, 990, 3, 6);
+    ring(g, map, 635, 3, 3); ring(g, map, 654, 7.5, 4);
+    ring(g, map, 950, 7.5, 5); ring(g, map, 970, 3, 6);
 
-    // ── water ripples: seven rows that follow the arc and rise and fall together, parting twice round a lens of bare slip ──
-    const OPEN = [{ U: 400, V: 421, w: 250, amp: 29 }, { U: -730, V: 370, w: 180, amp: 22 }];
+    // ── water ripples: six rows that follow the arc and rise and fall together, parting twice round a lens of bare slip ──
+    const OPEN = [{ U: 410, V: 436, w: 250, amp: 27 }, { U: -730, V: 380, w: 180, amp: 20 }];
     const push = (U, V0) => {
       let s = 0;
       for (const o of OPEN) {
@@ -133,27 +133,28 @@ function paintMask(env, map) {
     };
     // one displacement field shared by every row, so neighbouring ripples nest; the phase drifts slowly down the wall
     const disp = (U, V) => {
-      const ph = (TAU * U) / 300 + 0.0115 * V + 1.5 * NZ.n2(U / 900 + 3.3, V / 420);
-      return 18.5 * skew(ph) * (0.82 + 0.3 * NZ.n2(U / 520 - 7, V / 300 + 2)) + 8 * NZ.n2(U / 640 + 11, V / 330);
+      const ph = (TAU * U) / 256 + 0.003 * V + 1.0 * NZ.n2(U / 900 + 3.3, V / 600);
+      return 24 * skew(ph) * (0.86 + 0.24 * NZ.n2(U / 520 - 7, V / 400 + 2)) + 7 * NZ.n2(U / 640 + 11, V / 400);
     };
     const rows = [];
-    for (let k = 0; k < 7; k++) rows.push(294 + 51 * k);
-    for (let k = 0; k < 3; k++) rows.push(1046 + 54 * k);
+    for (let k = 0; k < 6; k++) rows.push(296 + 56 * k);
+    for (let k = 0; k < 3; k++) rows.push(1028 + 56 * k);
     rows.forEach((V0, k) => {
       const rowV = (U) => V0 + disp(U, V0) + push(U, V0) + 2.2 * NZ.n2(U / 90, k * 9.1);
       let U = -UM + r.range(-200, 0);
       while (U < UM) {
-        const len = 300 * r.range(1.5, 3.3);
+        const len = 256 * r.range(1.2, 3.1);
         const lift = r.range(0, 7);
         const pts = [];
-        for (let u = U; u <= U + len + 1; u += 20) { const t = (u - U) / len; pts.push([u, rowV(u) - lift * t * t * t]); }
-        brush(g, map, pts, { w: 27 * r.range(0.9, 1.12), seed: seed++, head: r.range(0.08, 0.3), tail: r.range(0.1, 0.2), slope: 0.85, dry: r.range(0.4, 1), mid: r.range(0, 1.2), fw: 0.35 + 0.65 * comp(V0) });
+        for (let u = U; u <= U + len + 1; u += 16) { const t = (u - U) / len; pts.push([u, rowV(u) - lift * t * t * t]); }
+        brush(g, map, pts, { w: 24 * r.range(0.9, 1.14), seed: seed++, head: r.range(0.05, 0.3), tail: r.range(0.1, 0.2), slope: 0.72, dry: r.range(0.4, 1), mid: r.range(0, 1.2),
+          point: r.chance(0.5), fw: 0.35 + 0.65 * comp(V0) });
         U += len + r.range(-34, 8);     // lift, reload, carry on where the last stroke gave out
       }
     });
 
     // ── scrolling tendrils (卷草): an undulating stem, a curl in every hollow, a pair of leaves sprouting beside each curl ──
-    const VC = 824, VA = 54, LAM = 520, PH = 0.9;
+    const VC = 804, VA = 54, LAM = 520, PH = 0.9;
     const stemV = (U) => VC + VA * Math.sin((TAU * U) / LAM + PH) + 5 * NZ.n2(U / 300, 7.7);
     for (let U = -UM - 80; U < UM;) {
       const len = LAM * r.range(1.3, 2.1);
@@ -176,14 +177,11 @@ function paintMask(env, map) {
         pts.push([cU + rx * rad * Math.cos(ang), cV + ry * rad * Math.sin(ang)]);
       }
       brush(g, map, pts, { w: 29 * r.range(0.92, 1.1), seed: seed++, head: 0.2, tail: 0.6, end: 0.08, dry: r.range(0.3, 0.8), fw: 0.8 });
-      // two leaves from one point on the stem, in the spandrel to the right of the curl: fat where the brush lands, thin into the stem
-      const jU = Uj + 200 + r.range(-6, 6), jV = stemV(jU) + sgn * 5;
-      const t1U = Uj + 116 + r.range(-8, 8), t1V = VC + sgn * (100 + r.range(-6, 6));
-      brush(g, map, [[t1U, t1V], [t1U + 30, t1V - sgn * 2], [jU - 26, jV + sgn * 34], [jU, jV]],
-        { w: 38 * r.range(0.9, 1.1), seed: seed++, head: 0.45, tail: 0.66, end: 0.2, dry: 0.3, fw: 0.8 });
-      const t2U = jU + 16 + r.range(-6, 8), t2V = VC + sgn * (124 + r.range(-4, 3));
-      brush(g, map, [[t2U, t2V], [t2U + 7, t2V - sgn * 22], [jU + 6, jV + sgn * 30], [jU, jV]],
-        { w: 30 * r.range(0.9, 1.1), seed: seed++, head: 0.45, tail: 0.66, end: 0.22, dry: 0.2, fw: 0.8 });
+      // one comma leaf in the spandrel to the right of the curl: fat where the brush lands, thinning into the stem
+      const jU = Uj + 206 + r.range(-8, 8), jV = stemV(jU) + sgn * 5;
+      const tU = Uj + 112 + r.range(-10, 12), tV = VC + sgn * (104 + r.range(-8, 6));
+      brush(g, map, [[tU, tV], [tU + 34, tV - sgn * r.range(0, 8)], [jU - 24, jV + sgn * 36], [jU, jV]],
+        { w: 40 * r.range(0.88, 1.12), seed: seed++, head: 0.45, tail: 0.64, end: 0.2, dry: 0.3, fw: 0.8 });
     }
 
     // ── pigment is never even: thinner blotches fire iron brown; the hairs of the brush leave faint streaks ──
@@ -277,7 +275,7 @@ function buildJar(env) {
     // a round shoulder: the limb mirrors the yellow dish behind it; the wall turns away from the light lower down and to the right
     g.globalCompositeOperation = 'multiply';
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 64, a.R, [[0, '#ffffff'], [0.5, '#fdf4cc'], [1, '#f6de80']]); full(g);
-    g.fillStyle = L.radial(g, a.cx - 380, a.crestY + 40, 420, 1650, [[0, '#ffffff'], [0.5, '#f1e6d2'], [1, '#c4b190']]); full(g);
+    g.fillStyle = L.radial(g, a.cx - 380, a.crestY + 40, 420, 1650, [[0, '#ffffff'], [0.48, '#f0e4ce'], [1, '#bca782']]); full(g);
     g.restore();
   });
 
@@ -291,9 +289,13 @@ function buildJar(env) {
     h.globalCompositeOperation = 'source-over';
   });
   const pane = L.makeLayer(PAD, (h) => {
-    h.fillStyle = 'rgba(255,253,244,0.86)';
-    a.pathBand(h, -90, -117, -0.236, -0.163); h.fill();
-    a.pathBand(h, -90, -117, -0.156, -0.086); h.fill();
+    // the hot core of the reflection: a long lens that tapers to nothing at both ends
+    const t0 = -0.262, t1 = -0.062, N = 60;
+    h.fillStyle = 'rgba(255,253,244,0.8)';
+    h.beginPath();
+    for (let i = 0; i <= N; i++) { const u = i / N, q = a.pt(L.lerp(t0, t1, u), -103 + 11 * Math.pow(Math.sin(u * Math.PI), 0.7)); if (i) h.lineTo(q.x, q.y); else h.moveTo(q.x, q.y); }
+    for (let i = N; i >= 0; i--) { const u = i / N, q = a.pt(L.lerp(t0, t1, u), -103 - 11 * Math.pow(Math.sin(u * Math.PI), 0.7)); h.lineTo(q.x, q.y); }
+    h.closePath(); h.fill();
     // the orange-peel of the glaze breaks the reflection up a little
     h.globalCompositeOperation = 'destination-out';
     h.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's30peelj', scale: 9, sx: 2.4, octaves: 2, res: 0.5, contrast: 1.7,
@@ -303,7 +305,7 @@ function buildJar(env) {
   const gloss = L.makeLayer(PAD, (h) => {
     h.save(); a.clipBelow(h, -1);
     h.drawImage(L.blurred(gl, 9), -PAD, -PAD);
-    h.drawImage(L.blurred(pane, 1.5), -PAD, -PAD);
+    h.drawImage(L.blurred(pane, 3.2), -PAD, -PAD);
     h.restore();
   });
 
@@ -351,7 +353,7 @@ function buildDish(env) {
     // glaze laid by pouring is never dead flat: the faintest slow drift of tone, and a whisper of orange-peel
     g.globalAlpha = 1;
     g.drawImage(L.noiseLayer(PAD, { seed: 's30tone', scale: 560, octaves: 3, res: 0.2, warp: 0.5,
-      ramp: [[0, 'rgba(230,172,8,0.2)'], [0.45, 'rgba(240,190,20,0)'], [0.6, 'rgba(250,222,100,0)'], [1, 'rgba(250,224,108,0.2)']] }), -PAD, -PAD);
+      ramp: [[0, 'rgba(232,176,8,0.13)'], [0.45, 'rgba(240,190,20,0)'], [0.6, 'rgba(250,222,100,0)'], [1, 'rgba(250,224,108,0.13)']] }), -PAD, -PAD);
     g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.1;
     g.drawImage(L.bumpLight(L.noiseLayer(PAD, { seed: 's30peel', scale: 16, octaves: 2, res: 0.5 }), { angle: 45, strength: 1.2, res: 0.5 }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
@@ -366,21 +368,28 @@ function buildDish(env) {
       L.sketchLine(g, pts.map(([x, y]) => [x + 1.2, y + 1.4]), { width: 1.5, color: '#c08a04', seed: 30 + i, wobble: 1.4, passes: 1, alpha: 0.5 });
       L.sketchLine(g, pts, { width: 1.5, color: '#fdeea6', seed: 30 + i, wobble: 1.4, passes: 1, alpha: 0.72 });
     });
-    // one small patch rubbed through to the white body: ragged, with a rim where the glaze has only worn thin
-    const PW = 190, PH = 130, wx = 1630, wy = 248;
-    const pc = L.makeCanvas(PW, PH), img = new ImageData(PW, PH), d = img.data;
-    for (let y = 0; y < PH; y++) for (let x = 0; x < PW; x++) {
-      const u = (x - PW / 2) / 62, v = (y - PH / 2) / 30, cs = Math.cos(0.5), sn = Math.sin(0.5);
-      const uu = u * cs - v * sn * 2.07, vv = (u * sn) / 2.07 + v * cs;      // a lozenge leaning with the direction of wear
-      const f = 1 - Math.hypot(uu, vv) + 0.42 * NZ.fbm(x / 26 + 3, y / 26 + 9, 3) + 0.16 * NZ.n2(x / 5, y / 5);
-      const body = L.clamp((f - 0.3) / 0.08), rim = L.clamp((f - 0.12) / 0.14);
-      const sh = 1 - 0.07 * L.clamp(NZ.fbm(x / 14 - 5, y / 14, 2) + 0.4);
-      const k = (y * PW + x) * 4;
-      d[k] = L.lerp(251, 244 * sh, body); d[k + 1] = L.lerp(232, 236 * sh, body); d[k + 2] = L.lerp(142, 216 * sh, body);
-      d[k + 3] = 255 * Math.max(body, rim * 0.8);
+    // one small place where the glaze has flaked and rubbed through to the white body: angular, with a rim worn thin and a few flecks
+    const wr = L.rng('s30worn'), wx = 1634, wy = 250;
+    const flake = (cx, cy, rad, k, rot) => {
+      const n = 9;
+      g.beginPath();
+      for (let i = 0; i < n; i++) {
+        const an = rot + ((i + wr.range(-0.3, 0.3)) / n) * TAU, q = rad * wr.range(0.62, 1.12);
+        const x = cx + Math.cos(an) * q * k, y = cy + Math.sin(an) * q;
+        if (i) g.lineTo(x, y); else g.moveTo(x, y);
+      }
+      g.closePath(); g.fill();
+    };
+    g.save(); g.translate(wx, wy); g.rotate(-0.62);
+    g.fillStyle = 'rgba(250,230,134,0.9)'; flake(0, 0, 31, 1.5, 0.3);
+    g.fillStyle = '#f5eeda'; flake(1, 0.5, 24, 1.5, 0.3);
+    g.fillStyle = 'rgba(224,212,186,0.7)'; flake(5, 2, 10, 1.6, 1.1);
+    for (let i = 0; i < 7; i++) {
+      const an = wr.range(0, TAU), dd = wr.range(40, 74);
+      g.fillStyle = wr.chance(0.55) ? '#f5eeda' : 'rgba(250,232,140,0.9)';
+      flake(Math.cos(an) * dd * 1.3, Math.sin(an) * dd * 0.5, wr.range(1.8, 5.5), 1.3, wr.range(0, 3));
     }
-    pc.getContext('2d').putImageData(img, 0, 0);
-    g.drawImage(pc, wx - PW / 2, wy - PH / 2);
+    g.restore();
   });
   // the dish is a little behind the plane of focus
   const out = L.blurred(layer, 2);

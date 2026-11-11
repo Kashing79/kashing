@@ -169,7 +169,7 @@ function buildBody(env) {
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const ddx = X0 + i * CS - cx, ddy = cy - (Y0 + j * CS), d = R - Math.hypot(ddx, ddy), u = Math.atan2(ddx, ddy) * R, k = j * cw + i;
     cWob[k] = nB.fbm(u / 190, d / 150, 2);
-    cMot[k] = nA.fbm(u / 170, d / 110, 3, 2, 0.55);
+    cMot[k] = nA.fbm(u / 210, d / 95, 3, 2, 0.55);
     cFin[k] = nA.n2(u / 26 + 40, d / 26 - 7);
     // two lamps, one at either side (the usual copy-stand set-up), leave two broad lobes; the crown and the far flank read cooler
     const l1 = Math.exp(-(((u + 500) / 340) ** 2) - (((d - 150) / 160) ** 2)), l2 = Math.exp(-(((u - 700) / 260) ** 2) - (((d - 130) / 130) ** 2));
@@ -215,7 +215,7 @@ function buildBody(env) {
         const mi = (((dp - D0) | 0) * UW + ((u + UM) | 0)) * 4;
         const pm = pat[mi] / 255;
         if (pm > 0) s += (dp < 221 ? -0.43 : dp < 352 ? -0.6 : 0.27) * pm;
-        s += (0.05 * bil(cMot, i, j) + 0.02 * fin) * body + bil(cLamp, i, j) * sstep(4, 30, d);
+        s += (0.09 * bil(cMot, i, j) + 0.02 * fin) * body + bil(cLamp, i, j) * sstep(4, 30, d);
         if (s > 0.87) s = 0.87 + (s - 0.87) * 0.45;                              // the scale flattens toward its top: keep the greens green
         const qm = rep[mi] / 255, qs = rep[mi + 1] / 255;
         if (qm > 0) s = L.lerp(s, 0.37 + 0.26 * (s - 0.5) + 0.05 * fin, qm);    // the fill answers flat and weak, whatever is painted over it

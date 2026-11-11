@@ -19,7 +19,7 @@ const PAD = 100;          // margin for the rot / zoom drift
 const TOP = 76;           // rows rendered above the crest: room for the bloom to die out to the pure background
 const FAN = 950;          // the folds radiate from a point this far above the arc
 const RHO = 74;           // radius of the roll where the robe turns over the top
-const E_LO = -4.5, E_HI = 10.5, E_REF = 46;   // silhouette ripple (px relative to the arc) for fold height 0 … E_REF at the limb
+const E_LO = -4.5, E_HI = 8.5, E_REF = 46;   // silhouette ripple (px relative to the arc) for fold height 0 … E_REF at the limb
 const BG = [4, 4, 4];
 const D_MIN = -40, ND = 1100;
 let S = null;
@@ -195,13 +195,13 @@ function buildFields(arc) {
   const Pool = Ff.slice(), tmp = new Float32Array(N);
   boxBlur(Pool, RW, RH, 11, tmp); boxBlur(Pool, RW, RH, 11, tmp);
   for (let k = 0; k < N; k++) Pool[k] -= Ff[k];
-  return { X0, Y0, RW, RH, N, Hh, Al, De, Gz, Pool, tmp, Sh: Ff, Ed: new Float32Array(N), Eb: new Float32Array(N), Sp: new Float32Array(N), Nb: new Float32Array(N) };
+  return { X0, Y0, RW, RH, N, Hh, Al, De, Gz, Pool, tmp, Sh: Ff, Ed: new Float32Array(N), Eb: new Float32Array(N), Sp: new Float32Array(N), Nb: new Float32Array(N), Fl: new Float32Array(N) };
 }
 
 // luminance → porcelain colour: black · warm shadow · 影灰 · 积釉暖黄 · 象牙白 · white
 const RAMP = (() => {
-  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.44, '#a89c7d'], [0.56, '#d0bf90'], [0.66, '#e3d5aa'],
-    [0.76, '#f0e7cc'], [0.86, '#f5efdc'], [1, '#fffdf4']].map(([t, c]) => [t, hex(c)]);
+  const st = [[0, '#040404'], [0.06, '#0d0b08'], [0.16, '#2e281e'], [0.3, '#6f6a5c'], [0.42, '#a3977a'], [0.54, '#cbb98b'], [0.64, '#dfcfa1'],
+    [0.74, '#ede3c4'], [0.84, '#f4eedb'], [0.93, '#faf6e8'], [1, '#fffdf5']].map(([t, c]) => [t, hex(c)]);
   const n = 1024, out = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1); let q = 1; while (q < st.length - 1 && st[q][0] < t) q++;
@@ -211,11 +211,11 @@ const RAMP = (() => {
   return out;
 })();
 
-const EL = 28, KE = 2.9, KB = 0.26, FILL = 0.035, PEN = 3;
+const EL = 28, KE = 2.6, KB = 0.26, FILL = 0.035, PEN = 3;
 
 /** light one state of the key into RGBA bytes `px` (opaque, on the black field); `bloom` gets the hot parts at quarter size */
 function shade(F, az, px, bloom) {
-  const { X0, Y0, RW, RH, N, Hh, Al, De, Gz, Pool, tmp, Sh, Ed, Eb, Sp, Nb } = F;
+  const { X0, Y0, RW, RH, Hh, Al, De, Gz, Pool, tmp, Sh, Ed, Eb, Sp, Nb, Fl } = F;
   const ra = (az * Math.PI) / 180, re = (EL * Math.PI) / 180;
   const lx = -Math.cos(ra) * Math.cos(re), ly = -Math.sin(ra) * Math.cos(re), lz = Math.sin(re);
   let hx = lx, hy = ly, hz = lz + 1; const hl = Math.hypot(hx, hy, hz); hx /= hl; hy /= hl; hz /= hl;
@@ -244,12 +244,13 @@ function shade(F, az, px, bloom) {
       const x = X0 + i, de = De[k];
       const fall = (1 - 0.4 * sstep(0.3, 1.2, Math.hypot(x - 380, (y - 600) * 1.2) / 1700)) * (1 - 0.3 * sstep(140, 640, de));
       const nb = nx * bx + ny * by + nzv * bz;
-      Nb[k] = (nb > 0 ? nb : 0) + 8 * (0.5 + 0.5 * (nx * fx + ny * fy + nzv * fz)) * fall | 0 ? 0 : 0;
+      Nb[k] = nb > 0 ? nb : 0;
+      Fl[k] = (0.5 + 0.5 * (nx * fx + ny * fy + nzv * fz)) * fall;
       if (sh <= 0) continue;
       let wr = (nx * lx + ny * ly + nzv * lz + 0.1) / 1.1; if (wr < 0) wr = 0;
       Ed[k] = wr * sh * fall;
       const ndh = nx * hx + ny * hy + nzv * hz;
-      if (ndh > 0.8) Sp[k] = sh * fall * (0.85 * Math.pow(ndh, 120) + 0.1 * Math.pow(ndh, 16));
+      if (ndh > 0.8) Sp[k] = sh * fall * (0.8 * Math.pow(ndh, 140) + 0.13 * Math.pow(ndh, 18));
     }
   }
   // 3) light bouncing around inside the white valleys
@@ -261,12 +262,12 @@ function shade(F, az, px, bloom) {
       const k = j * RW + i, o = k * 4, al = Al[k];
       px[o + 3] = 255;
       if (al <= 0) { px[o] = BG[0]; px[o + 1] = BG[1]; px[o + 2] = BG[2]; continue; }
-      const de = De[k];
-      let E = Ed[k] + KB * Eb[k] * (0.35 + 0.65 * Nb[k]);
+      const de = De[k], conc = Pool[k], gz = Gz[k];
+      const ao = 1 - 0.8 * sstep(2, 26, conc);                                   // the hollows see less of everything
+      let E = Ed[k] + FILL * Fl[k] * ao + KB * Eb[k] * (0.25 + 0.75 * Nb[k]) * (0.55 + 0.45 * ao);
       if (de < 24) E += 0.05 * Math.exp(-(de > 0 ? de : 0) / 5);                 // a breath of rim light keeps the contour alive inside the shadow notches
       const lum = 1 - Math.exp(-KE * E), li = ((lum * 1023) | 0) * 3;
       let r = RAMP[li], g = RAMP[li + 1], b = RAMP[li + 2];
-      const conc = Pool[k], gz = Gz[k];
       let warm = 0.95 * sstep(1.5, 14, conc) + 0.2 * gz + 0.06; warm = warm < 0 ? 0 : warm > 1 ? 1 : warm;
       r *= 1 - 0.045 * warm; g *= 1 - 0.115 * warm; b *= 1 - 0.33 * warm;
       const cv = sstep(2, 13, -conc) * lum * lum * 0.4;
@@ -283,14 +284,14 @@ function shade(F, az, px, bloom) {
 /** pin-holes in the glaze (棕眼): a handful of tiny brown pits on the lit faces */
 function pickPits(F, arc) {
   const r = L.rng('s28pits'), pits = [], span = arc.span(PAD - 20);
-  for (let n = 0; n < 900 && pits.length < 30; n++) {
+  for (let n = 0; n < 900 && pits.length < 15; n++) {
     const p = arc.pt(r.range(-span, span), -r.range(22, 600));
     const i = Math.round(p.x - F.X0), j = Math.round(p.y - F.Y0);
-    const rad = r.range(1.0, 2.3), k = r.range(0.5, 0.9);
+    const rad = r.range(0.9, 1.7), k = r.range(0.4, 0.75);
     if (i < 4 || j < 4 || i > F.RW - 5 || j > F.RH - 5) continue;
     if (F.Ed[j * F.RW + i] < 0.34 || F.Al[j * F.RW + i] < 1) continue;
     pits.push({ x: p.x - F.X0, y: p.y - F.Y0, r: rad, k });
-    if (r.chance(0.3)) pits.push({ x: p.x - F.X0 + r.range(-16, 16), y: p.y - F.Y0 + r.range(5, 22), r: rad * 0.7, k: k * 0.8 });
+    if (r.chance(0.2)) pits.push({ x: p.x - F.X0 + r.range(-16, 16), y: p.y - F.Y0 + r.range(5, 22), r: rad * 0.7, k: k * 0.8 });
   }
   return pits;
 }

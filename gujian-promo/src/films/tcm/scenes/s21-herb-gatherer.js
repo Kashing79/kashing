@@ -12,7 +12,7 @@ const { W, H } = L;
 const PAD = 100;
 const INK = '#0a0507';          // 剪影黑
 const U0 = -660;                // where the afterglow sits: px of arc length from the crest (negative = left)
-const PINE_X = 170, PINE_S = 1.1;
+const PINE_X = 150, PINE_S = 1.2;
 const MAN_X = 540, MAN_S = 1.15;
 let S = null;
 
@@ -429,7 +429,7 @@ function buildRidge(env) {
   const objs = L.makeLayer(PAD, (g) => {
     g.fillStyle = INK; g.strokeStyle = INK;
     // scrub and small grass clumps along the ridge (none under the text zone)
-    for (const [x, w, h] of [[-40, 56, 10], [392, 40, 8], [1508, 44, 9], [1702, 34, 8], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x);
+    for (const [x, w, h] of [[-40, 56, 10], [286, 46, 7], [398, 40, 8], [706, 44, 5.5], [846, 34, 4.5], [1058, 50, 5], [1236, 40, 6], [1470, 52, 8], [1508, 36, 9], [1702, 44, 8], [1880, 40, 7], [1968, 60, 11]]) shrub(g, x, on(x, 1), w, h, 'sh' + x);
     for (const [x, sz] of [[78, 26], [330, 22], [452, 20], [636, 16], [1318, 19], [1490, 24], [1668, 22], [1870, 26], [1990, 30]]) grassClump(g, x, on(x), sz, 'gc' + x, 0);
     // the two or three low clumps of grass on the right
     grassClump(g, 1392, on(1392), 56, 'A', 2);
@@ -449,7 +449,7 @@ function buildRidge(env) {
     }
   });
   // a hairline of light on the sides that face the glow (fades with distance from it)
-  const objTint = (g) => L.radial(g, gp.x + PAD, gp.y + PAD - 60, 60, 620, [[0, 'rgba(255,150,70,0.85)'], [0.45, 'rgba(242,84,27,0.5)'], [1, 'rgba(200,60,40,0)']]);
+  const objTint = (g) => L.radial(g, gp.x + PAD, gp.y + PAD, 60, 640, [[0, 'rgba(255,150,70,0.55)'], [0.45, 'rgba(242,84,27,0.36)'], [1, 'rgba(200,60,40,0)']]);
   const rimL = rimOf(objs, 1.1, 0.5, objTint), rimR = rimOf(objs, -1.1, 0.5, objTint);
 
   return L.makeLayer(PAD, (g) => {
