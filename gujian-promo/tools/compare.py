@@ -64,6 +64,27 @@ def compare(d, sid, label=''):
     return p
 
 
+def zoom(d, sid, label=''):
+    """three native-resolution (1:1) crops of our middle frame → <dir>/<id>_zoom.jpg (1920x396): the place to judge fineness"""
+    mid = os.path.join(d, f'{sid}_mid.jpg')
+    if not os.path.exists(mid):
+        return None
+    im = Image.open(mid).convert('RGB')
+    boxes = [('弧顶正中', 640, 450), ('左下', 120, 640), ('右侧', 1160, 560)]
+    HEAD = 36
+    out = Image.new('RGB', (1920, HEAD + 360), (18, 18, 20))
+    dr = ImageDraw.Draw(out)
+    f = font(22)
+    for k, (name, x, y) in enumerate(boxes):
+        out.paste(im.crop((x, y, x + 640, y + 360)), (k * 640, HEAD))
+        dr.text((k * 640 + 12, 5), f'{label}{sid} 原始像素 1:1 · {name}', font=f, fill=(235, 235, 235))
+        if k:
+            dr.rectangle([k * 640 - 1, 0, k * 640, out.height], fill=(255, 0, 170))
+    p = os.path.join(d, f'{sid}_zoom.jpg')
+    out.save(p, quality=95)
+    return p
+
+
 def tri(d, sid, before, label=''):
     """reference middle frame | before | after (= <dir>/<id>_mid.jpg), 640x360 each → <dir>/<id>_tri.jpg"""
     ref = os.path.join(REF, f'ref_{sid}_b.jpg')
@@ -101,3 +122,5 @@ if __name__ == '__main__':
             continue
         p = compare(d, sid, label)
         print(p or '')
+        z = zoom(d, sid, label)
+        print('ZOOM ' + z if z else '')

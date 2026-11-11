@@ -51,8 +51,10 @@ const { openPlayer, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
     if (errs.length) { failed = true; console.log('  ERRORS:\n   ' + errs.join('\n   ')); }
     // side-by-side with the reference film (skipped silently when the reference stills are not on this machine)
     try {
-      const cmp = execFileSync('python3', [path.join(ROOT, 'tools', 'compare.py'), '--dir', outDir, '--label', fa.film, id], { encoding: 'utf8' }).trim();
+      const lines = execFileSync('python3', [path.join(ROOT, 'tools', 'compare.py'), '--dir', outDir, '--label', fa.film, id], { encoding: 'utf8' }).trim().split('\n');
+      const cmp = (lines[0] || '').trim(); const zm = (lines.find((l) => l.startsWith('ZOOM ')) || '').slice(5).trim();
       if (cmp) console.log(`  compare: ${cmp}\n  ↑ 左半是参考片的同一镜头，右半是你的画面。每一轮都要用 Read 打开这张图逐项对比（主体大小与画面填充、明暗层次、质感密度、光与景深、色彩干净程度），差在哪就改哪；细则见 docs/AUTHORING.md「对照参考片」。`);
+      if (zm) console.log(`  zoom:    ${zm}\n  ↑ 三处原始像素（1:1）局部。客户要求「每一帧要画得够细腻」：每一轮都用 Read 打开这张图，检查有没有粗颗粒、锯齿、色带、马赛克块、糊边、点阵抖动；细则见 docs/AUTHORING.md「细腻」。`);
     } catch (e) { /* comparison is a convenience; never fail a preview because of it */ }
     [a.f, c.f, g.f].forEach((f) => fs.unlinkSync(f));
   }

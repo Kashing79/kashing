@@ -17,7 +17,7 @@ export const STYLE = {
 };
 
 // The closing card
-export const TITLE = { title: "中国古玩", seal: "雅玩", cta: ["千年雅玩","等你发现"] };
+export const TITLE = { title: "中国古玩", seal: "雅玩", cta: ["千年雅玩","等你发现"], brand: "志和诚" };
 
 // 37 scene modules (src/films/antiques/scenes/<name>.js), in cut order; arcs follow DEFAULT_ARCS in cuts.js unless overridden here
 export const { SHOTS, TOTAL_FRAMES, shotAt } = buildTimeline([

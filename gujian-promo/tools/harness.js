@@ -37,8 +37,25 @@ const SLOT_DIR = path.join(os.tmpdir(), 'gj-render-slots');
 const SLOTS = Math.max(1, parseInt(process.env.GJ_RENDER_SLOTS || '3', 10));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function alive(pid) { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } }
+/** kill headless browsers whose parent process is gone (a preview that was killed mid-run leaves them behind, holding memory) */
+function reapOrphans() {
+  try {
+    const out = require('child_process').execSync('ps -eo pid=,ppid=,args=', { encoding: 'utf8', maxBuffer: 8 << 20 });
+    for (const line of out.split('\n')) {
+      const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/); if (!m) continue;
+      const [, pid, ppid, args] = m;
+      if (ppid === '1' && /chrom/i.test(args) && /--headless|playwright|pw-browsers/.test(args)) { try { process.kill(parseInt(pid, 10), 'SIGKILL'); } catch (e) { /* gone */ } }
+    }
+  } catch (e) { /* ps not available: nothing to do */ }
+}
+function memAvailableMB() {
+  try { const m = fs.readFileSync('/proc/meminfo', 'utf8').match(/MemAvailable:\s+(\d+)/); return m ? parseInt(m[1], 10) / 1024 : Infinity; } catch (e) { return Infinity; }
+}
 async function acquireSlot() {
   fs.mkdirSync(SLOT_DIR, { recursive: true });
+  reapOrphans();
+  // never start a browser when memory is nearly gone: wait (for up to ten minutes) until others have finished
+  for (let i = 0; memAvailableMB() < 3000 && i < 600; i++) { if (i === 0) console.error('[render queue] less than 3 GB of memory available — waiting'); if (i % 30 === 29) reapOrphans(); await sleep(1000); }
   const t0 = Date.now();
   let told = false;
   for (;;) {

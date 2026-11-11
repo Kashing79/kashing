@@ -1,6 +1,7 @@
 // player.js — loads scenes, composites tagline text + film grain, exposes window.GJ for the renderer.
 import * as L from './lib/core.js';
 import { FONT_FILES } from './fonts.js';
+import { drawBrand, BRAND_DY } from './lib/titlecard.js';
 
 // which film to play: player.html?film=arch (default) | coins | antiques | …
 const FILM = new URLSearchParams(location.search).get('film') || 'arch';
@@ -11,6 +12,7 @@ const { SHOTS, BEATS, TOTAL_FRAMES, shotAt, FPS } = TL;
 const STYLE = TL.STYLE || {};
 for (const [k, v] of Object.entries({ font: 'serif', light: '#f7f2e8', dark: '#15110d', blur: 0.6 })) if (STYLE[k] === undefined) STYLE[k] = v;
 if (!STYLE.title) STYLE.title = {};
+const TITLE = TL.TITLE || {};   // { title, seal, cta, brand? } — `brand` is drawn on the opening shot and on the closing card
 /** change typography at runtime (used by the specimen tool): { font, blur, light, dark, title: {...}, beats: { 1: {...}, 2: {...}, 3: {...} } } */
 function setStyle(patch = {}) {
   for (const [k, v] of Object.entries(patch)) {
@@ -57,10 +59,12 @@ async function ensure(shot) {
 }
 
 // ── global finishing layers ──
+// fine, light grain: enough to keep gradients from banding after compression without roughening flat colour
+const GRAIN = Object.assign({ size: 1, amount: 0.42, alpha: 0.1 }, STYLE.grain || {});
 let grains = null;
 function ensureGrain() {
   if (grains) return;
-  grains = [1, 2, 3, 4, 5].map((s) => L.grainTex(W + 64, H + 64, { seed: 'film' + s, amount: 0.42, size: 2 }));
+  grains = [1, 2, 3, 4, 5].map((s) => L.grainTex(W + 64, H + 64, { seed: 'film' + s, amount: GRAIN.amount, size: GRAIN.size }));
 }
 
 const beatShots = { 1: SHOTS.filter((s) => s.beat === 1), 2: SHOTS.filter((s) => s.beat === 2), 3: SHOTS.filter((s) => s.beat === 3) };
@@ -142,12 +146,13 @@ async function renderShot(id, p, opts = {}) {
   }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none'; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  if (text && shot.id === 's01' && TITLE.brand) drawBrand(ctx, TITLE.brand, rec.env.arc.crestY + BRAND_DY, STYLE.title && STYLE.title.brand);
   if (text && shot.beat) drawBeatText(shot, rec);
   if (finish) {
     ensureGrain();
     const gf = shot.start + frame; const g = grains[gf % grains.length];
     const r = L.rng('gr' + gf);
-    L.overlayGrain(ctx, g, 0.3, 'overlay', Math.floor(r() * 64), Math.floor(r() * 64));
+    L.overlayGrain(ctx, g, GRAIN.alpha, 'overlay', Math.floor(r() * 64), Math.floor(r() * 64));
     L.vignette(ctx, { strength: 0.16, inner: 0.55, outer: 1.1 });
   }
   ctx.getImageData(0, 0, 1, 1); // canvas drawing is deferred: read one pixel back so the timing includes rasterisation
@@ -167,6 +172,7 @@ const ready = loadFonts();
 window.GJ = {
   ready, errors, missingFonts, SHOTS, TOTAL_FRAMES, FPS, film: FILM,
   renderShot, renderFrame, setStyle,
+  setGrain: (g) => { Object.assign(GRAIN, g); grains = null; },
   preload: async (ids) => { for (const s of SHOTS) if (!ids || ids.includes(s.id)) await ensure(s); return errors.slice(); },
   toDataURL: (type = 'image/png', q) => canvas.toDataURL(type, q),
 };
