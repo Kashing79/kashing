@@ -21,17 +21,18 @@ let S = null;
 const P = 460;         // bay pitch, post centre → post centre: a Qing 栏板 is about twice as long as it is tall
 const PW = 25;         // half-width of a 望柱
 const BAL = 203;       // handrail top (0) → underside of the 地栿
-const TIER_H = 325;    // balustrade + terrace wall (上枋 207–234, 束腰 234–298, 下枋 298–325)
-const FLOOR = 88;      // the paved terrace floor showing between this wall and the next balustrade
+const TIER_H = 318;    // balustrade + terrace wall (上枋 207–232, 束腰 232–292, 下枋 292–318)
+const FLOOR = 52;      // the paved terrace floor showing between this wall and the next balustrade (seen almost edge-on)
+const G = 1.15;        // how far the lens is pushed in: px per unit on the upper tier
 const TIERS = [
-  { d0: 0, s: 1, phase: 0.5, seed: 1, floor: true },             // upper tier: a panel centred on the crest, posts clear of the tagline
-  { d0: TIER_H + FLOOR, s: 1.24, phase: 0, seed: 2, edge: true }, // middle tier: only its handrail and openings reach into the frame
+  { d0: 0, s: G, phase: 0.5, seed: 1, floor: true },                        // upper tier: a panel centred on the crest, posts clear of the tagline
+  { d0: (TIER_H + FLOOR) * G, s: G * 1.2, phase: 0, seed: 2, edge: true },  // middle tier: only its handrail and openings reach into the frame
 ];
 
 // profile of a 荷叶净瓶 (leaf-and-vase support under the handrail): [half-width, d]
 const VASE = [[35, 29.5], [33, 35.5], [15, 42], [10, 46.5], [11, 50.5], [21.5, 57], [23.5, 63.5], [15, 71.5], [14.5, 73.5], [20.5, 78.5]];
 // front of a 螭首 (beast-head spout), unit outline → px via hd()
-const HEAD = [[-14.5, 102.5], [-12.6, 99], [-8.4, 101.6], [8.4, 101.6], [12.6, 99], [14.5, 102.5], [15.5, 113], [13, 125], [7, 133], [-7, 133], [-13, 125], [-15.5, 113]];
+const HEAD = [[-12.5, 100], [-4, 99], [4, 99], [12.5, 100], [14.6, 107], [16.4, 119], [14.6, 127.5], [8.5, 133.5], [-8.5, 133.5], [-14.6, 127.5], [-16.4, 119], [-14.6, 107]];
 const HK = 2.1, HD = 246;
 const hd = (u, d, ku = 1, kd = 1, ou = 0, od = 0) => [u * HK * ku + ou, HD + (d - 116) * HK * kd + od];
 // 柱头 standing proud of the handrail (short on purpose)
@@ -90,27 +91,27 @@ function drawTier(g, a, T) {
   };
   // a comb of vertical shading cuts standing in a strip (排线): blunt, about as wide as the gaps between them,
   // some of them crossed by the gouge and left in two pieces. wFn(t) / lenFn(t) → width and length along the run
-  const comb = (uA, uB, dA, dB, wFn, lenFn, skip = 0.04, brk = 0.3) => {
-    const n = Math.max(1, Math.round((uB - uA) / 14.6));
+  const comb = (uA, uB, dA, dB, wFn, lenFn, skip = 0.04, brk = 0.3, pitch = 20.5) => {
+    const n = Math.max(1, Math.round((uB - uA) / pitch));
     for (let q = 0; q <= n; q++) {
       const t = q / n;
       if (r.chance(skip)) continue;
-      const u = L.lerp(uA, uB, t) + r.range(-1.7, 1.7), tilt = r.range(-1.4, 1.4);
-      const w = wFn(t) + r.range(-0.7, 0.7), len = Math.max(9, lenFn(t) * (dB - dA));
-      const w1 = w * r.range(0.62, 0.9);
-      if (len > 30 && r.chance(brk)) {
-        const c = r.range(0.25, 0.75) * len, gap = r.range(6, 11);
-        cut(u, dA, u + tilt * 0.5, dA + c, w, w * 0.9, '#000', 0.4);
-        cut(u + tilt * 0.6, dA + c + gap, u + tilt, dA + len, w * 0.9, w1, '#000', 0.4);
+      const u = L.lerp(uA, uB, t) + r.range(-2.2, 2.2), tilt = r.range(-1.8, 1.8);
+      const w = wFn(t) + r.range(-0.9, 0.9), len = Math.max(11, lenFn(t) * (dB - dA));
+      const w1 = w * r.range(0.1, 0.24);                 // each tooth is a wedge: the two gouge cuts beside it run together at its tip
+      if (len > 34 && r.chance(brk)) {
+        const c = r.range(0.3, 0.7) * len, gap = r.range(6, 10), wm = L.lerp(w, w1, c / len);
+        cut(u, dA, u + tilt * 0.5, dA + c, w, wm, '#000', 0.4);
+        cut(u + tilt * 0.6, dA + c + gap, u + tilt, dA + len, wm * 0.95, w1, '#000', 0.4);
       } else cut(u, dA, u + tilt, dA + len, w, w1, '#000', 0.4);
     }
   };
   // a few such cuts where a strip turns into shade
-  const ticks = (uA, uB, dA, dB, prob, w = 5.6) => {
+  const ticks = (uA, uB, dA, dB, prob, w = 7.4) => {
     if (prob < 0.04) return;
-    for (let u = uA + r.range(0, 5); u < uB; u += 14.5 + r.range(-1.6, 1.6)) {
+    for (let u = uA + r.range(0, 7); u < uB; u += 20 + r.range(-2.4, 2.4)) {
       if (!r.chance(prob)) continue;
-      cut(u, dA + r.range(-0.5, 1.5), u + r.range(-1, 1), L.lerp(dA, dB, r.range(0.55, 1)), w, 2.6, '#000', 0.4);
+      cut(u, dA + r.range(-0.5, 1.5), u + r.range(-1.2, 1.2), L.lerp(dA, dB, r.range(0.55, 1)), w, 1.2, '#000', 0.4);
     }
   };
   // the altar is a drum lit from the upper left: its right-hand side turns away into shade (0 lit → 1 shade)
@@ -126,27 +127,26 @@ function drawTier(g, a, T) {
     const A = PW, B = P - PW, mid = P / 2; // panel between the posts
     const k = shadeAt(u0 + pitch * 0.5), kp = shadeAt(u0);
 
-    if (T.edge) cut(-2, -4.6, P + 2, -4.6, 9, 9, '#000', 0.8);                     // a tier seen against the floor behind it needs its top edge cut in
+    if (T.edge) cut(-2, -4.6, P + 2, -4.6, 8.4, 8.4, '#000', 0.8);                   // a tier seen against the floor behind it needs its top edge cut in
 
     // ── terrace wall (台帮) ──
-    cut(-2, BAL + 1, P + 2, BAL + 1, 8.4, 8.4);                                    // underside of the 地栿 / edge of the terrace floor
-    cut(-2, 236.5, P + 2, 236.5, 7, 7);                                            // shadow under the 上枋
+    cut(-2, BAL + 2, P + 2, BAL + 2, 11.5, 11.5);                                  // underside of the 地栿 / edge of the terrace floor
+    cut(-2, 233, P + 2, 233, 9.5, 9.5);                                            // shadow under the 上枋
     {
       // 束腰 in that shadow: a comb whose lower edge wanders like the edge of a shadow, not like drips
       const f1 = r.range(0.8, 1.7), p1 = r(), f2 = r.range(2.3, 4.1), p2 = r();
-      comb(42, P - 38, 238, 296, () => 5.8 + 0.9 * k,
-        (t) => 0.36 + 0.11 * Math.sin(L.TAU * (t * f1 + p1)) + 0.06 * Math.sin(L.TAU * (t * f2 + p2)) + r.range(-0.035, 0.035) + 0.3 * k, 0.05, 0.12);
+      comb(44, P - 40, 235, 290, () => 8.6 + 1.1 * k,
+        (t) => 0.4 + 0.11 * Math.sin(L.TAU * (t * f1 + p1)) + 0.06 * Math.sin(L.TAU * (t * f2 + p2)) + r.range(-0.035, 0.035) + 0.3 * k, 0.05, 0.1);
     }
-    dashes(r.range(-10, 60), P + 2, 299, 6.2, 6.2, 0.85, 70, 230);                 // 下枋: a lost-and-found line on the lit stone
-    nick(44, P - 90, 214, 227, 0.5); nick(20, mid - 40, 307, 317, 0.5); nick(mid, P - 70, 307, 317, 0.45);
-    ticks(44, P - 40, 210, 231, k * 0.45); ticks(6, P - 6, 303, 322, k * 0.5);
+    dashes(r.range(-10, 60), P + 2, 294.5, 7.6, 7.6, 0.85, 80, 240);               // 下枋: a lost-and-found line on the lit stone
+    nick(44, P - 90, 214, 224, 0.45); nick(mid, P - 70, 302, 310, 0.4);
+    ticks(44, P - 40, 211, 227, k * 0.45); ticks(6, P - 6, 300, 313, k * 0.5);
     if (T.floor) {
       // foot of the wall, then the terrace floor: rings of paving seen almost edge-on, cut as broken concentric lines
-      cut(-2, TIER_H + 5, P + 2, TIER_H + 5, 11, 11, '#000', 0.9);
-      dashes(r.range(-20, 20), P + 2, TIER_H + 29, 5.6, 5.6, 0.8, 60, 200);
-      dashes(r.range(-20, 40), P + 2, TIER_H + 48, 5, 5, 0.9, 40, 150);
-      dashes(r.range(-20, 20), P + 2, TIER_H + 68, 5.6, 5.6, 0.85, 60, 180);
-    } else cut(-2, TIER_H + 1.4, P + 2, TIER_H + 1.4, 3.4, 3.4, '#000', 1.5);
+      cut(-2, TIER_H + 5, P + 2, TIER_H + 5, 15, 15, '#000', 0.9);
+      dashes(r.range(-20, 20), P + 2, TIER_H + 24.5, 6.4, 6.4, 0.8, 60, 210);
+      dashes(r.range(-20, 40), P + 2, TIER_H + 38.5, 6.4, 6.4, 0.9, 50, 170);
+    } else cut(-2, TIER_H + 1.4, P + 2, TIER_H + 1.4, 4, 4, '#000', 1.5);
 
     // ── panel (栏板) ──
     // long low openings under the handrail, with the 净瓶 standing in them
@@ -155,58 +155,69 @@ function drawTier(g, a, T) {
     poly([[A, 29], ...VASE.map(([w, d]) => [A + w * 0.82, d]), [A, 79]], '#fff', 0.7);
     poly([[B, 29], ...VASE.map(([w, d]) => [B - w * 0.82, d]), [B, 79]], '#fff', 0.7);
     // handrail (寻杖): a broken shadow line along the round bar, and the post's shadow falling on it
-    dashes(A + r.range(40, 70), B - r.range(6, 50), 19.5, 5.6, 4.8, 0.7);
-    for (let q = 0; q < 3; q++) cut(A + 5 + q * 9, 6 + q * 1.6, A + 5.4 + q * 9, 26 - q * 5.5, 5.8, 2.8, '#000', 0.4);
-    ticks(A + 44, B - 4, 11, 27, k * 0.4, 5);
+    dashes(A + r.range(40, 70), B - r.range(6, 50), 19.5, 6.6, 5.4, 0.7);
+    for (let q = 0; q < 2; q++) cut(A + 7 + q * 13, 5 + q * 2, A + 7.4 + q * 13, 27 - q * 8, 8, 1.4, '#000', 0.4);
+    ticks(A + 44, B - 4, 11, 27, k * 0.4, 6.4);
     // 面枋 strip with the post's shadow
-    for (let q = 0; q < 4; q++) cut(A + 5.5 + q * 9.4, 80.5 + q * 0.5, A + 6 + q * 9.4, 97 - q * 3.4, 5.8, 2.8, '#000', 0.4);
-    nick(A + 70, B - 70, 83.5, 92, 0.4);
-    ticks(A + 50, B - 4, 80.5, 96, k * 0.5);
+    for (let q = 0; q < 3; q++) cut(A + 7.5 + q * 13, 80 + q * 0.5, A + 8 + q * 13, 96 - q * 4.4, 8, 1.4, '#000', 0.4);
+    nick(A + 70, B - 70, 83.5, 91, 0.35);
+    ticks(A + 60, B - 4, 80.5, 95, k * 0.5);
     // recessed field (池子): frame heavier on the top and left, where the recess is in shadow; the 地栿 closes it below
-    cut(A + 11 + r.range(-3, 2), 101.5, B - 10 + r.range(-2, 3), 101.5, 8.2, 7.4);
-    cut(A + 16, 98 + r.range(-2, 2), A + 16, 176, 8, 7);
-    cut(B - 14.5, 99 + r.range(-2, 2), B - 14.5, 176, 5.6, 5.6);
+    cut(A + 11 + r.range(-3, 2), 102, B - 10 + r.range(-2, 3), 102, 11.5, 10);
+    cut(A + 17, 98 + r.range(-2, 2), A + 17, 176, 11.5, 10);
+    cut(B - 14.5, 99 + r.range(-2, 2), B - 14.5, 176, 7.4, 7.4);
     {
-      // the field itself: a comb of vertical cuts, heavy under the left edge's shadow, thinner and shorter toward the light,
-      // with a worn stretch somewhere along it
+      // the field itself: a comb of wedge cuts hanging from the top edge's shadow — heavy and full-length on the left,
+      // thinner and shorter toward the light, with a worn stretch somewhere along it
       const wornAt = r.range(0.2, 0.9), wornW = r.range(0.05, 0.14);
       const worn = (t) => Math.max(0, 1 - Math.abs(t - wornAt) / wornW);
       const f1 = r.range(1.2, 2.6), p1 = r();
-      comb(A + 32, B - 27, 103.5, 170,
-        (t) => L.lerp(6.6, 5, Math.pow(t, 0.8)) + 1.0 * k - 1.3 * worn(t),
-        (t) => Math.min(1, L.lerp(1.03, 0.64, Math.pow(t, 1.3)) + 0.4 * k + 0.07 * Math.sin(L.TAU * (t * f1 + p1)) + r.range(-0.05, 0.05) - 0.3 * worn(t)), 0.035);
+      comb(A + 38, B - 29, 105, 170,
+        (t) => L.lerp(10.4, 8, Math.pow(t, 0.8)) + 1.2 * k - 1.8 * worn(t),
+        (t) => Math.min(1, L.lerp(1.03, 0.62, Math.pow(t, 1.3)) + 0.4 * k + 0.07 * Math.sin(L.TAU * (t * f1 + p1)) + r.range(-0.05, 0.05) - 0.3 * worn(t)), 0.03, 0.22);
     }
     // 地栿
-    cut(A, 176.5, B, 176.5, 6.6, 6.2);
-    for (let q = 0; q < 3; q++) cut(A + 6 + q * 9.2, 181, A + 6.4 + q * 9.2, 199 - q * 4, 5.6, 2.8, '#000', 0.4);
-    nick(A + 60, B - 70, 186, 195, 0.5);
-    ticks(A + 44, B - 4, 181, 199, k * 0.5);
+    cut(A, 176.5, B, 176.5, 9, 8.4);
+    for (let q = 0; q < 2; q++) cut(A + 7.5 + q * 13, 181.5, A + 8 + q * 13, 196 - q * 6, 8, 1.4, '#000', 0.4);
+    nick(A + 60, B - 70, 186, 193, 0.4);
+    ticks(A + 54, B - 4, 181.5, 196, k * 0.5);
 
-    // ── 螭首: a carved beast head projecting from the wall under every post ──
-    poly(HEAD.map(([u, d]) => hd(u, d, 1.1, 1.06, 12, 11)), '#000', 0.6);                       // cast shadow, down-right
-    poly(HEAD.map(([u, d]) => hd(u, d, 1.18, 1.15)), '#000', 0.6);                               // outline
-    poly(HEAD.map(([u, d]) => hd(u, d)), '#fff', 0.5);
-    { const b0 = hd(-12.6, 104.8), b1 = hd(-2, 111.6); cut(b0[0], b0[1], b1[0], b1[1], 7, 5.2, '#000', 0.3); cut(-b0[0], b0[1], -b1[0], b1[1], 7, 5.2, '#000', 0.3); } // heavy brows
-    poly([hd(-10, 113), hd(-5, 114.2), hd(-6.4, 117.8), hd(-9.8, 116.8)], '#000', 0.3);                             // eyes
-    poly([hd(10, 113), hd(5, 114.2), hd(6.4, 117.8), hd(9.8, 116.8)], '#000', 0.3);
-    poly([hd(-4.6, 119.2), hd(4.6, 119.2), hd(5.6, 122.4), hd(-5.6, 122.4)], '#000', 0.3);                          // broad nose
-    poly([hd(-5.6, 127.6), hd(-3.4, 124.6), hd(3.4, 124.6), hd(5.6, 127.6), hd(4.6, 131), hd(2, 132.2), hd(-2, 132.2), hd(-4.6, 131)], '#000', 0.3); // round open mouth (the spout)
+    // ── 螭首: a carved beast head projecting from the wall under every post (no two cut quite alike) ──
+    {
+      const hs = r.range(0.94, 1.07), hv = r.range(0.95, 1.05), ho = r.range(-2.5, 2.5), hq = r.range(-1.5, 2.5), tw = r.range(-0.05, 0.05);
+      const h = (u, d, ku = 1, kd = 1, ou = 0, od = 0) => { const q = hd(u, d, ku * hs, kd * hs * hv, ou + ho, od + hq); return [q[0] + (q[1] - HD) * tw, q[1]]; };
+      const dot = (u, d, ru, rd, col = '#000') => { const o = []; for (let i = 0; i < 7; i++) { const an = (i / 7) * L.TAU + 0.3; o.push(h(u + Math.cos(an) * ru * r.range(0.85, 1.12), d + Math.sin(an) * rd * r.range(0.85, 1.12))); } poly(o, col, 0.3); };
+      poly(HEAD.map(([u, d]) => h(u, d, 1.1, 1.06, 12, 11)), '#000', 0.6);                        // cast shadow, down-right
+      poly(HEAD.map(([u, d]) => h(u, d, 1.2, 1.17)), '#000', 0.6);                                // outline
+      poly(HEAD.map(([u, d]) => h(u, d)), '#fff', 0.5);
+      // carved in the round and lit from the upper left: the off side of the head is left as solid wood (black),
+      // its edge a zigzag of gouge strokes, with one nick of light for the far eye
+      const zz = [r.range(-1.5, 1.5), r.range(-1.5, 1.5), r.range(-1.5, 1.5), r.range(-1.5, 1.5)];
+      poly([h(2.4, 98.6), h(13, 99.4), h(15.4, 107), h(17.2, 119), h(15.2, 128), h(9, 134.2), h(0.6, 134.2),
+        h(3.4 + zz[0], 129.4), h(0.6, 126.4), h(5.6 + zz[1], 122.6), h(2.2, 118.6), h(6.4 + zz[2], 113.4), h(1.6, 108.6), h(4.6 + zz[3], 103.4)], '#000', 0.4);
+      dot(8.6, 112.6, 2.3, 1.9, '#fff');
+      { const b0 = h(-0.6, 109.8), b1 = h(-13.4, 104); cut(b0[0], b0[1], b1[0], b1[1], 8.6, 3.2, '#000', 0.3); }       // brow ridge sweeping up and back like a horn
+      dot(-7.4, 114, 2.7, 2.4);                                                                    // the near eye, round and staring
+      dot(-3.6, 120.6, 2.1, 1.6);                                                                  // nostril of the blunt upturned nose
+      { const c0 = h(-11.6, 119), c1 = h(-14.4, 125.4); cut(c0[0], c0[1], c1[0], c1[1], 4.8, 1.4, '#000', 0.3); }       // jowl fold
+      dot(-3.4, 128.2, 4.6, 3.5);                                                                  // the open mouth: the spout
+    }
 
     // ── post (望柱) with its cap (柱头) standing proud of the handrail ──
     // no two posts cut alike; the caps beside the tagline are kept lowest (clear of the text zone), the outer ones stand a little taller
-    const ch = L.lerp(0.86, 1.14, L.smooth((Math.abs(u0) - 330) / 420)) * r.range(0.97, 1.03), cw = r.range(0.96, 1.05), lean = r.range(-1.6, 1.6);
+    const ch = L.lerp(0.78, 1.1, L.smooth((Math.abs(u0) - 330) / 420)) * r.range(0.97, 1.03), cw = r.range(0.96, 1.05), lean = r.range(-1.6, 1.6);
     const cap = CAP.map(([u, d]) => [u * cw + (d < 0 ? lean * 0.4 : 0), d < 0 ? d * ch : d]);
-    if (T.edge) poly(cap.map(([u, d]) => [u * 1.26, (d + 10) * 1.3 - 10]), '#000', 0.6);
+    if (T.edge) poly(cap.map(([u, d]) => [u * 1.3, (d + 10) * 1.34 - 10]), '#000', 0.6);
     poly([[-PW, -2], [PW, -2], [PW + lean, BAL], [-PW + lean, BAL]], '#fff', 0.5);
     poly(cap, '#fff', 0.7);
-    cut(-20.5, -9.8 * ch, 20.5, -9.8 * ch + r.range(-0.8, 0.8), 5, 5, '#000', 0.3);               // groove under the cap
-    cut(-PW + 3, -1, -PW + 3 + lean, BAL, 6, 6);
-    cut(PW - 4.5, -1, PW - 4.5 + lean, BAL, 9, 9);
-    for (let d = 15 + r.range(-3, 5); d < BAL - 12; d += r.range(13, 23)) {                       // shadow wedges in from the right side, never evenly spaced
+    cut(-20.5, -9.8 * ch, 20.5, -9.8 * ch + r.range(-0.8, 0.8), 5.6, 5.6, '#000', 0.3);           // groove under the cap
+    cut(-PW + 3.5, -1, -PW + 3.5 + lean, BAL, 8, 8);
+    cut(PW - 6, -1, PW - 6 + lean, BAL, 13, 13);                                                  // the shade side: a heavy edge with wedges running in from it
+    for (let d = 16 + r.range(-3, 5); d < BAL - 14; d += r.range(17, 28)) {                       // never evenly spaced
       if (r.chance(0.1)) continue;
-      const len = L.lerp(r.range(9, 21), r.range(21, 34), Math.pow(kp, 1.1)) * (r.chance(0.22) ? 0.6 : 1);
-      const x = PW - 6 + lean * (d / BAL);
-      cut(x, d, x - len, d + r.range(0.3, 3), 6.8 + 0.6 * kp + r.range(-0.6, 0.8), 3, '#000', 0.4);
+      const len = L.lerp(r.range(10, 20), r.range(20, 31), Math.pow(kp, 1.1)) * (r.chance(0.22) ? 0.6 : 1);
+      const x = PW - 8 + lean * (d / BAL);
+      cut(x, d, x - len, d + r.range(0.3, 3), 9.6 + 0.8 * kp + r.range(-0.8, 1), 1.2, '#000', 0.4);
     }
   }
 }
@@ -249,9 +260,9 @@ const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - 
 /** the printing pass: turn the crisp block into an impression (alpha = ink density) */
 function buildInk(env, design) {
   const a = env.arc;
-  const mS = L.blurred(design, 2.0).getContext('2d').getImageData(0, 0, LW, LH).data;   // ink squash: corners round, hair lines starve
+  const mS = L.blurred(design, 1.3).getContext('2d').getImageData(0, 0, LW, LH).data;   // ink squash: corners round, hair lines starve
   const mW = L.blurred(design, 8).getContext('2d').getImageData(0, 0, LW, LH).data;     // "how much ink is around here"
-  const nE = noiseField('s18edge', [[2.4, 0.7], [5.6, 1.2], [12, 1.4]]);                  // ragged cut edge
+  const nE = noiseField('s18edge', [[1.6, 0.9], [3.4, 1.0], [8.5, 0.8]]);                  // ragged cut edge
   const nS = noiseField('s18salt', [[1.7, 1], [3.3, 0.7]]);                             // salt / pepper
   const nP = noiseField('s18patch', [[260, 1], [84, 0.55]]);                            // where the block was inked thin / heavy
   const sHi = quantile(nS, 0.9925), sTop = quantile(nS, 0.9993), pMid = quantile(nP, 0.5);
@@ -269,7 +280,7 @@ function buildInk(env, design) {
       const dx = x - cxL, below = dx * dx + dy * dy < R2;
       const e = (nE[k] - 127.5) * (1 / 255), pa = (nP[k] - pMid) * (1 / 255), sp = nS[k];
       // thin-inked patches starve the lines a little, heavy ones fatten them (only on the stone, never on the sky's edge)
-      const t = m + e * (below ? 1.25 : 0.8) + (below ? pa * 0.6 : 0);
+      const t = m + e * (below ? 1.25 : 0.8) + (below ? pa * 0.95 : 0);
       let D = 1 - sstep(0.36, 0.64, t);
       if (D > 0.004) {
         if (w < 0.6) {
@@ -341,11 +352,21 @@ function buildSoft(env, sheet, px, stops, side) {
 function buildShot(env) {
   const sheet = buildSheet(env);
   const softA = buildSoft(env, sheet, 1.6, null, true);                                   // far sides
-  const softB = buildSoft(env, sheet, 3.2, [[-540, 1], [-440, 0.6], [-330, 0]], false);   // the lower tier
+  const softB = buildSoft(env, sheet, 2.2, [[-600, 1], [-500, 0.55], [-410, 0]], false);   // the lower tier
+  const a = env.arc;
+  const bloom = L.blurred(sheet, 9);
   return L.makeLayer(PAD, (g) => {
     g.drawImage(sheet, -PAD, -PAD);
     g.drawImage(softA, -PAD, -PAD);
     g.drawImage(softB, -PAD, -PAD);
+    // the copy lamp, upper left: the sheet falls off a little toward the far corners (multiply: the ink stays as black as it is)
+    g.globalCompositeOperation = 'multiply';
+    g.fillStyle = L.radial(g, a.cx - 180, a.crestY + 120, 260, 1500, [[0, '#ffffff'], [0.55, '#f6f4ee'], [1, '#e9e5da']]);
+    g.fillRect(-PAD, -PAD, LW, LH);
+    // lens halation: the lit paper glows a hair past its own edge
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.09;
+    g.drawImage(bloom, -PAD, -PAD);
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
   });
 }
 

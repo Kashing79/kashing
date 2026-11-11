@@ -1,7 +1,7 @@
-// s10 — 徽派马头墙 · 近景. A close view of the stepped heads of Huizhou gable walls against a flat peacock-blue sky:
-// a 三叠 wall in focus, the tiers of a second wall just behind it out of focus. Seven tiers in frame; the up-swept
-// 鹊尾 tip of every tier touches the shared arc, so the dark tile caps climb the curve like saw-teeth, and below them
-// there is nothing but lime plaster, rain-blackened under the eaves.
+// s10 — 徽派马头墙 · 特写. Pushed in on the stepped heads of Huizhou gable walls against a flat peacock-blue sky:
+// a 三叠 wall in focus, the tiers of a second wall just behind it out of focus. Seven tiers in frame, mirrored about
+// the crest; the blunt up-swept 鹊尾 of every tier touches the shared arc (tips every ~300 px), so the dark tile caps
+// climb the curve like saw-teeth, and below them there is nothing but lime plaster, rain-blackened under the eaves.
 //
 // How it is made: nothing is painted with gradients. init() builds a HEIGHT FIELD of each wall (standing ridge tiles,
 // rows of 盖瓦 with their round 勾头, troughs and 滴水, the corbelled 拔檐 / 垛头, trowelled plaster, a flaked wound
@@ -21,7 +21,7 @@ let S = null;
 const COL = { sky: '#14a8c9', shade: '#1b6a90' };
 
 // anatomy of a wall cap at scale 1 (px): tail overshoot / corbel overhang / tail lift / ridge, tile-slope, 拔檐 heights
-const HORN = 60, OV = 26, LIFT = 34, RH = 15, TH = 36, EH = 13, CAPH = RH + TH + EH, STEP = 11;
+const HORN = 58, OV = 26, LIFT = 30, RH = 15, TH = 36, EH = 13, CAPH = RH + TH + EH, STEP = 11;
 const PITCH = 29, CWH = 7.6;       // one 盖瓦 + one trough; half-width of a 盖瓦
 
 // the sun: upper left, a little in front of the wall
@@ -90,18 +90,20 @@ function bodyPath(g, tiers, k) {
   g.lineTo(last.bR, BOTTOM);
   g.closePath();
 }
-/** 鹊尾 座头: the ridge sweeps up and out into a blunt magpie tail. (xe, y) = end of the cap at ridge-top level */
-function hornPath(g, xe, y, k, dir) {
+/** 鹊尾 座头: the ridge sweeps up and out into a thick, blunt magpie tail. (xe, y) = end of the cap at ridge-top level;
+ *  the upper corner of the blunt end is the point that sits on the arc. j ∈ [-1, 1] makes every tail a little different */
+function hornPath(g, xe, y, k, dir, j = 0) {
   const X = (u) => xe + dir * u * k, Y = (v) => y + v * k;
+  const b = 2.6 * j;
   g.beginPath();
-  g.moveTo(X(-46), Y(-0.5));
-  g.bezierCurveTo(X(-14), Y(-0.5), X(26), Y(-3), X(HORN), Y(-LIFT));
-  g.lineTo(X(HORN + 1.5), Y(-LIFT + 5));
-  g.bezierCurveTo(X(42), Y(-8), X(22), Y(RH + 1), X(3), Y(RH + 8));
-  g.lineTo(X(3), Y(RH + TH * 0.52));
+  g.moveTo(X(-54), Y(-0.5));
+  g.bezierCurveTo(X(-20), Y(-0.5), X(21 + 3 * j), Y(-4.5 - j), X(HORN), Y(-LIFT));          // its back
+  g.lineTo(X(HORN + 4.5), Y(-LIFT + 8.5));                                                  // the blunt end
+  g.bezierCurveTo(X(41), Y(-3 + b), X(25), Y(RH + 3 + b), X(4), Y(RH + 11));                // its belly
+  g.lineTo(X(4), Y(RH + TH * 0.52));
   g.lineTo(X(-7), Y(RH + TH * 0.52));
   g.lineTo(X(-7), Y(RH + 1));
-  g.lineTo(X(-46), Y(RH + 1));
+  g.lineTo(X(-54), Y(RH + 1));
   g.closePath();
 }
 /** every tile in a tier is its own object: position, width, firing tone, how far it has slipped, lichen, moss */
@@ -109,7 +111,7 @@ function dressTier(t, k, r) {
   const len = (t.xb - t.xa) / k;
   const n = Math.max(2, Math.round((len - 2 * CWH) / PITCH));
   t.k = k; t.len = len; t.n = n; t.pitch = (len - 2 * CWH) / n;
-  t.ph = r.range(0, 90); t.sag = r.range(0.4, 1.9); t.si = r.int(1, 9999);
+  t.ph = r.range(0, 90); t.sag = r.range(0.6, 2.6); t.si = r.int(1, 9999); t.hj = [r.range(-1, 1), r.range(-1, 1)];
   const f = () => new Float32Array(n + 1);
   t.c = f(); t.hw = f(); t.tone = f(); t.e = f(); t.lapL = f(); t.lapP = f(); t.lich = f();
   t.trTone = f(); t.trL = f(); t.trP = f(); t.drip = f(); t.moss = f();
@@ -119,9 +121,13 @@ function dressTier(t, k, r) {
     let tone = r.range(-0.16, 0.12);
     if (r.chance(0.09)) tone += r.range(0.3, 0.7);            // a tile replaced a generation later: paler clay
     t.tone[i] = tone;
-    t.e[i] = r.range(-1.6, 1.8);
+    let e = r.range(-1.8, 2);
+    if (r.chance(0.09)) e += r.range(3, 6.5);                 // one has slipped down its bed
+    else if (r.chance(0.08)) e -= r.range(4, 10);             // one has lost its end
+    t.e[i] = e;
     t.lapL[i] = r.range(10.5, 13.5); t.lapP[i] = r.range(0, 12);
-    t.lich[i] = Math.pow(r(), 1.6);
+    const cl = 0.5 + 0.5 * nzW.n2(i / 2.7 + t.ph, t.si * 0.37);   // lichen comes in colonies, not tile by tile
+    t.lich[i] = Math.pow(r(), 1.3) * L.clamp(0.1 + 1.25 * cl * cl);
     t.trTone[i] = r.range(-0.15, 0.1); t.trL[i] = r.range(11, 14.5); t.trP[i] = r.range(0, 12);
     t.drip[i] = r.range(7.5, 11); t.moss[i] = r.chance(0.42) ? r.range(0.5, 1.5) : 0;
   }
@@ -136,8 +142,8 @@ function buildAux() {
     const y = j * 2 + TOP0;
     for (let i = 0; i < aw; i++, q++) {
       const x = i * 2 - PAD;
-      relief[q] = nz.fbm(x / 38, y / 22, 3) + 0.4 * nz.fbm(x / 7.5 + 50, y / 7.5, 2);     // trowel drag + grit
-      mottle[q] = 1 - 0.075 * (0.5 + 0.5 * nz.fbm(x / 250 + 7, y / 200, 2));                // slow damp mottling
+      relief[q] = 1.15 * nz.fbm(x / 74, y / 40, 3) + 0.42 * nz.fbm(x / 23 + 9, y / 15 - 4, 2) + 0.16 * nz.fbm(x / 8 + 50, y / 8, 2);   // trowel drag, hand, grit
+      mottle[q] = 1 - 0.06 * (0.5 + 0.5 * nz.fbm(x / 340 + 7, y / 260, 2));                 // slow damp mottling
       mid[q] = nz.fbm(x / 10.5 - 20, y / 10.5 + 33, 2);                                     // lichen / grit / moss
     }
   }
@@ -146,9 +152,9 @@ function buildAux() {
 
 // ───────────────────────── weather: soot runs, mildew, algae (albedo map at half resolution) ─────────────────────────
 function stainMap(A, groups, k, seed, strength = 1) {
-  const { aw, ah } = A, n = aw * ah;
+  const { aw, ah } = A, n = aw * ah, ik = 1 / k;
   const nz = L.makeNoise(seed + '-st');
-  const top = new Float32Array(aw).fill(1e9), wet = new Float32Array(aw), len = new Float32Array(aw);
+  const top = new Float32Array(aw).fill(1e9), wet = new Float32Array(aw), len = new Float32Array(aw), tong = new Float32Array(aw);
   for (const tiers of groups) for (const t of tiers) {
     const xl = t.tipL ? t.bL - OV * k : t.bL, xr = t.tipR ? t.bR + OV * k : t.bR;
     const i0 = Math.max(0, Math.floor((xl + PAD) / 2)), i1 = Math.min(aw - 1, Math.ceil((xr + PAD) / 2));
@@ -156,42 +162,46 @@ function stainMap(A, groups, k, seed, strength = 1) {
     for (let i = i0; i <= i1; i++) top[i] = top[i] > 1e8 ? yb : Math.max(top[i], yb);
   }
   // some stretches of wall stay clean, others are badly marked
-  for (let i = 0; i < aw; i++) { const x = i * 2 - PAD, w = 0.4 + 1.25 * nz.fbm(x / 250, 3.1, 3); wet[i] = w < 0 ? 0 : w > 1 ? 1 : w; }
+  for (let i = 0; i < aw; i++) { const x = (i * 2 - PAD) * ik, w = 0.3 + 1.45 * nz.fbm(x / 230, 3.1, 3); wet[i] = w < 0 ? 0 : w > 1 ? 1 : w; }
   // water sheds hardest off the free end of every tier, under the 垛头
   for (const tiers of groups) for (const t of tiers) for (const dir of [-1, 1]) {
     if (dir < 0 ? !t.tipL : !t.tipR) continue;
-    const be = dir < 0 ? t.bL : t.bR, sg = 30 * k;
-    for (let i = Math.max(0, Math.floor((be - 90 * k + PAD) / 2)); i <= Math.min(aw - 1, Math.ceil((be + 90 * k + PAD) / 2)); i++) {
-      const dd = (i * 2 - PAD - be - dir * -14 * k) / sg;
-      wet[i] = Math.min(1, wet[i] + 0.6 * Math.exp(-dd * dd));
+    const be = dir < 0 ? t.bL : t.bR, sg = 34 * k;
+    for (let i = Math.max(0, Math.floor((be - 100 * k + PAD) / 2)); i <= Math.min(aw - 1, Math.ceil((be + 100 * k + PAD) / 2)); i++) {
+      const dd = (i * 2 - PAD - be - dir * -16 * k) / sg;
+      wet[i] = Math.min(1, wet[i] + 0.7 * Math.exp(-dd * dd));
     }
   }
+  // the runs: a few broad black tongues, many thin tears between them
   for (let i = 0; i < aw; i++) {
-    const x = i * 2 - PAD;
-    const f = Math.pow(nz.n2(x / 12.5, 11.3) * 0.5 + 0.5, 2) * (0.4 + 0.6 * (nz.n2(x / 44, 5.7) * 0.5 + 0.5));   // individual fingers
-    len[i] = (20 + Math.pow(wet[i], 1.3) * (60 + 480 * f)) * k;
+    const x = (i * 2 - PAD) * ik;
+    const broad = Math.pow(nz.n2(x / 31, 11.3) * 0.5 + 0.5, 2.4);
+    const fine = Math.pow(nz.n2(x / 8.5, 4.4) * 0.5 + 0.5, 1.6) * (0.35 + 0.65 * (nz.n2(x / 60, 5.7) * 0.5 + 0.5));
+    const f = Math.min(1, 0.95 * broad + 0.42 * fine);
+    tong[i] = broad;
+    len[i] = (22 + Math.pow(wet[i], 1.3) * (46 + 500 * f)) * k;
   }
   const SA = new Float32Array(n), SR = new Float32Array(n), SG = new Float32Array(n), SB = new Float32Array(n);
   for (let j = 0, q = 0; j < ah; j++) {
-    const y = j * 2 + TOP0;
+    const y = j * 2 + TOP0, ys = y * ik;
     for (let i = 0; i < aw; i++, q++) {
       const u = y - top[i];
       if (u < -8 * k) continue;
-      const x = i * 2 - PAD, uu = u < 0 ? 0 : u, w = wet[i];
-      const fib = 0.56 + 0.44 * nz.n2(x / 4.6, y / 170);                                   // the streaks are combed, not flat
-      const band = Math.exp(-uu / ((14 + 44 * w) * k)) * (0.28 + 0.72 * w);                // soot right under the eave
-      const fg = uu < len[i] ? Math.pow(1 - uu / len[i], 1.25) * (0.22 + 0.78 * w) : 0;     // long fingers running down
-      const cl = nz.fbm(x / 190 + 9.1, y / 150 - 3.3, 3);                                   // clouds of mildew
-      const m = sstep(0, 0.42, cl + 0.3 * Math.exp(-uu / 320) - 0.17);
-      const sp = nz.fbm(x / 5.5, y / 6.5, 2) * 0.5 + 0.5;
-      const tl = nz.fbm(x / 230 + 40, y / 170 + 11, 2), e = (tl - 0.15) / 0.026;            // a tide line where damp dried
-      let a = ((band * 0.9 + fg * 0.62) * fib + m * (0.13 + 0.5 * sp * sp) + Math.exp(-e * e) * 0.13) * strength;
+      const x = (i * 2 - PAD) * ik, uu = u < 0 ? 0 : u, w = wet[i];
+      const fib = 0.64 + 0.36 * nz.n2(x / 5.4, ys / 190);                                  // the runs are combed, not flat
+      const band = Math.exp(-uu / ((15 + 46 * w) * k)) * (0.32 + 0.68 * w);                // soot right under the eave
+      const fg = uu < len[i] ? Math.pow(1 - uu / len[i], 1.2) * (0.24 + 0.76 * w) * (0.72 + 0.5 * tong[i]) : 0;   // tongues running down
+      const cl = nz.fbm(x / 270 + 9.1, ys / 210 - 3.3, 3);                                  // a few big clouds of mildew
+      const m = sstep(0.06, 0.5, cl + 0.26 * Math.exp(-uu / (300 * k)) - 0.2);
+      const sp = nz.fbm(x / 6, ys / 7, 2) * 0.5 + 0.5;
+      const tl = nz.fbm(x / 230 + 40, ys / 170 + 11, 2), e = (tl - 0.15) / 0.022;           // a tide line where damp dried
+      let a = ((band * 0.98 + fg * 0.74) * fib + m * (0.05 + 0.36 * sp * sp) + Math.exp(-e * e) * 0.09) * strength;
       if (a > 1) a = 1;
       const t = Math.pow(a, 0.8);
-      let R = 0.53 + (0.15 - 0.53) * t, G = 0.57 + (0.175 - 0.57) * t, B = 0.56 + (0.195 - 0.56) * t;
-      const gz = cl * 0.6 + sp * 0.5 - 0.22;                                                // green algae where it stays damp
-      if (gz > 0) { const m2 = Math.min(0.6, gz * 1.5) * Math.exp(-uu / 260); R += (0.36 - R) * m2; G += (0.45 - G) * m2; B += (0.27 - B) * m2; }
-      SA[q] = Math.min(1, Math.pow(a, 0.9) * 0.95); SR[q] = R; SG[q] = G; SB[q] = B;
+      let R = 0.5 + (0.13 - 0.5) * t, G = 0.545 + (0.155 - 0.545) * t, B = 0.55 + (0.18 - 0.55) * t;
+      const gz = cl * 0.6 + sp * 0.5 - 0.24;                                                // green algae where it stays damp
+      if (gz > 0) { const m2 = Math.min(0.55, gz * 1.5) * Math.exp(-uu / (240 * k)); R += (0.33 - R) * m2; G += (0.43 - G) * m2; B += (0.25 - B) * m2; }
+      SA[q] = Math.min(1, Math.pow(a, 0.9) * 0.96); SR[q] = R; SG[q] = G; SB[q] = B;
     }
   }
   return { SA, SR, SG, SB, wet, len };
@@ -215,11 +225,11 @@ function renderWall(A, spec) {
     g.globalCompositeOperation = 'lighter';
     return g;
   };
-  const horns = (g) => { for (const t of tiers) { if (t.tipL) { hornPath(g, t.xa, t.y, k, -1); g.fill(); } if (t.tipR) { hornPath(g, t.xb, t.y, k, 1); g.fill(); } } };
+  const horns = (g) => { for (const t of tiers) { if (t.tipL) { hornPath(g, t.xa, t.y, k, -1, t.hj[0]); g.fill(); } if (t.tipR) { hornPath(g, t.xb, t.y, k, 1, t.hj[1]); g.fill(); } } };
   const g1 = mk();
   g1.fillStyle = '#ff0000'; for (const grp of groups) { bodyPath(g1, grp, k); g1.fill(); }
   g1.fillStyle = '#00ff00'; horns(g1);
-  g1.filter = `blur(${(3.0 * k * res).toFixed(2)}px)`; g1.fillStyle = '#0000ff'; horns(g1); g1.filter = 'none';
+  g1.filter = `blur(${(4.2 * k * res).toFixed(2)}px)`; g1.fillStyle = '#0000ff'; horns(g1); g1.filter = 'none';
   const m1 = g1.getImageData(0, 0, cw, ch).data;
   let m2 = null;
   if (patches.length || cracks.length) {
@@ -228,7 +238,7 @@ function renderWall(A, spec) {
     for (const [px, py, rad] of patches) {
       const n = 13, a0 = r.range(0, L.TAU), ax = r.range(1.1, 1.4), ay = r.range(0.66, 0.9), outer = [], inner = [];
       for (let i = 0; i < n; i++) {
-        const ang = a0 + ((i + r.range(-0.3, 0.3)) / n) * L.TAU, rr = rad * r.range(0.68, 1.08), ri = rr * r.range(0.5, 0.86);
+        const ang = a0 + ((i + r.range(-0.3, 0.3)) / n) * L.TAU, rr = rad * r.range(0.62, 1.1), ri = rr * r.range(0.3, 0.92);
         outer.push([px + Math.cos(ang) * rr * ax, py + Math.sin(ang) * rr * ay]);
         inner.push([px + rad * 0.06 + Math.cos(ang) * ri * ax, py + rad * 0.05 + Math.sin(ang) * ri * ay]);
       }
@@ -276,13 +286,13 @@ function renderWall(A, spec) {
         mot = mottle[q00]; sr = st.SR[q00]; sg = st.SG[q00]; sb = st.SB[q00];
       } else { rel = relief[q]; md = mid[q]; sa = st.SA[q]; mot = mottle[q]; sr = st.SR[q]; sg = st.SG[q]; sb = st.SB[q]; }
       const gr = 1 + (hash2(i, j) - 0.5) * 0.035;
-      let h = rel * 1.25, ar = 0.972 * mot * gr, ag = 0.962 * mot * gr, ab = 0.936 * mot * gr;
+      let h = rel * 1.3, ar = 0.975 * mot * gr, ag = 0.966 * mot * gr, ab = 0.942 * mot * gr;
       if (sa > 0.003) { ar += (sr - ar) * sa; ag += (sg - ag) * sa; ab += (sb - ab) * sa; }
       if (m2) {
         const ring = m2[o] / 255, core = m2[o + 1] / 255, crk = m2[o + 2] / 255;
         if (ring > 0.01) {
           const gt = 0.86 + 0.22 * md + (gr - 1) * 3;                    // the coarse base coat
-          let ur = 0.69 * gt, ug = 0.665 * gt, ub = 0.59 * gt, dh = -2.4 + 0.7 * md;
+          let ur = 0.66 * gt, ug = 0.645 * gt, ub = 0.6 * gt, dh = -2.4 + 0.7 * md;
           if (core > 0.01) {
             const row = Math.floor(y / 23), off = (row & 1) * 39 + hash1(row + 77) * 16, cb = Math.floor((x + off) / 78);
             const fx = x + off - cb * 78, fy = y - row * 23;
@@ -366,36 +376,42 @@ function renderWall(A, spec) {
               h = -4 + 26 * vs / TH + 6.4 * Math.sqrt(1 - p * p) + 1.6 * lf; mat = 2;
               const tn = tnC * (0.92 + 0.16 * hash2(ti + t.si, Math.floor(lq))) * gr;
               ar = 0.165 * tn; ag = 0.19 * tn; ab = 0.22 * tn;
-              const lw = md * 0.5 + 0.5 - (0.82 - 0.42 * t.lich[ti]); if (lw > 0) { const w = Math.min(0.7, lw * 5); ar += (0.5 - ar) * w; ag += (0.56 - ag) * w; ab += (0.5 - ab) * w; }
+              const lw = md * 0.5 + 0.5 - (0.86 - 0.4 * t.lich[ti]); if (lw > 0) { const w = Math.min(0.62, lw * 4.5); ar += (0.43 - ar) * w; ag += (0.49 - ag) * w; ab += (0.45 - ab) * w; }
               done = true;
             } else {
               // 勾头: the round end face, raised rim and a boss
               const dv = vs - eEnd, rr = Math.sqrt(du * du + dv * dv) / hw, edge = (1 - rr) * hw * k;
               if (edge > -0.5) {
                 if (edge < 0.5) cov *= edge + 0.5;
-                h = 24.6 + 1.4 * sstep(0.56, 0.74, rr) + 0.9 * (1 - sstep(0.16, 0.38, rr)); mat = 2;
+                h = -4 + 26 * Math.min(eEnd, TH) / TH + 4.6 + 1.4 * sstep(0.56, 0.74, rr) + 0.9 * (1 - sstep(0.16, 0.38, rr)); mat = 2;
                 const tn = tnC * 0.96 * gr; ar = 0.16 * tn; ag = 0.185 * tn; ab = 0.215 * tn;
                 done = true;
               }
             }
-          } else if (vs <= TH) {
-            // 底瓦: the trough between two ridges, where moss takes hold near the eave
-            const lq = (vs + t.trP[tr]) / t.trL[tr], lf = lq - Math.floor(lq);
-            h = -4 + 26 * vs / TH - 3.6 * (1 - pt * pt) + 1.4 * lf; mat = 3;
-            const tn = tnT * (0.92 + 0.16 * hash2(tr + t.si + 500, Math.floor(lq))) * gr;
-            ar = 0.15 * tn; ag = 0.172 * tn; ab = 0.2 * tn;
-            let mw = t.moss[tr] * sstep(TH - 22, TH - 6, vs) * (md + 0.3) * 2; mw = mw < 0 ? 0 : mw > 0.9 ? 0.9 : mw;
-            if (mw > 0) { const lt = 0.75 + 0.5 * hash2(i >> 1, j >> 1); ar += (0.19 * lt - ar) * mw; ag += (0.27 * lt - ag) * mw; ab += (0.09 * lt - ab) * mw; h += 2 * mw * (0.6 + md); }
-            done = true;
-          } else {
-            // 滴水: the pointed lip of the trough tile
-            const lim = TH + t.drip[tr] * (1 - Math.pow(Math.abs(pt), 1.8)), edge = (lim - vs) * k;
-            if (edge > -0.5) {
-              if (edge < 0.5) cov *= edge + 0.5;
-              h = 21.6 - 1.7 * pt * pt + 0.9 * (vs - TH) / t.drip[tr]; mat = 3;
-              const tn = tnT * 1.12 * gr; ar = 0.16 * tn; ag = 0.185 * tn; ab = 0.215 * tn;
-              done = true;
+          }
+          if (!done || cov < 0.999) {
+            const cov0 = done ? cov : covX;
+            let d2 = false, h2, a2r, a2g, a2b, cov2 = covX, mat2 = 3;
+            if (vs <= TH) {
+              // 底瓦: the trough between two ridges (or the bare bed where a 盖瓦 has gone), where moss takes hold near the eave
+              const lq = (vs + t.trP[tr]) / t.trL[tr], lf = lq - Math.floor(lq);
+              h2 = -4 + 26 * vs / TH - 3.6 * (1 - pt * pt) + 1.4 * lf;
+              const tn = tnT * (0.92 + 0.16 * hash2(tr + t.si + 500, Math.floor(lq))) * gr;
+              a2r = 0.15 * tn; a2g = 0.172 * tn; a2b = 0.2 * tn;
+              let mw = t.moss[tr] * sstep(TH - 22, TH - 6, vs) * (md + 0.3) * 2; mw = mw < 0 ? 0 : mw > 0.9 ? 0.9 : mw;
+              if (mw > 0) { const lt = 0.75 + 0.5 * hash2(i >> 1, j >> 1); a2r += (0.19 * lt - a2r) * mw; a2g += (0.27 * lt - a2g) * mw; a2b += (0.09 * lt - a2b) * mw; h2 += 2 * mw * (0.6 + md); }
+              d2 = true;
+            } else {
+              // 滴水: the pointed lip of the trough tile
+              const lim = TH + t.drip[tr] * (1 - Math.pow(Math.abs(pt), 1.8)), edge = (lim - vs) * k;
+              if (edge > -0.5) {
+                if (edge < 0.5) cov2 *= edge + 0.5;
+                h2 = 21.6 - 1.7 * pt * pt + 0.9 * (vs - TH) / t.drip[tr];
+                const tn = tnT * 1.12 * gr; a2r = 0.16 * tn; a2g = 0.185 * tn; a2b = 0.215 * tn;
+                d2 = true;
+              }
             }
+            if (d2 && (!done || cov0 < 0.5)) { h = h2; mat = mat2; ar = a2r; ag = a2g; ab = a2b; cov = done ? Math.max(cov0, cov2) : cov2; done = true; }
           }
           if (!done || cov < 0.999) {
             // 拔檐: two lime-washed brick courses stepping out under the tiles

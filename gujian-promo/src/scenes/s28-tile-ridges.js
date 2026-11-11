@@ -16,7 +16,7 @@ const TOP = 2;          // dr of the tallest crowns (their bright rim then sits 
 const HT = 58;          // how far a full 筒瓦 stands above the pan tiles (height units = px)
 const PAN = 0.3;        // depth of the 板瓦 trough as a fraction of HT
 const FOOT = 0.2;       // the mortar packed along the foot of a tube (夹垄灰), as a fraction of HT
-const AMP = 26;         // oblique view: a full tube height shifts this many px up-screen → the wave height at the ridge
+const AMP = 31;         // oblique view: a full tube height shifts this many px up-screen → the wave height at the ridge
 const WB = 100;         // near the ridge the mortar packing rounds the cross-section into a soft wave
 const W0 = 72, KR = 26; // the roof rolls away over the ridge: width and drop of that roll-off
 const WOB = 3.2;        // how far a tile ridge snakes off its line (px)
@@ -36,9 +36,9 @@ const sm = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 // broken 筒瓦: [tube (relative to the hero tube at the crest), tile number down the ridge, where the break starts (fraction of
 // the tile), slant of the fracture, which part is gone (1 = lower, 0 = upper), seed]
 const BREAKS = [[-1, 1, 0.38, 0.36, 1, 3.1], [2, 2, 0.55, -0.45, 0, 8.7], [-4, 1, 0.5, 0.2, 1, 5.5], [4, 1, 0.3, 0.4, 1, 1.9]];
-// 瓦松 clumps: [tube (relative), side of that tube whose trough it roots in (−1 left, +1 right), how far across the trough
-// (0 = at this tube's foot … 1 = at the next tube's foot), distance down the slope, scale, seed]
-const WASONG = [[0, -1, 0.5, 318, 1.0, 'a'], [1, 1, 0.5, 396, 0.8, 'b'], [-3, 1, 0.5, 270, 0.9, 'c']];
+// 瓦松 clumps: [tube (relative), where across that tube it roots (in half-widths: −1 = its moonlit left foot), distance
+// down the slope, scale, seed]. They are modelled into the height field, so the same moon lights them and they cast shadows.
+const WASONG = [[0, -1.02, 300, 1.0, 'a'], [2, -1.0, 236, 0.74, 'b'], [-3, -0.96, 372, 1.15, 'c']];
 
 function makeGeom(env) {
   const a = env.arc, R = a.R;
@@ -78,11 +78,17 @@ function makeGeom(env) {
   const NS = 2 * SMAX + 1;
   const nz = L.makeNoise('s28');
   const lut = new Uint8Array(NS), raw = new Float32Array(NS), edgeP = new Float32Array(NS), dcapT = new Float32Array(NS);
+  const lumpT = new Float32Array(NS), jwT = new Float32Array(NS);
   for (let si = 0; si < NS; si++) {
     const s = si - SMAX; let best = 0, bd = 1e9;
     for (let k = 0; k < n; k++) { const dd = Math.abs(s - tc[k]) - thw[k]; if (dd < bd) { bd = dd; best = k; } }
-    lut[si] = best; raw[si] = macro(best, s - tc[best]);
+    lut[si] = best;
+    // the silhouette is rounder than the tile section: mortar is packed over the heads, so each crown reads as a soft hump
+    const dE = Math.abs(s - tc[best]), qE = dE / thw[best];
+    raw[si] = qE < 1 ? Math.max(macro(best, s - tc[best]) * 0.25, thk[best] * Math.pow(1 - qE * qE, 0.95)) : macro(best, s - tc[best]);
     dcapT[si] = (nz.n2(s / 300, 11.3) * 0.5 + 0.5) * 2.0;
+    lumpT[si] = (nz.n2(s / 26, 5.5) * 0.5 + 0.5) * 2.2 + (nz.n2(s / 9, 15.5) * 0.5 + 0.5) * 0.9;   // lumps of lime along the very edge
+    jwT[si] = 7 * nz.n2(s * 0.016, 3.1) + 3 * nz.n2(s * 0.055, 8.2);                                 // no joint runs dead straight
   }
   const box = (src, dst, rad) => {
     let acc = 0; const wn = 2 * rad + 1;
@@ -97,7 +103,7 @@ function makeGeom(env) {
   /** the waved ridge silhouette: dr of the roof's upper edge at angle th */
   const edgeDr = (th) => {
     const sf = th * R + SMAX, si = L.clamp(Math.floor(sf), 0, NS - 2), t = L.clamp(sf - si);
-    return TOP - AMP * (1 - (edgeP[si] * (1 - t) + edgeP[si + 1] * t)) - (dcapT[si] * (1 - t) + dcapT[si + 1] * t);
+    return TOP - AMP * (1 - (edgeP[si] * (1 - t) + edgeP[si + 1] * t)) - (dcapT[si] * (1 - t) + dcapT[si + 1] * t) - (lumpT[si] * (1 - t) + lumpT[si + 1] * t);
   };
   const thMax = (SMAX - 30) / R;
   const edgePath = (g) => {
@@ -110,63 +116,16 @@ function makeGeom(env) {
     }
     g.lineTo(W + PAD + 300, H + PAD + 300); g.lineTo(-PAD - 300, H + PAD + 300); g.closePath();
   };
-  return { a, R, n, mid, SMAX, NS, NVW, thw, tc, thk, tlt, tjo, tgL, tgR, tlp, tpo, lut, edgeP, dcapT, wobT, macro, nz, edgePath };
-}
-
-/** 瓦松 (Orostachys): a rosette of fleshy leaves under scaly, tapering spires — little pagodas. Painted bract by bract:
- *  the foot stands in the trough's shadow, the upper part rises into the moonlight and is lit from the left. */
-function paintWasong(g, bx, by, up, sc, seed) {
-  const r = L.rng('s28ws' + seed);
-  const LIT = [214, 223, 232], MID = [84, 98, 114], DRK = [13, 17, 23], SHD = [26, 18, 12];
-  const leaf = (x, y, ang, len, wid, col) => {
-    const c = Math.cos(ang), s = Math.sin(ang), mx = x + c * len * 0.42, my = y + s * len * 0.42;
-    g.beginPath(); g.moveTo(x, y);
-    g.quadraticCurveTo(mx - s * wid, my + c * wid, x + c * len, y + s * len);
-    g.quadraticCurveTo(mx + s * wid, my - c * wid, x, y);
-    g.fillStyle = col; g.fill();
-  };
-  const tone = (lf, lit) => {                    // lf: −1 = the side facing the moon … +1 = the far side; lit: 0 in shadow … 1 in the light
-    const t = L.clamp((lf + 1) * 0.5), a0 = t < 0.4 ? LIT : MID, a1 = t < 0.4 ? MID : DRK, k = t < 0.4 ? t / 0.4 : (t - 0.4) / 0.6;
-    const j = 0.86 + 0.28 * r();
-    const c = [0, 1, 2].map((i) => L.lerp(SHD[i] * (1.5 - t), (a0[i] + (a1[i] - a0[i]) * k) * j, lit));
-    return `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
-  };
-  const cnt = r.int(3, 4), order = [];
-  for (let q = 0; q < cnt; q++) order.push(q);
-  // rosette leaves splayed around the foot (they stay in the dark, only just readable)
-  for (let e = 0; e < 13; e++) {
-    const la = up + L.lerp(-1.9, 1.9, e / 12) + r.range(-0.12, 0.12);
-    leaf(bx + r.range(-16, 16) * sc, by + r.range(-3, 5) * sc, la, r.range(20, 34) * sc, r.range(4, 6) * sc, tone(Math.sin(la - up), 0.1 + 0.25 * r()));
-  }
-  for (const q of order) {
-    const off = (q - (cnt - 1) / 2) * r.range(15, 21) * sc;
-    const ang0 = up + (q - (cnt - 1) / 2) * 0.17 + r.range(-0.1, 0.1), bend = r.range(-0.22, 0.22);
-    const len = r.range(64, 96) * sc * (q === 1 ? 1.55 : 1), wid = r.range(8.5, 11.5) * sc * (q === 1 ? 1.15 : 1);
-    const ox = bx + Math.cos(up + Math.PI / 2) * off, oy = by + Math.sin(up + Math.PI / 2) * off + r.range(-4, 6) * sc;
-    const tiers = Math.round(len / (4.6 * sc)), u0 = r.range(0.24, 0.4);
-    let px = ox, py = oy;
-    for (let i = 0; i <= tiers; i++) {
-      const u = i / tiers, ang = ang0 + bend * u;
-      px += Math.cos(ang) * (len / tiers); py += Math.sin(ang) * (len / tiers);
-      const hw = wid * (1 - 0.88 * u) * (u < 0.1 ? 0.55 + 4.5 * u : 1);
-      const lit = sm((u - u0) / 0.2);
-      const na = Math.max(1, Math.round(hw / (3.1 * sc)));
-      for (let m = na; m >= -na; m--) {             // far side first, the moonlit bracts last
-        const lf = na ? m / na : 0, nx = Math.cos(ang + Math.PI / 2), ny = Math.sin(ang + Math.PI / 2);
-        const sx = px + nx * lf * hw + r.range(-0.8, 0.8), sy = py + ny * lf * hw + r.range(-0.8, 0.8);
-        leaf(sx, sy, ang + lf * 0.95 + r.range(-0.15, 0.15), (10.5 - 4.5 * u) * sc * r.range(0.85, 1.2), 2.9 * sc, tone(lf * 0.9 - 0.1, lit));
-      }
-    }
-  }
+  return { a, R, n, mid, SMAX, NS, NVW, thw, tc, thk, tlt, tjo, tgL, tgR, tlp, tpo, lut, edgeP, dcapT, jwT, wobT, macro, nz, edgePath };
 }
 
 function buildRoof(env) {
   const G = makeGeom(env);
-  const { a, R, n, mid, SMAX, NS, NVW, thw, tc, thk, tlt, tjo, tlp, tpo, lut, edgeP, dcapT, wobT, macro, nz } = G;
+  const { a, R, n, mid, SMAX, NS, NVW, thw, tc, thk, tlt, tjo, tlp, tpo, lut, edgeP, dcapT, jwT, wobT, macro, nz } = G;
   const x0 = -PAD, y0 = Math.floor(a.crestY - 8), x1 = W + PAD, y1 = H + PAD;
   const cw = x1 - x0, ch = y1 - y0, NPX = cw * ch;
-  const Hm = new Float32Array(NPX), Al = new Float32Array(NPX), Ao = new Float32Array(NPX);
-  const mossH = new Float32Array(NPX), mossA = new Float32Array(NPX), pitH = new Float32Array(NPX);
+  const Hm = new Float32Array(NPX), Dt = new Float32Array(NPX), Al = new Float32Array(NPX), Ao = new Float32Array(NPX);
+  const pitH = new Float32Array(NPX);
 
   // ── stamps (all in map px): moss cushions, pits, chips, a few cracks ──
   /** a spot on the roof → map px. k = tube, lat = px off its axis, w = distance down the slope */
@@ -186,39 +145,26 @@ function buildRoof(env) {
       else arr[idx] += hgt * kk;
     }
   };
-  const rm = L.rng('s28moss-b');
   const kMin = 1, kMax = n - 2;
-  const cushion = (k, lat, w, big) => {
-    const [cx, cy] = toMap(k, lat, w);
-    const cnt = big ? rm.int(5, 9) : rm.int(2, 4);
-    for (let q = 0; q < cnt; q++) {
-      const rad = big ? rm.range(6, 13) : rm.range(3.5, 7);
-      stamp(mossH, mossA, cx + rm.range(-1, 1) * (big ? 13 : 6), cy + rm.range(-1, 1) * (big ? 26 : 9), rad, rad * rm.range(0.5, 0.8));
-    }
-  };
-  // moss gathers where water lingers: along the moonlit foot of the tubes and in the joints
-  for (let m = 0; m < 46; m++) {
-    const k = rm.int(kMin, kMax);
-    cushion(k, -(thw[k] + rm.range(-8, 10)), 50 + 560 * Math.pow(rm(), 1.1), rm.chance(0.45));
-  }
-  for (let m = 0; m < 26; m++) {
-    const k = rm.int(kMin, kMax);
-    cushion(k, -thw[k] * rm.range(0.5, 0.95), rm.int(1, 3) * tlt[k] - tjo[k] + rm.range(-3, 8), false);
-  }
   // pits, chips knocked out of tile ends, and a few cracks that run across a tile
   const rp = L.rng('s28pits-b');
-  for (let m = 0; m < 900; m++) stamp(pitH, null, rp() * cw, rp() * ch, rp.range(1.6, 3.8) * (rp.chance(0.08) ? 2.4 : 1), -rp.range(0.8, 2.4));
+  // few but large: under a raking light every pit is a black fleck with a bright lip — the "grain" of this picture
+  for (let m = 0; m < 520; m++) {
+    const big = rp.chance(0.16), rad = rp.range(2.6, 5.6) * (big ? 2.1 : 1), mx = rp() * cw, my = rp() * ch, dp = -rp.range(1.6, 3.6) * (big ? 1.5 : 1);
+    stamp(pitH, null, mx, my, rad, dp);
+    if (big) for (let q = 0; q < 3; q++) stamp(pitH, null, mx + rp.range(-1, 1) * rad, my + rp.range(-1, 1) * rad, rad * rp.range(0.4, 0.7), dp * 0.7);
+  }
   for (let m = 0; m < 40; m++) {
     const k = rp.int(kMin, kMax), lat = rp.range(-0.9, 0.9) * thw[k];
     const [mx, my] = toMap(k, lat, rp.int(1, 3) * tlt[k] - tjo[k] + rp.range(-2, 9));
     for (let q = 0; q < 4; q++) stamp(pitH, null, mx + rp.range(-10, 10), my + rp.range(-3, 6), rp.range(4, 11), -rp.range(3, 6.5));
   }
-  for (let m = 0; m < 4; m++) {
+  for (let m = 0; m < 3; m++) {
     const k = mid + [-2, 1, 3, -5][m]; let lat = -thw[k] * rp.range(0.5, 0.9), w = [150, 330, 120, 200][m] + rp.range(-20, 20);
     const dl = (thw[k] * rp.range(1.0, 1.5)) / 30; let dw = rp.range(-1.4, 1.4);
     for (let q = 0; q < 30; q++) {
       const [mx, my] = toMap(k, L.clamp(lat, -thw[k], thw[k]), w);
-      stamp(pitH, null, mx, my, rp.range(1.5, 2.4), -rp.range(2.6, 4.2));
+      stamp(pitH, null, mx, my, rp.range(2.3, 3.8), -rp.range(2.6, 4.2));
       lat += dl; w += dw + rp.range(-1.6, 1.6); if (rp.chance(0.2)) dw = rp.range(-2.4, 2.4);
     }
   }
@@ -228,13 +174,14 @@ function buildRoof(env) {
   // ── height field + albedo ──
   // the slow noises are sampled on coarse grids and interpolated: broad blotches / roughness / lichen (1/6), lumps (1/2)
   const GS = 6, gw2 = Math.ceil(cw / GS) + 2, gh2 = Math.ceil(ch / GS) + 2;
-  const gA = new Float32Array(gw2 * gh2), gR = new Float32Array(gw2 * gh2), gL = new Float32Array(gw2 * gh2), gD = new Float32Array(gw2 * gh2);
+  const gA = new Float32Array(gw2 * gh2), gR = new Float32Array(gw2 * gh2), gL = new Float32Array(gw2 * gh2), gD = new Float32Array(gw2 * gh2), gM = new Float32Array(gw2 * gh2);
   for (let j = 0; j < gh2; j++) for (let i = 0; i < gw2; i++) {
     const X = x0 + i * GS, Y = y0 + j * GS, o = j * gw2 + i;
     gA[o] = nz.fbm(X * 0.0085, Y * 0.0085, 3);
     gR[o] = nz.fbm(X * 0.017 + 70, Y * 0.017 - 30, 2);
     gL[o] = nz.fbm(X * 0.0105 - 40, Y * 0.0105 + 90, 4, 2.1, 0.55);        // pale crustose lichen / old limewash
     gD[o] = nz.fbm(X * 0.019 + 140, Y * 0.019 + 10, 3);                    // dark lichen, soot
+    gM[o] = nz.fbm(X * 0.0135 + 300, Y * 0.0135 + 77, 3);                  // where moss has taken hold
   }
   const bw2 = (cw >> 1) + 2, bh2 = (ch >> 1) + 2, gB = new Float32Array(bw2 * bh2);
   for (let j = 0; j < bh2; j++) for (let i = 0; i < bw2; i++) gB[j * bw2 + i] = nz.fbm((x0 + i * 2) * 0.062 + 13, (y0 + j * 2) * 0.062, 2);
@@ -259,11 +206,11 @@ function buildRoof(env) {
       const isTube = (d < 0 ? -d : d) < hwk;
       let jt = 0, r1 = 0.5, r2 = 0.5, r3 = 0.5, r4 = 0.5;
       if (isTube) {
-        jt = Math.floor(((w > 0 ? w : 0) + tjo[k]) / lt);
+        jt = Math.floor(Math.max(0, (w > 0 ? w : 0) + jwT[si] + tjo[k]) / lt);
         r1 = hash2(k * 31 + 7, jt); r2 = hash2(k * 17 + 3, jt + 91); r3 = hash2(k + 500, jt * 13 + 5); r4 = hash2(k * 5 + 11, jt * 7 + 29);
         if (jt > 0) {
           // each tile sits a little off the line, a little askew, a hair wider or prouder than its neighbours
-          const tv0 = w + tjo[k] - jt * lt;
+          const tv0 = w + jwT[si] + tjo[k] - jt * lt;
           d += (r1 - 0.5) * 13 + (r4 - 0.5) * 0.09 * (tv0 - lt * 0.5);
           const q = (d < 0 ? -d : d) / (hwk * (0.95 + 0.1 * r3));
           const t = q < 1 ? Math.sqrt(1 - q * q) : 0;
@@ -282,12 +229,13 @@ function buildRoof(env) {
       const nR = (gR[g0] * (1 - tx) + gR[g0 + 1] * tx) * (1 - ty) + (gR[g0 + gw2] * (1 - tx) + gR[g0 + gw2 + 1] * tx) * ty;
       const nL = (gL[g0] * (1 - tx) + gL[g0 + 1] * tx) * (1 - ty) + (gL[g0 + gw2] * (1 - tx) + gL[g0 + gw2 + 1] * tx) * ty;
       const nD = (gD[g0] * (1 - tx) + gD[g0 + 1] * tx) * (1 - ty) + (gD[g0 + gw2] * (1 - tx) + gD[g0 + gw2 + 1] * tx) * ty;
+      const nM = (gM[g0] * (1 - tx) + gM[g0 + 1] * tx) * (1 - ty) + (gM[g0 + gw2] * (1 - tx) + gM[g0 + gw2 + 1] * tx) * ty;
       const bx = (i + 0.5) * 0.5, bi = bx | 0, tbx = bx - bi, b0 = bj * bw2 + bi;
       const nB = (gB[b0] * (1 - tbx) + gB[b0 + 1] * tbx) * (1 - tby) + (gB[b0 + bw2] * (1 - tbx) + gB[b0 + bw2 + 1] * tbx) * tby;   // lumps 15—25 px
       const nC = nz.n2(X * 0.27 + 40, Y * 0.27);                        // grit
-      let h, al;
+      let h, al, footP = 0, jointP = 0;
       if (isTube) {
-        let tv = wq + tjo[k] - jt * lt; if (tv < 0) tv = 0; else if (tv > lt) tv = lt;
+        let tv = wq + jwT[si] + tjo[k] - jt * lt; if (tv < 0) tv = 0; else if (tv > lt) tv = lt;
         let tfd = -1;                                                   // > 0: this far past the fracture of a broken tile
         const bi2 = jt < 16 ? brk[k * 16 + jt] : 0;
         if (bi2) {
@@ -301,26 +249,29 @@ function buildRoof(env) {
           p = 0.08 + 0.2 * Math.exp(-q * q) + 0.07 * lump;
           h = HT * p + nB * 2.6;
           al = 0.3 + 0.6 * sm(lump * 2.4 + 0.15 + nB * 0.6);
+          footP = 0.7;
         } else {
           const dj = jt === 0 ? lt - tv : Math.min(tv, lt - tv);          // distance to the nearest joint
           h = HT * p + STEP * (tv / lt - 0.5) + (r3 - 0.5) * 2.6;
-          al = 0.5 + 0.24 * r2 - (r1 > 0.8 ? 0.16 : 0) + (r4 > 0.86 ? 0.16 : 0);
-          al *= 0.92 + 0.16 * nz.n2(s * 0.05, wq * 0.006 + 9);            // rain has streaked the tile down the slope
-          if (dj < 46) {
+          al = 0.52 + 0.2 * r2 - (r1 > 0.8 ? 0.12 : 0) + (r4 > 0.86 ? 0.12 : 0);
+          al *= 0.94 + 0.12 * nz.n2(s * 0.05, wq * 0.006 + 9);            // rain has streaked the tile down the slope
+          jointP = Math.exp(-(dj * dj) / 170);
+          if (dj < 62) {
             const jid = tv < lt * 0.5 && jt > 0 ? jt : jt + 1;
             const hl = hash2(k * 7 + 1, jid * 3 + 2);
             // 捉节灰: the lime that points each joint — a lumpy white band, part of it long gone
-            const bw = 10 + 15 * hl + 5 * nz.n2(d * 0.07 + jid * 7.3, k * 1.7 + 0.3) + nB * 4;
+            const bw = 13 + 22 * hl + 7 * nz.n2(d * 0.07 + jid * 7.3, k * 1.7 + 0.3) + nB * 6;
             const pres = nz.n2(d * 0.028 + jid * 3.1, k * 5.3) + (hl < 0.2 ? -0.6 : 0.45);
-            const lw = sm((bw - dj) / 3.5) * sm(pres / 0.12);
-            const gapv = Math.exp(-(dj * dj) / 10) * (1 - lw);
-            h += lw * (2.2 + nB * 1.5) - 5 * gapv;
-            al = (al + (0.98 - al) * lw) * (1 - 0.55 * gapv);
+            const lw = sm((bw - dj) / 5) * sm(pres / 0.12);
+            const gapv = Math.exp(-(dj * dj) / 30) * (1 - lw);
+            h += lw * (3.2 + nB * 2.2) - 4 * gapv;
+            al = (al + (0.98 - al) * lw) * (1 - 0.5 * gapv);
           }
           // lime has leached out of the joint above and run down the tile
           if (jt > 0 && tv < 150 && hash2(k * 7 + 1, jt * 3 + 2) >= 0.2) al += 0.24 * Math.exp(-tv / 60) * sm(nz.n2(d * 0.085 + jt * 5.1, k * 2.2) * 1.5 + 0.2);
           // 夹垄灰 smeared up the foot of the tile
           const q = (d < 0 ? -d : d) / hwk;
+          footP = sm((q - 0.6) / 0.4);
           if (q > 0.74) {
             const fl = sm((q - 0.86 - 0.07 * nB) / 0.05) * sm((nz.n2(k * 9.1 + (d > 0 ? 4 : 0), wq * 0.011) + 0.3) / 0.15);
             al += (0.94 - al) * fl; h += 1.4 * fl;
@@ -330,37 +281,113 @@ function buildRoof(env) {
       } else {
         // 板瓦: concave tiles lapped like scales, each lower edge standing proud of the tile below
         const kt = d > 0 ? k : (k > 0 ? k - 1 : 0), lp = tlp[kt];
-        const wp = wq + tpo[kt] + 8 * nz.n2(s * 0.012 + kt * 7.7, wq * 0.004);
+        const dn = (d < 0 ? -d : d) - hwk;
+        let uu = dn / (d > 0 ? G.tgR[k] : G.tgL[k]); if (uu > 0.5) uu = 0.5;
+        // each 板瓦 is a shallow dish: seen from up the slope its lower lip sags in the middle
+        const wp = wq + tpo[kt] + 8 * nz.n2(s * 0.012 + kt * 7.7, wq * 0.004) - 15 * 4 * uu * (1 - uu);
         const jp = Math.floor(wp / lp), pv = wp - jp * lp;
         const q1 = hash2(kt * 13 + 1, jp * 7 + 2);
-        h = HT * p + 7.5 * (pv / lp) + (q1 - 0.5) * 2.8;
-        al = 0.46 + 0.22 * q1;
-        const dn = (d < 0 ? -d : d) - hwk;
+        h = HT * p + 4.2 * (pv / lp) + (q1 - 0.5) * 2.2;
+        al = 0.48 + 0.2 * q1;
+        footP = Math.exp(-dn / 18) + 0.25;
         if (dn < 18) {                                 // 夹垄灰 along the foot of the tube — or the dark gap where it has dropped out
           const fw = 11 + 6 * nz.n2(wq * 0.02 + k * 3.1, d > 0 ? 6.5 : 5.5);
           if (dn < fw) {
             const t = 1 - dn / fw;
-            if (nz.n2(k * 9.1 + (d > 0 ? 4 : 0), wq * 0.011) > -0.3) { h += 3.6 * t; al += (0.93 - al) * sm(t * 2); } else { h -= 1.6 * t; al *= 1 - 0.4 * t; }
+            if (nz.n2(k * 9.1 + (d > 0 ? 4 : 0), wq * 0.011) > -0.3) { h += 3.6 * t; al += (0.93 - al) * sm(t * 2); } else { h -= 0.6 * t; al *= 1 - 0.2 * t; }
           }
         }
       }
-      // weathering: broad blotches, lumps, grit, pale lichen crust, dark lichen, moss
+      // weathering. The broad forms stay in h (they are softened below); everything granular goes into dt
       const ro = sm(0.5 + 1.6 * nR);                                      // where the surface has gone rough
-      h += nA * 1.6 + nB * (0.5 + 1.0 * ro) + nC * (0.2 + 0.3 * ro) + pitH[idx];
-      al *= 0.92 + 0.2 * nA;
-      const e1 = sm((nL - 0.2 + nB * 0.08) / 0.12);
-      if (e1 > 0) { al += (0.95 - al) * 0.8 * e1; h += e1 * (0.9 + nB * 1.1 + nC * 0.5); }
-      const e2 = sm((nD - 0.32 + nB * 0.1) / 0.1);
-      if (e2 > 0) al *= 1 - 0.38 * e2;
-      const mh = mossH[idx];
-      if (mh > 0) { h += mh * (0.85 + 0.3 * nC); al *= 1 - 0.72 * mossA[idx]; }
+      h += nA * 2.6;
+      let dt = nB * (0.9 + 1.5 * ro) + nC * (0.22 + 0.32 * ro) + pitH[idx];
+      al *= 0.95 + 0.12 * nA;
+      const e1 = sm((nL - 0.2 + nB * 0.08) / 0.12);                       // pale crust of lichen / old limewash
+      if (e1 > 0) { al += (0.95 - al) * 0.8 * e1; dt += e1 * (0.9 + nB * 1.1 + nC * 0.5); }
+      const e2 = sm((nD - 0.38 + nB * 0.1) / 0.12);                       // dark lichen, soot
+      if (e2 > 0) al *= 1 - 0.3 * e2;
+      // moss: ragged cushions where water lingers — along the feet of the tubes, in the joints, on the bed of a broken tile
+      const mo = sm((nM + 0.22 * nB + 0.06 * nC + 0.36 * (footP > 1 ? 1 : footP) + 0.3 * jointP - 0.6) / 0.07) * sm((wq - 30) / 50);
+      if (mo > 0) {
+        const mbp = nz.n2(X * 0.105 + 9, Y * 0.105 + 4);
+        dt += mo * (3.4 + 1.7 * mbp + 1.1 * nC + 1.2 * nB);
+        al *= 1 - mo * (0.66 + 0.1 * mbp);
+      }
       if (w < W0) {                                                       // the ridge rolls over, away from us, into the full moon
         const t = 1 - wq / W0; h -= KR * t * t;
         al = (al + (0.86 - al) * 0.5 * t) * (1 + 0.5 * t * t);
       }
-      Hm[idx] = h; Al[idx] = al; Ao[idx] = 0.3 + 0.7 * L.clamp((p + PAN) / (1 + PAN));
-      if (h > HMAX) HMAX = h;
+      Hm[idx] = h; Dt[idx] = dt; Al[idx] = al; Ao[idx] = 0.3 + 0.7 * L.clamp((p + PAN) / (1 + PAN));
     }
+  }
+  // a lens never draws a hairline: soften the built forms and the paint (σ ≈ 1.6 px), then lay the grain back on top
+  {
+    const tmpB = new Float32Array(NPX);
+    const pass = (src, dst, rad, dxy, mask) => {
+      const nj = dxy === 1 ? ch : cw, ni = dxy === 1 ? cw : ch;
+      for (let j = 0; j < nj; j++) for (let i = 0; i < ni; i++) {
+        const o = dxy === 1 ? j * cw + i : i * cw + j;
+        if (mask[o] < -100) { dst[o] = src[o]; continue; }
+        let acc = 0, c = 0;
+        for (let q = -rad; q <= rad; q++) {
+          const ii = i + q; if (ii < 0 || ii >= ni) continue;
+          const oo = dxy === 1 ? j * cw + ii : ii * cw + j;
+          if (mask[oo] < -100) continue;
+          acc += src[oo]; c++;
+        }
+        dst[o] = acc / c;
+      }
+    };
+    const mask = Hm.slice();
+    pass(Hm, tmpB, 2, 1, mask); pass(tmpB, Hm, 2, 0, mask); pass(Hm, tmpB, 1, 1, mask); pass(tmpB, Hm, 1, 0, mask);
+    pass(Al, tmpB, 2, 1, mask); pass(tmpB, Al, 2, 0, mask); pass(Al, tmpB, 1, 1, mask); pass(tmpB, Al, 1, 0, mask);
+    for (let o = 0; o < NPX; o++) { if (Hm[o] < -100) continue; Hm[o] += Dt[o]; }
+  }
+  // ── 瓦松 (Orostachys): a rosette of fleshy leaves under scaly, tapering spires — little pagodas rooted where the lime
+  //    has held some soil. Each spire is a leaning cone of overlapping bracts added to the height field.
+  {
+    /** a tapered, scaly body from (bx,by) toward ang. len/wb in px; hTip = how far its tip stands off the roof; pitch = bract tier */
+    const spire = (bx, by, ang, len, wb, hTip, pitch, curv, alb, ph) => {
+      const ca = Math.cos(ang), sa = Math.sin(ang), m = wb * 1.5 + Math.abs(curv) * len + 4;
+      const ex = bx + ca * len, ey = by + sa * len;
+      const i0 = Math.max(1, Math.floor(Math.min(bx, ex) - m)), i1 = Math.min(cw - 2, Math.ceil(Math.max(bx, ex) + m));
+      const j0 = Math.max(1, Math.floor(Math.min(by, ey) - m)), j1 = Math.min(ch - 2, Math.ceil(Math.max(by, ey) + m));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const idx = j * cw + i; if (Hm[idx] < -100) continue;
+        const dx = i - bx, dy = j - by, al = dx * ca + dy * sa, t = al / len;
+        if (t < -0.03 || t > 1) continue;
+        const tt = t < 0 ? 0 : t;
+        const lat = -dx * sa + dy * ca - curv * len * tt * tt;
+        const tier = al / pitch + ph + 0.35 * Math.sin(lat * 0.5), f = tier - Math.floor(tier);
+        let hw = wb * (1 - 0.84 * tt) * (tt < 0.1 ? 0.45 + 5.5 * tt : 1) * (pitch > 0 ? 0.8 + 0.34 * f : 1) + 0.6;
+        if (t < 0) hw *= 1 + t / 0.03;
+        const q = lat / hw; if (q <= -1 || q >= 1) continue;
+        const e = Math.sqrt(1 - q * q), edge = sm((hw - Math.abs(lat)) / 1.7);
+        Hm[idx] += hTip * Math.pow(tt, 0.85) * edge + 0.95 * hw * e + (pitch > 0 ? 2.4 * f * edge : 0);
+        const tj = hash2(Math.floor(tier) * 7 + 3, (ph * 977) | 0);
+        Al[idx] = Al[idx] + (alb * (0.8 + 0.5 * tj) - Al[idx]) * edge;
+      }
+    };
+    for (const [rk, latF, w0, sc, seed] of WASONG) {
+      const k = mid + rk, rw = L.rng('s28ws' + seed);
+      const [bx, by] = toMap(k, latF * thw[k], w0);
+      const up = -Math.PI / 2 + Math.atan2(bx + x0 - a.cx, a.cy - (by + y0));
+      // the rosette: fat leaves splayed on the tile around the root
+      for (let e = 0; e < 9; e++) {
+        const la = up + L.lerp(-2.3, 2.3, e / 8) + rw.range(-0.15, 0.15);
+        spire(bx + rw.range(-7, 7) * sc, by + rw.range(-3, 5) * sc, la, rw.range(17, 30) * sc, rw.range(5.5, 7.5) * sc, 5 * sc, 0, rw.range(-0.2, 0.2), 0.3, rw());
+      }
+      const cnt = 3, order = [0, 2, 1];
+      for (const q of order) {
+        const c = q - (cnt - 1) / 2, hero = q === 1;
+        const ang = up + c * rw.range(0.2, 0.3) + rw.range(-0.06, 0.06);
+        const len = rw.range(78, 102) * sc * (hero ? 1.55 : 1), wb = rw.range(10.5, 13) * sc * (hero ? 1.12 : 1);
+        const ox = bx + Math.cos(up + Math.PI / 2) * c * 15 * sc, oy = by + Math.sin(up + Math.PI / 2) * c * 15 * sc + rw.range(-3, 4) * sc;
+        spire(ox, oy, ang, len, wb, len * 0.3, rw.range(7.2, 8.6) * sc, rw.range(-0.09, 0.09), 0.34, rw());
+      }
+    }
+    for (let o = 0; o < NPX; o++) { const h = Hm[o]; if (h > HMAX) HMAX = h; }
   }
 
   // ── the moon: elevation by distance down the slope ──
@@ -399,10 +426,10 @@ function buildRoof(env) {
   }
 
   // ── lighting + split-tone: cold where the moon falls, a little warm bounce where it does not ──
-  const SUN = 1.75, FILL = 0.3;
+  const SUN = 1.9, FILL = 0.2;
   const Ux = 0.5, Uy = 0.42, Uz = 0.757;                         // dim warm fill from the lower right (what the courtyard gives back)
-  const WR = 176, WG = 118, WB2 = 74;                            // its colour
-  const ramp = L.makeRamp([[0, '#040506'], [0.15, '#0b1119'], [0.34, '#2f4054'], [0.56, '#7b8a9c'], [0.78, '#c9d3de'], [0.92, '#e8ecf0'], [1, '#f6f8fa']]);
+  const WR = 168, WG = 128, WB2 = 96;                            // its colour
+  const ramp = L.makeRamp([[0, '#040506'], [0.15, '#0b0e12'], [0.34, '#333a43'], [0.56, '#7d838a'], [0.78, '#c6ccd3'], [0.92, '#e8ecf0'], [1, '#f7f9fb']]);
   const cool = new Float32Array(1024 * 3);
   for (let i = 0; i < 1024; i++) { const c = ramp(i / 1023); cool[i * 3] = c[0]; cool[i * 3 + 1] = c[1]; cool[i * 3 + 2] = c[2]; }
   const img = new ImageData(cw, ch); const dd = img.data;
@@ -431,7 +458,7 @@ function buildRoof(env) {
       // a glint where the tile faces half-way between the moon and the lens
       const Hx = -lx * cE, Hy = -ly * cE, Hz = sE + 1, hm = 1 / Math.sqrt(Hx * Hx + Hy * Hy + Hz * Hz);
       const ndh = (-hx * Hx - hy * Hy + Hz) * hm * nl;
-      const spec = ndh > 0 ? Math.pow(ndh, 16) * 0.2 * sh : 0;
+      const spec = ndh > 0 ? Math.pow(ndh, 10) * 0.05 * sh : 0;       // fired clay and lime are chalk-dry: barely a sheen
       let c = al * SUN * dif * sh * fx * fy + spec;
       c = 1.04 * (1 - Math.exp(-1.6 * c)); if (c > 1) c = 1;          // soft shoulder: lit faces reach white without clipping flat
       c = c + (c * c * (3 - 2 * c) - c) * 0.6;                        // …then a print-like S-curve: crisp blacks, clean whites
@@ -443,7 +470,7 @@ function buildRoof(env) {
   const small = L.makeCanvas(cw, ch);
   small.getContext('2d').putImageData(img, 0, 0);
 
-  // ── the print (cropped to the roof): crisp waved silhouette, then the 瓦松 ──
+  // ── the print (cropped to the roof) with its crisp waved silhouette ──
   const chC = ch + MT;
   const sharp = L.makeCanvas(cw, chC);
   {
@@ -451,12 +478,6 @@ function buildRoof(env) {
     g.translate(-x0, -y0 + MT);
     g.save(); G.edgePath(g); g.clip();
     g.drawImage(small, x0, y0);
-    for (const [rk, side, across, w0, sc, seed] of WASONG) {
-      const k = mid + rk, gp = side > 0 ? G.tgR[k] : G.tgL[k];
-      const [mx, my] = toMap(k, side * (thw[k] + across * gp), w0);
-      const bx = mx + x0, by = my + y0;
-      paintWasong(g, bx, by, -Math.PI / 2 + Math.atan2(bx - a.cx, a.cy - by), sc, seed);
-    }
     g.restore();
   }
 
@@ -483,7 +504,7 @@ function buildRoof(env) {
   const grain = L.grainTex(cw, chC, { seed: 's28g', amount: 0.5 });
   const gg = grain.getContext('2d');
   gg.globalAlpha = 0.42; gg.drawImage(L.grainTex(cw, chC, { seed: 's28g2', amount: 0.6, size: 3 }), 0, 0); gg.globalAlpha = 1;
-  L.overlayOn(roof, grain, { blend: 'overlay', alpha: 0.5 });
+  L.overlayOn(roof, grain, { blend: 'overlay', alpha: 0.36 });
   // halation: the moonlit tile blooms a little into the dark around it
   rg.globalCompositeOperation = 'screen'; rg.globalAlpha = 0.11;
   rg.drawImage(L.blurred(roof, 7), 0, 0);

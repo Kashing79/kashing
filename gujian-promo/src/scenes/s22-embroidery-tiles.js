@@ -17,18 +17,24 @@ const { W, H } = L;
 const PAD = 40;                        // camera only rotates ±0.006 rad (≤ 19 px at the corners) and pushes in
 const LW = W + PAD * 2, LH = H + PAD * 2;
 
-const PITCH = 236;                     // nominal tile width along the arc (px at the arc)
+const PITCH = 290;                     // nominal tile width along the arc (px at the arc) — a macro: ~6½ tiles across
 const RAD = PITCH / 2;
 const ROW = RAD * 1.1;                 // nominal row spacing
-const V0 = 26;                         // depth of the first row's centres (its joints hide under the cord)
+const KS = PITCH / 236;                // scale of the hand-drift terms that were tuned at the old tile size
+const REACH = RAD * 1.5;               // how far below its centre a tile can possibly reach
+const V0 = 30;                         // depth of the first row's centres (its joints hide under the cord)
 const CORD_TOP = 0;                    // dr of the gold band's upper edge  → the dominant edge sits on the arc
-const CORD_W = 17;                     // width of each of the two gold threads
+const CORD_W = 19;                     // width of each of the two gold threads
 const CORD_V = CORD_W * 2 - CORD_TOP - 1; // depth at which the silk emerges from under the gold
+const CLOTH_P = 9;                     // thread pitch of the ground cloth
 
 // places where the silk has been rubbed through: [s, v, radius, amount]
-const SPOTS = [[-455, 205, 92, 0.42], [560, 300, 100, 0.42], [150, 150, 50, 0.3], [-930, 160, 70, 0.36]];
-// old water stains (frame coords): [x, y, radius, aspect, strength]
-const STAINS = [[350, 850, 205, 1.22, 1.0], [1512, 968, 180, 0.9, 0.9], [1150, 792, 70, 1.1, 0.75]];
+const SPOTS = [[-560, 270, 84, 0.38], [650, 330, 104, 0.44], [150, 440, 52, 0.3], [-1040, 150, 70, 0.34]];
+// old water stains (frame coords): [x, y, radius, aspect, strength] — big soft tide-marks, mostly off the bottom edge
+const STAINS = [[300, 1040, 330, 1.25, 0.9], [1470, 800, 150, 1.12, 0.7]];
+// 退晕 skeins, by q (0 at the tile's rim → larger toward its hidden top)
+const BANDS = [[-9, '#ffdc6e'], [-0.1, '#f4bc2e'], [0.2, '#ec8422'], [0.36, '#d93a1a'], [0.92, '#ae2018'], [1.3, '#80140f']];
+const QB1 = 0.2, QB2 = 0.36, QB3 = 0.92; // the joins where one skein ends and the next begins
 
 let S = null;
 
@@ -63,7 +69,7 @@ const cl = (x, a, b) => (x < a ? a : x > b ? b : x);
 const QMIN = -0.45, QSPAN = 2.4, NL = 512;
 function silkLut() {
   // 退晕: stepped shading with a handful of skeins — each band one dye, the joins ragged (long-and-short stitch)
-  const bands = [[-9, '#ffd968'], [-0.08, '#f2bb32'], [0.25, '#ec8320'], [0.4, '#d83818'], [0.9, '#ae1f18'], [1.3, '#80140f']].map(([q, c]) => [q, L.parseColor(c)]);
+  const bands = BANDS.map(([q, c]) => [q, L.parseColor(c)]);
   const BL = 0.02;
   const lut = new Float32Array(NL * 3);
   for (let i = 0; i < NL; i++) {
@@ -94,37 +100,38 @@ function buildTiles(env) {
       const h = (n) => hash2(i * 31 + n * 977 + 5, k * 57 + n * 131 + 3);
       const sc0 = (i + (k & 1) * 0.5) * PITCH, vc0 = V0 + k * ROW;
       // the rows wander and the spacing breathes (slow drift) + every tile sits a little off its place
-      T[o] = sc0 + (vn(sc0 / 520 + 2.3, vc0 / 390 + 7.7) - 0.5) * 30 + (h(1) - 0.5) * 0.11 * PITCH;
-      T[o + 1] = vc0 + (vn(sc0 / 610 + 9.1, vc0 / 300 + 1.2) - 0.5) * 26 + (h(2) - 0.5) * 0.16 * ROW;
-      T[o + 2] = RAD * (0.97 + 0.17 * h(3));
+      T[o] = sc0 + (vn(sc0 / 640 + 2.3, vc0 / 480 + 7.7) - 0.5) * 30 * KS + (h(1) - 0.5) * 0.11 * PITCH;
+      T[o + 1] = vc0 + (vn(sc0 / 750 + 9.1, vc0 / 370 + 1.2) - 0.5) * 26 * KS + (h(2) - 0.5) * 0.16 * ROW;
+      T[o + 2] = RAD * (0.93 + 0.2 * h(3));
       T[o + 3] = RAD * (0.96 + 0.24 * h(4));
-      const tilt = (h(5) - 0.5) * 0.3 + (h(6) > 0.86 ? (h(7) - 0.5) * 0.34 : 0);
+      const tilt = (h(5) - 0.5) * 0.34 + (h(6) > 0.84 ? (h(7) - 0.5) * 0.36 : 0);
       T[o + 4] = Math.cos(tilt); T[o + 5] = Math.sin(tilt);
       T[o + 6] = (h(8) - 0.5) * 0.16;
-      T[o + 7] = (h(9) - 0.3) * 0.4;
+      T[o + 7] = (h(9) - 0.35) * 0.2;                                                         // 鱼鳞瓦 are half-rounds: barely pointed
       T[o + 8] = h(10);
       // dye lot: big soft zones (more gold up in the light, redder further down) + the odd tile from another skein
-      const zone = vn(sc0 / 700 + 4.4, vc0 / 430 + 3.3);
-      const base = (zone - 0.5) * 0.3 + k * 0.025 - 0.02;
+      // (the field stays vermilion: gold is a rim, never the body — two big values, blue above, red below)
+      const zone = vn(sc0 / 860 + 4.4, vc0 / 520 + 3.3);
+      const base = (zone - 0.5) * 0.18 + k * 0.02 + 0.04;
       const lot = h(11);
       let qs, rim;
-      if (lot < 0.12) { qs = base - 0.2 - 0.1 * h(12); rim = 0.8 + 0.2 * h(13); }             // mostly gold
-      else if (lot < 0.28) { qs = base + 0.22 + 0.2 * h(12); rim = 1.0 + 0.3 * h(13); }       // deep red, thin orange rim
-      else if (lot < 0.38) { qs = base + 0.06; rim = 0.55 + 0.2 * h(13); }                    // long orange passage
-      else { qs = base + (h(12) - 0.5) * 0.14; rim = 0.85 + 0.4 * h(13); }
+      if (lot < 0.09) { qs = base - 0.15 - 0.07 * h(12); rim = 0.85 + 0.2 * h(13); }          // a broad gold rim
+      else if (lot < 0.27) { qs = base + 0.16 + 0.2 * h(12); rim = 1.0 + 0.3 * h(13); }       // deep red, thin orange rim
+      else if (lot < 0.39) { qs = base + 0.05; rim = 0.6 + 0.2 * h(13); }                     // long orange passage
+      else { qs = base + (h(12) - 0.5) * 0.12; rim = 0.85 + 0.4 * h(13); }
       T[o + 9] = qs; T[o + 10] = rim;
-      T[o + 11] = h(14) > 0.94 ? 0.18 + 0.18 * h(15) : 0.08 * h(15) * h(15);                    // a few sun-bleached tiles
-      T[o + 12] = 0.9 + 0.2 * h(16);
-      T[o + 13] = (h(17) - 0.5) * 0.12;
+      T[o + 11] = h(14) > 0.94 ? 0.14 + 0.14 * h(15) : 0.07 * h(15) * h(15);                    // a few sun-bleached tiles
+      T[o + 12] = 0.89 + 0.22 * h(16);
+      T[o + 13] = (h(17) - 0.5) * 0.16;
       // satin is anisotropic: how much a tile shines depends on which way its stitches lean
-      T[o + 14] = cl(0.85 + tilt * 4.2 + (h(18) - 0.5) * 1.2, 0.08, 2.2);
-      T[o + 15] = 4.7 * (0.9 + 0.22 * h(19));
+      T[o + 14] = cl(0.8 + tilt * 4.4 + (h(18) - 0.5) * 1.5, 0.05, 2.2);
+      T[o + 15] = 6.3 * (0.88 + 0.26 * h(19));
       T[o + 16] = h(20) * 7;
       T[o + 17] = (h(21) - 0.3) * 0.22;
-      T[o + 18] = h(22) > 0.9 ? 0.22 + 0.12 * h(23) : h(22) < 0.08 ? 0.14 + 0.06 * h(23) : 0;
+      T[o + 18] = h(22) > 0.91 ? 0.2 + 0.12 * h(23) : h(22) < 0.07 ? 0.13 + 0.06 * h(23) : 0;
       T[o + 19] = 0.06 + 0.24 * h(24);
       T[o + 20] = 0.26 + 0.42 * h(25);
-      T[o + 21] = 5.4 + 2.8 * h(26);
+      T[o + 21] = 5.6 + 3.2 * h(26);
       T[o + 22] = h(27);
       T[o + 23] = 0.1 + 0.14 * h(28);
       T[o + 24] = h(29);
@@ -158,8 +165,8 @@ function buildSilk(env, TB) {
       const v = R * Math.log(R / rad);
 
       // ── which tile? rows are scanned from the top: the first tile that covers the point lies on top ──
-      const wobE = (vn(s * 0.021 + 7.7, v * 0.021 + 2.2) - 0.5) * 10;   // hand-cut edge
-      let kk = Math.ceil((v - V0 - 176) / ROW); if (kk < 0) kk = 0;
+      const wobE = (vn(s * 0.017 + 7.7, v * 0.017 + 2.2) - 0.5) * 11 + (vn(s * 0.07 + 1.3, v * 0.07 + 5.9) - 0.5) * 2.6;   // hand-worked edge
+      let kk = Math.ceil((v - V0 - REACH) / ROW); if (kk < 0) kk = 0;
       let to = -1, ap = 0, bp = 0, An = 0, Bn = 0, dd = 0;
       let du = v - CORD_V, dnx = 0, dny = 1;       // nearest edge lying over this point (starts with the gold cord)
       for (; kk < kN; kk++) {
@@ -192,8 +199,9 @@ function buildSilk(env, TB) {
       if (du < 0) du = 0;
       const dnl = Math.sqrt(dnx * dnx + dny * dny) || 1;
       const facing = Math.max(0, (dnx * LDS + dny * LDV) / dnl);
-      const ao = 1 - 0.5 * Math.exp(-du / 9);
-      const sh = 1 - 0.6 * sm(1 - du / (8 + 26 * facing));
+      // (embroidery has a millimetre of relief, not a centimetre: tight contact shadow, short cast shadow)
+      const ao = 1 - 0.42 * Math.exp(-du / 7);
+      const sh = 1 - 0.5 * sm(1 - du / (5 + 20 * facing));
       const lm = 1.08 - 0.18 * sm((Math.hypot((x - lx0) * 0.8, (y - ly0) * 1.25) - 280) / 1050);
 
       // ── wear: where the silk is rubbed away ──
@@ -222,10 +230,11 @@ function buildSilk(env, TB) {
       }
 
       // ── satin threads: parallel to the tile's own axis, a little wavy, fanning slightly; own gauge and phase ──
-      const wob = (vn(s * 0.021 + 3.1, v * 0.045 + 1.7) - 0.5) * 3.8 + (vn(s * 0.13, v * 0.021 + 9.2) - 0.5) * 1.3;
+      const wob = (vn(s * 0.017 + 3.1, v * 0.036 + 1.7) - 0.5) * 5 + (vn(s * 0.1, v * 0.017 + 9.2) - 0.5) * 1.7;
       const tj = (ap * (1 - T[to + 17] * (Bn - 0.2)) + wob) / T[to + 15] + T[to + 16];
       const j = Math.floor(tj), f = tj - j;
       const cyl = Math.sin(PI * f);
+      const prof = Math.sqrt(cyl);                 // flat floss lying snug: a broad crown and a tight dark crevice
       const jh = j + tid * 257;
       const hj1 = hash2(jh, 11), hj2 = hash2(jh, 29), hj3 = hash2(jh, 53);
 
@@ -233,7 +242,7 @@ function buildSilk(env, TB) {
       // (a gold crescent hugging the lower rim, tapering away toward the shoulders; the hidden top is darkest)
       const rr = bp > 0 ? Math.sqrt(An * An + Bn * Bn) : Math.abs(An);
       const q = 0.5 * (1 - rr) + 0.6 * (0.5 - 0.5 * Bn);
-      const qm = q * T[to + 10] + T[to + 9] + ((j & 1) ? 0.04 : -0.04) + (hj1 - 0.5) * 0.13;
+      const qm = q * T[to + 10] + T[to + 9] + ((j & 1) ? 0.05 : -0.05) + (hj1 - 0.5) * 0.16;
       let li = ((qm - QMIN) / QSPAN) * (NL - 1); li = li < 0 ? 0 : li > NL - 1 ? NL - 1 : li | 0;
       let cr = lut[li * 3], cg = lut[li * 3 + 1], cb = lut[li * 3 + 2];
       const fd = T[to + 11];
@@ -253,12 +262,12 @@ function buildSilk(env, TB) {
             // cotton padding laid across the stitch direction, tinted by the silk that used to cover it
             const pj = bp / 4.4 + 0.4 * Math.sin(ap * 0.05 + tid);
             const cp = Math.sin(PI * (pj - Math.floor(pj)));
-            const lp = (0.74 + 0.26 * cp) * (1 - 0.5 * sf) * ao * sh * lm * (0.9 + 0.2 * vn(s * 0.21, v * 0.21));
-            const pr = (208 * 0.66 + cr * 0.34) * lp, pg = (178 * 0.66 + cg * 0.34) * lp, pb = (138 * 0.66 + cb * 0.34) * lp;
+            const lp = (0.72 + 0.28 * cp) * (1 - 0.5 * sf) * ao * sh * lm * (0.88 + 0.2 * vn(s * 0.21, v * 0.21));
+            const pr = (204 * 0.58 + cr * 0.42) * lp, pg = (164 * 0.58 + cg * 0.42) * lp, pb = (118 * 0.58 + cb * 0.42) * lp;
             A[o] = B[o] = pr; A[o + 1] = B[o + 1] = pg; A[o + 2] = B[o + 2] = pb; A[o + 3] = B[o + 3] = 255;
           } else {
             // right through to the ground cloth: the same plain weave, sunk in shadow
-            const gx = x / 7, gy = y / 7, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
+            const gx = x / CLOTH_P, gy = y / CLOTH_P, ix = Math.floor(gx), iy = Math.floor(gy), fx = gx - ix, fy = gy - iy;
             const wv = ((ix + iy) & 1) ? Math.sin(PI * fx) * (0.55 + 0.45 * Math.sin(PI * fy)) : 0.22 + 0.3 * Math.sin(PI * fy);
             const gl = (0.26 + 0.42 * wv) * (1 - 0.55 * sf) * lm;
             A[o] = B[o] = 40 * gl; A[o + 1] = B[o + 1] = 74 * gl; A[o + 2] = B[o + 2] = 168 * gl; A[o + 3] = B[o + 3] = 255;
@@ -268,24 +277,33 @@ function buildSilk(env, TB) {
         cr += (236 - cr) * 0.2 * dull; cg += (200 - cg) * 0.2 * dull; cb += (164 - cb) * 0.2 * dull;
       }
 
-      const Dtop = 0.5 + 0.5 * sm(du / 75);                              // the tile dives under the row above
-      const Drim = 1 - 0.24 * sm(1 - (e - OWl) / 15);                    // and rolls over at its padded rim
-      const Dx = 1 - 0.12 * An;
-      const Tm = 0.62 + 0.44 * cyl;
-      const Bj = (0.9 + 0.2 * hj2) * (hj3 < 0.03 && vn(jh * 1.37, v * 0.02) > 0.5 ? 0.6 : 1);     // here and there a pulled thread
-      const Fn = (0.92 + 0.16 * vn(j * 5.37 + tid * 1.3, v * 0.26)) * (0.95 + 0.1 * hash2(X, Y));   // slubs in the floss + fibre grain
-      const lum = Dtop * Drim * Dx * Tm * Bj * Fn * ao * sh * lm * T[to + 12] * 1.08;
+      // the shading is in the dye (the skeins above), not airbrushed on: only a little form from the padding
+      const Dtop = 0.8 + 0.2 * sm(du / 60);                              // the tile dives under the row above
+      const Drim = 1 - 0.22 * sm(1 - (e - OWl) / 13);                    // and rolls over at its padded rim
+      const Dx = 1 - 0.1 * An;
+      const Tm = 0.5 + 0.52 * prof;
+      // where one skein ends and the next begins every stitch dives into the cloth: a tiny pit at the ragged join
+      const d1 = qm - QB1, d2 = qm - QB2, d3 = qm - QB3;
+      let dq = d1 < 0 ? -d1 : d1; const dq2 = d2 < 0 ? -d2 : d2, dq3 = d3 < 0 ? -d3 : d3;
+      if (dq2 < dq) dq = dq2; if (dq3 < dq) dq = dq3;
+      const dpx = (dq * 185) / T[to + 10];
+      const pit = dpx < 6 ? 1 - 0.3 * Math.exp(-dpx * dpx / 5) : 1;
+      const Bj = (0.83 + 0.34 * hj2) * (hj3 < 0.03 && vn(jh * 1.37, v * 0.02) > 0.5 ? 0.6 : 1);    // no two stitches alike; here and there a pulled thread
+      const Fs = 0.9 + 0.2 * vn(tj * 2.9 + tid * 3.1, bp * 0.03 + tid * 1.7);                       // the filaments inside each strand of floss
+      const Fn = (0.94 + 0.12 * vn(j * 5.37 + tid * 1.3, v * 0.2)) * (0.95 + 0.1 * hash2(X, Y));    // slubs + fibre grain
+      const lum = Dtop * Drim * Dx * Tm * pit * Bj * Fs * Fn * ao * sh * lm * T[to + 12] * 1.1;
 
-      // silk sheen: a broken band across the stitches — every tile has its own place, width, slant and strength
+      // silk sheen: a broken band across the stitches — every tile has its own place, width, slant and strength,
+      // every stitch catches it a little higher or lower, and it breaks into streaks that run with the thread
       const mixk = T[to + 24];
       const cA = q > 1.2 ? 1.2 : q, cB = 0.5 - 0.5 * Bn;
-      const tt = cB + (cA - cB) * mixk + T[to + 25] * An + (hj1 - 0.5) * 0.1 + (vn(s * 0.021 + 5.5, v * 0.021 + 1.1) - 0.5) * 0.34;
-      const patch = sm((vn(s * 0.026 + 9.9, v * 0.015 + 6.1) - 0.36) / 0.26);   // the band breaks into islands
-      const spb = cyl * cyl * ao * sh * lm * (0.8 + 0.3 * hj2) * T[to + 14] * patch * 1.15 * (1 - dull);
+      const tt = cB + (cA - cB) * mixk + T[to + 25] * An + (hj1 - 0.5) * 0.2 + (vn(ap * 0.028 + tid * 5.5, bp * 0.011 + 1.1) - 0.5) * 0.3;
+      const patch = sm((vn(ap * 0.045 + tid * 9.9, bp * 0.0105 + 6.1) - 0.3) / 0.3);   // the band breaks into islands
+      const spb = cyl * prof * ao * sh * lm * (0.55 + 0.9 * hj2) * T[to + 14] * patch * 1.45 * (1 - dull);
       const sw = T[to + 23], sp0 = T[to + 20];
       const ta = (tt - sp0) / sw, tb = (tt - sp0 - 0.15) / sw;
       const sA = Math.exp(-ta * ta) * spb, sB = Math.exp(-tb * tb) * spb;
-      const tr = cr * 0.62 + 255 * 0.38, tg = cg * 0.62 + 236 * 0.38, tb2 = cb * 0.62 + 190 * 0.38;
+      const tr = cr * 0.5 + 255 * 0.5, tg = cg * 0.5 + 238 * 0.5, tb2 = cb * 0.5 + 200 * 0.5;
 
       // shade toward orange-red, never toward olive
       const wsh = sm((0.92 - lum) / 0.55);
@@ -303,7 +321,7 @@ function buildSilk(env, TB) {
 // ───────────────────────── the ultramarine ground cloth ─────────────────────────
 function buildCloth(env) {
   const a = env.arc;
-  const p = 7, M = 16;
+  const p = CLOTH_P, M = 20;
   const CHL = Math.min(LH, Math.ceil(PAD + a.yAt(-PAD, 0) + 30));   // layer rows that can show cloth
   const weave = L.weaveTex(LW + M * 2, CHL + M * 2, { base: '#23479a', warp: '#4270cf', weft: '#142a68', seed: 's22w', pitch: p, slub: 0.36 });
   const wg = weave.getContext('2d');
@@ -463,7 +481,7 @@ function buildOver(env) {
       g.fillStyle = L.radial(g, cx, cy, R + bot, R + top, [[0, '#2a1802'], [0.13, '#6a4208'], [0.36, '#c48a12'], [0.58, '#f0b92a'], [0.73, '#fff3b8'], [0.85, '#d9a428'], [1, '#553604']]);
       a.pathBand(g, top, bot, -span, span); g.fill();
       // the gilt strip is wound spirally round a silk core → slanted wraps, each facet catching the light differently
-      const step = 5, n = Math.ceil((span * R) / step);
+      const step = 5.6, n = Math.ceil((span * R) / step);
       for (let i = -n; i <= n; i++) {
         const th = (i * step + c * 2.1) / R;
         const hsh = hash2(i * 3 + 17, c * 101 + 7);
@@ -509,10 +527,10 @@ function buildOver(env) {
     }
 
     // ── 4. couching stitches: short silk stitches that pin the pair of gold threads down (hand-spaced) ──
-    const SP = 48, nS = Math.ceil((span * R) / SP), midc = CORD_TOP - CORD_W, half = CORD_W + 4.2;
+    const SP = 55, nS = Math.ceil((span * R) / SP), midc = CORD_TOP - CORD_W, half = CORD_W + 4.4;
     for (let i = -nS; i <= nS; i++) {
-      const th = ((i + 0.37) * SP + rc.range(-7, 7)) / R;
-      const tilt = 0.1 + rc.range(-0.16, 0.16), wS = 7.6 + rc.range(-1.4, 1.6), kind = rc();
+      const th = ((i + 0.37) * SP + rc.range(-9, 9)) / R;
+      const tilt = 0.1 + rc.range(-0.18, 0.18), wS = 8.4 + rc.range(-1.6, 1.8), kind = rc();
       if (kind < 0.05) continue;                                   // one has come undone
       const cols = kind > 0.8 ? ['#8a3c0c', '#f08a2c', '#ffc98a', '#e8742a', '#6a2c08'] : kind > 0.68 ? ['#6a140e', '#c23a26', '#f08c70', '#aa2a1c', '#4f0d09'] : ['#7c150e', '#e1492d', '#ff9a73', '#c8321f', '#5f100b'];
       a.at(g, th, midc, () => {
@@ -563,14 +581,15 @@ function buildStains() {
     const im = new ImageData(w, h), d = im.data, sd = n * 37.7;
     for (let py = 0; py < h; py++) for (let px = 0; px < w; px++) {
       const wx = x0 - hw + px, wy = y0 - hh + py;
-      const dn = Math.hypot((wx - x0) / asp, wy - y0) / r + (vn(wx / 120 + sd, wy / 120 + 3.3) - 0.5) * 0.9 + (vn(wx / 38 + 1.1, wy / 38 + sd) - 0.5) * 0.3;
-      if (dn > 1.03) continue;
-      const t1 = dn - 0.975, rim = t1 > 0 ? Math.exp(-(t1 * t1) / 0.00016) : Math.exp(-(t1 * t1) / 0.0022);   // crisp outside, bleeding inward
-      const t2 = dn - 0.7, rim2 = t2 > 0 ? Math.exp(-(t2 * t2) / 0.00012) : Math.exp(-(t2 * t2) / 0.0012);    // an older, fainter line
-      const inside = dn < 0.975 ? 0.45 + 0.55 * sm((dn - 0.25) / 0.7) : 0;
-      const al = str * (0.17 * inside + 0.6 * rim + 0.2 * rim2);
+      const dn = Math.hypot((wx - x0) / asp, wy - y0) / r + (vn(wx / 190 + sd, wy / 190 + 3.3) - 0.5) * 0.5 + (vn(wx / 46 + 1.1, wy / 46 + sd) - 0.5) * 0.1;
+      if (dn > 1.08) continue;
+      // a tide-mark is a soft brown line where the dirty water stopped: firm on the outside, bleeding a long way inward
+      const t1 = dn - 0.975, rim = t1 > 0 ? Math.exp(-(t1 * t1) / 0.0005) : Math.exp(-(t1 * t1) / 0.007);
+      const t2 = dn - 0.66, rim2 = t2 > 0 ? Math.exp(-(t2 * t2) / 0.0006) : Math.exp(-(t2 * t2) / 0.005);     // an older, fainter one
+      const inside = dn < 0.975 ? 0.4 + 0.6 * sm((dn - 0.2) / 0.75) : 0;
+      const al = str * (0.2 * inside + 0.36 * rim + 0.1 * rim2) * (0.75 + 0.5 * vn(wx / 23 + sd, wy / 23));
       const o = (py * w + px) * 4;
-      d[o] = 96; d[o + 1] = 64; d[o + 2] = 44; d[o + 3] = Math.min(255, al * 255);
+      d[o] = 128; d[o + 1] = 74; d[o + 2] = 46; d[o + 3] = Math.min(255, al * 255);
     }
     const c = L.makeCanvas(w, h); c.getContext('2d').putImageData(im, 0, 0);
     return { c, x: x0 - hw, y: y0 - hh };
@@ -581,7 +600,7 @@ function stainOn(layer, arc, stains) {
   g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'multiply';
   for (const st of stains) {   // full strength on the embroidery, only a ghost of it on the cloth
     g.save(); g.translate(PAD, PAD); arc.clipBelow(g, CORD_TOP); g.drawImage(st.c, st.x, st.y); g.restore();
-    g.save(); g.translate(PAD, PAD); arc.clipAbove(g, CORD_TOP); g.globalAlpha = 0.45; g.drawImage(st.c, st.x, st.y); g.restore();
+    g.save(); g.translate(PAD, PAD); arc.clipAbove(g, CORD_TOP); g.globalAlpha = 0.4; g.drawImage(st.c, st.x, st.y); g.restore();
   }
   g.restore();
 }
@@ -606,8 +625,8 @@ function dof(layer, env) {
     g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, LW, LH);
     g.restore();
   };
-  pass(1.8, 430, 800);
-  pass(4.6, 760, 1250);
+  pass(1.7, 470, 860);
+  pass(4.4, 800, 1300);
 }
 
 export default {
@@ -624,7 +643,7 @@ export default {
     const compose = (silk) => {
       const c = L.makeLayer(PAD, (g) => {
         g.drawImage(cloth, -PAD, -PAD);
-        g.filter = 'blur(0.6px)'; g.drawImage(silk, -PAD, -PAD); g.filter = 'none';
+        g.filter = 'blur(0.5px)'; g.drawImage(silk, -PAD, -PAD); g.filter = 'none';
         g.drawImage(over, -PAD, -PAD);
       });
       stainOn(c, env.arc, stains);

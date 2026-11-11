@@ -115,7 +115,7 @@ function buildWalnut(env) {
       const m1 = nB.n2(pu / 6.5 + 11, pv / 6.5), m2 = nA.n2(pu / 17 + 50, pv / 17 - 20), m3 = nC.n2(pu / 44 - 7, pv / 44 + 13);
       const pit = 1 - sstep(0.15, 0.7, wall);                             // furrow floors are rough and dusty, the tops glass-smooth
       // the polished skin is never dead flat: slow swells and knobs break the reflections up into beads
-      let h = AR * net + SEAM_H * sm + ((0.04 + 1.1 * pit) * m1 + (0.1 + 1.3 * pit) * m2 + 0.4 * m3 + 0.45 * knob) * (1 - 0.7 * sm) * fine;
+      let h = AR * net + SEAM_H * sm + ((0.3 + 1.1 * pit) * m1 + (0.42 + 1.3 * pit) * m2 + 0.55 * m3 + 0.45 * knob) * (1 - 0.7 * sm) * fine;
       // the hairline where the two half-shells close, wandering along the top of the keel
       if (ds > -16 && ds < 16) {
         const st = R * Math.atan2(pnx * SB[0] + pny * SB[1] + pnz * SB[2], pnx * SA[0] + pny * SA[1] + pnz * SA[2]);
@@ -128,7 +128,7 @@ function buildWalnut(env) {
 
   // ── 2) shade ──
   // intensity → colour: pit-floor brown-black → jujube red → red-brown on the lit flanks. A lighter ramp for the keel and worn patches.
-  const RED = lut([[0, '#0e0302'], [0.11, '#240906'], [0.24, '#43100a'], [0.4, '#6a180f'], [0.56, '#8e2718'], [0.7, '#a8301a'], [0.81, '#bf4a28'], [0.9, '#cf6a3c'], [1, '#e8935f']]);
+  const RED = lut([[0, '#120504'], [0.11, '#2a0d08'], [0.24, '#4a150c'], [0.4, '#6e1f12'], [0.56, '#8c2c18'], [0.7, '#a23a1e'], [0.81, '#b44d2a'], [0.9, '#c26439'], [1, '#d68a5c']]);
   const ORG = lut([[0, '#140503'], [0.11, '#2e0f08'], [0.24, '#531a0d'], [0.4, '#812b14'], [0.56, '#a8421e'], [0.72, '#c8643a'], [0.86, '#dd8450'], [1, '#f2ad7c']]);
   const K = norm3(-0.6, 0.68, 0.42);                 // key light: upper left, a little toward the lens
   const HG = norm3(-0.2, 0.86, 0.47);                // where the lamp's reflection would sit on a smooth ball: glints are strongest round it
@@ -173,13 +173,13 @@ function buildWalnut(env) {
       const env2 = 0.4 + 0.6 * sstep(0.6, 0.97, nx * HG[0] + ny * HG[1] + nz * HG[2]);
       const gloss = (0.12 + 0.88 * top) * lit * sstep(0.02, 0.1, nz) * env2;
       const dS = pn * cTS + pt * sTS;
-      if (dS > 0.6) { const s2 = dS * dS, s4 = s2 * s2, s8 = s4 * s4, sh = s8 * s8 * s8 * 0.17 * gloss; cr += 255 * sh; cg += 152 * sh; cb += 98 * sh; }
+      if (dS > 0.6) { const s2 = dS * dS, s4 = s2 * s2, s8 = s4 * s4, sh = s8 * s8 * s8 * 0.085 * gloss; cr += 255 * sh; cg += 152 * sh; cb += 98 * sh; }
       const o = k * 4;
       d[o] = cr; d[o + 1] = cg; d[o + 2] = cb; d[o + 3] = 255;
       // … and the pin-point glints on top of it, baked for two positions of the lamp
       const dA = pn * cTA + pt * sTA, dB = pn * cTB + pt * sTB;
-      if (dA > 0.94) { const s = Math.pow(dA, 150) * 1.35 * gloss; da[o] = 255 * s; da[o + 1] = 217 * s; da[o + 2] = 176 * s; da[o + 3] = 255; }
-      if (dB > 0.94) { const s = Math.pow(dB, 150) * 1.35 * gloss; db[o] = 255 * s; db[o + 1] = 217 * s; db[o + 2] = 176 * s; db[o + 3] = 255; }
+      if (dA > 0.94) { const s = Math.pow(dA, 150) * 0.8 * gloss; da[o] = 255 * s; da[o + 1] = 217 * s; da[o + 2] = 176 * s; da[o + 3] = 255; }
+      if (dB > 0.94) { const s = Math.pow(dB, 150) * 0.8 * gloss; db[o] = 255 * s; db[o + 1] = 217 * s; db[o + 2] = 176 * s; db[o + 3] = 255; }
     }
   }
   const toCanvas = (img) => { const c = L.makeCanvas(RW, RH); c.getContext('2d').putImageData(img, 0, 0); return c; };

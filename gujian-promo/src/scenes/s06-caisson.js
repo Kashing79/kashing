@@ -1,7 +1,8 @@
 // s06 — 藻井 (macro). The lens is pushed right up against the gilt mouth-ring of a round caisson: the arc is the top
 // edge of that ring. Below it, ONE painted band fills the frame — a ring of big lotus-petal lappets pointing into the
-// well, blue and green by turns (青绿相间), each with its stepped 叠晕 tints, a raised gilt outline and a raised gilt
-// ruyi head (沥粉贴金). A second row of petals shows between their tips, already in shadow and out of focus.
+// well, blue and green by turns (青绿相间), each with its stepped 叠晕 tints, a fat raised gilt outline and a raised
+// gilt ruyi head holding a pearl (沥粉贴金). A second row of petals shows between their tips, and behind everything
+// the ground itself is gold leaf, so the bottom of the frame glows amber instead of falling into a hole.
 // Above the arc: nothing, black.
 // Recipe: paint pigment colour + a height map + a "where is the gold leaf" mask side by side → shade every pixel
 // (matte pigment with cast shadows from the raised lines; gold as rough metal that also mirrors the paint next to it;
@@ -14,16 +15,16 @@ const LW = W + PAD * 2, LH = H + PAD * 2;
 let S = null;
 
 const GOLD_BASE = [214, 158, 46];
-const BLUE = { top: '#2038c0', core: '#111f8e', mid: '#3050dc', lit: '#7d9bf8', wht: '#f3f6ff' };
-const GREEN = { top: '#0c9a6a', core: '#06694a', mid: '#18b684', lit: '#74e8b8', wht: '#f0fff8' };
+const BLUE = { top: '#2440cc', core: '#13249a', mid: '#3458e4', lit: '#86a4fa', wht: '#f3f6ff' };
+const GREEN = { top: '#0ea673', core: '#077552', mid: '#1cc08c', lit: '#7cecc0', wht: '#f0fff8' };
 
 // depths, px inward from the arc
-const RIM_A = 38, RIM_G = 43, RIM_B = 57;   // mouth-ring: big half-round 0→38, scribed groove →43, small bead →57
-const D0 = 46;                              // the petals tuck in under the ring
-const PITCH = 372, LEN_F = 318, LEN_B = 452;
-const GW = 12;                              // width of the raised outline
-const LEVELS = 29;                          // height-map grey levels per px of relief
-const HV_GROUND = 26, HV_BACK = 44, HV_FRONT = 64;
+const RIM_A = 50, RIM_G = 56, RIM_B = 74;   // mouth-ring: big half-round 0→50, scribed groove →56, small bead →74
+const D0 = 62;                              // the petals tuck in under the ring
+const PITCH = 436, LEN_F = 368, LEN_B = 506;
+const GW = 17;                              // width of the raised outline
+const LEVELS = 24;                          // height-map grey levels per px of relief
+const HV_GROUND = 16, HV_BACK = 40, HV_FRONT = 60;
 
 // key light: from the upper left, a little in front of the surface (screen coords: x right, y down, z toward the lens)
 const LX = -0.36, LY = -0.64, LZ = 0.68;
@@ -34,10 +35,33 @@ const poly = (c, P, close = true) => { c.beginPath(); c.moveTo(P[0][0], P[0][1])
 
 /** closed outline of one lotus-petal lappet in its own frame: x across, y from the base (0) to the ogee tip (len) */
 function petalLocal(w, len, lean) {
-  const side = L.smoothPath([[-0.5, -0.12], [-0.502, 0], [-0.513, 0.22], [-0.482, 0.46], [-0.372, 0.69], [-0.2, 0.85], [-0.075, 0.93], [0, 1]].map(([x, y]) => [x * w, y * len]), 5);
+  const side = L.smoothPath([[-0.5, -0.14], [-0.503, 0], [-0.516, 0.2], [-0.492, 0.43], [-0.4, 0.65], [-0.235, 0.815], [-0.088, 0.915], [-0.03, 0.964], [0, 1]].map(([x, y]) => [x * w, y * len]), 5);
   const sk = (x, y) => [x + lean * Math.pow(Math.max(0, y / len), 2), y];
   const out = side.map(([x, y]) => sk(x, y));
   for (let i = side.length - 2; i >= 0; i--) out.push(sk(-side[i][0], side[i][1]));
+  return out;
+}
+
+/** craquelure of the gesso: the edges of a warped cell mosaic, as a padded layer (dark lines on transparent) */
+function crackle(env, seed, scale, width) {
+  const a = env.arc, res = 0.6;
+  const cw = Math.round(LW * res), ch = Math.round(LH * res);
+  const nz = L.makeNoise(seed), img = new ImageData(cw, ch), d = img.data;
+  const yTop = Math.floor((a.crestY + PAD) * res) - 2;
+  for (let y = Math.max(0, yTop); y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const px = x / res - PAD, py = y / res - PAD;
+      const u = px / scale + 0.5 * nz.n2(px / (scale * 2.6), py / (scale * 2.6)), v = py / scale + 0.5 * nz.n2(px / (scale * 2.6) + 40, py / (scale * 2.6) - 17);
+      const e = nz.cell(u, v).edge * scale;                          // ≈ px from the nearest cell wall (×2)
+      const wv = width * (0.55 + 0.6 * (0.5 + 0.5 * nz.n2(px / 150, py / 150 + 9)));
+      if (e > wv + 1.5) continue;
+      const k = (y * cw + x) * 4;
+      d[k] = 3; d[k + 1] = 4; d[k + 2] = 10; d[k + 3] = 255 * L.clamp((wv + 1.5 - e) / 1.5);
+    }
+  }
+  const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
+  const out = L.makeCanvas(LW, LH), og = out.getContext('2d');
+  og.imageSmoothingQuality = 'high'; og.drawImage(small, 0, 0, LW, LH);
   return out;
 }
 
@@ -47,126 +71,163 @@ function paint(env) {
   const T = a.span(PAD + 80);
   const alb = L.makeLayer(PAD), hl = L.makeLayer(PAD), gm = L.makeLayer(PAD);
   const g = alb.getContext('2d'), h = hl.getContext('2d'), m = gm.getContext('2d');
-  const r = L.rng('s06-macro'), nz = L.makeNoise('s06-hand');
+  const r = L.rng('s06-macro-b'), nz = L.makeNoise('s06-hand');
   const full = (c) => c.fillRect(-PAD, -PAD, LW, LH);
-  const Rref = a.R - D0 - 110;
-  const dth = PITCH / Rref, n = Math.ceil(T / dth) + 1, th0 = 0.36 * dth;
-  /** petal frame → picture, following the ring; `wob` adds the wander of a hand-drawn line */
+  const gold = `rgb(${GOLD_BASE})`;
+  const Rref = a.R - D0 - 130;
+  const dth = PITCH / Rref, n = Math.ceil(T / dth) + 1, th0 = 0.37 * dth;
+  /** petal frame → picture, following the ring; `amp` adds the wander of a hand-drawn line */
   const warp = (P, thc, amp = 0, s = 0) => P.map(([x, y], i) => {
-    const wx = amp ? amp * nz.n2(i * 0.05 + s, s * 1.7) : 0, wy = amp ? amp * nz.n2(i * 0.05 - s * 2.1, 9.3 + s) : 0;
+    const wx = amp ? amp * nz.n2(i * 0.045 + s, s * 1.7) : 0, wy = amp ? amp * nz.n2(i * 0.045 - s * 2.1, 9.3 + s) : 0;
     const q = a.pt(thc + (x + wx) / Rref, -(D0 + y + wy));
     return [q.x, q.y];
   });
+  /** gold leaf is laid in overlapping squares: each a slightly different tone, with a faint seam */
+  const leaf = (d0, d1, lo, hi, seam) => {
+    g.save(); a.clipBand(g, -d0, -d1, -T, T);
+    for (let th = -T + r.range(0, 0.02); th < T;) {
+      const step = r.range(lo, hi) / a.R, tone = r.range(-0.11, 0.06);
+      a.pathBand(g, -d0, -d1, th, th + step + 0.001); g.fillStyle = tone < 0 ? L.rgba('#3a1a02', -tone * 2) : L.rgba('#fff3c0', tone * 2); g.fill();
+      const p0 = a.pt(th, -d0), p1 = a.pt(th + r.range(-0.002, 0.002), -d1);
+      g.strokeStyle = `rgba(70,34,4,${seam})`; g.lineWidth = 1.2; g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke();
+      th += step;
+    }
+    g.restore();
+  };
 
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 560, a.R, [[0, '#010207'], [0.5, '#03061a'], [1, '#060b2c']]); full(g);
+  // ── the ground behind the petals is gilded too (leaf over a slightly uneven gesso) ──
+  g.fillStyle = gold; full(g);
+  m.fillStyle = '#fff'; full(m);
   h.fillStyle = grey(HV_GROUND); full(h);
+  for (let d = RIM_B - 6; d < 760; d += 112) leaf(d, d + 113, 90, 136, 0.34);
+  h.save(); h.globalCompositeOperation = 'lighter';
+  h.drawImage(L.noiseLayer(PAD, { seed: 's06dent', scale: 30, octaves: 2, res: 0.35, contrast: 1.5, ramp: [[0, '#000'], [1, grey(26)]] }), -PAD, -PAD);
+  h.restore();
 
-  /** a raised gilt line (沥粉): round in section, gold-leafed */
+  /** a raised gilt line (沥粉): a slumped bead in section, gold-leafed */
   const tube = (P, w, close, hv) => {
     m.lineJoin = m.lineCap = 'round'; m.strokeStyle = '#fff'; m.lineWidth = w; poly(m, P, close); m.stroke();
-    g.save(); g.lineJoin = g.lineCap = 'round'; g.strokeStyle = `rgb(${GOLD_BASE})`; g.lineWidth = w + 0.6; poly(g, P, close); g.stroke(); g.restore();
+    g.save(); g.lineJoin = g.lineCap = 'round'; g.strokeStyle = gold; g.lineWidth = w + 0.6; poly(g, P, close); g.stroke(); g.restore();
     h.save(); h.lineJoin = h.lineCap = 'round'; h.globalCompositeOperation = 'lighten';
-    const pk = LEVELS * w * 0.5;
-    for (let k = 0; k < 5; k++) {
-      const rin = 1 - (k + 0.5) / 5.2;                 // normalised distance from the centre line at this stroke's edge
-      h.lineWidth = w * (1 - k / 5); h.strokeStyle = grey(hv + pk * Math.sqrt(1 - rin * rin)); poly(h, P, close); h.stroke();
+    const pk = LEVELS * w * 0.42, NS = 7;
+    for (let k = 0; k < NS; k++) {
+      const rin = 1 - (k + 0.5) / (NS + 0.2);            // normalised distance from the centre line at this stroke's edge
+      h.lineWidth = w * (1 - k / NS); h.strokeStyle = grey(hv + pk * Math.sqrt(1 - rin * rin)); poly(h, P, close); h.stroke();
     }
     h.restore();
   };
+  /** a drop of the same paste: where the bag paused, where a line starts or stops, or a pearl */
+  const knot = (x, y, rad, hv, lift = 0.72) => {
+    m.fillStyle = '#fff'; m.beginPath(); m.arc(x, y, rad, 0, L.TAU); m.fill();
+    g.fillStyle = gold; g.beginPath(); g.arc(x, y, rad + 0.3, 0, L.TAU); g.fill();
+    h.save(); h.globalCompositeOperation = 'lighten';
+    const pk = Math.min(LEVELS * rad * lift, 250 - hv), NS = 8;
+    for (let k = 0; k < NS; k++) {
+      const rin = 1 - (k + 0.5) / (NS + 0.2);
+      h.fillStyle = grey(hv + pk * Math.sqrt(1 - rin * rin)); h.beginPath(); h.arc(x, y, rad * (1 - k / NS), 0, L.TAU); h.fill();
+    }
+    h.restore();
+  };
+  const knots = (P, w, hv, count) => {
+    for (let k = 0; k < count; k++) { const q = P[Math.floor(r.range(0.04, 0.96) * P.length)]; knot(q[0] + r.range(-1, 1), q[1] + r.range(-1, 1), w * r.range(0.56, 0.7), hv, 0.62); }
+  };
   /** one lappet: deep core, then mid / light / white 叠晕 steps toward the edge, then the gilt outline */
-  const petal = (thc, w, len, lean, pal, o) => {
+  const petal = (thc, w, len, lean, pal0, o) => {
+    const tn = o.tone, pal = { top: L.shade(pal0.top, tn), core: L.shade(pal0.core, tn), mid: L.shade(pal0.mid, tn * 0.8), lit: L.shade(pal0.lit, tn * 0.6), wht: pal0.wht };
     const loc = petalLocal(w, len, lean);
-    const P = warp(loc, thc, 1.3, o.seed);
+    const P = warp(loc, thc, 2.2, o.seed);
     const c0 = a.pt(thc, -(D0 + len * 0.42));
     g.save();
-    if (o.shadow) { g.shadowColor = 'rgba(0,0,10,0.9)'; g.shadowBlur = 46; g.shadowOffsetX = 15; g.shadowOffsetY = 25; }
+    g.shadowColor = `rgba(0,0,10,${o.shA})`; g.shadowBlur = o.shB; g.shadowOffsetX = o.shB * 0.34; g.shadowOffsetY = o.shB * 0.56;
     poly(g, P);
     const tA = a.pt(thc, -D0), tB = a.pt(thc, -(D0 + len));
-    g.fillStyle = L.linear(g, tA.x, tA.y, tB.x, tB.y, [[0, pal.top], [0.55, pal.core], [1, L.shade(pal.core, -0.18)]]); g.fill();
+    g.fillStyle = L.linear(g, tA.x, tA.y, tB.x, tB.y, [[0, pal.top], [0.5, pal.core], [1, L.shade(pal.core, -0.14)]]); g.fill();
     g.restore();
     g.save(); poly(g, P); g.clip(); g.lineJoin = 'round';
     const b0 = GW / 2 + o.ww, b1 = b0 + o.wl, b2 = b1 + o.wm;
-    poly(g, warp(loc, thc, 2.4, o.seed + 3.1)); g.strokeStyle = pal.mid; g.lineWidth = b2 * 2; g.stroke();
-    poly(g, warp(loc, thc, 1.9, o.seed + 5.7)); g.strokeStyle = pal.lit; g.lineWidth = b1 * 2; g.stroke();
-    poly(g, warp(loc, thc, 1.4, o.seed + 8.2)); g.strokeStyle = pal.wht; g.lineWidth = b0 * 2; g.stroke();
+    poly(g, warp(loc, thc, 3.6, o.seed + 3.1)); g.strokeStyle = pal.mid; g.lineWidth = b2 * 2; g.stroke();
+    poly(g, warp(loc, thc, 3.0, o.seed + 5.7)); g.strokeStyle = pal.lit; g.lineWidth = b1 * 2; g.stroke();
+    poly(g, warp(loc, thc, 2.4, o.seed + 8.2)); g.strokeStyle = pal.wht; g.lineWidth = b0 * 2; g.stroke();
     // the petal is carved in low relief: its upper-left shoulder takes the light, the lower right falls away
     const R0 = Math.max(w, len) * 0.62;
     g.globalCompositeOperation = 'soft-light';
     g.fillStyle = L.linear(g, c0.x - 0.56 * R0, c0.y - 0.83 * R0, c0.x + 0.56 * R0, c0.y + 0.83 * R0,
-      [[0, 'rgba(255,255,255,0.5)'], [0.42, 'rgba(255,255,255,0)'], [0.55, 'rgba(0,0,16,0)'], [1, 'rgba(0,0,16,0.62)']]);
+      [[0, 'rgba(255,255,255,0.46)'], [0.42, 'rgba(255,255,255,0)'], [0.55, 'rgba(0,0,16,0)'], [1, 'rgba(0,0,16,0.5)']]);
     full(g);
+    if (o.dim) { g.globalCompositeOperation = 'source-over'; g.fillStyle = `rgba(1,2,14,${o.dim})`; full(g); }
     g.restore();
     poly(h, P); h.fillStyle = grey(o.hv); h.fill();
     m.save(); m.globalCompositeOperation = 'destination-out'; poly(m, P); m.fill(); m.restore();
-    tube(P, GW, true, o.hv);
+    tube(P, o.gw, true, o.hv);
+    knots(P, o.gw, o.hv, o.kn);
   };
-  /** the gilt cloud scroll inside a petal (勾云): a big volute unwinding into a small counter-wound one */
-  const scroll = (thc, ym, sx, o, hv) => {
-    const pts = []; let x = 0, y = 0, th = 0;
-    const N1 = 72, df1 = o.t1 * L.TAU / N1;
-    for (let k = 0; k <= N1; k++) { const rad = L.lerp(4.5, o.R1, Math.pow(k / N1, 0.8)); pts.push([x, y]); th += df1; x += Math.cos(th) * rad * df1; y += Math.sin(th) * rad * df1; }
-    const NT = 14, ds = o.lt / NT;
-    for (let k = 0; k < NT; k++) { const kap = L.lerp(1 / o.R1, -1 / o.R2, L.smooth((k + 0.5) / NT)); pts.push([x, y]); th += kap * ds; x += Math.cos(th) * ds; y += Math.sin(th) * ds; }
-    const N2 = 58, df2 = o.t2 * L.TAU / N2;
-    for (let k = 0; k <= N2; k++) { const rad = L.lerp(o.R2, 4, Math.pow(k / N2, 1.15)); pts.push([x, y]); th -= df2; x += Math.cos(th) * rad * df2; y += Math.sin(th) * rad * df2; }
-    // stand it along the petal's axis: big volute toward the ring, small one toward the tip
-    const p0 = pts[0], p1 = pts[pts.length - 1];
-    const ang = Math.PI / 2 - o.tilt - Math.atan2(p1[1] - p0[1], p1[0] - p0[0]), cs = Math.cos(ang), sn = Math.sin(ang);
-    const mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2;
-    const P = pts.map(([px, py]) => { const qx = px - mx, qy = py - my; return [sx * (qx * cs - qy * sn), ym + qx * sn + qy * cs]; });
-    tube(warp(P, thc, 1.2, sx * 2.3 + thc * 40), 10, false, hv);
+  /** the gilt ruyi head inside a petal (如意云头): an ogee point toward the tip, two volutes curling in toward the ring, a pearl between */
+  const ruyi = (thc, yTip, k, o, hv) => {
+    const half = (sgn, q) => {
+      const pts = []; let x = 0, y = 0, ph = L.deg(-73);
+      const N1 = 24, ds = 106 * k * q.l / N1, d1 = L.deg(59) / N1;
+      for (let i = 0; i < N1; i++) { pts.push([x, y]); ph += d1; x += Math.cos(ph) * ds; y += Math.sin(ph) * ds; }
+      const N2 = 96, d2 = q.t * L.TAU / N2, R1 = 51 * k * q.r;
+      for (let i = 0; i <= N2; i++) { const rad = L.lerp(R1, 5, Math.pow(i / N2, 0.8)); pts.push([x, y]); ph -= d2; x += Math.cos(ph) * rad * d2; y += Math.sin(ph) * rad * d2; }
+      const cs = Math.cos(o.tilt), sn = Math.sin(o.tilt);
+      return pts.map(([px, py]) => { const qx = sgn * px; return [o.dx + qx * cs - py * sn, yTip + qx * sn + py * cs]; });
+    };
+    const A = half(1, o.a), B = half(-1, o.b);
+    const P = warp(B.reverse().concat(A.slice(1)), thc, 1.7, o.seed);
+    tube(P, o.w, false, hv);
+    const e0 = P[0], e1 = P[P.length - 1], tip = P[B.length - 1];
+    knot(e0[0], e0[1], o.w * 0.78, hv); knot(e1[0], e1[1], o.w * 0.74, hv);
+    knot(tip[0], tip[1], o.w * 0.6, hv, 0.6);
+    const pr = warp([[o.dx + r.range(-3, 3), yTip - 64 * k + r.range(-4, 4)]], thc)[0];
+    knot(pr[0], pr[1], 15.5 * k * r.range(0.92, 1.08), hv, 0.8);
   };
 
   // ── back row of petals (their tips show between the front ones) ──
   for (let j = -n; j <= n; j++) {
     const even = ((j % 2) + 2) % 2 === 0;
-    petal(th0 + (j + 0.5) * dth, (PITCH - 14) * r.range(0.975, 1.02), LEN_B * r.range(0.97, 1.03), r.range(-9, 9), even ? GREEN : BLUE,
-      { seed: 40 + j * 1.7, ww: 6.5, wl: r.range(13, 16), wm: r.range(20, 25), hv: HV_BACK, shadow: false });
+    petal(th0 + (j + 0.5) * dth + r.range(-6, 6) / Rref, (PITCH - 16) * r.range(0.96, 1.03), LEN_B * r.range(0.96, 1.04), r.range(-12, 12), even ? GREEN : BLUE,
+      { seed: 40 + j * 1.7, tone: r.range(-0.07, 0.05), ww: r.range(7, 8.5), wl: r.range(15, 20), wm: r.range(24, 31), hv: HV_BACK, gw: GW - 2, kn: 3, shA: 0.8, shB: 42, dim: 0.12 });
   }
   // ── front row ──
   for (let i = -n; i <= n; i++) {
     const even = ((i % 2) + 2) % 2 === 0;
-    const thc = th0 + i * dth, w = (PITCH - 9) * r.range(0.98, 1.012), len = LEN_F * r.range(0.965, 1.035);
-    petal(thc, w, len, r.range(-7, 7), even ? BLUE : GREEN,
-      { seed: i * 2.3, ww: r.range(6, 7.4), wl: r.range(13, 17), wm: r.range(20, 26), hv: HV_FRONT, shadow: true });
-    scroll(thc + r.range(-4, 4) / Rref, len * r.range(0.44, 0.47), even ? 1 : -1,
-      { R1: r.range(52, 58), R2: r.range(30, 35), lt: r.range(36, 46), t1: r.range(1.5, 1.66), t2: r.range(1.25, 1.42), tilt: r.range(0.1, 0.22) }, HV_FRONT);
+    const thc = th0 + i * dth + r.range(-7, 7) / Rref, w = (PITCH - 10) * r.range(0.955, 1.02), len = LEN_F * r.range(0.95, 1.045), k = w / PITCH;
+    petal(thc, w, len, r.range(-10, 10), even ? BLUE : GREEN,
+      { seed: i * 2.3, tone: r.range(-0.06, 0.06), ww: r.range(7.5, 9.5), wl: r.range(16, 21), wm: r.range(25, 33), hv: HV_FRONT, gw: GW * r.range(0.94, 1.06), kn: 4, shA: 0.92, shB: 52, dim: 0 });
+    const q = () => ({ l: r.range(0.94, 1.06), r: r.range(0.93, 1.07), t: r.range(1.3, 1.46) });
+    ruyi(thc, len * r.range(0.775, 0.8), k, { a: q(), b: q(), dx: r.range(-5, 5), tilt: r.range(-0.05, 0.05), w: 14 * r.range(0.93, 1.07), seed: i * 3.7 + 11 }, HV_FRONT);
   }
 
   // ── the mouth-ring: gold-leaf ground; the moulding itself is modelled in the shader ──
-  g.fillStyle = `rgb(${GOLD_BASE})`; a.pathBand(g, 3, -RIM_B, -T, T); g.fill();
-  // leaf is laid in overlapping squares: each a slightly different tone, with a faint seam
-  g.save(); a.clipBand(g, 3, -RIM_B, -T, T);
-  for (let th = -T; th < T;) {
-    const step = r.range(96, 150) / a.R, tone = r.range(-0.11, 0.06);
-    a.pathBand(g, 3, -RIM_B, th, th + step + 0.001); g.fillStyle = tone < 0 ? L.rgba('#3a1a02', -tone * 2) : L.rgba('#fff3c0', tone * 2); g.fill();
-    const p0 = a.pt(th, 3), p1 = a.pt(th + r.range(-0.002, 0.002), -RIM_B);
-    g.strokeStyle = 'rgba(70,34,4,0.4)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke();
-    th += step;
-  }
-  g.restore();
+  g.fillStyle = gold; a.pathBand(g, 3, -RIM_B, -T, T); g.fill();
+  m.fillStyle = '#fff'; a.pathBand(m, 3, -RIM_B, -T, T); m.fill();
+  leaf(-3, RIM_B, 104, 168, 0.4);
   // the ring overhangs the petals: a band of shadow under it
   g.save(); g.globalCompositeOperation = 'multiply';
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - RIM_B - 74, a.R - RIM_B, [[0, '#ffffff'], [0.4, '#a9adc4'], [0.8, '#3a3d55'], [1, '#0c0c14']]);
-  a.pathBand(g, -RIM_B, -RIM_B - 74, -T, T); g.fill();
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - RIM_B - 84, a.R - RIM_B, [[0, '#ffffff'], [0.4, '#aeb1c6'], [0.8, '#3e4058'], [1, '#0c0c14']]);
+  a.pathBand(g, -RIM_B, -RIM_B - 84, -T, T); g.fill();
   g.restore();
 
   // ── surface: hand-ground mineral pigment is granular and never even; the gesso has crazed; a little is lost ──
   g.save(); a.clipBelow(g, 3);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.46;
-  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's06mottle', scale: 30, sx: 1.3, sy: 1.9, octaves: 4, contrast: 1.8, res: 0.4 }), -PAD, -PAD);
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.34;
+  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's06mottle', scale: 44, sx: 1.2, sy: 2.0, octaves: 4, contrast: 1.7, res: 0.4 }), -PAD, -PAD);
+  g.globalAlpha = 0.3;                                                // bristle marks, dragged along the petals
+  g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's06brush', scale: 5.5, sx: 1, sy: 11, octaves: 2, contrast: 1.7, res: 0.5 }), -PAD, -PAD);
   g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.17;
   g.drawImage(L.noiseLayer(PAD, { seed: 's06hue', scale: 320, octaves: 2, warp: 0.6, res: 0.2, contrast: 1.6, ramp: [[0, '#5a34c8'], [0.5, '#808080'], [1, '#10b8a0']] }), -PAD, -PAD);
-  const crack = L.noiseLayer(PAD, { seed: 's06crack', scale: 66, octaves: 1, warp: 0.6, warpScale: 1.5, ridged: true, res: 0.6,
-    ramp: [[0, 'rgba(2,3,8,0)'], [0.935, 'rgba(2,3,8,0)'], [0.975, 'rgba(2,3,8,0.85)'], [1, 'rgba(2,3,8,0.95)']] });
+  const crack = crackle(env, 's06crack', 128, 1.5);
+  const cg = crack.getContext('2d'); cg.globalCompositeOperation = 'destination-out'; cg.globalAlpha = 0.75; cg.drawImage(gm, 0, 0);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.5; g.drawImage(crack, -PAD, -PAD);
   h.save(); h.globalAlpha = 0.5; h.drawImage(crack, -PAD, -PAD); h.restore();
-  // losses: pale gesso showing where paint has flaked (never on the gilding — leaf outlasts paint)
-  const flake = L.noiseLayer(PAD, { seed: 's06flake', scale: 58, octaves: 3, warp: 0.9, res: 0.4, contrast: 1.5,
-    ramp: [[0, 'rgba(176,168,146,0)'], [0.945, 'rgba(176,168,146,0)'], [0.965, 'rgba(188,180,158,0.88)'], [1, 'rgba(200,192,170,0.92)']] });
+  // losses: a few thumbnail-sized flakes where the paint has let go and the grey-ochre gesso shows (never on the
+  // gilding — leaf outlasts paint)
+  const flake = L.noiseLayer(PAD, { seed: 's06flake2', scale: 210, octaves: 3, gain: 0.42, warp: 1.1, warpScale: 1.4, res: 0.5, contrast: 1.5,
+    ramp: [[0, 'rgba(150,138,112,0)'], [0.868, 'rgba(150,138,112,0)'], [0.876, 'rgba(158,146,120,0.94)'], [1, 'rgba(170,158,130,0.96)']] });
   const fg = flake.getContext('2d'); fg.globalCompositeOperation = 'destination-out'; fg.drawImage(gm, 0, 0);
-  g.globalAlpha = 0.85; g.filter = 'brightness(0.2)'; g.drawImage(flake, -PAD - 1.6, -PAD - 2.2); g.filter = 'none';
-  g.globalAlpha = 0.9; g.drawImage(flake, -PAD, -PAD);
+  g.globalAlpha = 0.85; g.filter = 'brightness(0.16)'; g.drawImage(flake, -PAD - 2.2, -PAD - 3); g.filter = 'none';
+  g.globalAlpha = 0.92; g.drawImage(flake, -PAD, -PAD);
+  h.save(); h.globalAlpha = 0.4; h.filter = 'brightness(0)'; h.drawImage(flake, -PAD, -PAD); h.restore();
   // worn gilding: the red bole under the leaf shows on the rubbed crowns
   const wear = L.noiseLayer(PAD, { seed: 's06bole', scale: 40, octaves: 3, warp: 0.5, res: 0.4, contrast: 1.6,
     ramp: [[0, 'rgba(120,40,16,0)'], [0.86, 'rgba(120,40,16,0)'], [0.905, 'rgba(132,44,18,0.85)'], [1, 'rgba(110,36,14,0.9)']] });
@@ -177,14 +238,14 @@ function paint(env) {
 }
 
 /** per-pixel lighting → { lit, bloom, y0, hh, glints } (canvases cropped to rows y0… of the padded layer) */
-function shade(env, { alb, hl, gm, dth, th0 }) {
+function shade(env, { alb, hl, gm }) {
   const a = env.arc;
   const y0 = Math.max(0, Math.floor(PAD + a.crestY - 70)), hh = LH - y0, n = LW * hh;
   const read = (c) => c.getContext('2d').getImageData(0, y0, LW, hh).data;
   const A = read(alb), Hd = read(L.blurred(hl, 1.3)), Gd = read(gm), B = read(L.blurred(alb, 16));
   const Nd = L.noiseTex(LW, hh, { seed: 's06micro', scale: 5, octaves: 2, res: 0.5, contrast: 1.5 }).getContext('2d').getImageData(0, 0, LW, hh).data;
   const Hf = new Float32Array(n), Hc = new Float32Array(n);
-  for (let i = 0; i < n; i++) { const v = Hd[i * 4]; Hf[i] = v; Hc[i] = v + (Nd[i * 4] - 128) * (0.05 + 0.05 * Gd[i * 4 + 3] / 255); }
+  for (let i = 0; i < n; i++) { const v = Hd[i * 4]; Hf[i] = v; Hc[i] = v + (Nd[i * 4] - 128) * 0.085; }
   // gold: dark umber where it mirrors the dark room, orange through the turn, pale yellow where it faces the lamp
   const ramp = L.makeRamp([[0, '#1a0a02'], [0.16, '#55290a'], [0.36, '#a2640f'], [0.54, '#d99c28'], [0.7, '#f1c24c'], [0.86, '#ffe491'], [1, '#fff8dc']]);
   const lut = new Float32Array(256 * 3);
@@ -193,12 +254,11 @@ function shade(env, { alb, hl, gm, dth, th0 }) {
   const img = new ImageData(LW, hh), o = img.data;
   const blm = new ImageData(LW, hh), q = blm.data;
   for (let i = 3; i < q.length; i += 4) q[i] = 255;
-  const INV = 1 / LEVELS, SK = 12.5;
+  const INV = 1 / LEVELS, SK = 10.4;
   const tap = (s) => Math.round(LY / 0.734 * s) * LW + Math.round(LX / 0.734 * s);   // toward the light
   const O1 = tap(3), O2 = tap(6), O3 = tap(9.5), O4 = tap(13);
-  const hot = a.pt(-0.11, -40);
+  const hot = a.pt(-0.11, -46);
   const cand = [];
-  const gb = GOLD_BASE;
   for (let y = 1; y < hh - 1; y++) {
     const fy = y + y0 - PAD, dy = fy - a.cy;
     for (let x = 1; x < LW - 1; x++) {
@@ -234,8 +294,8 @@ function shade(env, { alb, hl, gm, dth, th0 }) {
       const ndl = nx * LX + ny * LY + nz * LZ;
       // where the lamp reaches: a pool around the hot spot, dying away along the ring and down into the well
       const sx = fx - hot.x, sy = fy - hot.y;
-      let key = 0.36 + 0.96 / (1 + (sx * sx + 4.2 * sy * sy) / 740000);
-      key *= 1 - 0.5 * L.smooth((d - 300) / 260);
+      let key = 0.4 + 1.0 / (1 + (sx * sx + 3.6 * sy * sy) / 800000);
+      key *= 1 - 0.5 * L.smooth((d - 330) / 280);
       let cr, cg, cb;
       if (gk < 1) {
         let f = 1 + 1.35 * (ndl - LZ); f = (f < 0.3 ? 0.3 : f > 1.9 ? 1.9 : f) * occ * key;
@@ -253,10 +313,12 @@ function shade(env, { alb, hl, gm, dth, th0 }) {
         t *= kg;
         let ndh = nx * HX + ny * HY + nz * HZ; if (ndh < 0) ndh = 0;
         let sp = Math.pow(ndh, 46) * occ * dim * kg;
-        const li = (t > 1 ? 255 : (t * 255) | 0) * 3;
-        // the tone of the leaf itself (seams, soot) comes from the painted layer; where the leaf is rubbed through, red bole
+        // the tone of the leaf itself (seams, soot, the shadow a petal throws on it) comes from the painted layer; where the leaf is rubbed through, red bole
         const ar = A[i4], ag = A[i4 + 1];
-        let tone = (ar * 0.3 + ag * 0.59 + A[i4 + 2] * 0.11) / 162.5; tone = tone < 0.74 ? 0.74 : tone > 1.1 ? 1.1 : tone;
+        let tone = (ar * 0.3 + ag * 0.59 + A[i4 + 2] * 0.11) / 162.5; tone = tone < 0.3 ? 0.3 : tone > 1.1 ? 1.1 : tone;
+        if (d >= RIM_B) { t *= 0.3 + 0.7 * tone; sp *= tone; }
+        const li = (t > 1 ? 255 : (t * 255) | 0) * 3;
+        if (tone < 0.74) tone = 0.74;
         let wr = lut[li] * tone, wg = lut[li + 1] * tone, wb = lut[li + 2] * tone;
         let bole = (0.6 - ag / (ar + 1)) * 4; if (bole > 0) { if (bole > 1) bole = 1; const bl = (0.35 + 0.75 * (ndl > 0 ? ndl : 0)) * occ * kg; wr += (150 * bl - wr) * bole; wg += (46 * bl - wg) * bole; wb += (20 * bl - wb) * bole; sp *= 1 - bole; }
         // the flank turned away from the lamp mirrors the paint beside it
@@ -286,7 +348,7 @@ function shade(env, { alb, hl, gm, dth, th0 }) {
 }
 
 // shallow depth of field: sharp around the crest, softening along the ring and down into the well
-const FOCUS = { th: -0.04, d: 120, k: 0.5, a0: 400, a1: 880, b0: 620, b1: 1040 };
+const FOCUS = { th: -0.04, d: 130, k: 0.5, a0: 400, a1: 880, b0: 620, b1: 1040 };
 function depthOfField(env, lit, y0) {
   const a = env.arc, w = lit.width, hh = lit.height;
   const F = a.pt(FOCUS.th, -FOCUS.d), fx = F.x + PAD, fy = F.y + PAD - y0;
@@ -299,7 +361,7 @@ function depthOfField(env, lit, y0) {
   };
   const out = L.makeCanvas(w, hh), og = out.getContext('2d');
   og.drawImage(lit, 0, 0);
-  for (const [px, r0, r1] of [[3, FOCUS.a0, FOCUS.a1], [8.5, FOCUS.b0, FOCUS.b1]]) {
+  for (const [px, r0, r1] of [[3, FOCUS.a0, FOCUS.a1], [9.5, FOCUS.b0, FOCUS.b1]]) {
     const mk = mask(r0, r1), bl = L.blurred(lit, px), bg = bl.getContext('2d');
     bg.globalCompositeOperation = 'destination-in'; bg.drawImage(mk, 0, 0);
     og.globalCompositeOperation = 'destination-out'; og.drawImage(mk, 0, 0);
@@ -349,15 +411,15 @@ export default {
     // the lamp drifts: a warm pool sliding over the petals, and a shaped hot streak riding the gilt ring
     const th = L.lerp(-0.17, -0.05, p);
     ctx.save(); a.clipBelow(ctx, 1.5);
-    const sh = a.pt(th + 0.02, -150);
-    L.glow(ctx, sh.x, sh.y, 470, '#ffe9bc', 0.17);
+    const sh = a.pt(th + 0.02, -170);
+    L.glow(ctx, sh.x, sh.y, 500, '#ffe9bc', 0.17);
     ctx.restore();
-    ctx.save(); a.clipBand(ctx, -1.5, -RIM_A + 6);
-    const hs = a.pt(th, -13);
-    L.glow(ctx, hs.x, hs.y, 300, '#ffdf9c', 0.42);
-    L.glow(ctx, hs.x, hs.y, 120, '#fff6d6', 0.85);
+    ctx.save(); a.clipBand(ctx, -1.5, -RIM_A + 7);
+    const hs = a.pt(th, -17);
+    L.glow(ctx, hs.x, hs.y, 320, '#ffdf9c', 0.42);
+    L.glow(ctx, hs.x, hs.y, 130, '#fff6d6', 0.85);
     ctx.restore();
-    L.glow(ctx, hs.x, hs.y - 2, 150, '#ffd98a', 0.1);          // a breath of halation over the edge
+    L.glow(ctx, hs.x, hs.y - 4, 150, '#ffd98a', 0.1);          // a breath of halation over the edge
     // gold leaf catching the light: glints that flare and die from frame to frame
     L.cam(ctx, env, { rot, zoom }, () => {
       ctx.globalCompositeOperation = 'lighter';

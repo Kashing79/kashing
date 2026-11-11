@@ -13,12 +13,13 @@ const PAD = 120;                      // the move is a ±1 % push-in, so a modes
 const FW = W + PAD * 2, FH = H + PAD * 2;
 
 // the window, measured inward from the arc (px)
-const REV = 64;                       // soffit of the reveal: the shadowed underside of the arch between the wall face and the frame
-const HEAD = 22;                      // bowed head of the timber frame
+const REV = 92;                       // soffit of the reveal: the shadowed underside of the arch between the wall face and the frame
+const HEAD = 24;                      // bowed head of the timber frame
 const TOP = REV + HEAD;               // …so the paper starts this far inside the arc
-const BAND = 280;                     // height of the row of panes
-const RAIL = 36;                      // the rail that closes the row
-const PITCH = 112, RIB = 20;          // upright bars: spacing along the arc / width
+const BAND = 270;                     // height of the row of panes
+const RAIL = 40;                      // the rail that closes the row
+const PITCH = 116, RIB = 22;          // upright bars: spacing along the arc / width
+const HALO = 150;                     // how far the glow of the lit wall bleeds down into the shadow of the opening
 
 // light → colour. 0.565 is the wall beside the arc; the paper-cut sits around 0.38; bare lamp-lit paper runs 0.6–1.
 const FIRE = [
@@ -106,7 +107,7 @@ function geom(a) {
   }
   const m = panes.findIndex((q) => q.mid);
   panes[m - 1].f = 0.92; panes[m + 1].f = 0.78; panes[m + 2].f = Math.min(panes[m + 2].f, 0.5);
-  const cut = { x: a.cx + 6, y: a.crestY + TOP + BAND / 2 + 2, r: 128 };
+  const cut = { x: a.cx + 6, y: a.crestY + TOP + BAND / 2 + 2, r: 136 };
   const lamp = { x: a.cx - 132, y: a.crestY + TOP + BAND * 0.56 };   // the oil lamp, behind the left of the middle pane
   return { ribs, panes, cut, lamp };
 }
@@ -159,7 +160,7 @@ function buildField(env, G) {
     g.save(); a.clipBelow(g, yTop + 3);
     // the lamp stands on the sill, close behind the paper: gold beside it, falling away fast to embers toward the springing of the arch
     const law = [];
-    for (let i = 0; i <= 26; i++) { const t = i / 26, d = t * 1400; law.push([t, gy(0.1 + 0.84 * Math.pow(1 + (d / 400) ** 2, -1.25))]); }
+    for (let i = 0; i <= 26; i++) { const t = i / 26, d = t * 1400; law.push([t, gy(0.1 + 0.76 * Math.pow(1 + (d / 400) ** 2, -1.25))]); }
     g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 1400, law);
     g.fillRect(-PAD, -PAD, FW, FH);
     g.globalCompositeOperation = 'multiply';
@@ -182,7 +183,7 @@ function buildField(env, G) {
     }
     g.globalCompositeOperation = 'screen';
     // the flame itself, a soft hot core behind the paper
-    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 170, [[0, gy(0.9)], [0.3, gy(0.5)], [0.65, gy(0.14)], [1, gy(0)]]);
+    g.fillStyle = L.radial(g, lamp.x, lamp.y, 0, 170, [[0, gy(0.7)], [0.3, gy(0.4)], [0.65, gy(0.12)], [1, gy(0)]]);
     g.fillRect(lamp.x - 180, lamp.y - 180, 360, 360);
     g.restore();
     // the lattice: upright bars and the rail under them
@@ -190,78 +191,114 @@ function buildField(env, G) {
     for (const rb of G.ribs) a.at(g, rb.th, yTop, () => { g.rotate(rb.lean); g.fillRect(-rb.w / 2, -10, rb.w, 1300); });
     a.pathBand(g, yBot, yLow); g.fill();
   });
-  const winW = shimmer(win, 5);
+  const winW = shimmer(win, 6);
 
-  // 2 — frame head, reveal and wall on top: their edges are concentric with the arc and stay exact
-  const sharp = L.makeLayer(PAD, (g) => {
+  // 2 — frame head and reveal: the dark throat of the opening, in front of the window
+  const inner = L.makeLayer(PAD, (g) => {
     g.drawImage(winW, -PAD, -PAD);
     g.fillStyle = gy(0.03); a.pathBand(g, -REV + 1, yTop); g.fill();
     // soffit of the reveal: in shadow; a little lamp light creeps up it from the frame
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - REV, a.R, [[0, gy(0.1)], [0.45, gy(0.055)], [1, gy(0.07)]]);
-    a.pathBand(g, 1, -REV); g.fill();
-    g.save(); a.clipBand(g, 1, -REV);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - REV, a.R, [[0, gy(0.09)], [0.45, gy(0.05)], [1, gy(0.05)]]);
+    a.pathBand(g, 40, -REV); g.fill();
+    g.save(); a.clipBand(g, 40, -REV);
     g.globalCompositeOperation = 'screen';
-    g.fillStyle = L.radial(g, lamp.x + 60, a.yAt(lamp.x + 60, -REV), 0, 620, [[0, gy(0.17)], [0.4, gy(0.07)], [1, gy(0)]]);
+    g.fillStyle = L.radial(g, lamp.x + 60, a.yAt(lamp.x + 60, -REV), 0, 620, [[0, gy(0.15)], [0.4, gy(0.06)], [1, gy(0)]]);
     g.fillRect(-PAD, -PAD, FW, FH);
     g.restore();
     // the opening sinks into the dark toward the springing and the foot of the frame
-    g.save(); a.clipBelow(g, 0);
     g.globalCompositeOperation = 'multiply';
     g.fillStyle = L.radial(g, a.cx, a.crestY + 160, 600, 1250, [[0, '#fff'], [1, gy(0.5)]]);
     g.fillRect(-PAD, -PAD, FW, FH);
-    g.restore();
-    // the loess wall in the last light: one even field of orange, a shade fuller a hand's width above the opening
-    g.save(); a.clipAbove(g, 0);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 1000, [[0, gy(0.49)], [0.03, gy(0.535)], [0.09, gy(0.565)], [0.3, gy(0.552)], [0.56, gy(0.525)], [1, gy(0.48)]]);
-    g.fillRect(-PAD, -PAD, FW, FH);
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.5;
-    g.drawImage(L.noiseTex(FW, FH, { seed: 's20wall', scale: 460, octaves: 3, warp: 0.5, res: 0.2, ramp: [[0, gy(0.92)], [1, '#fff']] }), -PAD, -PAD);
-    g.restore();
   });
 
-  // 3 — the lens: nothing is sharp; least soft under the crest, melting away toward the sides and the foot
-  const near = soft(sharp, 13, 2), far = soft(sharp, 30, 4);
+  // 3 — the lens: nothing behind the arch is sharp; least soft under the crest, melting away toward the sides and the foot
+  const near = soft(inner, 20, 4), far = soft(inner, 46, 8);
   {
     const fg = far.getContext('2d');
     fg.globalCompositeOperation = 'destination-in';
-    fg.fillStyle = L.radial(fg, a.cx + PAD, a.crestY + 110 + PAD, 260, 1050, [[0, 'rgba(0,0,0,0)'], [0.45, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,1)']]);
+    fg.fillStyle = L.radial(fg, a.cx + PAD, a.crestY + 150 + PAD, 240, 1050, [[0, 'rgba(0,0,0,0)'], [0.45, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,1)']]);
     fg.fillRect(0, 0, far.width, far.height);
   }
-  const streak = smear(winW, 4, 20, 2.4);       // the lights run downward, as they do through rising heat
-  const halo = soft(winW, 80, 8);               // veil of light round the lamp
-  // the paper-cut holds back most of the light. It goes in after the veil, so the red stays red:
-  // multiplied where the paper behind it is dim, capped at one red where the lamp is hot.
-  const mask = rosette(G.cut.r), CM = 28;
-  const cutAt = (v) => {
-    const t = L.makeCanvas(mask.width, mask.height), tg = t.getContext('2d');
-    tg.drawImage(mask, 0, 0); tg.globalCompositeOperation = 'source-in'; tg.fillStyle = gy(v); tg.fillRect(0, 0, t.width, t.height);
-    const c = L.makeCanvas(mask.width + CM * 2, mask.height + CM * 2), cg = c.getContext('2d');
-    cg.filter = 'blur(7px)'; cg.drawImage(t, CM, CM);
-    return c;
-  };
-  const cutMul = cutAt(0.56), cutCap = cutAt(0.385);
-  const bloom = soft(winW, 30, 4);              // the brightest panes spill over their bars
+  const streak = smear(winW, 4, 20, 2.6);       // the lights run downward, as they do through rising heat
+  const halo = soft(winW, 90, 8);               // veil of light round the lamp
+  const bloom = soft(winW, 34, 4);              // the brightest panes spill over their bars
   // everything the lens adds stays inside the opening, feathered so that it leaves no seam under the arc
   const veil = L.makeLayer(PAD, (g) => {
-    g.globalAlpha = 0.4; g.drawImage(streak, -PAD, -PAD + 36);
+    g.globalAlpha = 0.42; g.drawImage(streak, -PAD, -PAD + 40);
     g.globalCompositeOperation = 'screen';
     g.globalAlpha = 0.26; g.drawImage(halo, -PAD, -PAD);
     g.globalAlpha = 0.2; g.drawImage(bloom, -PAD, -PAD);
     g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in';
-    g.drawImage(soft(L.makeLayer(PAD, (m) => { m.fillStyle = '#fff'; a.pathBelow(m, -26); m.fill(); }), 12, 4), -PAD, -PAD);
+    g.drawImage(soft(L.makeLayer(PAD, (m) => { m.fillStyle = '#fff'; a.pathBelow(m, -50); m.fill(); }), 18, 4), -PAD, -PAD);
   });
+  // glints: lamp light caught in the thin places of the paper — short upright dashes, the only nearly-sharp things here.
+  // They only exist where there is light behind them, so they are multiplied by the blurred window.
+  const glint = L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#000'; g.fillRect(-PAD, -PAD, FW, FH);
+    const q = L.rng('s20glint'), s = a.span(PAD + 60);
+    for (let i = 0; i < 230; i++) {
+      const th = q.range(-s, s), dr = yTop - q.range(6, BAND + RAIL + 150);
+      const big = q.chance(0.12);
+      const w = big ? q.range(12, 20) : q.range(4, 10), h = w * q.range(2.6, 6.5), v = big ? q.range(0.25, 0.5) : q.range(0.35, 1);
+      a.at(g, th, dr, () => {
+        g.rotate(-th + q.range(-0.03, 0.03)); g.scale(w, h);
+        g.fillStyle = L.radial(g, 0, 0, 0, 1, [[0, gy(1, v)], [0.45, gy(1, v * 0.42)], [1, gy(1, 0)]]);
+        g.beginPath(); g.arc(0, 0, 1, 0, L.TAU); g.fill();
+      });
+    }
+    g.globalCompositeOperation = 'multiply';
+    g.drawImage(near, -PAD, -PAD);
+  });
+  // the paper-cut holds back most of the light. It goes in after the veil, so the red stays red:
+  // multiplied where the paper behind it is dim, capped at one red where the lamp is hot. Out of focus like everything else.
+  const mask = rosette(G.cut.r), CM = 48;
+  const cutAt = (v) => {
+    const t = L.makeCanvas(mask.width, mask.height), tg = t.getContext('2d');
+    tg.drawImage(mask, 0, 0); tg.globalCompositeOperation = 'source-in'; tg.fillStyle = gy(v); tg.fillRect(0, 0, t.width, t.height);
+    const c = L.makeCanvas(mask.width + CM * 2, mask.height + CM * 2), cg = c.getContext('2d');
+    cg.filter = 'blur(8.5px)'; cg.drawImage(t, CM, CM);
+    return c;
+  };
+  const cutMul = cutAt(0.56), cutCap = cutAt(0.385);
+
+  // 4 — halation: the lit wall bleeds into the shadow of the opening, the way a bright field does on film —
+  // reddest right under the arc, dying away a hand's width inside it
+  const rim = L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#000'; g.fillRect(-PAD, -PAD, FW, FH);   // opaque: it is screened on, and black adds nothing
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - HALO, a.R + 2, [[0, gy(0)], [0.22, gy(0.04)], [0.48, gy(0.115)], [0.74, gy(0.215)], [1, gy(0.33)]]);
+    a.pathBand(g, 40, -HALO); g.fill();
+    g.globalCompositeOperation = 'multiply';
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20rim', scale: 520, octaves: 2, res: 0.2, ramp: [[0, gy(0.8)], [1, '#fff']] }), -PAD, -PAD);
+  });
+  // 5 — the loess wall in the last light: one even field of orange, a shade fuller a hand's width above the opening.
+  // Its edge IS the arc: feathered only a few px, so the line stays the firmest thing in a picture made of haze.
+  const wall = soft(L.makeLayer(PAD, (g) => {
+    g.save(); a.clipAbove(g, 0);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 1000, [[0, gy(0.525)], [0.03, gy(0.548)], [0.09, gy(0.565)], [0.3, gy(0.552)], [0.56, gy(0.525)], [1, gy(0.48)]]);
+    g.fillRect(-PAD, -PAD, FW, FH);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.4;
+    g.drawImage(L.noiseTex(FW, FH, { seed: 's20wall', scale: 460, octaves: 3, warp: 0.5, res: 0.2, ramp: [[0, gy(0.92)], [1, '#fff']] }), -PAD, -PAD);
+    g.restore();
+  }), 8, 2);
+
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#000'; g.fillRect(-PAD, -PAD, FW, FH);
     g.drawImage(near, -PAD, -PAD); g.drawImage(far, -PAD, -PAD);
     g.globalCompositeOperation = 'screen'; g.drawImage(veil, -PAD, -PAD);
     g.save(); a.clipBelow(g, yTop + 8);
     // faint fibres of light in the paper, running with the bars
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.5;
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.3;
     g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's20fibre', scale: 24, sx: 1, sy: 30, octaves: 2, res: 0.25, contrast: 1.4, ramp: [[0, gy(0.74)], [0.6, gy(0.97)], [1, '#fff']] }), -PAD, -PAD);
     g.restore();
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.8; g.drawImage(glint, -PAD, -PAD);
+    g.save();
     g.globalAlpha = 1; g.translate(G.cut.x, G.cut.y); g.rotate(0.05);
     g.globalCompositeOperation = 'multiply'; g.drawImage(cutMul, -cutMul.width / 2, -cutMul.height / 2);
     g.globalCompositeOperation = 'darken'; g.drawImage(cutCap, -cutCap.width / 2, -cutCap.height / 2);
+    g.restore();
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'screen'; g.drawImage(rim, -PAD, -PAD);
+    g.globalCompositeOperation = 'source-over'; g.drawImage(wall, -PAD, -PAD);
   });
 }
 

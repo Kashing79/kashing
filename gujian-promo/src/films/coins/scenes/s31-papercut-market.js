@@ -14,7 +14,7 @@ const TW = W + PAD * 2;
 let S = null, T = null, SIL = null, pieceNo = 0;
 
 const C = {
-  card: '#efe9d9', blue: '#1f55a5', yellow: '#f6e36a', red: '#d5281c', green: '#3f9d58', brown: '#5e2f17',
+  card: '#efe9d9', blue: '#1d4d97', yellow: '#f6e36a', red: '#d5281c', green: '#3f9d58', brown: '#54270f',
   purple: '#38205f', black: '#1b1a1e', navy: '#121d44', white: '#f3efe3',
 };
 
@@ -117,14 +117,14 @@ function chaikin(pts, k = 0.22) {
   return out;
 }
 /** a circle the way scissors make it: a many-sided polygon with softened corners */
-function roundish(cx, cy, rx, ry, n, seed, wob = 0.03) {
+function roundish(cx, cy, rx, ry, n, seed, wob = 0.03, k = 0.2) {
   const r = L.rng('c31round' + seed); const pts = [];
   const a0 = r() * TAU;
   for (let i = 0; i < n; i++) {
     const a = a0 + ((i + r.range(-0.2, 0.2)) / n) * TAU; const q = 1 + r.range(-wob, wob);
     pts.push([cx + rx * q * Math.cos(a), cy + ry * q * Math.sin(a)]);
   }
-  return chaikin(pts, 0.2);
+  return chaikin(pts, k);
 }
 /** tapered strip along a centre line: pts [[x,y]...] (smoothed), wf(t) → full width */
 function strip(ctrl, wf, step = 8) {
@@ -161,6 +161,11 @@ function scallopRoof(tl, tr, br, bl, n, seed) {
   }
   return pts;
 }
+
+const tracePoly = (c, pp, begin = true) => {
+  if (begin) c.beginPath();
+  for (const p of pp) { c.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) c.lineTo(p[i][0], p[i][1]); c.closePath(); }
+};
 
 // ───────────────────────── one piece of paper ─────────────────────────
 /**
@@ -261,9 +266,12 @@ function buildSheet(env, Y0, LH) {
     const eB = [], eW = [], prof = [];
     for (let i = 0; i <= n; i++) {
       const th = L.lerp(-s, s, i / n), al = th * a.R;
-      const bite = Math.max(0, nz.n2(al / 150, 4.2) - 0.2) * 9;        // stretches where the blue skin peeled back further
-      const drB = Math.max(-9, -0.6 + 2.5 * nz.fbm(al / 46, 1.3, 3) + 1.4 * nz.n2(al / 6.5, 7.7) - bite);
-      const drW = Math.min(6.5, drB + 3.1 + bite * 0.85 + 2.8 * (0.5 + 0.5 * nz.n2(al / 21, 12.1)) + 1.1 * nz.n2(al / 4.3, 3.3));
+      const jog = Math.round(nz.n2(al / 190, 9.9) * 2.4) * 1.5;      // a tear changes its mind: small abrupt steps
+      const w0 = 1.9 * nz.fbm(al / 52, 1.3, 3) + 1.1 * nz.n2(al / 6.5, 7.7) + jog;
+      // how much white core shows: nothing at all along some stretches, a ragged band of 8 px along others
+      const ww = Math.max(0.3, 2.6 + 5.2 * nz.n2(al / 120, 12.1) + 1.6 * nz.n2(al / 23, 5.5) + 1.0 * nz.n2(al / 4.3, 3.3));
+      const drW = L.clamp(w0 + ww * 0.45, -4, 6);
+      const drB = Math.max(-8.5, drW - ww);
       const pb = a.pt(th, drB), pw = a.pt(th, drW);
       eB.push([pb.x, pb.y]); eW.push([pw.x, pw.y]); prof.push([th, drB, drW]);
     }
@@ -281,7 +289,7 @@ function buildSheet(env, Y0, LH) {
     // blue skin
     g.fillStyle = C.blue; sheet(eB); g.fill();
     g.save(); sheet(eB); g.clip();
-    g.drawImage(L.noiseTex(TW, LH, { seed: 'c31hue', scale: 420, octaves: 3, res: 0.08, contrast: 1.4, ramp: [[0, 'rgba(22,62,140,0.30)'], [0.5, 'rgba(31,85,165,0)'], [1, 'rgba(40,100,184,0.2)']] }), -PAD, Y0);
+    g.drawImage(L.noiseTex(TW, LH, { seed: 'c31hue', scale: 420, octaves: 3, res: 0.08, contrast: 1.4, ramp: [[0, 'rgba(18,54,126,0.30)'], [0.5, 'rgba(29,77,151,0)'], [1, 'rgba(40,94,172,0.2)']] }), -PAD, Y0);
     g.globalCompositeOperation = 'overlay';
     g.globalAlpha = 0.3; g.drawImage(T.crumple, -PAD, Y0);
     g.save(); g.translate(W + PAD, Y0 + LH); g.scale(-1, -1); g.globalAlpha = 0.9; g.drawImage(T.grain, 0, 0); g.restore();
@@ -302,7 +310,7 @@ function buildSheet(env, Y0, LH) {
       const blue = rf.chance(0.42);
       const p = a.pt(th, blue ? drB + rf.range(-0.5, 2.2) : drW + rf.range(-1.2, 0.6));
       const dir = th - Math.PI / 2 + rf.gauss() * 0.9; const len = blue ? rf.range(0.8, 3.2) : rf.range(1.2, 5.5);
-      g.strokeStyle = blue ? L.rgba(rf.chance(0.5) ? '#2b62b2' : '#3c72bc', rf.range(0.45, 0.95)) : L.rgba('#fffefa', rf.range(0.3, 0.85));
+      g.strokeStyle = blue ? L.rgba(rf.chance(0.5) ? '#2a5aa6' : '#3a6cb4', rf.range(0.45, 0.95)) : L.rgba('#fffefa', rf.range(0.3, 0.85));
       g.lineWidth = rf.range(0.5, 1.1);
       g.beginPath(); g.moveTo(p.x, p.y); g.lineTo(p.x + Math.cos(dir) * len, p.y + Math.sin(dir) * len); g.stroke();
     }
@@ -333,80 +341,89 @@ function buildPieces(env, Y0, LH) {
   const layer = mkLayer(Y0, LH, (g) => {
     g.save(); a.clipBelow(g, -9); g.translate(0, oy);
 
-    // ── the shop: a bare timber frame cut in one piece (two rafters, tie beam, two posts) and its counter ──
+    // ── bottom right: a scrap of white paper scribbled over in pencil (it lies under the tree) ──
     {
-      const A = [-112, 906], B = [258, 703], Cc = [602, 870];
-      const RAF = 68, BEAM = 56;
-      const tb = (x) => L.lerp(A[1] + 4, Cc[1] + 4, (x - A[0]) / (Cc[0] - A[0]));       // top of the tie beam
-      const bb = (x) => tb(x) + BEAM;
-      const li = offLine(A, B, RAF), ri = offLine(B, Cc, RAF), bt = [[A[0], tb(A[0])], [Cc[0], tb(Cc[0])]];
-      const hole = [isect(li[0], li[1], bt[0], bt[1]), isect(li[0], li[1], ri[0], ri[1]), isect(ri[0], ri[1], bt[0], bt[1])];
-      const frame = cut([A, B, Cc, [Cc[0] + 3, bb(Cc[0]) - 6], [476, bb(476)], [471, 1200], [392, 1200], [396, bb(396)], [78, bb(78)], [74, 1200], [-6, 1200], [-2, bb(-2)], [A[0] - 2, bb(A[0])]], 'frame', 2.6, 130);
-      paper(g, [frame, cut(hole, 'fhole', 1.8, 90, 9)], { color: C.brown, tex: 0.8, crumple: 0.3, lift: 0.9, peel: [[600, 890, 90]] });
-      paper(g, cut([[-130, 1046], [520, 1030], [526, 1200], [-130, 1200]], 'counter', 2.2, 120), { color: L.shade(C.brown, -0.14), tex: 0.8, crumple: 0.3, lift: 0.8 });
-      paper(g, cut([[-130, 1020], [548, 1002], [552, 1036], [-130, 1054]], 'ctop', 1.8, 100), { color: '#84441f', tex: 0.8, lift: 0.5, sh: 0.9 });
-    }
-
-    // ── the house on the right: its wall is a scrap of white paper scribbled over in pencil, its roof deep purple ──
-    {
-      const poly = cut([[1742, 872], [2030, 900], [2034, 1200], [1716, 1200], [1724, 1010]], 'scrap', 2.4, 110);
-      paper(g, poly, { color: C.white, tex: 0.7, crumple: 0.5, lift: 1.0, peel: [[1724, 1012, 80]] });
-      const x0 = 1690, y0 = 850, w = 360, h = 360;
+      const poly = cut([[1546, 966], [1700, 950], [1788, 946], [1798, 900], [2030, 880], [2034, 1200], [1528, 1200]], 'scrap', 2.6, 110);
+      paper(g, poly, { color: C.white, tex: 0.7, crumple: 0.5, lift: 1.0, peel: [[1552, 972, 80]] });
+      const x0 = 1500, y0 = 830, w = 540, h = 380;
       const c = L.makeCanvas(w, h); const k = c.getContext('2d'); k.translate(-x0, -y0);
       const rh = L.rng('c31hatch');
+      // loose zigzags, the pencil never leaving the paper; a few run off the top of the scrap onto the blue
       const scribble = (xa, xb, top, bot, lean, gap, wd, al, sd) => {
         const pts = []; let x = xa;
         while (x < xb) {
-          const yb2 = bot + rh.range(-22, 10), yt = top + rh.range(-10, 22);
-          pts.push([x + rh.range(-4, 4), yb2], [x + lean + rh.range(-6, 6), yt]);
-          x += gap * rh.range(0.65, 1.4);
+          const yb2 = bot(x) + rh.range(-26, 12), yt = top(x) + rh.range(-16, 30);
+          pts.push([x + rh.range(-5, 5), yb2], [x + lean + rh.range(-10, 10), yt]);
+          x += gap * rh.range(0.6, 1.5);
         }
-        L.sketchLine(k, pts, { width: wd, color: '#33333a', seed: sd, wobble: 2, passes: 2, alpha: al });
+        L.sketchLine(k, pts, { width: wd, color: '#34343a', seed: sd, wobble: 2.6, passes: 2, alpha: al });
       };
-      scribble(1726, 1960, 948, 1074, 66, 27, 3.8, 0.9, 3);
-      scribble(1750, 1990, 955, 1088, -50, 38, 3.1, 0.7, 5);
+      const topL = (x) => (x < 1770 ? 990 : 928), botL = () => 1090;
+      scribble(1560, 2010, topL, botL, 58, 34, 5.2, 0.92, 3);
+      scribble(1800, 2020, () => 880, () => 1010, 40, 46, 4.4, 0.85, 4);
+      scribble(1575, 1990, (x) => topL(x) + 16, () => 1100, -64, 62, 4.0, 0.7, 5);
       k.setTransform(1, 0, 0, 1, 0, 0); k.globalCompositeOperation = 'destination-out';
-      k.drawImage(L.noiseTex(w, h, { seed: 'c31graphite', scale: 1.8, octaves: 2, res: 1, contrast: 2.0, ramp: [[0, 'rgba(0,0,0,0.75)'], [0.4, 'rgba(0,0,0,0.2)'], [0.7, 'rgba(0,0,0,0)']] }), 0, 0);
-      g.save(); g.beginPath(); g.moveTo(poly[0][0], poly[0][1]); for (const q of poly) g.lineTo(q[0], q[1]); g.closePath(); g.clip();
+      k.drawImage(L.noiseTex(w, h, { seed: 'c31graphite', scale: 2.2, octaves: 2, res: 1, contrast: 2.0, ramp: [[0, 'rgba(0,0,0,0.8)'], [0.4, 'rgba(0,0,0,0.25)'], [0.7, 'rgba(0,0,0,0)']] }), 0, 0);
+      g.save(); tracePoly(g, [poly]); g.clip();
       g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.92; g.drawImage(c, x0, y0);
+      g.restore();
+      // graphite on the blue sheet: only a dull dark sheen
+      g.save(); g.beginPath(); g.rect(x0, y0, w, h); tracePoly(g, [poly], false); g.clip('evenodd');
+      g.globalAlpha = 0.42; g.drawImage(c, x0, y0);
       g.restore();
     }
 
-    // ── the tree: a dark sliver of trunk, a torn lump of green ──
-    paper(g, cut(strip([[1606, 900], [1598, 1000], [1578, 1200]], (t) => L.lerp(30, 54, t), 12), 'trunk', 1.8, 90, 10), { color: C.navy, tex: 0.8, lift: 0.6 });
-    paper(g, cut(roundish(1600, 824, 178, 128, 9, 'tree', 0.055), 'tree', 1.6, 120, 9, 1.5), {
-      color: C.green, tex: 0.8, crumple: 0.75, lift: 1.1, core: 2.2, curl: 1.2,
-      folds: [[1575, 690, 1612, 960, 1.1]], peel: [[1470, 890, 90]],
-    });
-    // the purple roof lies over the tree's shoulder
-    paper(g, cut(scallopRoof([1752, 778], [2040, 846], [2050, 934], [1688, 884], 4, 'r'), 'roof', 1.8, 110, 8), { color: C.purple, tex: 0.8, crumple: 0.35, lift: 0.9, peel: [[1694, 886, 80]] });
+    // ── the shop: two chestnut posts, a counter, and a deep-purple awning roof with a scalloped eave, pitched along the tear ──
+    {
+      paper(g, cut([[-36, 880], [52, 884], [58, 1200], [-40, 1200]], 'postL', 2, 110), { color: C.brown, tex: 0.8, crumple: 0.3, lift: 0.8 });
+      paper(g, cut([[366, 772], [449, 765], [459, 1200], [361, 1200]], 'postR', 2.4, 120), { color: C.brown, tex: 0.8, crumple: 0.3, lift: 0.9, folds: [[340, 905, 480, 925, 0.8]] });
+      paper(g, cut([[-130, 1034], [528, 1018], [534, 1200], [-130, 1200]], 'counter', 2.2, 120), { color: L.shade(C.brown, -0.2), tex: 0.8, crumple: 0.3, lift: 0.8 });
+      paper(g, cut([[-130, 1000], [560, 980], [566, 1022], [-130, 1044]], 'ctop', 1.8, 100), { color: '#7d3f1c', tex: 0.8, lift: 0.6, sh: 0.9, peel: [[560, 1000, 70]] });
+      paper(g, cut(scallopRoof([-150, 848], [466, 666], [488, 776], [-150, 968], 5, 'r'), 'roof', 2.0, 110, 8), {
+        color: C.purple, tex: 0.8, crumple: 0.4, lift: 1.0, curl: 1.2, peel: [[480, 770, 100]], folds: [[150, 700, 215, 960, 0.9]],
+      });
+    }
 
     // ── the abacus ──
-    abacus(g, 1052, 884, L.deg(-2.2));
+    abacus(g, 1068, 866, L.deg(2));
 
-    // ── a string of cash: a vermilion arc of cord, small yellow coins threaded on it ──
+    // ── a string of cash: a vermilion sweep of cord, yellow coins threaded on it ──
     {
-      const ctrl = [[1340, 624], [1432, 708], [1486, 856], [1462, 1006], [1380, 1200]];
-      const back = strip(ctrl.map(([x, y], i) => [x + 40 + i * 4, y + 36]), (t) => L.lerp(18, 46, Math.sin(Math.PI * Math.min(1, t * 1.15))), 10);
-      paper(g, cut(back, 'cordB', 1.4, 80, 8), { color: '#5d1030', tex: 0.8, lift: 0.5, sh: 0.9 });
-      const cord = strip(ctrl, (t) => 20 + 40 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.06 + t * 0.8)), 0.7), 10);
-      paper(g, cut(cord, 'cord', 1.4, 80, 8, 1.1), { color: C.red, tex: 0.8, crumple: 0.4, lift: 0.8, core: 1.8 });
+      const ctrl = [[1330, 628], [1418, 716], [1464, 866], [1436, 1010], [1362, 1190]];
+      const back = strip(ctrl.map(([x, y], i) => [x + 50 + i * 3, y + 40]), (t) => L.lerp(22, 70, Math.sin(Math.PI * Math.min(1, t * 1.1))), 10);
+      paper(g, cut(back, 'cordB', 1.6, 80, 8), { color: '#4a0e2a', tex: 0.8, lift: 0.5, sh: 0.9 });
+      const cord = strip(ctrl, (t) => 26 + 62 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.05 + t * 0.78)), 0.7), 10);
+      paper(g, cut(cord, 'cord', 1.6, 80, 8, 1.2), { color: C.red, tex: 0.8, crumple: 0.5, lift: 0.9, core: 2.0, folds: [[1380, 800, 1520, 830, 0.7]] });
       const cp = L.smoothPath(ctrl, 6);
-      const yel = ['#f6e36a', '#f1d24a', '#f8e77a', '#efcc40'];
-      [[0.15, 46], [0.34, 42], [0.535, 49], [0.715, 44]].forEach(([t, rr], i) => {
+      const yel = ['#f6e36a', '#f0cf45', '#f8e77a', '#eec93e'];
+      [[0.19, 55], [0.44, 60], [0.69, 54], [0.9, 58]].forEach(([t, rr], i) => {
         const [x, y] = cp[Math.round(t * (cp.length - 1))];
-        const ang = L.deg([-7, 5, -3, 9][i]), ox = [4, -5, 3, -3][i];
-        paper(g, [cut(roundish(x + ox, y, rr, rr, 11, 'cash' + i), 'cash' + i, 0.6, 50, 7), square(x + ox, y, rr * 0.3, ang, 'cash' + i)],
-          { color: yel[i], tex: 0.7, lift: 0.7, curl: 1.1, crumple: 0.2 });
+        const ang = L.deg([-9, 6, -4, 11][i]), ox = [5, -7, 6, -4][i];
+        paper(g, [cut(roundish(x + ox, y, rr, rr, 9, 'cash' + i, 0.03, 0.15), 'cash' + i, 0.7, 50, 7), square(x + ox, y, rr * 0.3, ang, 'cash' + i)],
+          { color: yel[i], tex: 0.7, lift: 0.8, curl: 1.1, crumple: 0.25, peel: i === 1 ? [[x + ox + 40, y + 40, 60]] : null });
       });
+    }
+
+    // ── the tree: a dark sliver of trunk, a torn, creased lump of green tissue (the trunk shows through it faintly) ──
+    {
+      const trunk = cut(strip([[1702, 900], [1694, 1000], [1676, 1200]], (t) => L.lerp(34, 62, t), 12), 'trunk', 2.0, 90, 10);
+      paper(g, trunk, { color: C.navy, tex: 0.8, lift: 0.6 });
+      const crown = cut(roundish(1706, 836, 168, 128, 9, 'tree', 0.06, 0.16), 'tree', 1.8, 120, 9, 1.4);
+      paper(g, crown, {
+        color: C.green, tex: 0.8, crumple: 0.85, lift: 1.1, core: 2.2, curl: 1.2,
+        folds: [[1672, 700, 1716, 980, 1.5], [1560, 800, 1850, 760, 0.8], [1770, 700, 1800, 980, 0.9]], peel: [[1570, 900, 90]],
+      });
+      g.save(); tracePoly(g, [crown]); g.clip(); g.filter = 'blur(1.2px)';
+      g.globalAlpha = 0.2; g.fillStyle = C.navy; tracePoly(g, [trunk]); g.fill();
+      g.restore();
     }
 
     // ── the moon: a round of lemon-yellow paper with a square hole cut out of its middle — a coin ──
     {
-      const mx = 652, my = 748, mr = 141;
-      paper(g, [cut(roundish(mx, my, mr, mr, 12, 'moon', 0.022), 'moon', 0.9, 80, 10), square(mx, my, mr * 0.29, L.deg(3.5), 'moon', 0.05)], {
-        color: C.yellow, lift: 1.2, tex: 0.75, crumple: 0.45, curl: 1.2,
-        folds: [[560, 640, 740, 870, 0.7]], peel: [[mx + 98, my + 98, 100]],
+      const mx = 700, my = 772, mr = 160;
+      paper(g, [cut(roundish(mx, my, mr, mr, 11, 'moon', 0.02, 0.13), 'moon', 0.9, 80, 10), square(mx, my, mr * 0.29, L.deg(3.5), 'moon', 0.05)], {
+        color: C.yellow, lift: 1.3, tex: 0.75, crumple: 0.45, curl: 1.2,
+        folds: [[596, 650, 800, 900, 0.7]], peel: [[mx + 110, my + 110, 110]],
       });
     }
     g.restore();
@@ -431,26 +448,27 @@ function abacus(g, cx, cy, ang) {
   const cs = Math.cos(ang), sn = Math.sin(ang);
   const P = (pts) => pts.map(([x, y]) => [cx + x * cs - y * sn, cy + x * sn + y * cs]);
   const r = L.rng('c31abacus');
-  const BH = 34, BW = 70, PITCH = 84, RODS = 6, FT = 31;
-  const iw = (RODS * PITCH) / 2, upH = 2 * BH + 26, BEAM = 20, loH = 5 * BH + 32;
+  const BH = 40, BW = 90, PITCH = 104, RODS = 4, FT = 34;
+  const iw = (RODS * PITCH) / 2, upH = 2 * BH + 24, BEAM = 24, loH = 5 * BH + 34;
   const ih = (upH + BEAM + loH) / 2, HW = iw + FT, HH = ih + FT;
   const beamT = -ih + upH, beamB = beamT + BEAM;
   const jb = (x0, y0, x1, y1, j) => [[x0 + r.range(-j, j), y0 + r.range(-j, j)], [x1 + r.range(-j, j), y0 + r.range(-j, j)], [x1 + r.range(-j, j), y1 + r.range(-j, j)], [x0 + r.range(-j, j), y1 + r.range(-j, j)]];
   // rods first: their ends tuck under the frame
   for (let i = 0; i < RODS; i++) {
-    const x = (i - (RODS - 1) / 2) * PITCH + r.range(-2, 2), w = r.range(4.5, 6);
-    paper(g, cut(P([[x - w, -ih - 8], [x + w, -ih - 8], [x + w + r.range(-2, 2), ih + 8], [x - w + r.range(-2, 2), ih + 8]]), 'rod' + i, 0.5, 60, 10), { color: '#2a1810', lift: 0.25, sh: 0.8, tex: 0.3, curl: 0, edge: 0.6 });
+    const x = (i - (RODS - 1) / 2) * PITCH + r.range(-3, 3), w = r.range(5, 7);
+    paper(g, cut(P([[x - w, -ih - 8], [x + w, -ih - 8], [x + w + r.range(-3, 3), ih + 8], [x - w + r.range(-3, 3), ih + 8]]), 'rod' + i, 0.6, 60, 10), { color: '#24130c', lift: 0.25, sh: 0.8, tex: 0.3, curl: 0, edge: 0.6 });
   }
   // frame: one piece with the window cut out
-  paper(g, [cut(P(jb(-HW, -HH, HW, HH, 8)), 'abo', 2.4, 130), cut(P(jb(-iw, -ih, iw, ih, 4)), 'abi', 1.6, 90, 10)], { color: C.brown, tex: 0.8, crumple: 0.3, lift: 1.0, peel: [[cx + HW - 10, cy + HH - 10, 90]] });
+  paper(g, [cut(P(jb(-HW, -HH, HW, HH, 9)), 'abo', 2.6, 130), cut(P(jb(-iw, -ih, iw, ih, 5)), 'abi', 1.8, 90, 10)], { color: C.brown, tex: 0.8, crumple: 0.3, lift: 1.0, peel: [[cx + HW - 14, cy - HH + 22, 90]] });
   // the beam, glued across
-  paper(g, cut(P([[-iw - 12, beamT + r.range(-2, 2)], [iw + 12, beamT + r.range(-2, 2)], [iw + 12, beamB + r.range(-2, 2)], [-iw - 12, beamB + r.range(-2, 2)]]), 'beam', 0.9, 90, 10), { color: '#73391b', tex: 0.8, lift: 0.5, sh: 0.9 });
+  paper(g, cut(P([[-iw - 14, beamT + r.range(-3, 3)], [iw + 14, beamT + r.range(-3, 3)], [iw + 14, beamB + r.range(-3, 3)], [-iw - 14, beamB + r.range(-3, 3)]]), 'beam', 1.0, 90, 10), { color: '#7d3f1c', tex: 0.8, lift: 0.5, sh: 0.9 });
   // beads: how many of each rod's upper beads sit down on the beam / lower beads are pushed up to it
-  const down = [0, 1, 0, 2, 0, 1], up = [1, 3, 0, 2, 4, 1];
+  const down = [0, 1, 2, 0], up = [2, 0, 3, 1];
+  const reds = [C.red, '#cf2418', '#dc3320', '#c9201a'];
   const bead = (x, y, color, seed) => {
-    const w = BW / 2 * r.range(0.9, 1.05), h = BH / 2 * r.range(0.88, 1.02);
-    const pts = rotPts(roundish(x + r.range(-3, 3), y + r.range(-1, 1), w, h, 10, seed, 0.04), x, y, r.range(-0.09, 0.09));
-    paper(g, cut(P(pts), seed, 0.4, 40, 5), { color, lift: 0.4, sh: 1, tex: 0.7, curl: 1.3, edge: 0.9 });
+    const w = BW / 2 * r.range(0.88, 1.05), h = BH / 2 * r.range(0.86, 1.0);
+    const pts = rotPts(roundish(x + r.range(-4, 4), y + r.range(-1, 1), w, h, 9, seed, 0.05, 0.2), x, y, r.range(-0.1, 0.1));
+    paper(g, cut(P(pts), seed, 0.5, 40, 5), { color, lift: 0.45, sh: 1, tex: 0.7, curl: 1.3, edge: 0.9 });
   };
   for (let i = 0; i < RODS; i++) {
     const x = (i - (RODS - 1) / 2) * PITCH;
@@ -459,7 +477,7 @@ function abacus(g, cx, cy, ang) {
     for (let k = 0; k < down[i]; k++) ys.push([beamT - BH / 2 - 1 - k * BH, 0]);
     for (let k = 0; k < up[i]; k++) ys.push([beamB + BH / 2 + 1 + k * BH, 1]);
     for (let k = 0; k < 5 - up[i]; k++) ys.push([ih - BH / 2 - 1 - k * BH, 1]);
-    ys.forEach(([y, low], j) => bead(x, y, low ? L.shade(C.red, r.range(-0.07, 0.05)) : L.shade(C.black, r.range(0, 0.07)), 'bd' + i + '_' + j));
+    ys.forEach(([y, low], j) => bead(x, y, low ? L.shade(r.pick(reds), r.range(-0.06, 0.04)) : L.shade(C.black, r.range(0, 0.07)), 'bd' + i + '_' + j));
   }
 }
 

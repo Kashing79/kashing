@@ -15,6 +15,7 @@ const PAD = 120;                 // the camera only drifts ~30 px, so a small ma
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const PITCH = 232;               // one ridge + one trough along the arc → 8½ tile heads across the frame
 const S0 = -38;                  // the tile nearest the crest sits a little left of centre (nothing is symmetric)
+const KP = 1 / 1050;              // perspective: the roof runs from the eave TOWARD the lens, so everything grows (and blurs) down the frame
 let S = null;
 
 const sstep = (a, b, x) => { let t = (x - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); };
@@ -27,9 +28,9 @@ function makeTiles(a) {
   for (let i = -n; i <= n; i++) {
     const w = r.range(85, 103);
     const t = {
-      i, s: i * PITCH + S0 + r.range(-9, 9), w, tilt: r.range(-0.024, 0.024), e: r.range(-2.6, 1.6), arch: r.range(9, 14),
+      i, s: i * PITCH + S0 + r.range(-9, 9), w, tilt: r.range(-0.03, 0.03), e: r.range(-2.6, 1.6), arch: r.range(15, 22),
       hc: r.range(0.62, 0.82) * w, tone: r.range(-0.1, 0.08), hue: r.range(-0.05, 0.04), age: r.range(-0.12, 0.2), dust: r.range(0.25, 0.9),
-      capR: r.range(36, 47), capU: r.range(-11, 11), capV: r.range(72, 96), capH: r.range(0.7, 0.95), noCap: 0, drips: [],
+      capR: r.range(33, 48), capU: r.range(-13, 13), capV: r.range(78, 104), capH: r.range(0.7, 0.95), noCap: 0, drips: [],
       j1: r.range(292, 368), jl: r.range(350, 395), ph: r.range(0, 6.28), ph2: r.range(0, 6.28), seed: r.range(0, 60),
       craze: r.chance(0.35) ? r.range(0.5, 1) : 0, cs: r.range(15, 21),
       // the trough to the right of this tile
@@ -52,13 +53,17 @@ function makeTiles(a) {
   Object.assign(at(0), { tone: 0.05, hue: 0.03, age: -0.12, dust: 0.25, craze: 0 });
   Object.assign(at(-1), { tone: -0.05, hue: -0.03, age: 0.16, dust: 0.7, craze: 1, cs: 18 });
   Object.assign(at(1), { tone: -0.01, age: 0.05, craze: 0.45 });
-  at(1).chips.push({ u: 0.34 * at(1).w, v: 1.5, r: 15, seed: 3.3, bite: 7 });
+  at(1).chips.push({ u: 0.34 * at(1).w, v: 1.5, r: 21, seed: 3.3, bite: 10 });
   Object.assign(at(2), { tone: -0.04, age: 0.12, dust: 0.9 });
   Object.assign(at(-2), { tone: 0.03, age: -0.05, craze: 0 });
   at(-2).chips.push({ u: at(-2).capU + at(-2).capR * 0.74, v: at(-2).capV + at(-2).capR * 0.5, r: 10, seed: 8.1, bite: 0 });
-  at(-3).chips.push({ u: -0.5 * at(-3).w, v: 2, r: 12, seed: 5.2, bite: 5 });
+  at(-3).chips.push({ u: -0.5 * at(-3).w, v: 2, r: 17, seed: 5.2, bite: 8 });
   Object.assign(at(3), { tone: 0.04, age: -0.08, craze: 0.8, cs: 20, noCap: 1, capR: 40 });   // this one has lost its nail cap
   for (const t of T) for (const c of t.chips) c.rr = (c.r * 1.25) * (c.r * 1.25);
+  for (const t of T) {
+    const dC = t.capV - t.e - 4;
+    t.dsC = (Math.exp(KP * dC) - 1) / KP; t.psC = 1 + KP * t.dsC; t.thC = ((t.s + t.tilt * dC + t.capU) * t.psC) / a.R;
+  }
   return { T, n };
 }
 
@@ -118,7 +123,7 @@ function buildRoof(env) {
   const dustF = polarField(-sMax, sMax, -20, dMax, 4, 4, (s, d) => nz.fbm(s / 80 + 7, d / 80 - 3, 4));
 
   const y0 = Math.max(0, Math.floor(a.crestY + PAD - 84)) & ~1, RH = LH - y0, N = LW * RH;
-  const Z = new Float32Array(N).fill(-40), TH = new Float32Array(N), AL = new Float32Array(N), DU = new Float32Array(N), CR = new Float32Array(N);
+  const Z = new Float32Array(N).fill(-40), BO = new Float32Array(N), TH = new Float32Array(N), AL = new Float32Array(N), DU = new Float32Array(N), CR = new Float32Array(N);
   const MAT = new Uint8Array(N), TI = new Uint8Array(N);   // MAT: 0 none · 1 glaze · 2 mortar (夹垄灰 / 捉节灰) · 3 bare body where the glaze has flaked
   const FAR = 236, R2F = (R - FAR) * (R - FAR);   // deeper than this the roof is out of focus anyway → shade 2×2 blocks
 
@@ -130,9 +135,11 @@ function buildRoof(env) {
       // far zone: only the even/even anchor of each 2×2 block is computed
       const xa = (i & ~1) - PAD + 0.5 - cx, ya = cy - ((j & ~1) + y0 - PAD + 0.5), far = xa * xa + ya * ya < R2F;
       if (far && ((i | j) & 1)) continue;
-      const d = R - Math.sqrt(dxc * dxc + dyc * dyc);
-      if (d < -8) continue;
-      const s = Math.atan2(dxc, dyc) * R;
+      const ds = R - Math.sqrt(dxc * dxc + dyc * dyc);
+      if (ds < -8) continue;
+      // perspective: ps = px per roof unit at this depth; d = distance up the slope in roof units (foreshortened), s = position along the eave
+      const ps = ds > 0 ? 1 + KP * ds : 1, d = ds > 0 ? Math.log(ps) / KP : ds;
+      const th0 = Math.atan2(dxc, dyc), s = (th0 * R) / ps;
       let k = Math.round((s - S0) / PITCH) + n; k = k < 1 ? 1 : k > 2 * n - 1 ? 2 * n - 1 : k;
       const u0 = s - T[k].s - T[k].tilt * d;
       const kL = u0 >= 0 ? k : k - 1, TL = T[kL], TR = T[kL + 1];
@@ -156,7 +163,7 @@ function buildRoof(env) {
       }
       const o = j * LW + i;
       const mo = mott(s, d);
-      let z, th, du = 0, mat = 1, al = 1, cr = 0;
+      let z, th, du = 0, mat = 1, al = 1, cr = 0, bo = 0;
       if (Tt) {
         // ── the back of a round tile ──
         const hw = v < 13 ? Tt.w + 3 : Tt.w + 1.3 * Math.sin(v * 0.021 + Tt.ph);
@@ -180,7 +187,7 @@ function buildRoof(env) {
           if (e > 0) { z += c.h * Math.sqrt(e); th += 0.5 * e; }
         }
         // the nail cap: a glazed dome with a fillet of pooled glaze round its foot
-        const cu = u - Tt.capU, cv = v - Tt.capV, cr2 = Tt.capR, rc = Math.sqrt(cu * cu + cv * cv);
+        const cu = ((th0 - Tt.thC) * (R - ds)) / Tt.psC, cv = (ds - Tt.dsC) / (Tt.psC * 0.9), cr2 = Tt.capR, rc = Math.sqrt(cu * cu + cv * cv);
         if (rc < cr2 + 18) {
           if (Tt.noCap) {   // the cap is gone: a ring of old bedding mortar and the head of the iron tile nail
             if (rc < 7.5) { z += 3.5 * Math.sqrt(1 - (rc * rc) / 56.25); mat = 4; }
@@ -226,26 +233,28 @@ function buildRoof(env) {
         let g = (eL + eR) * 0.5; if (g < 8) g = 8;
         const up = eL - (eL + eR) * 0.5;
         let c2 = (up * up) / (g * g); if (c2 > 1) c2 = 1;
-        const vp = d - (4.6 + TL.lipE + 1.8 * (1 - c2));
+        const vp = d - (0.5 * (TL.arch + TR.arch) - 6 + TL.lipE + 4.5 * (1 - c2));   // the lip sits level with the tiles' shoulders and sags in the middle
         if (vp < -0.5) continue;
         al = vp < 0.5 ? vp + 0.5 : 1;
         let t2 = up / (g + 22); t2 *= t2; if (t2 > 1) t2 = 1;
         z = -5 - 14 * (1 - t2);
-        th = 0.74 + TL.age * 0.5 + 0.2 * mo + 0.2 * (1 - c2);
+        th = 0.56 + TL.age * 0.5 + 0.2 * mo + 0.2 * (1 - c2);
+        bo = Math.exp(-(eR < 0 ? 0 : eR) / 18) * (0.55 + 0.45 * sstep(0, 26, vp));
         if (vp < 12) { const b = (vp - 6) / 6; z += 5 * Math.sqrt(b * b < 1 ? 1 - b * b : 0); th -= 0.4 * (1 - b * b); }
         const vl = vp - TL.lapPh - 6 * c2;
         if (vl > 0) { let f = vl / TL.lapLen; f -= Math.floor(f); z += 4.4 * (1 - f); th += 0.2 * sstep(0.86, 1, f) - 0.25 * sstep(0.1, 0, f); du += 0.4 * sstep(0.8, 1, f); }
         const m = eL < eR ? eL : eR;
         if (m < 9 && vp > 3) { const f = 1 - m / 9; z += 6 * f * f; if (m < 3 + 1.6 * nz.n2(x * 0.06, y * 0.06)) mat = 2; }
-        if (!far) z += 0.25 * nz.n2(x * 0.085, y * 0.085);
+        if (!far) z += 0.1 * nz.n2(x * 0.05, y * 0.05);
         du += 0.12 + 0.3 * (1 - c2) + 0.3 * dustF(s, d);
         TI[o] = TL.i + n;
       }
       du = du < 0 ? 0 : du > 1 ? 1 : du;
-      Z[o] = z; TH[o] = th; AL[o] = al; DU[o] = du; CR[o] = cr; MAT[o] = mat;
+      z *= ps;
+      Z[o] = z; TH[o] = th; AL[o] = al; DU[o] = du; CR[o] = cr; MAT[o] = mat; BO[o] = bo;
       if (far && i + 1 < LW && j + 1 < RH) {
         const TIo = TI[o];
-        for (let c = 1; c < 4; c++) { const oo = o + (c & 1) + (c >> 1) * LW; Z[oo] = z; TH[oo] = th; AL[oo] = al; DU[oo] = du; MAT[oo] = mat; TI[oo] = TIo; }
+        for (let c = 1; c < 4; c++) { const oo = o + (c & 1) + (c >> 1) * LW; Z[oo] = z; TH[oo] = th; AL[oo] = al; DU[oo] = du; MAT[oo] = mat; TI[oo] = TIo; BO[oo] = bo; }
       }
     }
   }
@@ -300,8 +309,8 @@ function buildRoof(env) {
       const zb = (ZB[qo] + (ZB[qo + 1] - ZB[qo]) * fx) * (1 - fy) + (ZB[qo + qw] + (ZB[qo + qw + 1] - ZB[qo + qw]) * fx) * fy;
       let ao = 1 + (zc - zb) / 34; ao = ao < 0.3 ? 0.3 : ao > 1.12 ? 1.12 : ao;
       // behind the plane of focus the folds of the roof flatten into one field of gold: lift the shadows with depth
-      const deep = sstep(170, 470, d);
-      sh += (1 - sh) * 0.5 * deep; ao += (1 - ao) * 0.55 * deep;
+      const deep = sstep(130, 420, d);
+      sh += (1 - sh) * 0.6 * deep; ao += (1 - ao) * 0.65 * deep;
       // material
       const mat = MAT[o], du = DU[o], cr = CR[o];
       let ar, ag, ab, gloss;
@@ -328,18 +337,19 @@ function buildRoof(env) {
         spec = (1 - sstep(A1 - 0.12, A1 + 0.08, a1)) * (1 - sstep(A2 - 0.02, A2 + 0.03, a2)) * (1 - 0.85 * bar);
         sheen = rl > 0.8 ? Math.pow((rl - 0.8) * 5, 3) : 0;
       }
-      const kd = (rx - k2x) * (rx - k2x) * 2.2 + ((ry - k2y) * (ry - k2y) + (rz - k2z) * (rz - k2z)) * 55;
+      const kd = (rx - k2x) * (rx - k2x) * 2.2 + ((ry - k2y) * (ry - k2y) + (rz - k2z) * (rz - k2z)) * 36;
       const kick = kd < 8 ? Math.exp(-kd) : 0;
       const fres = (1 - nzz) * (1 - nzz);
       const sky = fres * sstep(0.1, 0.75, nx) * 0.7 + fres * sstep(0.2, 0.8, -ny) * 0.3;
       const key = lam * sh * att;
       const shs = 0.25 + 0.75 * sh;
-      let k2d = nx * k2x + ny * k2y + nzz * k2z; k2d = k2d < 0 ? 0 : k2d * 0.12;
+      let k2d = nx * k2x + ny * k2y + nzz * k2z; k2d = k2d < 0 ? 0 : k2d * 0.16;
       const sp = (spec * 1.0 + sheen * 0.2) * gloss * shs * (att > 1.15 ? 1.15 : att);
       const kk = kick * gloss * 0.95;
-      let cr_ = ar * (1.06 * key + 0.27 * ao + 0.7 * k2d) + sp * 0.97 + kk * 0.78 + sky * gloss * 0.14;
-      let cg_ = ag * (1.03 * key + 0.205 * ao + 0.85 * k2d) + sp * 0.985 + kk * 0.9 + sky * gloss * 0.34;
-      let cb_ = ab * (0.9 * key + 0.08 * ao + 1.0 * k2d) + sp * 1.0 + kk * 1.0 + sky * gloss * 0.8;
+      const bn = BO[o] * (att > 1.2 ? 1.2 : att);
+      let cr_ = ar * (1.06 * key + 0.27 * ao + 0.7 * k2d + 0.4 * bn) + sp * 0.97 + kk * 0.78 + sky * gloss * 0.14;
+      let cg_ = ag * (1.03 * key + 0.225 * ao + 0.85 * k2d + 0.33 * bn) + sp * 0.985 + kk * 0.9 + sky * gloss * 0.34;
+      let cb_ = ab * (0.9 * key + 0.08 * ao + 1.0 * k2d + 0.12 * bn) + sp * 1.0 + kk * 1.0 + sky * gloss * 0.8;
       // soft shoulder so highlights roll off like film instead of clipping
       if (cr_ > 0.82) cr_ = 0.82 + 0.18 * (1 - Math.exp(-(cr_ - 0.82) / 0.18));
       if (cg_ > 0.82) cg_ = 0.82 + 0.18 * (1 - Math.exp(-(cg_ - 0.82) / 0.18));
@@ -390,17 +400,42 @@ function buildRoof(env) {
   // (the widest blurs are done at half size: same look, a quarter of the work)
   const half = L.makeCanvas(LW / 2, RH / 2), hg = half.getContext('2d');
   hg.imageSmoothingQuality = 'high'; hg.drawImage(sharp, 0, 0, LW / 2, RH / 2);
+  // quarter size, with the bottom rows smeared into a margin so the widest blur never pulls in transparency at the layer's edge
+  const QW = Math.ceil(LW / 4), QH = Math.ceil(RH / 4), QM = 40;
+  const quart = L.makeCanvas(QW, QH + QM), qg = quart.getContext('2d');
+  qg.imageSmoothingQuality = 'high'; qg.drawImage(half, 0, 0, QW, QH); qg.drawImage(quart, 0, QH - 2, QW, 2, 0, QH, QW, QM);
   const roof = L.makeCanvas(LW, RH);
   const g = roof.getContext('2d');
   g.filter = 'blur(0.6px)'; g.drawImage(sharp, 0, 0); g.filter = 'none';
   const ocx = cx + PAD, ocy = cy + PAD - y0;
-  for (const [bpx, d0, d1] of [[3.5, 104, 180], [9, 165, 270], [20, 250, 400], [38, 380, 600]]) {
+  for (const [bpx, d0, d1] of [[3, 100, 152], [8, 138, 208], [18, 192, 292], [38, 268, 392], [72, 356, 530]]) {
     const b = L.makeCanvas(LW, RH), bg = b.getContext('2d');
-    if (bpx < 12) { bg.filter = `blur(${bpx}px)`; bg.drawImage(sharp, 0, 0); bg.filter = 'none'; } else { bg.imageSmoothingQuality = 'high'; bg.drawImage(L.blurred(half, bpx / 2), 0, 0, LW, RH); }
+    if (bpx < 12) { bg.filter = `blur(${bpx}px)`; bg.drawImage(sharp, 0, 0); bg.filter = 'none'; }
+    else if (bpx < 30) { bg.imageSmoothingQuality = 'high'; bg.drawImage(L.blurred(half, bpx / 2), 0, 0, LW, RH); }
+    else { bg.imageSmoothingQuality = 'high'; bg.drawImage(L.blurred(quart, bpx / 4), 0, 0, QW, QH, 0, 0, QW * 4, QH * 4); }
     bg.globalCompositeOperation = 'destination-in';
     bg.fillStyle = L.radial(bg, ocx, ocy, R - d1, R - d0, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
     bg.fillRect(0, 0, LW, RH);
     g.drawImage(b, 0, 0);
+  }
+  // bokeh: out of focus, every glint on the glaze opens into a soft disc — the nearer the lens, the bigger
+  {
+    const rb = L.rng('s02-bokeh'), bk = L.makeCanvas(LW, RH), kg = bk.getContext('2d');
+    kg.globalCompositeOperation = 'lighter';
+    let nb = 0;
+    for (let q = 0; q < 9000 && nb < 90; q++) {
+      const i = rb.int(30, LW - 30), j = rb.int(0, RH - 1);
+      const dd = R - Math.hypot(i - PAD + 0.5 - cx, j + y0 - PAD + 0.5 - cy);
+      if (dd < 185) continue;
+      const ga = gp[(j * LW + i) * 4 + 3] / 255;
+      if (ga < 0.2 || rb() > ga * 0.55) continue;
+      nb++;
+      const rad = L.lerp(8, 46, sstep(185, 620, dd)) * rb.range(0.7, 1.25), al = rb.range(0.05, 0.17) * (0.6 + 0.4 * ga), sq = rb.range(0.86, 1);
+      kg.save(); kg.translate(i, j); kg.rotate(rb.range(0, 3.14)); kg.scale(1, sq);
+      kg.fillStyle = L.radial(kg, 0, 0, 0, rad, [[0, `rgba(255,236,170,${(al * 0.72).toFixed(3)})`], [0.74, `rgba(255,236,170,${(al * 0.8).toFixed(3)})`], [0.9, `rgba(255,244,200,${al.toFixed(3)})`], [1, 'rgba(255,244,200,0)']]);
+      kg.beginPath(); kg.arc(0, 0, rad, 0, L.TAU); kg.fill(); kg.restore();
+    }
+    g.globalCompositeOperation = 'screen'; g.drawImage(L.blurred(bk, 1.2), 0, 0); g.globalCompositeOperation = 'source-over';
   }
   // glare: the highlights bloom a little, and spill a thin halo over the eave into the dark
   const gl = L.makeCanvas(LW, RH); gl.getContext('2d').putImageData(gim, 0, 0);
@@ -427,31 +462,40 @@ function buildBack(env) {
     for (let i = 0; i < 9; i++) softDot(g, r.range(-80, W + 80), r.range(-40, 430), r.range(50, 130), i % 3 ? '#27466f' : '#55697f', r.range(0.03, 0.06), 0);
   });
 }
-/** dust hanging in the light. Not a star field: it drifts in loose clouds, most of it is out of focus, sizes differ wildly */
+/** dust hanging in the light. Not a star field: it only shows inside the shaft of the key light (upper left → eave),
+ *  it drifts in loose clumps, most of it is out of focus, and the sizes differ wildly */
 function buildDust(env) {
   const a = env.arc;
   return L.makeLayer(PAD, (g) => {
-    const r = L.rng('s02-dust'), nz = L.makeNoise('s02-drift');
+    const r = L.rng('s02-dust-c'), nz = L.makeNoise('s02-drift');
     const cols = ['#e9f1ff', '#fff3c4', '#ffe29a', '#c9dcf5', '#fff8e6'];
-    const cloud = (x, y) => L.clamp(0.5 + 0.9 * nz.fbm(x / 420, y / 300, 3)) * (0.5 + 0.5 * sstep(1300, 200, Math.hypot(x - (a.cx - 300), y - 140)));
+    const ax = -160, ay = -40, bx = a.cx - 120, by = a.crestY - 30, ux = bx - ax, uy = by - ay, ul = Math.hypot(ux, uy);
+    const shaft = (x, y) => {
+      const t = ((x - ax) * ux + (y - ay) * uy) / (ul * ul), dist = Math.abs((x - ax) * uy - (y - ay) * ux) / ul;
+      const wdt = 150 + 190 * L.clamp(t);
+      return Math.exp(-(dist * dist) / (wdt * wdt)) * (t > 1.15 ? Math.exp(-(t - 1.15) * 6) : 1);
+    };
+    const cloud = (x, y) => L.clamp(0.42 + 1.25 * nz.fbm(x / 330, y / 240, 3)) * (0.07 + 0.93 * shaft(x, y));
     let k = 0;
-    for (let i = 0; i < 2600 && k < 520; i++) {
+    for (let i = 0; i < 6000 && k < 250; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(-PAD, a.crestY + 230);
       const dr = a.drAt(x, y);
-      if (dr < 8 || r() > cloud(x, y)) continue;
+      if (dr < 10 || r() > cloud(x, y)) continue;
       k++;
-      const t = Math.pow(r(), 2.6);   // 0 = in focus (small, crisp, bright) … 1 = near the lens (big, soft, faint)
-      if (t < 0.25) {
-        g.globalAlpha = r.range(0.25, 0.9); g.fillStyle = r.pick(cols);
-        g.beginPath(); g.arc(x, y, L.lerp(0.5, 1.5, r()), 0, L.TAU); g.fill(); g.globalAlpha = 1;
-      } else softDot(g, x, y, L.lerp(1.6, 13, t * t), r.pick(cols), L.lerp(0.34, 0.05, Math.sqrt(t)) * r.range(0.6, 1.2), 0.8);
+      const t = Math.pow(r(), 1.5);   // 0 = in focus (small, crisp, bright) … 1 = near the lens (big, soft, faint)
+      const col = r.pick(cols);
+      if (t < 0.16) {   // a crisp fleck: never a perfect dot
+        g.globalAlpha = r.range(0.3, 0.9); g.fillStyle = col;
+        const rad = L.lerp(0.6, 1.9, r() * r());
+        g.beginPath(); g.ellipse(x, y, rad * r.range(1, 2.1), rad, r.range(0, 3.14), 0, L.TAU); g.fill(); g.globalAlpha = 1;
+      } else softDot(g, x, y, L.lerp(1.8, 24, t * t * t), col, L.lerp(0.3, 0.03, Math.sqrt(t)) * r.range(0.6, 1.25), r.chance(0.2) ? 0.8 : 0.15);
     }
     // gold motes lifted off the tiles, thickest just above the lit part of the eave
-    for (let i = 0; i < 300; i++) {
-      const p = a.pt(r.range(-0.46, 0.46), 6 + 190 * Math.pow(r(), 2.2)), w = 0.3 + 0.7 * sstep(0.3, 0.02, Math.abs(p.x - (a.cx - 200)) / 2400);
-      const t = Math.pow(r(), 2.2), col = r.pick(['#ffd86a', '#fff3c4', '#ffc94a']);
-      if (t < 0.4) { g.globalAlpha = r.range(0.25, 0.9) * w; g.fillStyle = col; g.beginPath(); g.arc(p.x, p.y, L.lerp(0.5, 1.6, r()), 0, L.TAU); g.fill(); g.globalAlpha = 1; }
-      else softDot(g, p.x, p.y, L.lerp(1.8, 8, t * t), col, 0.3 * w * (1.2 - t), 0.8);
+    for (let i = 0; i < 110; i++) {
+      const p = a.pt(r.gauss() * 0.17 - 0.07, 8 + 170 * Math.pow(r(), 2.4)), w = 0.35 + 0.65 * sstep(0.3, 0.02, Math.abs(p.x - (a.cx - 200)) / 2400);
+      const t = Math.pow(r(), 1.7), col = r.pick(['#ffd86a', '#fff3c4', '#ffc94a']);
+      if (t < 0.25) { g.globalAlpha = r.range(0.25, 0.9) * w; g.fillStyle = col; g.beginPath(); g.arc(p.x, p.y, L.lerp(0.5, 1.6, r()), 0, L.TAU); g.fill(); g.globalAlpha = 1; }
+      else softDot(g, p.x, p.y, L.lerp(1.8, 11, t * t), col, 0.3 * w * (1.2 - t), 0.3);
     }
   });
 }

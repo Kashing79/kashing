@@ -36,6 +36,10 @@ function edgeS(a, x, y) {
 }
 
 // ───────────────────────── zitan table top ─────────────────────────
+// At this magnification (about 30 px to the millimetre) polished zitan is a dark, glassy ground streaked along the grain,
+// its vessels cut open into fine crinkled hairs (牛毛纹) — each one tapered like a hair, some empty and dark, some packed
+// with a paler deposit. Nothing is embossed: the surface is flat and waxed, and what tells you so is the sheen that comes
+// in from the window side and is combed by the fibre. Focus sits on the bowl's lip; the table melts as it runs away from it.
 function buildWood(env) {
   const a = env.arc;
   const ox = -PAD, oy = -PAD;
@@ -55,13 +59,13 @@ function buildWood(env) {
   const full = (gg) => gg.fillRect(ox, oy, ww, wh);
   g.fillStyle = '#451c18'; full(g);
   // figure: long slow bands of darker and redder wood
-  wavy(g, L.noiseTex(ww, TH, { seed: 's29fig', scale: 110, sx: 15, sy: 0.5, octaves: 4, gain: 0.55, warp: 0.25, res: 0.3, contrast: 1.35,
-    ramp: [[0, '#28100e'], [0.4, '#421a16'], [0.72, '#51211a'], [1, '#632a1f']] }), 0.92, 'source-over');
+  wavy(g, L.noiseTex(ww, TH, { seed: 's29fig', scale: 118, sx: 16, sy: 0.5, octaves: 4, gain: 0.55, warp: 0.25, res: 0.3, contrast: 1.3,
+    ramp: [[0, '#260f0e'], [0.38, '#411a16'], [0.7, '#55231b'], [1, '#6c2e22']] }), 0.94, 'source-over');
   // fibre: two scales of fine lines
   const fib1 = L.noiseTex(ww, TH, { seed: 's29fib1', scale: 56, sx: 20, sy: 0.3, octaves: 3, gain: 0.5, res: 0.5, contrast: 1.5 });
   const fib2 = L.noiseTex(ww, TH, { seed: 's29fib2', scale: 30, sx: 34, sy: 0.2, octaves: 3, gain: 0.55, res: 0.5, contrast: 1.7 });
-  wavy(g, fib1, 0.34, 'overlay');
-  wavy(g, fib2, 0.42, 'soft-light');
+  wavy(g, fib1, 0.3, 'overlay');
+  wavy(g, fib2, 0.36, 'soft-light');
 
   // a few dark streaks (深色纹理): heavy ones up top and out at the sides, only hairlines behind the tagline
   const st = L.makeCanvas(ww, wh), sg = st.getContext('2d'); sg.translate(-ox, -oy);
@@ -71,60 +75,72 @@ function buildWood(env) {
     for (let x = x0; x <= x1 + 1; x += 90) pts.push([x, y0 + flow(x) + 5 * nF.n2(x / 800, ph)]);
     L.inkStroke(sg, pts, { width: wdt, color: '#190908', seed: 's29st' + Math.round(y0 * 7 + wdt), taper: [0.12, 0.18], wobble: 0.6, alpha: al });
   };
-  streak(-52, 16, 0.7); streak(22, 11, 0.62); streak(41, 3, 0.5); streak(104, 5, 0.5); streak(171, 24, 0.6); streak(196, 4, 0.55);
-  streak(247, 5, 0.42); streak(292, 8, 0.4); streak(418, 2.6, 0.3); streak(503, 3.2, 0.28);
+  streak(-52, 16, 0.7); streak(22, 11, 0.62); streak(41, 3, 0.5); streak(104, 5, 0.5); streak(171, 26, 0.62); streak(196, 4, 0.55);
+  streak(247, 5, 0.4); streak(292, 8, 0.36); streak(418, 2.6, 0.26); streak(503, 3.2, 0.24);
   streak(628, 13, 0.6, ox - 60, 520); streak(668, 4, 0.5, ox - 60, 380); streak(655, 10, 0.55, 1500); streak(742, 6, 0.5, 1640); streak(790, 14, 0.6, 1700);
   for (let i = 0; i < 16; i++) {
     const x0 = rs.range(ox - 60, W - 300), y0 = rs.range(oy, wh + oy);
-    streak(y0, rs.range(1.4, 3.2), rs.range(0.18, 0.36), x0, x0 + rs.range(500, 1500));
+    streak(y0, rs.range(1.4, 3.2), rs.range(0.16, 0.32), x0, x0 + rs.range(500, 1500));
   }
-  g.drawImage(L.blurred(st, 1.8), ox, oy);
+  g.drawImage(L.blurred(st, 2.2), ox, oy);
 
-  // 包浆: an oily sheen pooled on the upper left, combed into streaks by the fibre
+  // 包浆: the wax throws back the window — a cool, greyed rose coming in from the upper left, combed into streaks by the fibre
   const sh = L.makeCanvas(ww, wh), hg0 = sh.getContext('2d'); hg0.translate(-ox, -oy);
-  hg0.save(); hg0.translate(250, 96); hg0.scale(1, 0.44);
-  hg0.fillStyle = L.radial(hg0, 0, 0, 0, 980, [[0, 'rgba(232,120,80,0.46)'], [0.35, 'rgba(214,104,70,0.26)'], [0.7, 'rgba(190,90,60,0.08)'], [1, 'rgba(190,90,60,0)']]);
-  hg0.fillRect(-1600, -1600, 3200, 3200); hg0.restore();
-  wavy(hg0, L.noiseTex(ww, TH, { seed: 's29comb', scale: 40, sx: 30, sy: 0.24, octaves: 3, res: 0.5, contrast: 1.7, ramp: [[0, 'rgba(0,0,0,0.3)'], [1, 'rgba(0,0,0,1)']] }), 1, 'destination-in');
+  hg0.fillStyle = '#000'; hg0.fillRect(ox, oy, ww, wh);
+  hg0.save(); hg0.translate(-40, -30); hg0.rotate(-0.42); hg0.scale(0.62, 1);
+  hg0.fillStyle = L.radial(hg0, 0, 0, 0, 1180, [[0, 'rgb(156,100,88)'], [0.25, 'rgb(114,70,60)'], [0.5, 'rgb(60,34,30)'], [0.78, 'rgb(18,9,8)'], [1, 'rgb(0,0,0)']]);
+  hg0.fillRect(-2600, -2600, 5200, 5200); hg0.restore();
+  const comb = L.makeCanvas(ww, wh), cg = comb.getContext('2d'); cg.translate(-ox, -oy);
+  wavy(cg, fib2, 1, 'source-over'); wavy(cg, fib1, 0.4, 'source-over');
+  cg.fillStyle = 'rgba(255,255,255,0.3)'; cg.fillRect(ox, oy, ww, wh);
+  hg0.globalCompositeOperation = 'multiply'; hg0.drawImage(comb, ox, oy);
   g.globalCompositeOperation = 'screen'; g.drawImage(sh, ox, oy); g.globalCompositeOperation = 'source-over';
 
-  // 牛毛纹: short, fine, crinkled pore lines lying along the grain — a dark slit with a lit lower lip
-  const hc = L.makeCanvas(ww, wh), hg = hc.getContext('2d'); hg.translate(-ox, -oy);
-  hg.fillStyle = '#909090'; hg.fillRect(ox, oy, ww, wh);
-  wavy(hg, fib2, 0.5, 'source-over'); wavy(hg, fib1, 0.3, 'source-over');
+  // 牛毛纹: short crinkled vessel lines lying along the grain, each tapered like a hair
   const rp = L.rng('s29pore'), nP = L.makeNoise('s29pore');
-  g.lineCap = hg.lineCap = 'round'; g.lineJoin = hg.lineJoin = 'round';
-  const trace = (gg, pts, dx, dy) => { gg.beginPath(); gg.moveTo(pts[0] + dx, pts[1] + dy); for (let q = 2; q < pts.length; q += 2) gg.lineTo(pts[q] + dx, pts[q + 1] + dy); gg.stroke(); };
-  for (let n = 0; n < 2500; n++) {
-    const x = rp.range(ox - 90, ox + ww + 10), y = rp.range(oy - 10, oy + wh + 10);
+  const HX = new Float32Array(44), HY = new Float32Array(44), HW = new Float32Array(44);
+  const hair = (n, wd, dx, dy) => {
+    g.beginPath();
+    for (let q = 0; q <= n; q++) { const X = HX[q] + dx, Y = HY[q] + dy - HW[q] * wd; if (q) g.lineTo(X, Y); else g.moveTo(X, Y); }
+    for (let q = n; q >= 0; q--) g.lineTo(HX[q] + dx, HY[q] + dy + HW[q] * wd);
+    g.closePath(); g.fill();
+  };
+  for (let n = 0; n < 4300; n++) {
+    const x = rp.range(ox - 140, ox + ww + 10), y = rp.range(oy - 10, oy + wh + 10);
     const drift = 0.5 + 0.5 * nP.n2(x / 900, y / 46);   // pores gather in drifts along the grain
-    if (rp() > 0.22 + 0.78 * drift) continue;
-    const len = 22 + 150 * Math.pow(rp(), 1.7), lw = rp.range(0.9, 2.2) * (rp.chance(0.08) ? 1.5 : 1);
-    const amp = rp.range(0.7, 3.4), k = rp.range(0.035, 0.11), ph = rp.range(0, 6.28), sl = rp.range(-0.035, 0.035);
-    const nseg = Math.max(3, Math.ceil(len / 8)), pts = [];
-    for (let q = 0; q <= nseg; q++) { const xx = x + (len * q) / nseg; pts.push(xx, y + flow(xx) + sl * (xx - x) + amp * Math.sin(ph + (xx - x) * k) + 0.6 * nP.n2(xx / 7, n * 0.37)); }
-    const calm = x + len > 590 && x < 1330 && y > 280 && y < 566 ? 0.55 : 1;   // behind the tagline: lower contrast, no bright lips
-    g.strokeStyle = L.rgba('#8f4636', rp.range(0.16, 0.36) * calm); g.lineWidth = lw * 0.9; trace(g, pts, 0.7, 1.25);
-    g.strokeStyle = L.rgba('#130505', rp.range(0.45, 0.9) * (0.6 + 0.4 * calm)); g.lineWidth = lw; trace(g, pts, 0, 0);
-    hg.strokeStyle = 'rgba(0,0,0,0.7)'; hg.lineWidth = lw + 0.6; trace(hg, pts, 0, 0);
+    if (rp() > 0.2 + 0.8 * drift) continue;
+    const big = rp.chance(0.075);
+    const len = (16 + 128 * Math.pow(rp(), 1.8)) * (big ? 1.5 : 1), wd = rp.range(1.1, 2.7) * (big ? 1.7 : 1);
+    const amp = rp.range(0.8, 3.8), k = rp.range(0.04, 0.13), ph = rp.range(0, 6.28), sl = rp.range(-0.05, 0.05), fat = rp.range(0.25, 0.75);
+    const nseg = Math.min(42, Math.max(4, Math.ceil(len / 6)));
+    for (let q = 0; q <= nseg; q++) {
+      const t = q / nseg, xx = x + len * t;
+      HX[q] = xx; HY[q] = y + flow(xx) + sl * (xx - x) + amp * Math.sin(ph + (xx - x) * k) + 0.7 * nP.n2(xx / 7, n * 0.37);
+      // the belly of the hair sits off-centre, and the line pinches now and then
+      const tt = t < fat ? 0.5 * t / fat : 0.5 + 0.5 * (t - fat) / (1 - fat);
+      HW[q] = 0.5 * Math.pow(Math.sin(Math.PI * tt), 0.7) * (0.8 + 0.2 * nP.n2(xx / 11, n * 0.61));
+    }
+    const calm = x + len > 590 && x < 1330 && y > 270 && y < 566 ? 0.58 : 1;   // behind the tagline: lower contrast, no bright lines
+    if (rp.chance(0.2)) {   // a vessel packed with pale deposit
+      g.fillStyle = L.rgba(rp.chance(0.5) ? '#8c4835' : '#7a3a2c', rp.range(0.3, 0.6) * calm); hair(nseg, wd * 0.75, 0, 0);
+    } else {                // an open one: a dark slit whose lower lip catches the light
+      g.fillStyle = L.rgba('#8f4636', rp.range(0.1, 0.28) * calm); hair(nseg, wd, 0.6, 1.15);
+      g.fillStyle = L.rgba('#110505', rp.range(0.4, 0.88) * (0.62 + 0.38 * calm)); hair(nseg, wd, 0, 0);
+    }
   }
-  // relief from the upper-left key light
-  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.42;
-  g.drawImage(L.bumpLight(hc, { angle: 50, strength: 2.4, blur: 0.5, res: 0.5 }), ox, oy);
-  g.globalAlpha = 1;
 
   // light: the table falls into shade toward the right; the lit bowl throws a little warmth back onto the wood at left
   g.globalCompositeOperation = 'multiply';
-  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#ffffff'], [0.42, '#f1e5e1'], [0.72, '#c6b6b3'], [1, '#9f8e8c']]); full(g);
-  g.fillStyle = L.radial(g, 620, 420, 500, 1500, [[0, '#ffffff'], [1, '#b7a6a2']]); full(g);
+  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#ffffff'], [0.4, '#f1e4e1'], [0.7, '#bfaeae'], [1, '#93828a']]); full(g);
+  g.fillStyle = L.radial(g, 560, 440, 480, 1500, [[0, '#ffffff'], [1, '#ad9c9c']]); full(g);
   g.globalCompositeOperation = 'source-over';
   const bn = L.makeCanvas(ww, wh), bg = bn.getContext('2d'); bg.translate(-ox, -oy);
-  bg.fillStyle = L.radial(bg, a.cx, a.cy, a.R + 4, a.R + 170, [[0, 'rgba(196,98,66,0.34)'], [0.3, 'rgba(170,80,54,0.16)'], [1, 'rgba(160,74,50,0)']]); bg.fillRect(ox, oy, ww, wh);
+  bg.fillStyle = L.radial(bg, a.cx, a.cy, a.R + 4, a.R + 190, [[0, 'rgba(206,112,82,0.4)'], [0.3, 'rgba(176,86,60,0.18)'], [1, 'rgba(160,74,50,0)']]); bg.fillRect(ox, oy, ww, wh);
   bg.globalCompositeOperation = 'destination-in';
-  bg.fillStyle = L.linear(bg, 0, 0, 640, 0, [[0, 'rgba(0,0,0,1)'], [0.55, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0)']]); bg.fillRect(ox, oy, ww, wh);
+  bg.fillStyle = L.linear(bg, 0, 0, 700, 0, [[0, 'rgba(0,0,0,1)'], [0.55, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0)']]); bg.fillRect(ox, oy, ww, wh);
   g.globalCompositeOperation = 'screen'; g.drawImage(bn, ox, oy); g.globalCompositeOperation = 'source-over';
 
-  // depth of field: sharp along the lip, going soft toward the top of frame
+  // depth of field: sharp along the lip, melting toward the top of frame
   const dofMask = (src, r0, r1) => {
     const sg2 = src.getContext('2d');
     sg2.globalCompositeOperation = 'destination-in';
@@ -132,8 +148,8 @@ function buildWood(env) {
     sg2.fillRect(0, 0, ww, wh);
     return src;
   };
-  const mid = dofMask(L.blurred(c, 1.6), 60, 260), far = dofMask(L.blurred(c, 4.6), 230, 600);
-  g.drawImage(mid, ox, oy); g.drawImage(far, ox, oy);
+  const mid = dofMask(L.blurred(c, 1.7), 46, 210), far = dofMask(L.blurred(c, 4.4), 180, 440), xfar = dofMask(L.blurred(c, 8.5), 400, 780);
+  g.drawImage(mid, ox, oy); g.drawImage(far, ox, oy); g.drawImage(xfar, ox, oy);
   return { cnv: c, ox, oy };
 }
 
@@ -204,7 +220,7 @@ function buildBowl(env) {
       const U = Math.atan2(ddx, ddy) * rr;
       const fr = (sm + bil(cWob, i, j)) * RS, r0 = fr < 0 ? 0 : fr | 0;
       const ring = (RG[r0] + (RG[r0 + 1] - RG[r0]) * (fr - r0)) * (0.74 + 0.42 * bil(cAm, i, j));
-      const peel = 0.05 * nA.n2(U / 21, sm / 21) + 0.018 * nB.n2(U / 8.5 + 40, sm / 8.5 - 7);   // orange-peel of a fat glaze
+      const peel = 0.034 * nA.n2(U / 21, sm / 21) + 0.012 * nB.n2(U / 8.5 + 40, sm / 8.5 - 7);   // orange-peel of a fat glaze
       const fade = sstep(2, 26, d);
       Hh[k] = (ring + peel) * fade; Rg[k] = ring * fade;
     }
@@ -224,7 +240,7 @@ function buildBowl(env) {
     }
   };
   // 棕眼: a handful of pinholes, each a tiny crater with a brown floor
-  const pins = [[-0.318, 96, 5.6], [-0.238, 312, 4.2], [-0.131, 64, 3.6], [-0.052, 402, 7.4], [0.031, 208, 4.8], [0.094, 121, 3.2], [0.205, 268, 6.2], [0.302, 148, 4.2], [-0.192, 478, 8.2], [0.018, 536, 5.4], [-0.346, 232, 3.4]];
+  const pins = [[-0.318, 96, 6.4], [-0.238, 312, 4.4], [-0.131, 64, 3.8], [-0.052, 402, 8.6], [0.031, 208, 5.2], [0.094, 121, 3.4], [0.205, 268, 7], [0.302, 148, 4.4], [-0.192, 478, 9.4], [0.018, 536, 5.8], [-0.346, 232, 3.6], [-0.071, 138, 2.6], [0.152, 452, 4.6]];
   for (const [th0, d0, rp] of pins) {
     eachNear(th0, d0, rp, (k, du, ds) => {
       const d2 = (du * du + ds * ds) / (rp * rp); if (d2 >= 1) return;
@@ -233,10 +249,10 @@ function buildBowl(env) {
     });
   }
   // 缩釉: the glaze has crawled back from two small patches, leaving bare biscuit ringed by a fat rolled edge
-  const crawls = [[-0.104, 214, 31, 15, 1.3], [0.117, 366, 17, 10, 7.9]];
+  const crawls = [[-0.104, 214, 22, 11, 1.3], [0.117, 366, 14, 8, 7.9]];
   for (const [th0, d0, au, as, seed] of crawls) {
     eachNear(th0, d0, au * 1.5, (k, du, ds) => {
-      const q = 1 - Math.sqrt((du * du) / (au * au) + (ds * ds) / (as * as)) + 0.3 * nA.n2(du / 13 + seed, ds / 13 - seed) + 0.1 * nB.n2(du / 4.6, ds / 4.6 + seed);
+      const q = 1 - Math.sqrt((du * du) / (au * au) + (ds * ds) / (as * as)) + 0.2 * nA.n2(du / 15 + seed, ds / 15 - seed) + 0.05 * nB.n2(du / 5, ds / 5 + seed);
       if (q < -0.5) return;
       const bead = (q + 0.2) / 0.14;
       Hh[k] += 0.9 * Math.exp(-bead * bead) - 2.3 * sstep(-0.12, 0.16, q);
@@ -249,7 +265,7 @@ function buildBowl(env) {
   const dl = lit.data, ds = shd.data, dp = spc.data;
   const KX = -0.5, KY = -0.55, KZ = 0.67;          // key light: a window up and to the left
   const FX = 0.3, FY = 0.22, FZ = 0.93;            // fill: the room, from above
-  const tm = (v) => (v < 0.86 ? v : 0.86 + 0.14 * (1 - Math.exp(-(v - 0.86) / 0.14))) * 255;
+  const tm = (v) => (v < 0.88 ? v : 0.88 + 0.12 * (1 - Math.exp(-(v - 0.88) / 0.12))) * 255;
   for (let j = 0; j < RH; j++) {
     const y = Y0 + j + 0.5, ddy = cy - y, jm = j > 0 ? -RW : 0, jp = j < RH - 1 ? RW : 0;
     for (let i = 0; i < RW; i++) {
@@ -263,7 +279,7 @@ function buildBowl(env) {
       // smooth frame: normal, meridian tangent (inward and up), tangent along the arc
       const n0x = sa * sn, n0y = -sa * cs, n0z = ca, mx = -ca * sn, my = ca * cs, mz = sa, tx = cs, ty = sn;
       let dif = (n0x * KX + n0y * KY + n0z * KZ + 0.3) / 1.3; if (dif < 0) dif = 0;
-      let rel = -(ht * (tx * KX + ty * KY) + hs * (mx * KX + my * KY + mz * KZ)) * 2.6; rel = rel < -0.42 ? -0.42 : rel > 0.42 ? 0.42 : rel;
+      let rel = -(ht * (tx * KX + ty * KY) + hs * (mx * KX + my * KY + mz * KZ)) * 3.2; rel = rel < -0.42 ? -0.42 : rel > 0.42 ? 0.42 : rel;
       let relS = -(ht * (tx * FX + ty * FY) + hs * (mx * FX + my * FY + mz * FZ)) * 1.1; relS = relS < -0.3 ? -0.3 : relS > 0.3 ? 0.3 : relS;
       // bumped normal → what the glaze mirrors
       let nx = n0x - ht * tx - hs * mx, ny = n0y - ht * ty - hs * my, nz = n0z - hs * mz;
@@ -272,14 +288,14 @@ function buildBowl(env) {
       let fr = 1 - nz; fr = 0.045 + 0.955 * fr * fr * fr * fr * fr; if (fr > 0.3) fr = 0.3;
       const cav = Cv[k], bq = Bq[k], gloss = (1 - cav) * (1 - bq);
       const room = ((0.5 + 1.2 * sstep(70, 80, zen)) * (1 - sstep(88, 93, zen)) + 0.04) * fr * gloss;
-      let w1 = sstep(64, 66, zen) * (1 - sstep(80, 82.5, zen));
+      let w1 = sstep(62.5, 67, zen) * (1 - sstep(78.5, 84, zen));
       if (w1 > 0) {
-        w1 *= sstep(-0.43, -0.39, az) * (1 - sstep(-0.135, -0.1, az));
-        w1 *= sstep(0.006, 0.014, Math.abs(az + 0.262));                 // glazing bars
-        w1 *= 0.08 + 0.92 * sstep(0.5, 1.1, Math.abs(zen - 71.5));
+        w1 *= sstep(-0.44, -0.37, az) * (1 - sstep(-0.19, -0.115, az));
+        w1 *= 0.25 + 0.75 * sstep(0.004, 0.016, Math.abs(az + 0.292));     // glazing bars
+        w1 *= 0.3 + 0.7 * sstep(0.4, 1.3, Math.abs(zen - 71.5));
       }
-      let w2 = sstep(65, 67, zen) * (1 - sstep(78, 80.5, zen));
-      if (w2 > 0) w2 *= sstep(0.185, 0.215, az) * (1 - sstep(0.275, 0.305, az));
+      let w2 = sstep(64, 68.5, zen) * (1 - sstep(76, 81, zen));
+      if (w2 > 0) w2 *= sstep(0.2, 0.25, az) * (1 - sstep(0.27, 0.33, az));
 
       // glaze colour: sugar-white, creamier where it pools in a groove, whiter over a ridge
       const ring = Rg[k], cl = bil(cCl, i, j);
@@ -295,21 +311,21 @@ function buildBowl(env) {
       let nf = n0x * FX + n0y * FY + n0z * FZ; if (nf < 0) nf = 0;
       const bw = (1 - n0z) * 0.5 * (0.55 + 0.45 * Math.exp(-d / 220));
       const es = edgeS(a, x, y);
-      const amb = (0.56 + 0.26 * nf) * (1 - 0.5 * bw) * (1 - 0.16 * sstep(40, 760, -es));
+      const amb = (0.42 + 0.22 * nf) * (1 - 0.5 * bw) * (1 - 0.2 * sstep(40, 760, -es));
       const sr = ar * (amb + 0.5 * bw) * (1 + relS) + room * 0.85;
       const sg = ag * (amb * 0.965 + 0.2 * bw) * (1 + relS) + room * 0.84;
       const sb = ab * (amb * 0.925 + 0.14 * bw) * (1 + relS) + room * 0.8;
       // key light on top of it
-      const fall = 1 - 0.1 * sstep(260, 1500, Math.hypot(x - 240, y - 560));
+      const fall = 1 - 0.2 * sstep(220, 1600, Math.hypot(x - 200, y - 600));
       const key = dif * fall;
-      const lr = ar * (amb + 0.5 * bw + 0.3 * key) * (1 + rel) + room;
-      const lg = ag * (amb * 0.965 + 0.2 * bw + 0.326 * key) * (1 + rel) + room * 0.99;
-      const lb = ab * (amb * 0.925 + 0.14 * bw + 0.354 * key) * (1 + rel) + room * 0.95;
+      const lr = ar * (amb + 0.5 * bw + 0.44 * key) * (1 + rel) + room;
+      const lg = ag * (amb * 0.965 + 0.2 * bw + 0.468 * key) * (1 + rel) + room * 0.99;
+      const lb = ab * (amb * 0.925 + 0.14 * bw + 0.497 * key) * (1 + rel) + room * 0.95;
 
       const o = k * 4, cov = d >= 0.5 ? 255 : (d + 0.5 < 0 ? 0 : (d + 0.5) * 255);
       dl[o] = tm(lr); dl[o + 1] = tm(lg); dl[o + 2] = tm(lb); dl[o + 3] = cov;
       ds[o] = tm(sr); ds[o + 1] = tm(sg); ds[o + 2] = tm(sb); ds[o + 3] = cov;
-      const sp = fr * gloss * (8 * w1 + 4.4 * w2);
+      const sp = fr * gloss * (8 * w1 + 1.5 * w2);
       if (sp > 0.004) { dp[o] = 255; dp[o + 1] = 253; dp[o + 2] = 246; dp[o + 3] = (sp > 1 ? 1 : sp) * cov; }
     }
   }
@@ -329,7 +345,7 @@ function buildBowl(env) {
   };
   const spec = toCanvas(spc), sg2 = spec.getContext('2d');
   // a breath of bloom round the reflections: the glaze is thick and a little milky
-  sg2.globalAlpha = 0.4; sg2.drawImage(L.blurred(spec, 9), 0, 0); sg2.globalAlpha = 1;
+  sg2.globalAlpha = 0.5; sg2.drawImage(L.blurred(spec, 13), 0, 0); sg2.globalAlpha = 1;
   return { lit: dof(toCanvas(lit)), shade: dof(toCanvas(shd)), spec, X0, Y0, RW, RH };
 }
 
@@ -342,7 +358,7 @@ function buildLight(env, Y0) {
     const s = edgeS(a, mx0 + (i + 0.5) * MS, my0 + (j + 0.5) * MS), m = sstep(-eW, eW, s), o = (j * cw + i) * 4;
     dm[o] = dm[o + 1] = dm[o + 2] = 255; dm[o + 3] = m * 255;
     const f = sstep(-eW * 1.25, -eW * 0.2, s) * (1 - sstep(-eW * 0.2, eW * 0.7, s));   // sits on the shadow side of the edge
-    df[o] = 255; df[o + 1] = 190; df[o + 2] = 140; df[o + 3] = f * 0.42 * 255;
+    df[o] = 255; df[o + 1] = 204; df[o + 2] = 164; df[o + 3] = f * 0.26 * 255;
   }
   const mk = (img) => { const c = L.makeCanvas(cw, ch); c.getContext('2d').putImageData(img, 0, 0); return c; };
   return { mask: mk(im), fringe: mk(fr), mx0, my0, mw: cw * MS, mh: ch * MS };
@@ -352,8 +368,7 @@ export default {
   name: '甜白釉碗与紫檀',
   tone: 'light',
   init(env) {
-    const T0 = performance.now(); const wood = buildWood(env); const T1 = performance.now(); const bowl = buildBowl(env); const T2 = performance.now(); const light = buildLight(env, bowl.Y0);
-    console.warn('TIMING wood', (T1 - T0) | 0, 'bowl', (T2 - T1) | 0, 'light', (performance.now() - T2) | 0);
+    const wood = buildWood(env), bowl = buildBowl(env), light = buildLight(env, bowl.Y0);
     const tmp = L.makeCanvas(W, H - bowl.Y0);
     S = { wood, bowl, light, tmp, tg: tmp.getContext('2d') };
   },

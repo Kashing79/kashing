@@ -3,8 +3,9 @@
 // ring hanging just inside the circle. From it two vermilion lines run to the neighbouring nodes (相生 — two sides of the
 // pentagon, 36° below the horizontal) and two azurite lines to the far nodes (相克 — two strokes of the pentagram, 72°);
 // arrowheads give the direction: with the generating order running clockwise, 生 arrives from the left and leaves to the
-// right, 克 arrives up the left stroke and leaves down the right one. Everything else is drafting: parallels to those four
-// directions stepped off from division points on the circle, an inner circle, the dash-dot axis, a faint pencil lay-in.
+// right, 克 arrives up the left stroke and leaves down the right one. Everything else is drafting: a lattice ruled parallel to the two
+// 生 lines (some of them ruled two or three times over) from division points on the circle, two inner circles, the dash-dot
+// axis, a faint pencil lay-in. The steep 克 strokes are the only lines in their direction.
 // Nothing is written anywhere (which phase sits on top is not standardised, so the nodes stay unlabelled).
 //
 // The media are synthesised per pixel in init(): every stroke is first drawn as plain coverage (ink / vermilion / azurite /
@@ -16,8 +17,8 @@ import * as L from '../../../lib/core.js';
 const { W, H } = L;
 const PAD = 100;                      // the camera only creeps a few px
 const TW = W + PAD * 2, TH = H + PAD * 2;
-const RING = 44;                      // radius of the node ring
-const INNER = -300, THIRD = -500;     // concentric construction circles (dr)
+const RING = 50;                      // radius of the node ring
+const INNER = -300, THIRD = -452;     // concentric construction circles (dr)
 const C36 = Math.cos(L.deg(36)), S36 = Math.sin(L.deg(36)), C72 = Math.cos(L.deg(72)), S72 = Math.sin(L.deg(72));
 const DIR = { P: [C36, S36], Q: [-C36, S36], SP: [C72, S72], SQ: [-C72, S72] };
 let S = null;
@@ -25,15 +26,24 @@ let S = null;
 // construction lines: s = where the line leaves the circle (px of arc length from the crest), d = direction,
 // w = pen width, k = how full the pen was, end = dr of the circle it stops at (omitted → runs off the sheet), pencil = graphite
 const LINES = [
-  { s: -470, d: 'P', w: 4.4, k: 1 }, { s: -470, d: 'SP', w: 3.8, k: 0.92 },
-  { s: 410, d: 'Q', w: 4.2, k: 1 }, { s: 410, d: 'SQ', w: 3.8, k: 0.94 },
-  { s: -930, d: 'P', w: 4.6, k: 0.96 }, { s: -930, d: 'SP', w: 3.4, k: 0.86 },
-  { s: 880, d: 'Q', w: 4.6, k: 1 }, { s: 880, d: 'SQ', w: 3.6, k: 0.9 },
-  { s: -700, d: 'P', w: 3.2, k: 0.84, end: INNER }, { s: -732, d: 'P', w: 2.8, k: 0.8 },
-  { s: 640, d: 'Q', w: 3.2, k: 0.86, end: INNER }, { s: 1010, d: 'Q', w: 3, k: 0.8 },
-  { s: -300, d: 'Q', w: 2.6, k: 0.5, pencil: true }, { s: 250, d: 'P', w: 2.6, k: 0.5, pencil: true },
+  // ↘ the family ruled parallel to the right-hand 生 line
+  { s: -985, d: 'P', w: 5.4, k: 1 },
+  { s: -716, d: 'P', w: 3.7, k: 0.92 }, { s: -690, d: 'P', w: 3.4, k: 0.86, end: THIRD }, { s: -667, d: 'P', w: 3.7, k: 0.94, end: INNER },   // ruled three times
+  { s: -482, d: 'P', w: 5.2, k: 1 },
+  { s: 262, d: 'P', w: 4.4, k: 0.94 },
+  { s: 572, d: 'P', w: 5, k: 1 },
+  { s: 800, d: 'P', w: 3.7, k: 0.9 }, { s: 828, d: 'P', w: 3.4, k: 0.84 },
+  // ↙ … and to the left-hand one
+  { s: 960, d: 'Q', w: 5.4, k: 1 },
+  { s: 668, d: 'Q', w: 5, k: 0.98 },
+  { s: 506, d: 'Q', w: 3.7, k: 0.92 }, { s: 481, d: 'Q', w: 3.4, k: 0.88, end: INNER }, { s: 459, d: 'Q', w: 3.7, k: 0.9, end: THIRD },
+  { s: -236, d: 'Q', w: 4.4, k: 0.94 },
+  { s: -540, d: 'Q', w: 5, k: 1 }, { s: -568, d: 'Q', w: 3.4, k: 0.84 },
+  { s: -830, d: 'Q', w: 4.8, k: 0.96 },
+  // pencil lay-in that was never inked
+  { s: -455, d: 'P', w: 2.6, k: 0.5, pencil: true }, { s: 702, d: 'Q', w: 2.6, k: 0.5, pencil: true },
 ];
-const DIVS = [-930, -470, 410, 880];
+const DIVS = [-830, -482, 572, 960];
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
 const absorb = (hex, k = 1) => { const c = L.parseColor(hex); return [-Math.log(c[0] / 255) * k, -Math.log(c[1] / 255) * k, -Math.log(c[2] / 255) * k]; };
@@ -71,8 +81,9 @@ function buildTooth() {
     for (let x = 0; x < TW; x++) {
       const k = y * TW + x, i = k * 4;
       const gx = z[k + (x < TW - 1 ? 1 : 0)] - z[k - (x > 0 ? 1 : 0)], gy = z[k + dn] - z[k - up];
-      let s = 0.958 + 0.013 * (gx + gy) + 0.008 * z[k] + 0.006 * f[k];
-      s = s > 1 ? 1 : s < 0.86 ? 0.86 : s;
+      const fx = f[k + (x < TW - 2 ? 2 : 0)] - f[k - (x > 1 ? 2 : 0)], fy = f[k + 2 * dn] - f[k - 2 * up];
+      let s = 0.986 + 0.0052 * (gx + gy) + 0.0048 * (fx + fy) + 0.003 * z[k] + 0.004 * f[k];
+      s = s > 1 ? 1 : s < 0.9 ? 0.9 : s;
       o[i] = o[i + 1] = o[i + 2] = 255 * s; o[i + 3] = 255;
     }
   }
@@ -85,10 +96,10 @@ function buildPaper(T) {
   return L.makeLayer(PAD, (g) => {
     const full = () => g.fillRect(-PAD, -PAD, TW, TH);
     // window light from the upper left: a broad warm pool falling off into cool shade toward the lower right
-    g.fillStyle = L.radial(g, 640, 240, 80, 1850, [[0, '#ffffff'], [0.3, '#fffdf8'], [0.62, '#f6f4ef'], [0.86, '#eaeaea'], [1, '#dde1e8']]); full();
+    g.fillStyle = L.radial(g, 720, 260, 80, 1950, [[0, '#fffffc'], [0.3, '#fffdf6'], [0.6, '#faf7f0'], [0.84, '#f0efed'], [1, '#e2e5ea']]); full();
     // the sheet is not perfectly flat
     g.globalCompositeOperation = 'multiply';
-    g.drawImage(L.noiseTex(TW, TH, { seed: 's34wave', scale: 640, octaves: 3, res: 0.1, warp: 0.4, ramp: [[0, '#eceae8'], [0.55, '#fbfaf9'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.drawImage(L.noiseTex(TW, TH, { seed: 's34wave', scale: 640, octaves: 3, res: 0.1, warp: 0.4, ramp: [[0, '#f4f3f2'], [0.55, '#fdfcfc'], [1, '#ffffff']] }), -PAD, -PAD);
     g.globalCompositeOperation = 'source-over';
     // fibres felted into the surface
     const r = L.rng('s34fib');
@@ -104,6 +115,8 @@ function buildPaper(T) {
     // tooth
     g.globalCompositeOperation = 'multiply';
     g.drawImage(T.relief, -PAD, -PAD);
+    // something off-frame keeps the light off the near right corner: a wide, cool penumbra
+    g.fillStyle = L.linear(g, 1180, 560, 2060, 1210, [[0, '#ffffff'], [0.45, '#f6f7f8'], [0.8, '#e6e9ee'], [1, '#d9dee6']]); full();
     g.globalCompositeOperation = 'source-over';
   });
 }
@@ -146,9 +159,8 @@ const CH_R = (al) => `rgba(255,0,0,${al.toFixed(3)})`, CH_G = (al) => `rgba(0,25
 // ───────────────────────── the drawing ─────────────────────────
 function build(env) {
   const a = env.arc, R = a.R;
-  const __t = [performance.now()]; const __m = (n) => { __t.push(performance.now()); console.warn('T ' + n + ' ' + (__t[__t.length-1]-__t[__t.length-2]).toFixed(0)); };
   const c0 = { x: a.cx, y: a.crestY + RING };
-  const T = buildTooth(); __m('tooth');
+  const T = buildTooth();
   const CY0 = Math.floor(a.crestY) - 40, CH = H + PAD - CY0;     // nothing is drawn above the circle: only this strip is synthesised
   const mk = () => {
     const c = L.makeCanvas(TW, CH), g = c.getContext('2d');
@@ -206,12 +218,12 @@ function build(env) {
       y += len + r.range(13, 17); k++;
     } }
   // ── the outer circle: one even ink line, exactly on the arc ──
-  arcInk(0, 8.8, 0.94, 1, 'arc', { vary: 0.035, wander: 0.22 });
+  arcInk(0, 10, 0.94, 1, 'arc', { vary: 0.035, wander: 0.22 });
   // ── the node: a ring swung with the compass (pin-prick and pencil cross at its centre) ──
   { const pts = [];
     for (let k = 0; k <= 110; k++) { const an = -Math.PI / 2 + 0.3 + (k / 110) * L.TAU; pts.push([c0.x + RING * Math.cos(an), c0.y + RING * Math.sin(an)]); }
     cg.fillStyle = CH_G(1);
-    ribbon(cg, pts, (s) => 6.6 * (1 + 0.11 * Math.sin(s / RING + 0.6)), 'ring', { vary: 0.04, wander: 0.25 });
+    ribbon(cg, pts, (s) => 7.4 * (1 + 0.11 * Math.sin(s / RING + 0.6)), 'ring', { vary: 0.04, wander: 0.25 });
     pencil(linePts(c0.x - 15, c0.y + 0.5, c0.x + 15, c0.y - 0.5), 2.2, 0.6, 'cx1'); pencil(linePts(c0.x + 0.5, c0.y - 15, c0.x - 0.5, c0.y + 15), 2.2, 0.6, 'cx2');
     cg.fillStyle = CH_G(0.9); cg.beginPath(); cg.arc(c0.x + 0.4, c0.y + 0.3, 2.3, 0, L.TAU); cg.fill();
   }
@@ -243,20 +255,20 @@ function build(env) {
     ag.fillStyle = CH_G(0.5); ag.beginPath(); ag.ellipse(x0 + dd[0] * 10, y0 + dd[1] * 10, w * 1.3, w * 0.5, Math.atan2(dd[1], dd[0]), 0, L.TAU); ag.fill();
     arrow(ch, x0 + dd[0] * (at - t0), y0 + dd[1] * (at - t0), dd[0] * sense, dd[1] * sense, alen, ahw);
   };
-  colour(CH_R, 'P', 16.5, 'redR', 184, 1, 66, 27);      // 生: leaves toward the right-hand neighbour …
-  colour(CH_R, 'Q', 16, 'redL', 178, -1, 66, 27);       // … and arrives from the left-hand one
-  colour(CH_B, 'SP', 14, 'bluR', 204, 1, 60, 24);       // 克: leaves down the right stroke of the star …
-  colour(CH_B, 'SQ', 14.5, 'bluL', 198, -1, 60, 24);    // … and arrives up the left one
+  colour(CH_R, 'P', 16.5, 'redR', 206, 1, 78, 31);      // 生: leaves toward the right-hand neighbour …
+  colour(CH_R, 'Q', 16, 'redL', 198, -1, 78, 31);       // … and arrives from the left-hand one
+  colour(CH_B, 'SP', 14, 'bluR', 196, 1, 70, 27);       // 克: leaves down the right stroke of the star …
+  colour(CH_B, 'SQ', 14.5, 'bluL', 187, -1, 70, 27);    // … and arrives up the left one
 
-  __m('strokes');
+ 
   // ── coverage → pigment → light ──
   const rd = (c) => c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, TW, CH).data;
   const d1 = rd(L.blurred(cov, 1)), d3 = rd(L.blurred(cov, 3.2)), d11 = rd(L.blurred(cov, 11)), dx = rd(L.blurred(aux, 0.8));
-  __m('blur+read');
+ 
   const Z = T.z, F = T.f, NS = L.makeNoise('s34streak');
   const oi = new ImageData(TW, CH), oc = new ImageData(TW, CH), I = oi.data, C = oc.data;
   const pigment = (c1, c3, halo, z, f, coat, st) => {
-    let d = 0.2 * halo * (1 + 0.25 * f);                           // colour staining the paper round the stroke
+    let d = 0.07 * halo * L.clamp(1 + 0.9 * f, 0, 2.4);                           // colour staining the paper round the stroke
     if (c1 > 0.02) {
       const load = c1 * (1 + 0.16 * st);
       const e = sstep(0.3, 0.62, c1 + 0.1 * f + 0.05 * st);
@@ -292,13 +304,13 @@ function build(env) {
       C[i] = cr; C[i + 1] = cgn; C[i + 2] = cb; C[i + 3] = 255;
     }
   }
-  __m('pixels');
+ 
   const inkC = L.makeCanvas(TW, CH), colC = L.makeCanvas(TW, CH);
   inkC.getContext('2d').putImageData(oi, 0, 0);
   colC.getContext('2d').putImageData(oc, 0, 0);
 
   // ── the sheet: paper × ink and graphite ──
-  const base = buildPaper(T); __m('paper');
+  const base = buildPaper(T);
   const bg = base.getContext('2d');
   bg.globalCompositeOperation = 'multiply'; bg.drawImage(inkC, -PAD, CY0); bg.globalCompositeOperation = 'source-over';
 
@@ -309,20 +321,20 @@ function build(env) {
       g.translate(PAD, -oy);
       g.fillStyle = L.linear(g, 0, y0, 0, y1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); g.fillRect(-PAD, -PAD, TW, TH);
       if (side) {
-        g.fillStyle = L.linear(g, 330, 0, -PAD, 0, [[0, 'rgba(0,0,0,0)'], [1, `rgba(0,0,0,${side})`]]); g.fillRect(-PAD, -PAD, PAD + 330, TH);
-        g.fillStyle = L.linear(g, W - 330, 0, W + PAD, 0, [[0, 'rgba(0,0,0,0)'], [1, `rgba(0,0,0,${side})`]]); g.fillRect(W - 330, -PAD, PAD + 330, TH);
+        g.fillStyle = L.linear(g, 400, 0, -PAD, 0, [[0, 'rgba(0,0,0,0)'], [1, `rgba(0,0,0,${side})`]]); g.fillRect(-PAD, -PAD, PAD + 400, TH);
+        g.fillStyle = L.linear(g, W - 400, 0, W + PAD, 0, [[0, 'rgba(0,0,0,0)'], [1, `rgba(0,0,0,${side})`]]); g.fillRect(W - 400, -PAD, PAD + 400, TH);
       }
       return m;
     };
-    const soft = [[1.8, mask(800, 1010, 0.55)], [5, mask(960, 1190, 0)]].map(([px, m]) => { const b = L.blurred(c, px), g = b.getContext('2d'); g.globalCompositeOperation = 'destination-in'; g.drawImage(m, 0, 0); return b; });
+    const soft = [[2.2, mask(770, 990, 0.85)], [6, mask(930, 1140, 0.3)]].map(([px, m]) => { const b = L.blurred(c, px), g = b.getContext('2d'); g.globalCompositeOperation = 'destination-in'; g.drawImage(m, 0, 0); return b; });
     const g = c.getContext('2d');
     g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over';
     for (const b of soft) g.drawImage(b, 0, 0);
     g.restore();
     return c;
   };
-  lens(base, -PAD); __m('lens1');
-  lens(colC, CY0); __m('lens2');
+  lens(base, -PAD);
+  lens(colC, CY0);
   return { base, col: colC, cy0: CY0 };
 }
 

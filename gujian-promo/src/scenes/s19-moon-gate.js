@@ -10,16 +10,16 @@ import * as L from '../lib/core.js';
 const { W, H, TAU } = L;
 const PAD = 240;
 const X0 = -PAD, Y0 = -PAD, FULLW = W + PAD * 2, FULLH = H + PAD * 2;
-const BW = 168;       // on-screen depth of the reveal (inside the opening)
+const BW = 146;       // on-screen depth of the reveal (inside the opening)
 const GX = 1096;      // axis of the moon's path on the pond
 const JOINTS = [-0.705, -0.418, -0.121, 0.168, 0.452, 0.741];   // hairline joints between the brick pieces (never on the crest, never evenly spaced)
 let S = null;
 
 // colours across the reveal, from the front arris on the arc (t = 0) to its back edge (t = 1)
-const RIM_A = [[0, '#b42312'], [0.035, '#d43317'], [0.1, '#ee4c1a'], [0.17, '#ff7a30'], [0.24, '#fb9f62'], [0.32, '#f3bfa2'], [0.40, '#e8cdd0'],
-  [0.47, '#cdbce4'], [0.54, '#a897e8'], [0.61, '#8270e4'], [0.68, '#6258da'], [0.75, '#4852c8'], [0.81, '#2f429e'], [0.87, '#1a2b6c'], [0.93, '#0d183e'], [1, '#060c20']];
-const RIM_B = [[0, '#b82a12'], [0.035, '#da3d16'], [0.1, '#f25a19'], [0.17, '#fc8a34'], [0.24, '#f8b56e'], [0.32, '#f4d6a8'], [0.40, '#e9dcc8'],
-  [0.47, '#c8c2e2'], [0.54, '#9c8ee8'], [0.61, '#765ae8'], [0.68, '#5a48de'], [0.75, '#4348c8'], [0.81, '#2c3c9e'], [0.87, '#19286c'], [0.93, '#0c163e'], [1, '#060b20']];
+const RIM_A = [[0, '#b42312'], [0.035, '#d43317'], [0.1, '#ee4c1a'], [0.17, '#ff7a30'], [0.24, '#fca468'], [0.32, '#f8ccae'], [0.40, '#f1dcda'],
+  [0.47, '#d2c2ea'], [0.54, '#a691ee'], [0.61, '#7c62f0'], [0.68, '#5c4ee0'], [0.75, '#4852c8'], [0.81, '#2f429e'], [0.87, '#1a2b6c'], [0.93, '#0d183e'], [1, '#060c20']];
+const RIM_B = [[0, '#b82a12'], [0.035, '#da3d16'], [0.1, '#f25a19'], [0.17, '#fc8a34'], [0.24, '#f9b972'], [0.32, '#f8deb4'], [0.40, '#f2e8d6'],
+  [0.47, '#cec8e8'], [0.54, '#9c8cee'], [0.61, '#7456ee'], [0.68, '#5846e0'], [0.75, '#4348c8'], [0.81, '#2c3c9e'], [0.87, '#19286c'], [0.93, '#0c163e'], [1, '#060b20']];
 
 function rampLut(stops, n = 1024) {
   const f = L.makeRamp(stops); const out = new Float32Array(n * 3);
@@ -121,7 +121,7 @@ function buildRim(env) {
     const tone = [-0.5, 0.35, -0.2, 0.3, -0.45, 0.25, -0.3];
     for (let i = 0; i <= JOINTS.length; i++) {
       const v = tone[i % tone.length], t0 = i === 0 ? -s : JOINTS[i - 1], t1 = i === JOINTS.length ? s : JOINTS[i];
-      g.fillStyle = v < 0 ? `rgba(20,6,40,${(-v * 0.05).toFixed(3)})` : `rgba(255,238,226,${(v * 0.032).toFixed(3)})`;
+      g.fillStyle = v < 0 ? `rgba(20,6,40,${(-v * 0.1).toFixed(3)})` : `rgba(255,238,226,${(v * 0.06).toFixed(3)})`;
       a.pathBand(g, 0, -BW, t0, t1); g.fill();
     }
     // pores and the odd pale grain of sand in the clay
@@ -148,6 +148,12 @@ function buildRim(env) {
     for (let i = 0; i < 26; i++) {
       const t = rc.range(-s, s), w = rc.range(3, 11), dep = rc.range(0.9, 2.4);
       a.at(g, t, 0, () => { g.globalAlpha = rc.range(0.5, 1); g.beginPath(); g.ellipse(0, -0.2, w, dep, 0, 0, TAU); g.fill(); });
+    }
+    // … and where a joint meets it, a corner of brick has gone
+    for (const t of JOINTS) {
+      if (rc.chance(0.3)) continue;
+      const w = rc.range(4, 8), dep = rc.range(2.2, 3.6), off = rc.range(-3, 3) / a.R;
+      a.at(g, t + off, 0, () => { g.globalAlpha = 0.9; g.beginPath(); g.ellipse(0, -0.3, w, dep, rc.range(-0.2, 0.2), 0, TAU); g.fill(); });
     }
     g.restore();
   });
@@ -250,7 +256,7 @@ function buildWater(env) {
     const len = 34 + y * 0.5;                            // ripples get longer …
     const v = Math.log(1 + y * 0.0155) / 0.034;          // … and thicker toward the viewer
     const dep = Math.pow(L.clamp((y - 80) / 520), 0.8);
-    const br = L.lerp(22, 5, dep), bg = L.lerp(46, 15, dep), bb = L.lerp(104, 46, dep);   // hazy cobalt far off, sinking to deep blue at our feet
+    const br = L.lerp(14, 3, dep), bg = L.lerp(50, 15, dep), bb = L.lerp(100, 40, dep);   // hazy cobalt far off, sinking to deep blue at our feet
     const sheenW = 60 + y * 0.5;
     for (let i = 0; i < cw; i++) {
       const x = i / res - PAD;
@@ -281,20 +287,19 @@ function buildBack(env) {
     g.fillStyle = L.radial(g, 0, 0, 0, 190, [[0, 'rgba(140,180,244,0.42)'], [0.3, 'rgba(84,130,214,0.2)'], [0.65, 'rgba(44,84,176,0.06)'], [1, 'rgba(40,80,170,0)']]);
     g.fillRect(-200, -40, 400, 240);
     g.restore();
-    // a second, further spray of bamboo: paler, softer
-    const r = L.rng('s19bambooFar');
-    spray(g, r, [-70, 900, 180, 842, 372, 978], { col: '#050d24', size: 0.82 });
-    spray(g, r, [420, 700, 690, 716, 884, 842], { col: '#060f28', size: 0.72, from: 0.4 });
   });
   const soft = filteredRect(layer, 'blur(6px)', X0, a.crestY + BW - 60, W + PAD, H + PAD);
-  // night mist lying on the pond in slow clouds
   const g = soft.getContext('2d'); g.translate(PAD, PAD);
+  // a further spray of bamboo, well beyond the plane of focus: no more than a soft shadow on the water
+  const farSpray = L.makeLayer(PAD, (t) => { spray(t, L.rng('s19bambooFar'), [-70, 900, 180, 842, 372, 978], { col: '#040b20', size: 0.86 }); });
+  g.globalAlpha = 0.8; g.drawImage(filteredRect(farSpray, 'blur(11px)', X0, 700, 700, H + PAD), X0, Y0); g.globalAlpha = 1;
+  // night mist lying on the pond in slow clouds
   const top = a.crestY + BW - 50, hh = H + PAD - top;
   g.globalCompositeOperation = 'screen';
-  g.drawImage(L.noiseTex(FULLW, hh, { seed: 's19mist', scale: 230, sx: 2.6, sy: 1, octaves: 4, warp: 0.7, contrast: 1.5, res: 0.2,
-    ramp: [[0, 'rgba(60,100,190,0)'], [0.42, 'rgba(60,100,190,0)'], [1, 'rgba(96,138,220,0.26)']] }), X0, top);
+  g.drawImage(L.noiseTex(FULLW, hh, { seed: 's19mist', scale: 120, sx: 6, sy: 1, octaves: 4, warp: 0.35, contrast: 1.5, res: 0.2,
+    ramp: [[0, 'rgba(56,104,190,0)'], [0.42, 'rgba(56,104,190,0)'], [1, 'rgba(88,142,216,0.26)']] }), X0, top);
   g.globalCompositeOperation = 'multiply';
-  g.drawImage(L.noiseTex(FULLW, hh, { seed: 's19deep', scale: 300, sx: 2.2, sy: 1, octaves: 3, warp: 0.5, contrast: 1.4, res: 0.2,
+  g.drawImage(L.noiseTex(FULLW, hh, { seed: 's19deep', scale: 150, sx: 5, sy: 1, octaves: 3, warp: 0.3, contrast: 1.4, res: 0.2,
     ramp: [[0, 'rgba(10,22,60,0.5)'], [0.5, 'rgba(10,22,60,0)'], [1, 'rgba(10,22,60,0)']] }), X0, top);
   g.globalCompositeOperation = 'source-over';
   // night pools under the gate and at the sides of the pond: everything but the moon's path sinks into deep blue
@@ -322,29 +327,30 @@ function buildBamboo() {
     spray(g, r, [-110, 842, 150, 884, 296, 1040], { col: '#030712', size: 1.12 });
     spray(g, r, [300, 664, 560, 668, 770, 800], { col: '#030814', size: 0.96, from: 0.34 });
   });
-  return filteredRect(layer, 'blur(2.2px)', X0, 560, 1160, H + PAD);
+  return filteredRect(layer, 'blur(5px)', X0, 560, 1160, H + PAD);
 }
 
 function makeGlints(env) {
-  const a = env.arc, yT = a.crestY + BW - 4;
+  const a = env.arc, yT = a.crestY + BW - 10;
   const r = L.rng('s19glint'); const out = [];
-  for (let i = 0; i < 300; i++) {
-    const k = Math.pow(r(), 1.3);
-    const y = yT + k * (H + 60 - yT);
-    const hw = 15 + (y - yT) * 0.34;
-    const stray = r.chance(0.1);                         // a few off the path
-    const w = L.lerp(8, 30, k) * r.range(0.55, 1.5);
-    out.push({ x: GX + r.gauss() * hw * (stray ? 1.7 : 0.48), y, w, h: w * r.range(0.16, 0.28) + 1.2, rot: r.range(-0.05, 0.05),
-      a: (0.14 + 0.95 * Math.pow(r(), 2.1)) * (1 - 0.3 * k) * (stray ? 0.45 : 1), ph: r.range(0, TAU), sp: r.range(0.9, 2.3) });
+  for (let i = 0; i < 176; i++) {
+    const k = Math.pow(r(), 1.45);                       // crowded far off, thinning toward our feet
+    const y = yT + k * (H + 70 - yT);
+    const hw = 13 + (y - yT) * 0.3;
+    const stray = r.chance(0.08);                        // a few off the path
+    const rad = L.lerp(15, 25, k) * r.range(0.86, 1.14);
+    out.push({ x: GX + r.gauss() * hw * (stray ? 1.8 : 0.5), y, rx: rad, ry: rad * r.range(0.86, 1),
+      a: (0.045 + 0.56 * Math.pow(r(), 2.3)) * (1 - 0.25 * k) * (stray ? 0.5 : 1), ph: r.range(0, TAU), sp: r.range(0.9, 2.3) });
   }
   return out;
 }
 
-/** a ripple catching the moon, a little out of focus: a soft-edged lozenge of light */
+/** a ripple catching the moon, far behind the plane of focus: a disc of light, a little brighter at its rim (the lens's circle of confusion) */
 function glintSprite() {
-  const c = L.makeCanvas(96, 96); const g = c.getContext('2d');
-  g.fillStyle = L.radial(g, 48, 48, 0, 48, [[0, 'rgba(240,247,255,1)'], [0.3, 'rgba(218,234,255,0.9)'], [0.55, 'rgba(170,204,252,0.42)'], [0.8, 'rgba(130,176,244,0.1)'], [1, 'rgba(120,170,240,0)']]);
-  g.fillRect(0, 0, 96, 96);
+  const c = L.makeCanvas(128, 128); const g = c.getContext('2d');
+  g.fillStyle = L.radial(g, 64, 64, 0, 62, [[0, 'rgba(150,190,252,0.78)'], [0.7, 'rgba(154,194,252,0.8)'], [0.88, 'rgba(170,204,255,0.9)'],
+    [0.935, 'rgba(186,214,255,0.96)'], [0.975, 'rgba(170,204,255,0.45)'], [1, 'rgba(160,198,255,0)']]);
+  g.fillRect(0, 0, 128, 128);
   return c;
 }
 
@@ -353,11 +359,8 @@ function drawGlints(ctx, env) {
   ctx.globalCompositeOperation = 'screen';
   for (const q of S.glints) {
     const tw = 0.5 + 0.5 * Math.sin(q.ph + env.frame * q.sp);
-    const al = Math.min(1, q.a * (0.2 + 0.95 * tw));
-    ctx.globalAlpha = al * 0.28;
-    ctx.drawImage(S.sprite, q.x - q.w * 2.1, q.y - q.h * 3.2, q.w * 4.2, q.h * 6.4);   // halation
-    ctx.globalAlpha = al;
-    ctx.drawImage(S.sprite, q.x - q.w * 1.3, q.y - q.h * 1.3, q.w * 2.6, q.h * 2.6);
+    ctx.globalAlpha = Math.min(1, q.a * (0.3 + 0.8 * tw));
+    ctx.drawImage(S.sprite, q.x - q.rx, q.y - q.ry, q.rx * 2, q.ry * 2);
   }
   ctx.restore();
 }
@@ -370,7 +373,7 @@ export default {
     const rim = buildRim(env);
     S = {
       back: buildBack(env), bamboo: buildBamboo(),
-      wall: focusMix(buildWall(env, rim), 5, a.crestY - 70, 320, 1120),
+      wall: focusMix(buildWall(env, rim), 8, a.crestY - 70, 300, 1120),
       glow: buildGlow(env, rim), glints: makeGlints(env), sprite: glintSprite(),
     };
   },

@@ -1,12 +1,15 @@
-// s07 — 赵州桥蓝图（安济桥 立面）. A close-up of a chalk drawing on cyanotype-blue paper.
-// The shared arc is the INTRADOS of the main arch — the heaviest chalk line on the sheet. Above it: the single
-// visible ring of voussoirs, the open spandrels (two small arches on each shoulder — the larger one outboard, the
-// smaller one inboard), the gently cambered deck and a row of balustrade posts. Below it: a handful of radii
-// struck from the centre, as in the reference frame (an arc + a fan of fat straight chalk lines).
-// Few lines, all fat. The chalk is not a vector stroke: every mark is first laid down as a PRESSURE map and then
-// "developed" per pixel against the tooth of the paper, so lines break up, skip and shed dust the way chalk does.
-// NOTE: the shoulders are drawn schematically closer to the crown than on the real bridge so that the small
-// arches fit in a 16:9 close-up; no dimensions, numbers or lettering are written anywhere.
+// s07 — 赵州桥蓝图（安济桥 立面）. A close-up of a chalk drawing on cyanotype-blue paper, shot a little askew.
+// The shared arc is the INTRADOS of the main arch — the heaviest chalk line on the sheet. The whole drawing is
+// turned about the centre of that circle (TILT), which leaves the arc exactly where it is but swings the crown of
+// the bridge to the left: the deck becomes one long rising diagonal, the right shoulder opens up with its two
+// open-spandrel arches (the larger one outboard), and the folds of the sheet run on the slant.
+// Below the arc: a handful of radii struck from the centre and the centre line of the span — as in the reference
+// frame (an arc + a few fat, oblique chalk lines). Few lines, all fat.
+// The chalk is not a vector stroke: every mark is first laid down as a PRESSURE map and then "developed" per pixel
+// against the tooth of the paper, so lines break up, skip and shed dust the way chalk does. The ring of voussoirs
+// is toned by rubbing chalk in with a finger (a thin, streaky film), stone by stone.
+// NOTE: proportions are schematic (ring and voussoirs drawn larger than life, the shoulder pulled a little toward
+// the crown); no dimensions, numbers or lettering other than the name 安济桥 are written anywhere.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -14,18 +17,19 @@ const PAD = 96;                         // the camera only moves ±2.5 % / ±0.2
 const SW = W + PAD * 2, SH = H + PAD * 2;
 const BLUE = '#12579a', DEEP = '#0a427c', LITE = '#2c7cc4';
 const CHALK = [249, 247, 239];
+const TILT = 0.23;        // the drawing is turned this far (rad, anticlockwise) about the centre of the arc
 
-// geometry in px (x offsets are measured from the centre axis)
-const RING = 124;         // main arch ring thickness (intrados → extrados)
-const JOINT = 172;        // voussoir length along the intrados
-const DECK_H = 72;        // top of deck above the extrados at the crown
+// geometry in px, in the drawing's own upright frame (x offsets are measured from the centre axis)
+const RING = 118;         // main arch ring thickness (intrados → extrados)
+const JOINT = 205;        // voussoir length along the intrados
+const DECK_H = 70;        // top of deck above the extrados at the crown
 const DECK_R = 14000;     // camber radius of the deck line
 const SLAB = 19;          // cornice course under the deck edge
-const POST_SP = 192, POST_H = 80;
-const ARCH_SPECS = [{ d: 640, span: 204, rise: 70, ring: 25 }, { d: 902, span: 272, rise: 100, ring: 30 }]; // inner (small) / outer (large): spans in the ratio 2.85 : 3.81
-const FAN = [-4.5, -2.5, 1.5, 3.5]; // radii that run on below the arch, in voussoir units from the axis (they pass through joints)
+const ARCH_SPECS = [{ d: 960, span: 236, rise: 96, ring: 30 }, { d: 1330, span: 316, rise: 128, ring: 36 }]; // inner (small) / outer (large): spans in the ratio 2.85 : 3.81
+const FAN = [-1.5, 0.5, 2.5, 3.5, 6.5]; // radii that run on below the arch, in voussoir units from the axis (they pass through joints)
 const TN = 1024;                    // tooth tile size (power of two)
 let S = null, NZ = null, SID = 0;
+const tilt = (g, a) => { g.translate(a.cx, a.cy); g.rotate(-TILT); g.translate(-a.cx, -a.cy); };
 
 // ───────────────────────── geometry ─────────────────────────
 function makeGeo(a) {
@@ -99,9 +103,9 @@ function buildPaper(grain) {
   g.drawImage(L.noiseTex(SW, SH, { seed: 's07pool', scale: 620, octaves: 3, res: 0.12, warp: 0.5, contrast: 1.6,
     ramp: [[0, L.rgba(DEEP, 0.3)], [0.46, L.rgba(DEEP, 0)], [0.56, L.rgba(LITE, 0)], [1, L.rgba(LITE, 0.2)]] }), 0, 0);
   // brush streaks of the hand-coated sensitiser, running slightly off the horizontal
-  g.save(); g.translate(SW / 2, SH / 2); g.rotate(-0.045); g.globalAlpha = 0.42;
-  g.drawImage(L.noiseTex(SW + 200, SH + 200, { seed: 's07coat', scale: 26, sx: 60, sy: 1, octaves: 3, res: 0.25, contrast: 1.5,
-    ramp: [[0, L.rgba(DEEP, 0.32)], [0.44, L.rgba(DEEP, 0)], [0.6, L.rgba(LITE, 0)], [1, L.rgba(LITE, 0.2)]] }), -SW / 2 - 100, -SH / 2 - 100);
+  g.save(); g.translate(SW / 2, SH / 2); g.rotate(-TILT - 0.03); g.globalAlpha = 0.42;
+  g.drawImage(L.noiseTex(SW + 320, SH + 520, { seed: 's07coat', scale: 26, sx: 60, sy: 1, octaves: 3, res: 0.25, contrast: 1.5,
+    ramp: [[0, L.rgba(DEEP, 0.32)], [0.44, L.rgba(DEEP, 0)], [0.6, L.rgba(LITE, 0)], [1, L.rgba(LITE, 0.2)]] }), -SW / 2 - 160, -SH / 2 - 260);
   g.restore();
   // tooth
   g.globalCompositeOperation = 'soft-light';

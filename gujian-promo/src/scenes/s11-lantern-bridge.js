@@ -3,20 +3,21 @@
 // lanterns ride that line; their light is the only light in the picture, so the masonry is relit
 // per-pixel in init() from the lantern positions (height map → normals → point lights → colour ramp).
 // Everything hangs plumb (posts, lanterns, tassels, horizontal stone courses): only the deck line curves.
-// The parapet is old hand-cut stone: slabs of unequal length, posts of unequal size, spalls, cracks,
-// lichen and run-off — nothing repeats.
+// The parapet is old hand-cut stone: slabs of unequal length, a few posts of unequal size and wear, spalls,
+// cracks, lichen and run-off — nothing repeats. The lanterns hang from cords that vanish up into the night:
+// above the arc there is nothing but black and five glowing reds.
 import * as L from '../lib/core.js';
 
 const { W, H, TAU } = L;
 const PAD = 150;                       // camera move is tiny (±0.5° about the arc centre, 2.5 % push-in)
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const XL = -PAD - 30, XR = W + PAD + 30;
-const PITCH = 392, SHIFT = 24;         // lantern pitch along the arc (px); the string sits a little off-centre
+const PITCH = 410, SHIFT = 16;         // lantern pitch along the arc (px); the string sits a little off-centre
 // vertical offsets below the parapet-top arc (px). Water-town bridges carry LOW, PLAIN slab parapets —
 // no carved balustrade, no lotus finials (that is the northern imperial manner) — so: bare slabs, square posts.
-const O = { cope: 18, slab: 140, deck: 196 };
-const DROP = 398, RA = 1150, RT = 56;  // arch: intrados crown sits DROP px under the crest; radius; ring thickness
-const LIGHT_Z = 120;                   // how far the lanterns hang in front of the wall plane
+const O = { cope: 22, slab: 168, deck: 236 };
+const DROP = 448, RA = 1300, RT = 64;  // arch: intrados crown sits DROP px under the crest; radius; ring thickness
+const LIGHT_Z = 132;                   // how far the lanterns hang in front of the wall plane
 const Q = 1.5;                         // frame px per light-map px (the relighting runs at 1/Q resolution)
 const NIGHT = '#050407';
 let S = null;
@@ -25,38 +26,38 @@ const G = (v) => { v = Math.round(L.clamp(v, 0, 255)); return `rgb(${v},${v},${v
 
 // ───────────────────────── layout ─────────────────────────
 function mkPost(a, x, r, key) {
-  const hw = r.range(21, 29), up = r.range(6, 15), cut = r.range(4, 8), chip = r.chance(0.4) ? r.sign() : 0;
-  return { key, x, hw, up, cut, cl: cut * (chip < 0 ? 2.5 : 1), cr: cut * (chip > 0 ? 2.5 : 1), y: a.yAt(x), yt: Math.min(a.yAt(x - hw), a.yAt(x + hw)) - up };
+  // every post was cut and has worn differently: stout or slim, tall or barely proud of the slabs, square-headed, rounded off, or broken
+  const hw = r.range(20, 34), up = r.chance(0.3) ? r.range(1, 5) : r.range(7, 21), cut = r.range(4, 9), chip = r.chance(0.45) ? r.sign() : 0;
+  return { key, x, hw, up, cut, round: r.chance(0.4), cl: cut * (chip < 0 ? 2.8 : 1), cr: cut * (chip > 0 ? 2.8 : 1), y: a.yAt(x), yt: Math.min(a.yAt(x - hw), a.yAt(x + hw)) - up };
 }
 
 function layout(a) {
-  const s = a.span(PAD + 420);
+  const s = a.span(PAD + 460);
   const n = Math.ceil((s * a.R) / PITCH);
   // the five lanterns that are in frame are cast by hand: sizes and brightness differ, the biggest rides the crest
-  const SIZE = { [-3]: 0.84, [-2]: 1.0, [-1]: 0.83, 0: 1.2, 1: 0.93, 2: 1.09, 3: 0.84 };
-  const GLOW = { [-2]: 0.9, [-1]: 0.72, 0: 1, 1: 0.82, 2: 0.96 };
-  const lanterns = [], poles = [];
+  const SIZE = { [-3]: 0.9, [-2]: 1.1, [-1]: 0.84, 0: 1.32, 1: 1.0, 2: 1.15, 3: 0.9 };
+  const GLOW = { [-2]: 0.92, [-1]: 0.6, 0: 1, 1: 0.8, 2: 0.96 };
+  const lanterns = [];
   for (let k = -n; k <= n; k++) {
     const r = L.rng('s11-lantern-' + k);
-    const x = a.cx + a.R * Math.sin((k * PITCH + SHIFT + r.range(-16, 16)) / a.R);
+    const x = a.cx + a.R * Math.sin((k * PITCH + SHIFT + r.range(-14, 14)) / a.R);
     const sc = SIZE[k] !== undefined ? SIZE[k] : r.range(0.84, 1.14);
     const glowK = GLOW[k] !== undefined ? GLOW[k] : r.range(0.65, 1);
     const rx = 110 * sc, ry = rx * r.range(0.85, 0.89);
-    const y = a.yAt(x) - ry * 0.52 + r.range(-5, 5);
-    const cord = (22 + r.range(0, 16)) * sc;
-    lanterns.push({ k, x, y, rx, ry, sc, glowK, cord, phase: r(), amp: r.range(0.55, 1), power: sc * sc * glowK * r.range(0.95, 1.05) });
-    const xp = a.cx + a.R * Math.sin(((k + 0.5) * PITCH + SHIFT + r.range(-24, 24)) / a.R);
-    poles.push({ k, x: xp, y: a.yAt(xp), tip: a.yAt(xp) - (266 + r.range(-16, 16)), lean: r.range(-0.012, 0.012) });
-    lanterns[lanterns.length - 1].tilt = r.range(-0.024, 0.024);
+    const y = a.yAt(x) - ry * 0.5 + r.range(-6, 6);
+    const cord = (150 + r.range(0, 40)) * sc;
+    lanterns.push({ k, x, y, rx, ry, sc, glowK, cord, phase: r(), amp: r.range(0.55, 1), power: sc * sc * glowK * r.range(0.95, 1.05), tilt: r.range(-0.02, 0.02) });
   }
-  // parapet: a post behind every pole; each bay is then split off-centre, sometimes by a second post, sometimes by a bare butt joint
+  // parapet: slabs of unequal length; where two meet there is sometimes a post, sometimes only a bare butt joint
   const divs = [];
-  for (let i = 0; i < poles.length; i++) {
-    const p = poles[i], r = L.rng('s11-post-' + p.k);
-    divs.push({ x: p.x, post: mkPost(a, p.x, r, 'p' + p.k) });
-    if (i < poles.length - 1) {
-      const f = r.chance(0.5) ? r.range(0.25, 0.4) : r.range(0.6, 0.75), xm = L.lerp(p.x, poles[i + 1].x, f);
-      divs.push(r.chance(0.55) ? { x: xm, post: mkPost(a, xm, r, 'm' + p.k) } : { x: xm, post: null });
+  {
+    const r = L.rng('s11-divs-3');
+    const lim = s * a.R + 300;
+    let u = -lim - r.range(0, 260), i = 0;
+    while (u < lim) {
+      const x = a.cx + a.R * Math.sin(L.clamp(u / a.R, -1.5, 1.5));
+      divs.push({ x, post: r.chance(0.58) ? mkPost(a, x, r, 'p' + i) : null });
+      u += r.range(240, 540); i++;
     }
   }
   const posts = divs.filter((d) => d.post).map((d) => d.post), joints = divs.filter((d) => !d.post).map((d) => d.x);
@@ -64,9 +65,9 @@ function layout(a) {
   for (let i = 0; i < divs.length - 1; i++) {
     const r = L.rng('s11-seg-' + i);
     // no two slabs sit quite flush: each has settled by a pixel or two
-    segs.push({ key: i, x0: divs[i].x, x1: divs[i + 1].x, dy: r.range(0, 2.6), in0: divs[i].post ? divs[i].post.hw : 1.5, in1: divs[i + 1].post ? divs[i + 1].post.hw : 1.5 });
+    segs.push({ key: i, x0: divs[i].x, x1: divs[i + 1].x, dy: r.range(0, 3.4), in0: divs[i].post ? divs[i].post.hw : 1.5, in1: divs[i + 1].post ? divs[i + 1].post.hw : 1.5 });
   }
-  return { lanterns, poles, posts, joints, segs };
+  return { lanterns, posts, joints, segs };
 }
 
 function buildCourses(a) {
@@ -74,10 +75,10 @@ function buildCourses(a) {
   const out = [];
   let y = a.crestY + O.deck - 3;
   while (y < H + PAD + 60) {
-    const h = r.range(54, 88);
+    const h = r.range(64, 106);
     const xs = [];
     let x = XL - 60 - r.range(0, 260);
-    while (x < XR + 60) { xs.push(x); x += r.range(150, 420); }
+    while (x < XR + 60) { xs.push(x); x += r.range(180, 540); }
     xs.push(x);
     out.push({ y0: y, y1: y + h, xs, tone: xs.map(() => r.range(-1, 1)), alb: xs.map(() => r.range(-1, 1)), tool: xs.map(() => r()), tool2: xs.map(() => r()) });
     y += h;
@@ -103,8 +104,10 @@ const postFoot = (a, p) => Math.max(a.yAt(p.x - p.hw), a.yAt(p.x + p.hw)) + O.sl
 function postPath(g, a, p) {
   const x = p.x, y = p.yt, hw = p.hw, yb = postFoot(a, p);
   g.beginPath();
-  g.moveTo(x - hw, yb); g.lineTo(x - hw, y + p.cl * 1.15); g.lineTo(x - hw + p.cl, y);
-  g.lineTo(x + hw - p.cr, y); g.lineTo(x + hw, y + p.cr * 1.15); g.lineTo(x + hw, yb);
+  g.moveTo(x - hw, yb); g.lineTo(x - hw, y + p.cl * 1.15);
+  if (p.round) { g.quadraticCurveTo(x - hw, y, x - hw + p.cl * 1.3, y); g.lineTo(x + hw - p.cr * 1.3, y); g.quadraticCurveTo(x + hw, y, x + hw, y + p.cr * 1.15); }
+  else { g.lineTo(x - hw + p.cl, y); g.lineTo(x + hw - p.cr, y); g.lineTo(x + hw, y + p.cr * 1.15); }
+  g.lineTo(x + hw, yb);
   g.closePath();
 }
 /** an irregular flake outline (a spall, a patch of lichen) */
@@ -223,7 +226,7 @@ function drawStructure(g, a, lay, courses, arch, mode) {
     for (let o = 0; o < 26; o++) { g.strokeStyle = G(255 * (0.56 + 0.44 * Math.pow(o / 26, 0.7))); tline(g, a, O.deck + o); }
     for (let o = 0; o < 14; o++) { g.strokeStyle = G(255 * (0.7 + 0.3 * (o / 14))); tline(g, a, O.slab - o); }
     // weathering: broad mottling + rain streaks running down the face
-    g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11mottle', scale: 150, octaves: 4, warp: 0.8, res: 0.4, contrast: 1.3, ramp: [[0, G(100)], [0.5, G(212)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
+    g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11mottle', scale: 190, octaves: 4, warp: 0.8, res: 0.4, contrast: 1.3, ramp: [[0, G(100)], [0.5, G(212)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
     g.drawImage(L.noiseTex(LW / 2, LH / 2, { seed: 's11streak', scale: 40, sx: 0.32, sy: 8, octaves: 3, res: 0.5, contrast: 1.8, ramp: [[0, G(168)], [0.42, G(244)], [1, G(255)]] }), -PAD, -PAD, LW, LH);
     // soot and algae gather in patches where the slabs stand on the kerb
     const cn = L.makeNoise('s11-crust');
@@ -238,10 +241,10 @@ function drawStructure(g, a, lay, courses, arch, mode) {
     for (const s of lay.segs) {
       const v = L.rng('s11-lichen-' + s.key);
       for (let n = v.chance(0.7) ? v.int(1, 2) : 0; n > 0; n--) {
-        const cx = v.range(s.x0 + 10, s.x1 - 10), cy = a.yAt(cx) + v.range(10, O.slab - 14), spread = v.range(16, 46);
+        const cx = v.range(s.x0 + 10, s.x1 - 10), cy = a.yAt(cx) + v.range(10, O.slab - 14), spread = v.range(22, 74);
         for (let k = v.int(5, 13); k > 0; k--) {
           const ang = v.range(0, TAU), rad = spread * Math.sqrt(v());
-          blob(g, v, cx + Math.cos(ang) * rad * 1.3, cy + Math.sin(ang) * rad * 0.8, v.range(4, 15), v.range(3, 11), v.range(0, 3));
+          blob(g, v, cx + Math.cos(ang) * rad * 1.3, cy + Math.sin(ang) * rad * 0.8, v.range(5, 24), v.range(4, 16), v.range(0, 3));
           g.fillStyle = G(v.range(30, 80)); g.fill();
         }
       }
@@ -283,8 +286,8 @@ function lightPass(hc, ac, a, lanterns) {
   const lut = new Uint8ClampedArray(1024 * 3);
   for (let i = 0; i < 1024; i++) { const c = ramp(i / 1023); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
   const out = new ImageData(w, h); const od = out.data;
-  const LZ2 = LIGHT_Z * LIGHT_Z, R0 = 270 * 270, WIN = 760, K = 0.17 / Q;
-  const AMB = 0.04, KD = 1.22, KF = 0.56, KS = 0.5;
+  const LZ2 = LIGHT_Z * LIGHT_Z, R0 = 300 * 300, WIN = 800, K = 0.17 / Q;
+  const AMB = 0.04, KD = 1.32, KF = 0.5, KS = 0.5;
   const nl = lanterns.length;
   const lx = lanterns.map((l) => l.x), ly = lanterns.map((l) => l.y), lp = lanterns.map((l) => l.power), lr = lanterns.map((l) => l.rx);
   for (let y = y0; y < h - 1; y++) {
@@ -317,7 +320,7 @@ function lightPass(hc, ac, a, lanterns) {
         }
       }
       const alb = ad[i * 4] / 255;
-      const fill = Math.max(0, -0.62 * ny + 0.78 * nzz) / (1 + (o * o) / (230 * 230));   // the whole row of lanterns as one soft source above
+      const fill = Math.max(0, -0.62 * ny + 0.78 * nzz) / (1 + (o * o) / (270 * 270));   // the whole row of lanterns as one soft source above
       const wet = L.smooth((nw.fbm(fx / 80, fy / 520, 2) + 0.15) * 1.6);
       const bounce = o > O.deck - 6 ? 0.22 * Math.exp(-(o - O.deck) / 520) : 0;
       const v = alb * (AMB + KD * diff + KF * fill + bounce) + KS * wet * spec * (0.4 + 0.6 * alb);
@@ -486,13 +489,13 @@ function buildBridge(env, lay, courses, arch) {
       m.fillStyle = m.createPattern(grain, 'repeat'); m.fillRect(-PAD, a.crestY - 80, LW, LH);
       m.globalCompositeOperation = 'destination-in';
       m.drawImage(L.noiseTex(LW, LH, { seed: 's11grainmask', scale: 190, octaves: 3, warp: 0.6, res: 0.2, contrast: 1.5,
-        ramp: [[0, 'rgba(0,0,0,0.12)'], [0.45, 'rgba(0,0,0,0.3)'], [1, 'rgba(0,0,0,0.78)']] }), -PAD, -PAD);
+        ramp: [[0, 'rgba(0,0,0,0.05)'], [0.5, 'rgba(0,0,0,0.2)'], [1, 'rgba(0,0,0,0.62)']] }), -PAD, -PAD);
     });
     g.globalCompositeOperation = 'overlay';
     g.drawImage(gm, -PAD, -PAD);
     g.globalCompositeOperation = 'source-over';
     const pn = L.makeNoise('s11-pitmask');
-    L.speckle(g, { seed: 's11pits', count: 5200, x: -PAD, y: a.crestY - 40, w: LW, h: H + PAD - a.crestY + 40, rMin: 0.6, rMax: 3.4, colors: ['#020003', '#14040c', '#020003', '#ffa6c0'], alpha: [0.12, 0.5],
+    L.speckle(g, { seed: 's11pits', count: 3000, x: -PAD, y: a.crestY - 40, w: LW, h: H + PAD - a.crestY + 40, rMin: 0.8, rMax: 4.6, colors: ['#020003', '#14040c', '#020003', '#ffa6c0'], alpha: [0.12, 0.5],
       test: (x, y) => pn.fbm(x / 120, y / 90, 2) > -0.12 });
     // colour temperature: a little warmth right beside each lantern, cool violet where only the night reaches
     g.globalCompositeOperation = 'soft-light';
@@ -551,17 +554,17 @@ function buildBridge(env, lay, courses, arch) {
 
     // ── the rim: the rounded coping catches the lantern light full on → the brightest line in the frame sits on the arc.
     // It is a worn edge, not a ruled one: it flares beside each lantern, thins between them, breaks at chips and joints.
-    const lampAt = (x) => { let e = 0; for (const ln of lay.lanterns) { const d = x - ln.x; e += ln.power / (1 + (d * d) / (165 * 165)); } return e; };
+    const lampAt = (x) => { let e = 0; for (const ln of lay.lanterns) { const d = x - ln.x; e += ln.power / (1 + (d * d) / (190 * 190)); } return e; };
     const rimL = L.makeLayer(PAD, (m) => {
       m.save();
       m.beginPath(); m.rect(-PAD, -PAD, LW, LH);
       for (const p of lay.posts) m.rect(p.x - p.hw - 0.5, p.y - 60, p.hw * 2 + 1, 120);
       m.clip('evenodd');
       m.lineCap = 'butt';
-      for (const [o, lw, al, col] of [[18, 36, 0.24, '255,50,104'], [10, 20, 0.4, '255,92,114'], [5.4, 10.8, 0.7, '255,146,126'], [2.7, 5.4, 1, '255,204,162']]) {
+      for (const [o, lw, al, col] of [[22, 44, 0.22, '255,50,104'], [12, 24, 0.4, '255,92,114'], [6.6, 13.2, 0.72, '255,150,128'], [3.4, 6.8, 1, '255,216,172']]) {
         for (let x = XL; x < XR; x += 5) {
           const s = segAt(x); if (!s) continue;
-          const e = L.clamp(0.68 + 0.26 * lampAt(x), 0, 1) * L.clamp(0.86 + 0.3 * mn.fbm(x / 34, 17.3, 3), 0.6, 1);
+          const e = L.clamp(0.5 + 0.4 * lampAt(x), 0, 1) * L.clamp(0.84 + 0.34 * mn.fbm(x / 46, 17.3, 3), 0.55, 1);
           const x1 = Math.min(x + 5.3, s.x1), ya = a.yAt(x) + s.dy, yb = a.yAt(x1) + s.dy;
           m.strokeStyle = `rgba(${col},${(al * e).toFixed(3)})`; m.lineWidth = lw;
           m.beginPath(); m.moveTo(x, ya + o); m.lineTo(x1, yb + o); m.stroke();
@@ -584,8 +587,8 @@ function buildBridge(env, lay, courses, arch) {
     const cr = L.rng('s11-chips');
     for (const s of lay.segs) {
       const xa = s.x0 + s.in0 + 12, xb = s.x1 - s.in1 - 12;
-      for (let n = cr.int(0, 2); n > 0; n--) {
-        const x = cr.range(xa, xb), w = cr.chance(0.25) ? cr.range(10, 22) : cr.range(4, 9), d = cr.range(1.6, 3.6), y = a.yAt(x) + s.dy - 1.5;
+      for (let n = xb > xa ? cr.int(0, 3) : 0; n > 0; n--) {
+        const x = cr.range(xa, xb), w = cr.chance(0.32) ? cr.range(14, 36) : cr.range(4, 10), d = cr.range(1.6, 5), y = a.yAt(x) + s.dy - 1.5;
         g.beginPath(); g.moveTo(x - w, y); g.lineTo(x - w * cr.range(0.3, 0.7), y + 1.5 + d * cr.range(0.6, 1)); g.lineTo(x + w * cr.range(0.1, 0.7), y + 1.5 + d * cr.range(0.5, 1)); g.lineTo(x + w, y); g.closePath(); g.fill();
       }
     }
@@ -610,14 +613,14 @@ const GOLDS = ['#f2bd2e', '#ffd95a', '#e3a51e', '#ffe58a', '#f0b429', '#ffc94a']
 
 function makeLantern(ln, tex) {
   const { rx, ry, sc, glowK: gk } = ln;
-  const capW = rx * 0.37, capH = rx * 0.19, e = capW * 0.17;
-  const yCut = ry * 0.925;
-  const cord = ln.cord, tLen = rx * 0.9;
-  const top = yCut + capH + e + cord;                       // body centre → wire knot (the pivot)
+  const capW = rx * 0.36, capH = rx * 0.2, e = capW * 0.18;
+  const yCut = ry * 0.93;
+  const cord = ln.cord, tLen = rx * 0.98;
+  const top = yCut + capH + e + cord;                       // body centre → where the cord is lost in the dark (the pivot)
   const bot = yCut + capH + e + 30 * sc + tLen + 8;
-  const m = 46;                                             // room for the bloom
+  const m = 60;                                             // room for the bloom
   ln.py = ln.y - top; ln.top = top;
-  if (ln.x < -330 || ln.x > W + 330) return;                // never in frame: only its knot (for the wires) and its light matter
+  if (ln.x < -330 || ln.x > W + 330) return;                // never in frame: only its light matters
   const w = Math.ceil(rx * 2 + m * 2), h = Math.ceil(top + bot + m * 2);
   const c = L.makeCanvas(w, h); const g = c.getContext('2d');
   const r = L.rng('s11-lan-paint-' + ln.k);
@@ -625,71 +628,94 @@ function makeLantern(ln, tex) {
   g.translate(w / 2, m + top);
   g.lineCap = 'round';
 
-  // hanging cord + ring
-  g.strokeStyle = L.linear(g, 0, -top, 0, -(yCut + capH), [[0, '#2c0c0a'], [1, '#7a2416']]); g.lineWidth = 2.4;
+  // hanging cord: lit where it meets the lantern, gone a hand's breadth above; a small brass ring
+  g.strokeStyle = L.linear(g, 0, -top, 0, -(yCut + capH), [[0, 'rgba(70,14,10,0)'], [0.5, 'rgba(84,18,12,0.4)'], [1, 'rgba(168,48,26,0.95)']]); g.lineWidth = 2.8 * sc;
   g.beginPath(); g.moveTo(0, -top); g.lineTo(0, -(yCut + capH)); g.stroke();
-  g.strokeStyle = '#c98a16'; g.lineWidth = 2.6; g.beginPath(); g.arc(0, -(yCut + capH + e + 7 * sc), 5 * sc, 0, TAU); g.stroke();
+  g.strokeStyle = '#a8720e'; g.lineWidth = 2.6 * sc; g.beginPath(); g.arc(0, -(yCut + capH + e + 7 * sc), 5 * sc, 0, TAU); g.stroke();
 
-  // body: red gauze glowing from the lamp inside — a small hot heart, then true vermilion all the way out to a deep red limb
+  // silhouette: a hand-made frame is never a true ellipse — slightly lopsided, a little flat here and full there
+  const wob = L.makeNoise('s11-lan-shape-' + ln.k), lop = r.range(-0.02, 0.02);
+  const body = () => {
+    g.beginPath();
+    for (let i = 0; i <= 96; i++) {
+      const t = (i / 96) * TAU, cs = Math.cos(t), sn = Math.sin(t);
+      const f = 1 + 0.012 * wob.fbm(cs * 1.4 + 3, sn * 1.4 + 7, 2) + lop * cs * Math.abs(sn);
+      if (i) g.lineTo(cs * rx * f, sn * ry * f); else g.moveTo(cs * rx * f, sn * ry * f);
+    }
+    g.closePath();
+  };
+  const ly0 = ry * 0.1;                                     // the lamp hangs a little below the middle
+
+  // body: red gauze glowing from the lamp inside — a small hot heart, then true vermilion all the way out to a deep crimson limb
+  g.save(); body(); g.clip();
   g.save(); g.scale(1, ry / rx);
-  g.fillStyle = L.radial(g, 0, rx * 0.05, 0, rx, [[0, '#fff0b0'], [0.07, '#ffd040'], [0.16, '#ff7e22'], [0.27, '#f6361a'], [0.5, '#e82216'], [0.72, '#d61818'], [0.89, '#9c0c18'], [1, '#540612']]);
-  g.beginPath(); g.arc(0, 0, rx, 0, TAU); g.fill();
+  const R1 = rx * 1.08, gy = (ly0 * rx) / ry;
+  g.fillStyle = L.radial(g, 0, gy, 0, R1, [[0, '#fff4c4'], [0.06, '#ffd04a'], [0.14, '#ff7a22'], [0.25, '#fb3418'], [0.5, '#ee2014'], [0.72, '#d61416'], [0.9, '#9a0b18'], [1, '#580612']]);
+  g.fillRect(-R1, -R1 * 1.2, R1 * 2, R1 * 2.4);
   if (deep > 0.02) {
     g.globalAlpha = deep;
-    g.fillStyle = L.radial(g, 0, rx * 0.05, 0, rx, [[0, '#ffc860'], [0.06, '#ff8a2a'], [0.15, '#e62c1a'], [0.4, '#c81618'], [0.76, '#940c18'], [1, '#460510']]);
-    g.beginPath(); g.arc(0, 0, rx, 0, TAU); g.fill();
+    g.fillStyle = L.radial(g, 0, gy, 0, R1, [[0, '#ffc45a'], [0.05, '#ff8426'], [0.13, '#e22a18'], [0.4, '#c21316'], [0.76, '#8a0a16'], [1, '#40050e']]);
+    g.fillRect(-R1, -R1 * 1.2, R1 * 2, R1 * 2.4);
     g.globalAlpha = 1;
   }
   g.restore();
-  g.save(); g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.clip();
   // the lamp itself, a taller blur of light
-  g.save(); g.globalCompositeOperation = 'screen'; g.scale(0.56, 1);
-  g.fillStyle = L.radial(g, 0, ry * 0.05, 0, ry * 0.5, [[0, `rgba(255,232,130,${(0.3 + 0.5 * gk).toFixed(3)})`], [0.45, `rgba(255,150,50,${(0.06 + 0.22 * gk).toFixed(3)})`], [1, 'rgba(255,90,30,0)']]);
+  g.save(); g.globalCompositeOperation = 'screen'; g.scale(0.6, 1);
+  g.fillStyle = L.radial(g, 0, ly0, 0, ry * 0.56, [[0, `rgba(255,232,130,${(0.26 + 0.5 * gk).toFixed(3)})`], [0.45, `rgba(255,140,50,${(0.05 + 0.2 * gk).toFixed(3)})`], [1, 'rgba(255,80,30,0)']]);
   g.fillRect(-rx * 2, -ry, rx * 4, ry * 2);
   g.restore();
+  // the top of the globe is farther from the lamp and under the cap: it falls off into crimson
+  g.globalCompositeOperation = 'multiply';
+  g.fillStyle = L.linear(g, 0, -ry, 0, ry, [[0, 'rgba(150,16,30,0.62)'], [0.4, 'rgba(190,30,40,0)'], [0.86, 'rgba(190,30,40,0)'], [1, 'rgba(150,16,30,0.4)']]);
+  g.fillRect(-rx * 1.1, -ry * 1.1, rx * 2.2, ry * 2.2);
+  g.globalCompositeOperation = 'source-over';
+
   // ribs (灯笼骨): meridians from cap to cap, crowding toward the limb; hand-bent, so never quite evenly spaced
-  const NG = rx > 105 ? 14 : 12;
+  const NG = rx > 105 ? 13 : 11;
   const ribs = [];
-  for (let j = 0; j < NG; j++) ribs.push(-Math.PI / 2 + ((j + 0.5) * Math.PI) / NG + r.range(-0.036, 0.036));
-  const mer = (sx) => { g.beginPath(); g.ellipse(0, 0, Math.max(0.6, Math.abs(sx) * rx), ry, 0, -Math.PI / 2, Math.PI / 2, sx < 0); };
+  for (let j = 0; j < NG; j++) ribs.push({ phi: -Math.PI / 2 + ((j + 0.5) * Math.PI) / NG + r.range(-0.06, 0.06), bend: r.range(-0.014, 0.014), wt: r.range(0.6, 1.35) });
+  const mer = (sx, bend = 0) => { g.beginPath(); g.ellipse(0, 0, Math.max(0.6, Math.abs(sx) * rx), ry * 1.01, bend, -Math.PI / 2, Math.PI / 2, sx < 0); };
+  // seen through the cloth: the ribs of the far side and the stem that carries the lamp, as soft shadows
+  for (let j = 0; j < NG; j++) {
+    const phi = ribs[j].phi + (Math.PI / NG) * r.range(0.3, 0.7);
+    if (Math.abs(phi) > 1.25) continue;
+    g.strokeStyle = `rgba(120,4,14,${(0.1 * Math.cos(phi)).toFixed(3)})`; g.lineWidth = 6 * sc; mer(Math.sin(phi) || 0.001, -ribs[j].bend); g.stroke();
+  }
+  g.strokeStyle = L.linear(g, 0, -ry, 0, ly0, [[0, 'rgba(96,4,12,0.42)'], [0.75, 'rgba(120,10,12,0.2)'], [1, 'rgba(160,30,12,0)']]); g.lineWidth = 5 * sc; g.lineCap = 'butt';
+  g.beginPath(); g.moveTo(r.range(-2, 2), -ry); g.lineTo(0, ly0 - ry * 0.12); g.stroke(); g.lineCap = 'round';
   // each gore of gauze between two ribs bellies out and passes a little more or less light than its neighbours
   for (let j = 0; j <= NG; j++) {
-    const p0 = j === 0 ? -Math.PI / 2 : ribs[j - 1], p1 = j === NG ? Math.PI / 2 : ribs[j], phi = (p0 + p1) / 2, wp = rx * (p1 - p0) * Math.cos(phi);
+    const p0 = j === 0 ? -Math.PI / 2 : ribs[j - 1].phi, p1 = j === NG ? Math.PI / 2 : ribs[j].phi, phi = (p0 + p1) / 2, wp = rx * (p1 - p0) * Math.cos(phi);
     if (wp < 4) continue;
     const lum = r.range(-1, 1);
     g.globalCompositeOperation = lum > 0 ? 'screen' : 'multiply';
-    g.strokeStyle = lum > 0 ? `rgba(255,150,84,${(0.06 + 0.12 * lum).toFixed(3)})` : `rgba(170,20,24,${(-0.22 * lum).toFixed(3)})`;
-    g.lineWidth = wp * 0.56; mer(Math.sin(phi) || 0.001); g.stroke();
+    g.strokeStyle = lum > 0 ? `rgba(255,120,70,${(0.05 + 0.13 * lum).toFixed(3)})` : `rgba(176,18,24,${(-0.3 * lum).toFixed(3)})`;
+    g.lineWidth = wp * 0.6; mer(Math.sin(phi) || 0.001); g.stroke();
   }
-  // cloth: vertical threads + uneven dye, seen in transmitted light
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.55;
+  // cloth: vertical threads, uneven dye and the dust of a season outdoors, all seen in transmitted light
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.42;
   g.drawImage(tex.cloth, r.int(0, 180), r.int(0, 180), 320, 320, -rx, -ry, rx * 2, ry * 2);
-  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.3;
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.34;
   g.drawImage(tex.blotch, r.int(0, 300), r.int(0, 300), 200, 200, -rx, -ry, rx * 2, ry * 2);
+  g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.3 + 0.6 * deep;
+  g.drawImage(tex.stain, r.int(0, 250), r.int(0, 250), 250, 250, -rx, -ry, rx * 2, ry * 2);
   g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   for (let j = 0; j < NG; j++) {
-    const sx = Math.sin(ribs[j]), face = Math.cos(ribs[j]);
-    g.strokeStyle = `rgba(92,0,10,${(0.14 + 0.12 * face).toFixed(3)})`; g.lineWidth = 7 * (0.3 + 0.7 * face) * sc; mer(sx); g.stroke();
-    g.strokeStyle = 'rgba(70,0,8,0.46)'; g.lineWidth = (0.6 + 1.3 * face) * sc; mer(sx); g.stroke();
-    g.save(); g.translate(sx < 0 ? 2.4 * face : -2.4 * face, 0);
-    g.strokeStyle = `rgba(255,170,110,${(0.2 * face).toFixed(3)})`; g.lineWidth = 1.2; mer(sx); g.stroke();
-    g.restore();
+    const rb = ribs[j], sx = Math.sin(rb.phi), face = Math.cos(rb.phi);
+    g.strokeStyle = `rgba(96,0,12,${((0.1 + 0.1 * face) * rb.wt).toFixed(3)})`; g.lineWidth = 9 * (0.3 + 0.7 * face) * sc; mer(sx, rb.bend); g.stroke();
+    g.strokeStyle = `rgba(74,0,10,${(0.3 * rb.wt).toFixed(3)})`; g.lineWidth = (0.8 + 1.5 * face) * sc * rb.wt; mer(sx, rb.bend); g.stroke();
   }
   // gathered cloth darkens at the mouths; limb darkening (no outline: the edge is just where the gauze turns away)
-  g.fillStyle = L.linear(g, 0, -ry, 0, ry, [[0, 'rgba(56,0,10,0.66)'], [0.2, 'rgba(56,0,10,0)'], [0.8, 'rgba(56,0,10,0)'], [1, 'rgba(56,0,10,0.66)']]);
-  g.fillRect(-rx, -ry, rx * 2, ry * 2);
-  g.strokeStyle = 'rgba(54,0,12,0.32)'; g.lineWidth = rx * 0.12; g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.stroke();
-  // gilt trim bands near the mouths
-  for (const sgn of [-1, 1]) {
-    const yy = sgn * ry * 0.74, hwb = rx * Math.sqrt(1 - 0.74 * 0.74), b = rx * 0.07;
-    const band = () => { g.beginPath(); if (sgn < 0) g.ellipse(0, yy, hwb, b, 0, Math.PI, TAU); else g.ellipse(0, yy, hwb, b, 0, 0, Math.PI); };
-    g.strokeStyle = 'rgba(60,14,0,0.5)'; g.lineWidth = 6 * sc; band(); g.stroke();
-    g.strokeStyle = L.linear(g, -hwb, 0, hwb, 0, [[0, '#7a4a08'], [0.25, '#f0b429'], [0.5, '#fff0a8'], [0.75, '#f0b429'], [1, '#7a4a08']]); g.lineWidth = 3.2 * sc; band(); g.stroke();
-  }
+  g.fillStyle = L.linear(g, 0, -ry, 0, ry, [[0, 'rgba(50,0,10,0.7)'], [0.17, 'rgba(50,0,10,0)'], [0.84, 'rgba(50,0,10,0)'], [1, 'rgba(50,0,10,0.66)']]);
+  g.fillRect(-rx * 1.1, -ry * 1.1, rx * 2.2, ry * 2.2);
+  g.save(); g.scale(1, ry / rx); g.globalCompositeOperation = 'multiply';
+  g.fillStyle = L.radial(g, 0, 0, rx * 0.7, rx * 1.04, [[0, '#ffffff'], [0.55, '#f0bcbc'], [1, '#9a3a48']]);
+  g.fillRect(-R1, -R1 * 1.2, R1 * 2, R1 * 2.4);
+  g.restore();
   g.restore();
 
-  // gilt mouths (灯托): short brass cylinders, lit from the lantern side
-  const gold = L.linear(g, -capW, 0, capW, 0, [[0, '#5a3204'], [0.16, '#c98a16'], [0.4, '#fff0a8'], [0.54, '#f2bd2e'], [0.8, '#b5760c'], [1, '#4a2a03']]);
+  // mouths (灯托): short brass collars, dull at night — they only catch the glow of the globe they close
+  const gold = L.linear(g, -capW, 0, capW, 0, [[0, '#2c1502'], [0.18, '#8c5a0e'], [0.4, '#f7d684'], [0.55, '#dba42c'], [0.82, '#7a4a08'], [1, '#281202']]);
   for (const sgn of [-1, 1]) {
     const yA = sgn * yCut, yB = sgn * (yCut + capH);
     g.beginPath();
@@ -697,9 +723,9 @@ function makeLantern(ln, tex) {
     else { g.ellipse(0, yA, capW * 1.1, e, 0, Math.PI, 0, true); g.lineTo(capW, yB); g.ellipse(0, yB, capW, e, 0, 0, Math.PI, false); }
     g.closePath();
     g.fillStyle = gold; g.fill();
-    g.fillStyle = L.linear(g, 0, yA, 0, yB + sgn * e, [[0, 'rgba(255,120,40,0.4)'], [0.5, 'rgba(60,20,0,0.05)'], [1, 'rgba(24,8,0,0.38)']]); g.fill();
-    g.strokeStyle = 'rgba(52,22,0,0.5)'; g.lineWidth = 1.3;
-    for (const f of [0.36, 0.7]) {
+    g.fillStyle = L.linear(g, 0, yA, 0, yB + sgn * e, [[0, 'rgba(255,96,30,0.5)'], [0.45, 'rgba(60,20,0,0.1)'], [1, 'rgba(20,6,0,0.62)']]); g.fill();
+    g.strokeStyle = 'rgba(46,18,0,0.5)'; g.lineWidth = 1.4 * sc;
+    for (const f of [0.4]) {
       const yy = L.lerp(yA, yB, f), ww = L.lerp(capW * 1.1, capW, f);
       g.beginPath(); if (sgn < 0) g.ellipse(0, yy, ww, e, 0, Math.PI, TAU); else g.ellipse(0, yy, ww, e, 0, 0, Math.PI); g.stroke();
     }
@@ -713,68 +739,34 @@ function makeLantern(ln, tex) {
   g.beginPath(); g.arc(0, by, br, 0, TAU); g.fill();
   const yh = by + br, hh = 11 * sc, hwd = 5.6 * sc;
   g.fillStyle = L.linear(g, -hwd, 0, hwd, 0, [[0, '#7a1410'], [0.4, '#e0301e'], [1, '#5a0c0c']]); g.fillRect(-hwd, yh - 1, hwd * 2, hh);
-  g.strokeStyle = '#f2bd2e'; g.lineWidth = 1.5;
-  for (const f of [0.25, 0.75]) { g.beginPath(); g.moveTo(-hwd, yh + hh * f); g.lineTo(hwd, yh + hh * f); g.stroke(); }
-  const yt = yh + hh - 1, spread = 17 * sc;
-  g.fillStyle = L.linear(g, 0, yt, 0, yt + tLen, [[0, 'rgba(150,84,10,0.9)'], [1, 'rgba(110,40,10,0.62)']]);
-  g.beginPath(); g.moveTo(-hwd, yt); g.lineTo(hwd, yt); g.lineTo(spread, yt + tLen * 0.9); g.lineTo(-spread, yt + tLen * 0.9); g.closePath(); g.fill();
-  const nt = Math.round(40 * sc + 8);
+  const yt = yh + hh - 1, spread = 16 * sc, swing = r.range(-5, 5) * sc;
+  g.fillStyle = L.linear(g, 0, yt, 0, yt + tLen, [[0, 'rgba(160,90,10,0.92)'], [1, 'rgba(120,44,10,0.6)']]);
+  g.beginPath(); g.moveTo(-hwd, yt); g.lineTo(hwd, yt); g.lineTo(spread + swing, yt + tLen * 0.9); g.lineTo(-spread + swing, yt + tLen * 0.9); g.closePath(); g.fill();
+  const nt = Math.round(34 * sc + 8);
   for (let i = 0; i < nt; i++) {
     const u = (i + 0.5) / nt - 0.5;
-    const x0 = u * 2 * hwd, x1 = u * 2.2 * spread + r.range(-2.6, 2.6), len = tLen * r.range(0.8, 1);
+    const x0 = u * 2 * hwd, x1 = u * 2.2 * spread + swing + r.range(-3, 3), len = tLen * r.range(0.76, 1);
     const col = r.pick(GOLDS);
-    g.strokeStyle = L.linear(g, 0, yt, 0, yt + tLen, [[0, col], [1, L.rgba(L.mix(col, '#c2461a', 0.32), 0.92)]]);
-    g.lineWidth = r.range(1, 2.1);
+    g.strokeStyle = L.linear(g, 0, yt, 0, yt + tLen, [[0, col], [1, L.rgba(L.mix(col, '#c2461a', 0.36), 0.9)]]);
+    g.lineWidth = r.range(1.2, 2.6) * Math.sqrt(sc);
     g.beginPath(); g.moveTo(x0, yt); g.quadraticCurveTo(x0 + (x1 - x0) * 0.2, yt + len * 0.5, x1, yt + len); g.stroke();
   }
 
   // bloom of the lamp through the cloth
   g.globalCompositeOperation = 'screen';
-  g.fillStyle = L.radial(g, 0, ry * 0.05, 0, rx * 0.62, [[0, `rgba(255,220,120,${(0.12 + 0.3 * gk).toFixed(3)})`], [0.5, `rgba(255,120,50,${(0.11 * gk).toFixed(3)})`], [1, 'rgba(255,60,40,0)']]);
-  g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, TAU); g.fill();
+  g.fillStyle = L.radial(g, 0, ly0, 0, rx * 0.66, [[0, `rgba(255,214,110,${(0.1 + 0.3 * gk).toFixed(3)})`], [0.5, `rgba(255,96,44,${(0.12 * gk).toFixed(3)})`], [1, 'rgba(255,50,36,0)']]);
+  body(); g.fill();
   g.globalCompositeOperation = 'source-over';
 
-  // lens: a hair of softness on every edge, and the whole lit object bleeds into the night around it
-  const out = L.blurred(c, 0.7);
+  // lens: focus is on the crest lantern — the ones toward the ends of the bridge go a little soft; the whole lit object bleeds into the night
+  const dof = L.clamp((Math.abs(ln.x - W / 2) - 260) / 620) * 1.7;
+  const out = L.blurred(c, 0.7 + dof);
   const og = out.getContext('2d');
-  og.globalCompositeOperation = 'screen'; og.globalAlpha = 0.14;
-  og.drawImage(L.blurred(c, 5 * sc), 0, 0);
-  ln.bloom = L.blurred(c, 13 * sc);
+  og.globalCompositeOperation = 'screen'; og.globalAlpha = 0.16;
+  og.drawImage(L.blurred(c, 6 * sc), 0, 0);
+  ln.bloom = L.blurred(c, 14 * sc);
 
   ln.sprite = out; ln.sox = w / 2; ln.soy = m;
-}
-
-/** bamboo poles lashed behind the posts, with the wire the lanterns hang from */
-function buildRig(a, lay) {
-  const layer = L.makeLayer(PAD, (g) => {
-    for (const p of lay.poles) {
-      const bot = p.y + 8, hw = 3.6, dx = p.lean * (bot - p.tip);
-      g.save(); g.translate(p.x, bot); g.rotate(p.lean); g.translate(-p.x, -bot);
-      g.fillStyle = L.linear(g, p.x - hw, 0, p.x + hw, 0, [[0, '#b0302a'], [0.3, '#34100f'], [0.7, '#34100f'], [1, '#b0302a']]);
-      g.fillRect(p.x - hw, p.tip - 8, hw * 2, bot - p.tip + 8);
-      // the poles climb out of the lantern light into the dark
-      g.fillStyle = L.linear(g, 0, p.tip - 8, 0, p.y - 50, [[0, 'rgba(5,4,7,0.82)'], [1, 'rgba(5,4,7,0)']]);
-      g.fillRect(p.x - hw - 1, p.tip - 9, hw * 2 + 2, bot - p.tip);
-      g.fillStyle = 'rgba(14,4,6,0.8)';
-      const nr = L.rng('s11-node-' + p.k);
-      for (let y = bot - nr.range(20, 50); y > p.tip; y -= nr.range(38, 58)) g.fillRect(p.x - hw - 0.8, y, hw * 2 + 1.6, 2.2);
-      // lashing where the wire is tied off
-      g.fillStyle = '#5a1a14'; g.fillRect(p.x - hw - 1, p.tip - 3, hw * 2 + 2, 7);
-      g.restore();
-      p.tx = p.x + dx; // where the leaning pole's tip actually is
-    }
-    g.lineCap = 'round';
-    for (let i = 0; i < lay.lanterns.length; i++) {
-      const ln = lay.lanterns[i], pl = lay.poles[i - 1], pr = lay.poles[i];
-      for (const p of [pl, pr]) {
-        if (!p) continue;
-        const tx = p.tx, ty = p.tip, mx = (tx + ln.x) / 2, my = (ty + ln.py) / 2 + 12;
-        g.strokeStyle = L.linear(g, tx, ty, ln.x, ln.py, [[0, '#30100e'], [0.6, '#6a2018'], [1, '#c24a2c']]);
-        g.lineWidth = 2.2; g.beginPath(); g.moveTo(tx, ty); g.quadraticCurveTo(mx, my, ln.x, ln.py); g.stroke();
-      }
-    }
-  });
-  return L.blurred(layer, 0.8);
 }
 
 function buildHalo(lay) {
@@ -799,20 +791,15 @@ function buildBack(a) {
       g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(col, al * 0.75)], [0.72, L.rgba(col, al)], [0.92, L.rgba(col, al * 1.15)], [1, L.rgba(col, 0)]]);
       g.beginPath(); g.arc(x, y, rad, 0, TAU); g.fill();
     };
-    for (let i = 0; i < 4; i++) {
-      const side = i % 2 ? 1 : -1;
-      const x = a.cx + side * r.range(700, 990), ya = a.yAt(x);
-      disc(x, ya - r.range(40, 170), r.range(12, 24), r.pick(['#ffb52e', '#ff4a3a', '#ff7a2e']), r.range(0.12, 0.24));
+    // two far lamps down the canal, wide open and far out of focus
+    for (const [dx, up, rad, col, al] of [[-905, 96, 30, '#ff4a3a', 0.2], [770, 150, 22, '#ffb52e', 0.17]]) {
+      const x = a.cx + dx;
+      disc(x, a.yAt(x) - up, rad, col, al);
     }
-    // far bank seen through the arch: lamps and their broken reflections on the water
-    for (let i = 0; i < 5; i++) {
-      const x = a.cx + r.range(-460, 460), y = a.crestY + DROP + 86 + r.range(-10, 12), col = r.pick(['#ff7a2e', '#ff4a3a', '#ffb52e']);
-      disc(x, y, r.range(7, 14), col, r.range(0.22, 0.45));
-      for (let j = 0; j < 12; j++) {
-        const ww = (8 + j * 1.7) * r.range(0.5, 1.3);
-        g.fillStyle = L.rgba(col, 0.2 * Math.pow(1 - j / 12, 1.4));
-        g.fillRect(x - ww / 2 + r.range(-3, 3), y + 16 + j * 7.5, ww, 2.8);
-      }
+    // far bank glimpsed under the arch
+    for (let i = 0; i < 4; i++) {
+      const x = a.cx + r.range(-380, 380), y = a.crestY + DROP + 56 + r.range(-8, 14), col = r.pick(['#ff7a2e', '#ff4a3a', '#ffb52e']);
+      disc(x, y, r.range(9, 16), col, r.range(0.2, 0.4));
     }
   });
   return L.blurred(layer, 2.6);
@@ -829,17 +816,18 @@ export default {
     const arch = { cx: a.cx, cy: a.crestY + DROP + RA, ri: RA, joints: [] };
     { // voussoirs of uneven width
       const r = L.rng('s11-voussoirs'), rm = RA + RT / 2;
-      for (let t = -1.3 - r.range(0, 0.05); t < 1.36; t += r.range(112, 196) / rm) arch.joints.push(t);
+      for (let t = -1.3 - r.range(0, 0.05); t < 1.36; t += r.range(136, 236) / rm) arch.joints.push(t);
     }
     const tex = {
       cloth: L.noiseTex(512, 512, { seed: 's11cloth', scale: 5, sx: 0.8, sy: 7, octaves: 3, res: 1, contrast: 1.6 }),
       blotch: L.noiseTex(512, 512, { seed: 's11blotch', scale: 60, octaves: 4, warp: 0.9, res: 0.5, contrast: 1.8 }),
+      stain: L.noiseTex(512, 512, { seed: 's11stain', scale: 74, octaves: 4, warp: 1.1, res: 0.5, contrast: 2.2,
+        ramp: [[0, 'rgba(88,4,14,0.9)'], [0.4, 'rgba(88,4,14,0.3)'], [0.58, 'rgba(88,4,14,0)'], [1, 'rgba(88,4,14,0)']] }),
     };
     for (const ln of lay.lanterns) makeLantern(ln, tex);
     S.lay = lay;
     S.back = buildBack(a);
     S.halo = buildHalo(lay);
-    S.rig = buildRig(a, lay);
     S.bridge = buildBridge(env, lay, courses, arch);
   },
   draw(ctx, env, p) {
@@ -849,7 +837,6 @@ export default {
     L.blit(ctx, env, S.back, { rot: rot * 0.3, zoom: 1 + (zoom - 1) * 0.3 });
     const breath = 0.93 + 0.07 * Math.sin(p * Math.PI * 1.5 + 0.5);
     L.blit(ctx, env, S.halo, { rot, zoom, blend: 'screen', alpha: breath });
-    L.blit(ctx, env, S.rig, { rot, zoom });
     L.blit(ctx, env, S.bridge, { rot, zoom });
     L.cam(ctx, env, { rot, zoom }, () => {
       for (const ln of S.lay.lanterns) {

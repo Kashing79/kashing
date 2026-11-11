@@ -16,17 +16,17 @@ let S = null;
 
 const K = 5.6;        // px per figure unit (a standing man = 100 units)
 const RH = 148;       // height of the balustrade; the TOP edge of its hand rail is the arc
-const HR = 30;        // depth of the hand rail
+const HR = 42;        // depth of the hand rail
 
 const C = {
   silk: '#ecdfba',
-  ink: '#1c1814', inkSoft: '#3b3027',
-  ochre: '#a6653a', ochrePale: '#c8935c', ochreDark: '#6d4a31',
-  wood: '#86725c', woodBack: '#5c5046', board: '#59463a', gap: '#2a2520',
-  deck: '#d4b680',
+  ink: '#241710', inkSoft: '#4a392b',
+  ochre: '#a6653a', ochrePale: '#c8935c', ochreDark: '#784a2a',
+  wood: '#8d775b', woodBack: '#655543', board: '#6c482f', gap: '#35261c',
+  deck: '#c5a16a',
   blue: '#2c659a', cyan: '#5b98ad', cyanDeep: '#2a5f78', cyanPale: '#9cc4ca', waterInk: '#1d4354',
   red: '#cf432a', persimmon: '#dc5a2c',
-  white: '#fbf7ec', offwhite: '#ece5d2', flesh: '#edcba2', straw: '#d9bb72', bamboo: '#c5a05a',
+  white: '#fbf7ec', offwhite: '#ece5d2', flesh: '#edcba2', straw: '#d9bb72', bamboo: '#c5a05a', rope: '#bfa066',
   donkey: '#7b746d', donkeyDark: '#544d49',
 };
 
@@ -138,9 +138,13 @@ function makePen(seed0) {
       const col = o.style || (a >= 1 ? color : L.mix(C.silk, color, a));
       gw.fillStyle = col; p(gw); gw.fill();
       if (o.rim !== 0 && !o.style) {
-        const rc = L.mix(col, C.ink, 0.6), rs = o.rim === undefined ? 0.2 : o.rim;
+        const rc = L.mix(col, C.ink, 0.55), rs = o.rim === undefined ? 0.22 : o.rim;
         gw.save(); p(gw); gw.clip(); gw.lineJoin = 'round';
-        gw.strokeStyle = L.rgba(rc, rs * 0.5); gw.lineWidth = 16 / pen.k; p(gw); gw.stroke();
+        // 分染: the wash is laid on heavier toward the lower right of every shape (the light comes from the upper left)
+        gw.strokeStyle = L.rgba(rc, rs * 0.42); gw.lineWidth = 36 / pen.k;
+        gw.save(); gw.translate(5 / pen.k, 7 / pen.k); p(gw); gw.restore(); gw.stroke();
+        gw.strokeStyle = L.rgba(rc, rs * 0.5); gw.lineWidth = 16 / pen.k;
+        gw.save(); gw.translate(2 / pen.k, 3 / pen.k); p(gw); gw.restore(); gw.stroke();
         gw.strokeStyle = L.rgba(rc, rs); gw.lineWidth = 6 / pen.k; p(gw); gw.stroke();
         gw.restore();
       }
@@ -196,14 +200,14 @@ function paintBack(env, pen) {
   };
   pen.fill(below(G.TOP - 30), null, 1, { style: L.radial(gw, a.cx, a.cy, R - 600, R - 370, [[0, C.cyanPale], [0.4, C.cyan], [0.8, L.mix(C.cyan, C.cyanDeep, 0.7)], [1, C.cyanDeep]]) });
   // ripples: a few long, level brush lines that swell and thin
-  for (let y = a.crestY + 420; y < H + PAD; y += r.range(34, 46)) {
+  for (let y = a.crestY + 428; y < H + PAD; y += r.range(46, 62)) {
     let x = -PAD - r.range(0, 300);
     while (x < W + PAD) {
-      const len = r.range(300, 760), amp = r.range(4, 9), wl = r.range(170, 280), ph = r.range(0, L.TAU), tilt = r.range(-8, 8);
+      const len = r.range(380, 820), amp = r.range(5, 10), wl = r.range(210, 330), ph = r.range(0, L.TAU), tilt = r.range(-8, 8);
       const pts = [];
       for (let u = 0; u <= len; u += 24) pts.push([x + u, y + amp * Math.sin(ph + (u / wl) * L.TAU) + (u / len - 0.5) * tilt]);
-      pen.line(pts, r.range(5.5, 8.5), { color: C.waterInk, alpha: r.range(0.7, 0.92), tail: 0.6, head: 0.1, step: 6 });
-      x += len + r.range(60, 240);
+      pen.line(pts, r.range(7, 11), { color: C.waterInk, alpha: r.range(0.55, 0.8), tail: 0.6, head: 0.1, step: 6 });
+      x += len + r.range(140, 420);
     }
   }
 
@@ -256,22 +260,21 @@ function paintBack(env, pen) {
   const lash = (th0, wraps, pitch) => {
     const wpts = (th) => { const t = Pt(th, G.upDr(th) + 5), b = Pt(th, G.lowDr(th) - 5); return [t, [(t[0] + b[0]) / 2 + 5, (t[1] + b[1]) / 2], b]; };
     const e0 = wpts(th0 - (pitch * 0.62) / rr), e1 = wpts(th0 + ((wraps - 1) * pitch + pitch * 0.62) / rr);
-    pen.fill([e0[0], e1[0], e1[2], e0[2]], C.straw, 1, { rim: 0.25 });
+    pen.fill([e0[0], e1[0], e1[2], e0[2]], C.rope, 1, { rim: 0.3 });
     for (let m = -0.5; m < wraps; m++) pen.line(wpts(th0 + ((m + 0.1 + r.range(-0.08, 0.08)) * pitch) / rr), 4.6, { ends: [0, 0], alpha: 0.94 });
     for (let m = 0; m < wraps; m++) { const t = wpts(th0 + ((m - 0.25) * pitch) / rr), b = wpts(th0 + ((m + 0.35) * pitch) / rr); pen.line([t[0], b[1]], 2, { alpha: 0.45 }); pen.line([t[1], b[2]], 2, { alpha: 0.45 }); }
   };
   for (let j = -jmax; j <= jmax; j++) {
     const th = G.PH + j * G.DEL, off = (G.DB / 2 + 26) / rr;
-    lash(th + off, 3, 17);
-    lash(th - off - 36 / rr, 3, 17);
-    lash(th + G.DEL / 2 - 16 / rr, 2, 18);
+    lash(th + off, 3, 18);
+    lash(th - off - 38 / rr, 3, 18);
   }
 
   // ── cross-beam ends (横木): round log heads with growth rings
   for (let j = -jmax; j <= jmax; j++) {
     const c = Pt(G.PH + j * G.DEL, G.DRC), rad = G.DB / 2 * r.range(0.94, 1.04);
     const head = ell(c[0], c[1], rad, rad * r.range(0.95, 1), 14, r.range(0, 3)).map((p) => [p[0] + r.range(-1.6, 1.6), p[1] + r.range(-1.6, 1.6)]);
-    pen.fill(head, L.mix(C.ochrePale, C.straw, 0.5), 1, { smooth: true, rim: 0.3 });
+    pen.fill(head, L.mix(C.ochrePale, C.wood, 0.35), 1, { smooth: true, rim: 0.35 });
     pen.tint((g) => { g.beginPath(); g.arc(c[0], c[1], rad, 0, L.TAU); g.arc(c[0] - 9, c[1] - 11, rad * 0.9, 0, L.TAU, true); }, L.rgba(C.ink, 0.24));
     pen.line(loop(spline(head, 6, true).map((p) => [p[0], p[1]])), 8, { ends: [0, 0], step: 5 });
     pen.line(loop(ell(c[0] + 1.5, c[1] + 1, rad * 0.63, rad * 0.6, 14, r.range(0, 6))), 3, { alpha: 0.6, tail: 0.6 });
@@ -292,7 +295,7 @@ function paintBack(env, pen) {
 
   // ── deck-edge board: the long plank the balustrade stands on
   pen.fill(band(-RH, G.TOP), C.board, 1, { rim: 0.3 });
-  pen.tint(band(-RH - G.FAS * 0.55, G.TOP), L.rgba(C.ink, 0.25));
+  pen.tint(band(-RH - G.FAS * 0.55, G.TOP), L.rgba(C.ink, 0.2));
   for (let i = 0; i < 22; i++) {
     const th = r.range(-sp, sp), d = -RH - r.range(16, G.FAS - 10), l = r.range(180, 620) / R;
     pen.line([Pt(th, d), Pt(th + l / 2, d + r.range(-3, 3)), Pt(th + l, d + r.range(-2, 2))], r.range(2.2, 3.6), { alpha: r.range(0.35, 0.6), tail: 0.7, head: 0 });
@@ -309,10 +312,10 @@ function paintRail(env, pen) {
   const r = L.rng('s14rail');
   const band = (d0, d1) => (c) => a.pathBand(c, d0, d1, -sp, sp);
   // middle rail
-  pen.fill(band(-80, -97), L.mix(C.ochre, C.ochrePale, 0.35), 1, { rim: 0.2 });
-  pen.tint(band(-90, -97), L.rgba(C.ink, 0.18));
-  pen.line(L.arcPts(a, -80, -sp, sp, 110), 5, { ends: [0, 0] });
-  pen.line(L.arcPts(a, -97, -sp, sp, 110), 6, { ends: [0, 0] });
+  pen.fill(band(-90, -106), L.mix(C.ochre, C.ochrePale, 0.3), 1, { rim: 0.2 });
+  pen.tint(band(-99, -106), L.rgba(C.ink, 0.18));
+  pen.line(L.arcPts(a, -90, -sp, sp, 110), 4.5, { ends: [0, 0] });
+  pen.line(L.arcPts(a, -106, -sp, sp, 110), 5.5, { ends: [0, 0] });
   // posts: plumb, unevenly spaced, each a little different
   const PW = 30;
   let x = a.cx - 1310 + r.range(0, 60);
@@ -329,7 +332,12 @@ function paintRail(env, pen) {
   }
   // hand rail
   pen.fill(band(-1, -HR), C.ochreDark, 1, { rim: 0.3 });
-  pen.tint(band(-HR * 0.55, -HR), L.rgba(C.ink, 0.28));
+  pen.tint(band(-HR * 0.55, -HR), L.rgba(C.ink, 0.26));
+  for (let i = 0; i < 16; i++) {       // long dragged grain along the rail
+    const th = r.range(-sp, sp), d = -r.range(17, HR - 6), l = r.range(200, 640) / a.R;
+    const p0 = a.pt(th, d), p1 = a.pt(th + l / 2, d + r.range(-2, 2)), p2 = a.pt(th + l, d + r.range(-2, 2));
+    pen.line([[p0.x, p0.y], [p1.x, p1.y], [p2.x, p2.y]], r.range(2.2, 3.6), { alpha: r.range(0.3, 0.55), tail: 0.7, head: 0 });
+  }
   for (let th = -sp + r.range(0.05, 0.2); th < sp; th += r.range(0.3, 0.44)) { const p = a.pt(th, -9), q = a.pt(th + 0.006, -HR + 2); pen.line([[p.x, p.y], [q.x, q.y]], 4.5, { alpha: 0.9 }); }
   pen.line(L.arcPts(a, -HR, -sp, sp, 120), 7, { ends: [0, 0] });
   // THE ARC: one heavy brush line whose upper edge is the arc itself
@@ -528,8 +536,8 @@ function paintFigures(env, pen) {
     // people stand plumb on the sloping deck: shear, don't rotate
     pen.scope((g) => { g.translate(p.x, p.y); g.transform(1, sl, 0, 1, 0, 0); g.scale(flip * K, K); }, K, () => fn(pen));
   };
-  place(-650, -RH + 8, 1, porter);
-  place(150, -RH + 12, 1, donkeyRider);
+  place(-590, -RH + 8, 1, porter);
+  place(250, -RH + 12, 1, donkeyRider);
 }
 
 // ───────────────────────── silk, pigment, age ─────────────────────────
@@ -584,16 +592,15 @@ function buildTex(creases) {
   const grain = L.noiseTex(256, 256, { seed: 's14gr', scale: 3.2, octaves: 2, res: 1, contrast: 2.2, ramp: [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.4)']] });
   const pool = full((g) => {
     g.drawImage(L.noiseTex(LW, LH, { seed: 's14pool', scale: 110, octaves: 4, res: 0.3, warp: 0.7, contrast: 1.8, ramp: [[0, 'rgba(0,0,0,0)'], [0.42, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.55)']] }), 0, 0);
-    g.globalAlpha = 0.55; g.fillStyle = g.createPattern(weave.gap, 'repeat'); g.fillRect(0, 0, LW, LH);
+    g.globalAlpha = 0.42; g.fillStyle = g.createPattern(weave.gap, 'repeat'); g.fillRect(0, 0, LW, LH);
     g.globalAlpha = 1; g.fillStyle = g.createPattern(grain, 'repeat'); g.fillRect(0, 0, LW, LH);
   });
   // where paint has gone: rubbed patches, the crowns of the threads, chips along the roll creases
   const wear = full((g) => {
     g.fillStyle = g.createPattern(weave.crown, 'repeat'); g.fillRect(0, 0, LW, LH);
     g.globalCompositeOperation = 'destination-in';
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's14rub', scale: 150, octaves: 4, res: 0.25, warp: 0.6, contrast: 1.9, ramp: [[0, 'rgba(0,0,0,0.75)'], [0.35, 'rgba(0,0,0,0.38)'], [0.7, 'rgba(0,0,0,0.14)'], [1, 'rgba(0,0,0,0.06)']] }), 0, 0);
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14rub', scale: 260, octaves: 3, res: 0.2, warp: 0.5, contrast: 1.9, ramp: [[0, 'rgba(0,0,0,0.46)'], [0.25, 'rgba(0,0,0,0.2)'], [0.5, 'rgba(0,0,0,0.06)'], [1, 'rgba(0,0,0,0.02)']] }), 0, 0);
     g.globalCompositeOperation = 'source-over';
-    g.drawImage(L.noiseTex(LW, LH, { seed: 's14thin', scale: 64, octaves: 4, res: 0.3, warp: 0.8, contrast: 2.1, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.22, 'rgba(0,0,0,0.12)'], [0.36, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
     const r = L.rng('s14flake');
     g.translate(PAD, PAD);
     for (const c of creases) for (const [x, y, k] of c.pts) for (let i = 0; i < 4; i++) {
@@ -603,7 +610,16 @@ function buildTex(creases) {
       g.beginPath(); g.moveTo(cx - w / 2, cy); g.lineTo(cx + w * r.range(0.2, 0.6), cy + hh * r.range(0.1, 0.4)); g.lineTo(cx + w * r.range(-0.2, 0.3), cy + hh); g.lineTo(cx - w * r.range(0.3, 0.7), cy + hh * r.range(0.5, 0.8)); g.closePath(); g.fill();
     }
   });
-  return { weave, pool, wear };
+  // a loaded brush runs dry: the line breaks into granules here and there, and pales over longer stretches
+  const dryTile = L.noiseTex(256, 256, { seed: 's14dry', scale: 5, octaves: 2, res: 1, contrast: 2.4, ramp: [[0, 'rgba(0,0,0,0.5)'], [0.3, 'rgba(0,0,0,0.12)'], [0.45, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] });
+  const dry = full((g) => {
+    g.fillStyle = g.createPattern(dryTile, 'repeat'); g.fillRect(0, 0, LW, LH);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14dry2', scale: 120, octaves: 3, res: 0.2, contrast: 2, ramp: [[0, 'rgba(0,0,0,1)'], [0.45, 'rgba(0,0,0,0.5)'], [0.7, 'rgba(0,0,0,0.1)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.drawImage(L.noiseTex(LW, LH, { seed: 's14pale', scale: 300, octaves: 3, res: 0.15, contrast: 1.8, ramp: [[0, 'rgba(0,0,0,0.26)'], [0.4, 'rgba(0,0,0,0.08)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+  });
+  return { weave, pool, wear, dry };
 }
 /** let the pigment behave like pigment, then lay the sheet onto target */
 function flatten(target, pen, tex, o = {}) {
@@ -615,10 +631,15 @@ function flatten(target, pen, tex, o = {}) {
   g.globalCompositeOperation = 'destination-out'; g.globalAlpha = o.wear === undefined ? 1 : o.wear; g.drawImage(tex.wear, 0, 0);
   g.restore();
   g = pen.gi; g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalCompositeOperation = 'destination-out'; g.globalAlpha = 0.5; g.drawImage(tex.wear, 0, 0);
+  g.globalCompositeOperation = 'destination-out'; g.globalAlpha = 0.4; g.drawImage(tex.wear, 0, 0);
+  g.globalAlpha = 1; g.drawImage(tex.dry, 0, 0);
   g.restore();
   const t = target.getContext('2d'); t.save(); t.setTransform(1, 0, 0, 1, 0, 0);
-  t.drawImage(pen.wash, 0, 0); t.drawImage(pen.ink, 0, 0);
+  // the wash: edges a touch soft, a hair out of register with the drawing
+  t.filter = 'blur(0.9px)'; t.drawImage(pen.wash, 1.5, 1.2); t.filter = 'none';
+  // ink sinks into the silk: a soft halo under a firm line
+  t.globalAlpha = 0.42; t.drawImage(L.blurred(pen.ink, 3.2), 0, 0);
+  t.globalAlpha = 1; t.filter = 'blur(0.55px)'; t.drawImage(pen.ink, 0, 0); t.filter = 'none';
   t.restore();
   return target;
 }
@@ -663,14 +684,20 @@ export default {
 
     const aging = buildAging(creases);
     // focus lies on the crown of the bridge; the sheet falls out of focus toward the sides and the bottom
-    const mask = L.makeCanvas(LW, LH);
-    { const g = mask.getContext('2d'); g.translate(PAD + 960, PAD + 470); g.scale(1, 0.56);
-      g.fillStyle = L.radial(g, 0, 0, 600, 1380, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,1)']]); g.fillRect(-2000, -2500, 4000, 5000); }
+    const a = env.arc;
+    const focusMask = (hx0, hx1, vy0, vy1) => {
+      const c = L.makeCanvas(LW, LH), g = c.getContext('2d'); g.translate(PAD, PAD);
+      const fx = a.cx + 40, u = (hx1 - hx0) / (2 * hx1), z = 'rgba(0,0,0,0)', o = 'rgba(0,0,0,1)', h = 'rgba(0,0,0,0.5)';
+      g.fillStyle = L.linear(g, fx - hx1, 0, fx + hx1, 0, [[0, o], [u * 0.5, h], [u, z], [1 - u, z], [1 - u * 0.5, h], [1, o]]); g.fillRect(-PAD, -PAD, LW, LH);
+      g.fillStyle = L.linear(g, 0, vy0, 0, vy1, [[0, z], [0.5, h], [1, o]]); g.fillRect(-PAD, -PAD, LW, LH);
+      return c;
+    };
+    const m1 = focusMask(540, 1020, a.crestY + 150, a.crestY + 430), m2 = focusMask(820, 1280, a.crestY + 300, a.crestY + 660);
     const bake = (layer) => {
       const keep = L.makeCanvas(LW, LH); keep.getContext('2d').drawImage(layer, 0, 0);
       const g = layer.getContext('2d'); g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
       g.globalCompositeOperation = 'multiply'; g.drawImage(aging, 0, 0);
-      g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.6; g.fillStyle = g.createPattern(tex.weave.shade, 'repeat'); g.fillRect(0, 0, LW, LH);
+      g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.46; g.fillStyle = g.createPattern(tex.weave.shade, 'repeat'); g.fillRect(0, 0, LW, LH);
       g.globalAlpha = 1; g.globalCompositeOperation = 'source-over'; g.lineCap = 'round'; g.translate(PAD, PAD);
       for (const c of creases) for (let i = 1; i < c.pts.length; i++) {       // the lit side of each crease
         const p = c.pts[i - 1], q = c.pts[i], k = (p[2] + q[2]) / 2;
@@ -680,13 +707,15 @@ export default {
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.globalCompositeOperation = 'destination-in'; g.drawImage(keep, 0, 0);
       g.restore();
-      // depth of field: sharp·(1−m) + blurred·m
-      const bl = L.blurred(layer, 5), bg = bl.getContext('2d');
-      bg.globalCompositeOperation = 'destination-in'; bg.drawImage(mask, 0, 0);
-      g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
-      g.globalCompositeOperation = 'destination-out'; g.drawImage(mask, 0, 0);
-      g.globalCompositeOperation = 'lighter'; g.drawImage(bl, 0, 0);
-      g.restore();
+      // depth of field: sharp·(1−m) + blurred·m, twice — the focus lies on the crown, the sheet melts toward the sides and the bottom
+      for (const [m, px] of [[m1, 3.2], [m2, 10]]) {
+        const bl = L.blurred(layer, px), bg = bl.getContext('2d');
+        bg.globalCompositeOperation = 'destination-in'; bg.drawImage(m, 0, 0);
+        g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+        g.globalCompositeOperation = 'destination-out'; g.drawImage(m, 0, 0);
+        g.globalCompositeOperation = 'lighter'; g.drawImage(bl, 0, 0);
+        g.restore();
+      }
       return layer;
     };
     S = { back: bake(back), fig: bake(fig), rail: bake(rail) };

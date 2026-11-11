@@ -577,12 +577,12 @@ function buildGloss(env) {
         v = (0.92 * core * (0.85 + 0.15 * ss(hw, -hw, e)) + halo * (0.06 + 0.2 * dim * dim)) * along;
       } else if (dr > 4 && y < 600 && x > 690 && x < 1210) {
         // the same window seen again in the gap between the children: upright, four panes, bowed by the wall's curve
-        const yy = y - 210, op = 2.4 * nz.n2(x / 66, y / 66) + 0.9 * nz.n2(x / 21 + 5, y / 21);
-        const bx = x - 968 - 0.00055 * yy * yy - 0.07 * yy + op, by = yy + op * 0.6;
+        const yy = y - 150, op = 2.4 * nz.n2(x / 66, y / 66) + 0.9 * nz.n2(x / 21 + 5, y / 21);
+        const bx = x - 792 - 0.00055 * yy * yy - 0.07 * yy + op, by = yy + op * 0.6;
         const px = Math.max(1 - ss(15, 31, Math.abs(bx + 34)), 1 - ss(13, 28, Math.abs(bx - 31)));
         const py = Math.max(1 - ss(50, 70, Math.abs(by + 74)), 1 - ss(54, 76, Math.abs(by - 80)));
         const bloom = Math.exp(-(bx * bx) / (2 * 96 * 96) - (by * by) / (2 * 170 * 170));
-        v = 0.8 * px * py * (0.7 + 0.3 * L.clamp(1 - (by + 140) / 300)) + 0.2 * bloom;
+        v = 0.5 * px * py * (0.7 + 0.3 * L.clamp(1 - (by + 140) / 300)) + 0.13 * bloom;
       }
       if (v <= 0.003) continue;
       const k = (j * GW + i) * 4;

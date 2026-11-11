@@ -18,8 +18,8 @@ const GW = W + PAD * 2, GH = H + PAD * 2;
 let S = null;
 
 const C = {
-  card: '#efe8d8', blue: '#24509a', red: '#c8261c', moon: '#f2e27a', green: '#5f9a5a',
-  wood: '#57281a', woodDark: '#38190f', drawer: '#a1582a', brass: '#e3a52c',
+  card: '#f1eadb', blue: '#24509a', red: '#c8261c', moon: '#f2e27a', green: '#5f9a5a',
+  wood: '#4c2114', woodDark: '#2f140b', drawer: '#a1582a', brass: '#e3a52c',
   white: '#f8f4ea', bone: '#f6eeda', wrap: '#f0e2bc', scrap: '#f2ede0', thread: '#f1e8d2',
 };
 
@@ -333,110 +333,106 @@ function buildCollage(env) {
   buildCard(G, T);
   buildSheet(K, a);
 
-  // ── herb packet: a square of wrapping paper folded shut and tied crosswise with red string ──
+  // ── herb packet: a square of wrapping paper folded shut and tied crosswise with red string (the steelyard hangs over it) ──
   {
-    const ox = 215, oy = 1040, rt = -0.17, q = (pts) => xf(pts, ox, oy, rt);
-    piece(K, { polys: [rough(q([[-99, -97], [98, -100], [101, 99], [-97, 101]]), 'pk', 1.4)], color: C.wrap, peel: [[ox + 82, oy - 112, 80]] });
-    piece(K, { polys: [rough(q([[-97, -96], [96, -98], [3, 6]]), 'pkf', 1.0)], color: L.shade(C.wrap, 0.3), lift: 0.45, sh: 0.9 });
-    piece(K, { polys: [rough(q(strip([[-104, 9], [0, 3], [104, 4]], () => 8)), 'pks1', 0.5, 50)], color: C.red, lift: 0.3, cock: 0, curl: 0 });
-    piece(K, { polys: [rough(q(strip([[-3, -104], [1, 0], [4, 104]], () => 8)), 'pks2', 0.5, 50)], color: C.red, lift: 0.3, cock: 0, curl: 0 });
-    piece(K, { polys: [snip(q(lobe(0, 3, -1.0, 56, 16)), 'pkb1', 1.2, 0.5), snip(q(lobe(0, 3, 0.85, 52, 15)), 'pkb2', 1.2, 0.5), snip(q(circle(0, 3, 9.5)), 'pkk', 1.2, 0.5)], color: C.red, lift: 0.45, cock: 0 });
+    const ox = 190, oy = 1014, rt = -0.14, q = (pts) => xf(pts, ox, oy, rt);
+    piece(K, { polys: [rough(q([[-112, -110], [111, -113], [114, 112], [-110, 114]]), 'pk', 1.6)], color: C.wrap, tex: 0.4, peel: [[ox + 96, oy - 124, 90]] });
+    piece(K, { polys: [rough(q([[-110, -108], [109, -111], [4, 8]]), 'pkf', 1.1)], color: L.shade(C.wrap, 0.3), tex: 0.4, lift: 0.45, sh: 0.9 });
+    piece(K, { polys: [rough(q(strip([[-118, 10], [0, 3], [118, 5]], () => 11)), 'pks1', 0.6, 50)], color: C.red, lift: 0.3, cock: 0, curl: 0 });
+    piece(K, { polys: [rough(q(strip([[-4, -118], [1, 0], [5, 118]], () => 11)), 'pks2', 0.6, 50)], color: C.red, lift: 0.3, cock: 0, curl: 0 });
+    piece(K, { polys: [snip(q(lobe(0, 3, -1.0, 68, 20)), 'pkb1', 1.3, 0.5), snip(q(lobe(0, 3, 0.85, 62, 19)), 'pkb2', 1.3, 0.5), snip(q(circle(0, 3, 12)), 'pkk', 1.2, 0.5)], color: C.red, lift: 0.45, cock: 0 });
   }
 
   // ── the moon, coming up behind the cabinet ──
-  piece(K, { polys: [snip(circle(925, 690, 102), 'moon', 4.4, 3.4, 130)], color: C.moon, lift: 1.0 });
+  piece(K, { polys: [snip(circle(975, 704, 118), 'moon', 5.0, 3.6, 140)], color: C.moon, tex: 0.42, lift: 1.0, creases: [[960, 730, 24, 0.5]] });
 
   // ── mugwort leaf: a spine with five fat pointed lobes, the veins cut out as slits so the blue shows through ──
   {
-    const ox = 1540, oy = 1132, rt = -0.17, q = (pts) => xf(pts, ox, oy, rt);
-    const lobes = [[-112, -1.0, 215, 56], [-106, 1.05, 200, 54], [-232, -0.74, 205, 54], [-238, 0.7, 196, 52], [-300, 0.02, 200, 58]];
-    const polys = [rough(q(strip([[0, 40], [2, -160], [0, -330]], (t) => L.lerp(54, 30, t))).filter((_, i) => i % 3 === 0), 'lfs', 1.2, 80)];
-    const holes = [q(strip([[0, 20], [2, -200], [1, -438]], (t) => L.lerp(9, 2.5, t)))];
+    const ox = 1575, oy = 1162, rt = -0.17, q = (pts) => xf(pts, ox, oy, rt);
+    const lobes = [[-112, -1.0, 240, 64], [-106, 1.05, 222, 62], [-240, -0.74, 226, 62], [-246, 0.7, 214, 60], [-310, 0.02, 215, 66]];
+    const polys = [rough(q(strip([[0, 40], [2, -165], [0, -345]], (t) => L.lerp(60, 32, t))).filter((_, i) => i % 3 === 0), 'lfs', 1.2, 80)];
+    const holes = [q(strip([[0, 20], [2, -205], [1, -455]], (t) => L.lerp(11, 3, t)))];
     lobes.forEach(([by, ang, len, hw], i) => {
-      polys.push(snip(q(lobe(0, by, ang, len, hw)), 'lf' + i, 2.6, 1.8, 80));
-      if (i < 4) { const dx = Math.sin(ang), dy = -Math.cos(ang); holes.push(q(strip([[dx * 30, by + dy * 30], [dx * len * 0.36, by + dy * len * 0.36 - 4], [dx * len * 0.64, by + dy * len * 0.64]], (t) => L.lerp(7, 1.8, t)))); }
+      polys.push(snip(q(lobe(0, by, ang, len, hw)), 'lf' + i, 2.8, 1.9, 80));
+      if (i < 4) { const dx = Math.sin(ang), dy = -Math.cos(ang); holes.push(q(strip([[dx * 34, by + dy * 34], [dx * len * 0.36, by + dy * len * 0.36 - 4], [dx * len * 0.64, by + dy * len * 0.64]], (t) => L.lerp(8.5, 2.2, t)))); }
     });
-    piece(K, { polys, holes, color: C.green, lift: 1.1, creases: [[1450, 840, -27, 1], [1520, 930, 62, 0.8]], peel: [[1323, 940, 80], [1456, 644, 70]] });
+    piece(K, { polys, holes, color: C.green, lift: 1.1, creases: [[1482, 868, -27, 1], [1556, 958, 62, 0.8]], peel: [[1337, 958, 85], [1491, 648, 70]] });
   }
 
-  // ── a scrap of drawing paper with pencil hatching, tucked into the corner ──
+  // ── a scrap of drawing paper with pencil hatching, tucked into the corner; the pencil ran off it onto the blue sheet ──
   {
-    const poly = torn([[1806, 774], [1930, 790], [2010, 800], [2010, 1170], [1796, 1170]], 'scrap', 1.6, 1.8);
-    piece(K, {
-      polys: [poly], color: C.scrap, peel: [[1808, 778, 80]],
-      paint: (k) => {
-        const x0 = 1770, y0 = 740, w = 250, h = 440;
-        const cv = L.makeCanvas(w, h), c = cv.getContext('2d'); c.translate(-x0, -y0);
-        const rh = L.rng('s31p-hatch');
-        const scribble = (ya, yb, xl, xr, gap, wd, al, sd) => {
-          const pts = []; let y = ya;
-          while (y < yb) { pts.push([xl + rh.range(-10, 14), y + rh.range(-4, 4)], [xr + rh.range(-16, 8), y - 34 + rh.range(-8, 8)]); y += gap * rh.range(0.7, 1.35); }
-          L.sketchLine(c, pts, { width: wd, color: '#33333a', seed: sd, wobble: 1.6, passes: 2, alpha: al });
-        };
-        scribble(826, 1120, 1822, 1930, 16, 3.2, 0.85, 3);
-        scribble(846, 1110, 1828, 1926, 25, 2.5, 0.7, 5);
-        c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'destination-out';
-        c.drawImage(L.noiseTex(w, h, { seed: 's31p-graphite', scale: 1.7, octaves: 2, res: 1, contrast: 2.0, ramp: [[0, 'rgba(0,0,0,0.8)'], [0.4, 'rgba(0,0,0,0.22)'], [0.7, 'rgba(0,0,0,0)']] }), 0, 0);
-        k.globalCompositeOperation = 'multiply'; k.globalAlpha = 0.92; k.drawImage(cv, x0, y0);
-      },
-    });
+    const poly = torn([[1786, 770], [1930, 790], [2010, 800], [2010, 1170], [1776, 1170]], 'scrap', 1.6, 1.8);
+    const x0 = 1700, y0 = 716, w = 320, h = 464;
+    const cv = L.makeCanvas(w, h), c = cv.getContext('2d'); c.translate(-x0, -y0);
+    const rh = L.rng('s31p-hatch');
+    const scribble = (ya, yb, xl, xr, gap, wd, al, sd) => {
+      const pts = []; let y = ya;
+      while (y < yb) { pts.push([xl + rh.range(-12, 16), y + rh.range(-4, 4)], [xr + rh.range(-16, 8), y - 38 + rh.range(-8, 8)]); y += gap * rh.range(0.7, 1.35); }
+      L.sketchLine(c, pts, { width: wd, color: '#2c2c34', seed: sd, wobble: 1.6, passes: 2, alpha: al });
+    };
+    scribble(812, 1120, 1772, 1932, 20, 4.2, 0.9, 3);
+    scribble(838, 1110, 1800, 1926, 31, 3.2, 0.75, 5);
+    c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'destination-out';
+    c.drawImage(L.noiseTex(w, h, { seed: 's31p-graphite', scale: 1.7, octaves: 2, res: 1, contrast: 2.0, ramp: [[0, 'rgba(0,0,0,0.8)'], [0.4, 'rgba(0,0,0,0.22)'], [0.7, 'rgba(0,0,0,0)']] }), 0, 0);
+    G.save(); G.globalCompositeOperation = 'multiply'; G.globalAlpha = 0.62; G.drawImage(cv, x0, y0); G.restore();
+    piece(K, { polys: [poly], color: C.scrap, tex: 0.36, peel: [[1788, 774, 80]], paint: (k) => { k.globalCompositeOperation = 'multiply'; k.globalAlpha = 0.94; k.drawImage(cv, x0, y0); } });
   }
 
   // ── 百子柜: the medicine cabinet. A dark sheet for the carcass, a strip for the cornice, one glued square per drawer ──
   {
-    const ox = 318, oy = 690, rt = -0.06, q = (pts) => xf(pts, ox, oy, rt);
+    const ox = 312, oy = 700, rt = -0.058, q = (pts) => xf(pts, ox, oy, rt);
     const rc = L.rng('s31p-cab');
-    piece(K, { polys: [rough(q([[0, 0], [580, 2], [584, 500], [-3, 500]]), 'cab', 1.6, 130)], color: C.wood, lift: 1.1 });
-    piece(K, { polys: [rough(q([[-16, -8], [596, -10], [598, 28], [-14, 31]]), 'corn', 1.2, 110)], color: C.woodDark, lift: 0.5, peel: [[912, 648, 70]] });
-    const cols = 5, pw = 105.2, ph = 98, fw = 89, fh = 80;
-    for (let row = 0; row < 5; row++) for (let col = 0; col < cols; col++) {
-      const cx = 27 + pw * col + pw / 2 + rc.range(-2.5, 2.5), cy = 50 + ph * row + fh / 2 + rc.range(-2.5, 2.5), tw = rc.range(-0.03, 0.03);
-      const jw = fw / 2 + rc.range(-2.5, 2.5), jh = fh / 2 + rc.range(-2.5, 2.5);
-      const face = xf([[-jw, -jh], [jw, -jh + rc.range(-2, 2)], [jw + rc.range(-2, 2), jh], [-jw + rc.range(-2, 2), jh + rc.range(-2, 2)]], cx, cy, tw);
+    piece(K, { polys: [rough(q([[0, 0], [600, 2], [604, 560], [-3, 560]]), 'cab', 1.8, 130)], color: C.wood, lift: 1.1, creases: [[640, 900, 81, 0.7]] });
+    piece(K, { polys: [rough(q([[-18, -12], [618, -15], [621, 30], [-16, 34]]), 'corn', 1.4, 110)], color: C.woodDark, lift: 0.5, peel: [[930, 668, 76]] });
+    const cols = 4, pw = 138, ph = 114, fw = 118, fh = 95;
+    for (let row = 0; row < 4; row++) for (let col = 0; col < cols; col++) {
+      const cx = 34 + pw * col + fw / 2 + rc.range(-3.5, 3.5), cy = 53 + ph * row + fh / 2 + rc.range(-3.5, 3.5), tw = rc.range(-0.035, 0.035);
+      const jw = fw / 2 + rc.range(-3.5, 3.5), jh = fh / 2 + rc.range(-3.5, 3.5);
+      const face = xf([[-jw, -jh], [jw, -jh + rc.range(-3, 3)], [jw + rc.range(-3, 3), jh], [-jw + rc.range(-3, 3), jh + rc.range(-3, 3)]], cx, cy, tw);
       const tone = rc.range(-0.1, 0.1), warm = rc.chance(0.22);
-      piece(K, { polys: [rough(q(face), 'dr' + row + col, 0.8, 60)], color: L.shade(warm ? '#b55a2c' : C.drawer, tone), lift: 0.4, sh: 0.9 });
+      piece(K, { polys: [rough(q(face), 'dr' + row + col, 1.0, 70)], color: L.shade(warm ? '#b55a2c' : C.drawer, tone), lift: 0.4, sh: 0.9 });
       // one punched brass dot per drawer: the pull
-      const kx = cx + rc.range(-3, 3), ky = cy - 3 + rc.range(-3, 3);
-      piece(K, { polys: [q(circle(kx, ky, 11.5, 11.5, 30))], color: L.shade(C.brass, rc.range(-0.05, 0.12)), lift: 0.3, sh: 0.9, cock: 0, curl: 0.6 });
+      const kx = cx + rc.range(-4, 4), ky = cy - 4 + rc.range(-4, 4);
+      piece(K, { polys: [q(circle(kx, ky, 15, 15, 36))], color: L.shade(C.brass, rc.range(-0.05, 0.12)), lift: 0.3, sh: 0.9, cock: 0, curl: 0.6 });
     }
   }
 
   // ── 戥子: a small steelyard. ONE pan on three threads at the short end, the lifting loop next to it, the weight out on the long arm ──
   {
-    const P0 = [34, 812], P1 = [438, 704];
+    const P0 = [30, 842], P1 = [470, 700];
     const at = (t, off = 0) => [L.lerp(P0[0], P1[0], t), L.lerp(P0[1], P1[1], t) + off];
-    const pan = xf(snip(dens((() => { const o = [[-68, 0], [-30, 4], [30, 5], [68, 1]]; for (let i = 0; i <= 24; i++) { const x = 68 - (136 * i) / 24; o.push([x, 2 + 42 * Math.pow(Math.max(0, 1 - (x / 68) * (x / 68)), 0.75)]); } return o; })(), 4), 'pan', 1.6, 0.8), 50, 925, 0.03);
-    thread(K, [at(0, 2), [10, 868], [-13, 928]]); thread(K, [at(0, 2), [43, 870], [50, 931]]); thread(K, [at(0, 2), [78, 866], [112, 928]]);
-    const Q = at(0.56);
-    thread(K, [[Q[0], Q[1] - 6], [Q[0] + 1, Q[1] + 28], [Q[0], Q[1] + 58]]);
+    const pan = xf(snip(dens((() => { const o = [[-84, 0], [-36, 5], [36, 6], [84, 1]]; for (let i = 0; i <= 24; i++) { const x = 84 - (168 * i) / 24; o.push([x, 2 + 52 * Math.pow(Math.max(0, 1 - (x / 84) * (x / 84)), 0.75)]); } return o; })(), 4), 'pan', 1.8, 0.9), 48, 962, 0.03);
+    thread(K, [at(0, 2), [8, 900], [-33, 966]], 3.2); thread(K, [at(0, 2), [42, 902], [48, 969]], 3.2); thread(K, [at(0, 2), [80, 898], [128, 966]], 3.2);
+    const Q = at(0.5);
+    thread(K, [[Q[0], Q[1] - 6], [Q[0] + 1, Q[1] + 30], [Q[0], Q[1] + 62]], 3.2);
     piece(K, { polys: [pan], color: C.brass, lift: 0.7 });
-    piece(K, { polys: [xf(snip(dens([[-6, 0], [6, 0], [9, 12], [24, 62], [27, 75], [18, 84], [-18, 84], [-27, 75], [-24, 62], [-9, 12]], 3), 'wt', 1.3, 0.6), Q[0], Q[1] + 54, 0.04)], color: C.brass, lift: 0.6 });
+    piece(K, { polys: [xf(snip(dens([[-8, 0], [8, 0], [12, 16], [31, 80], [35, 97], [23, 108], [-23, 108], [-35, 97], [-31, 80], [-12, 16]], 3), 'wt', 1.5, 0.7), Q[0], Q[1] + 56, 0.04)], color: C.brass, lift: 0.6 });
     // the beam: a tapered sliver of bone-white card, its star dots (星) pricked along the long arm
-    const beam = strip([at(-0.03), at(0.5, 0.8), at(1.02)], (t) => L.lerp(17, 9, t));
+    const beam = strip([at(-0.03), at(0.5, 1.0), at(1.02)], (t) => L.lerp(23, 12, t));
     piece(K, {
-      polys: [rough(beam.filter((_, i) => i % 4 === 0), 'beam', 0.5, 60)], color: C.bone, lift: 0.6, cock: 0.1,
-      paint: (k) => { k.fillStyle = 'rgba(58,40,24,0.85)'; for (let i = 0; i < 10; i++) { const p = at(0.3 + i * 0.066, 0.4); k.beginPath(); k.arc(p[0], p[1] - 0.6, i % 4 === 0 ? 2.5 : 1.7, 0, TAU); k.fill(); } },
+      polys: [rough(beam.filter((_, i) => i % 4 === 0), 'beam', 0.6, 60)], color: C.bone, tex: 0.3, lift: 0.6, cock: 0.1,
+      paint: (k) => { k.fillStyle = 'rgba(58,40,24,0.85)'; for (let i = 0; i < 9; i++) { const p = at(0.3 + i * 0.074, 0.4); k.beginPath(); k.arc(p[0], p[1] - 0.6, i % 4 === 0 ? 3.4 : 2.4, 0, TAU); k.fill(); } },
     });
     // the lifting loop (提纽) sits close to the pan end
     const U = at(0.2);
-    thread(K, [[U[0] - 4, U[1] + 6], [U[0] - 11, U[1] - 26], [U[0] + 3, U[1] - 44], [U[0] + 13, U[1] - 26], [U[0] + 4, U[1] + 5]]);
+    thread(K, [[U[0] - 5, U[1] + 8], [U[0] - 14, U[1] - 32], [U[0] + 4, U[1] - 56], [U[0] + 16, U[1] - 32], [U[0] + 5, U[1] + 6]], 3.2);
   }
 
   // ── 葫芦: bottle gourd — small belly above, big belly below, pinched waist with a cord, a stub of vine on top ──
   {
-    const ox = 1122, oy = 648, rt = -0.12, q = (pts) => xf(pts, ox, oy, rt);
-    piece(K, { polys: [rough(q(strip([[2, 14], [-3, -16], [-1, -32], [14, -42]], (t) => L.lerp(17, 9, t), 5)).filter((_, i) => i % 2 === 0), 'stem', 0.5, 40)], color: '#3a2212', lift: 0.5, cock: 0 });
-    piece(K, { polys: [snip(q(gourdOutline(68, 132, 190, 28)), 'gourd', 3.0, 2.4, 130)], color: C.red, lift: 1.2, peel: [[1236, 1000, 100]] });
-    piece(K, { polys: [rough(q(strip([[-43, 127], [0, 139], [43, 125]], () => 12)), 'cord', 0.5, 40)], color: C.moon, lift: 0.3, cock: 0, curl: 0.5 });
-    piece(K, { polys: [rough(q(strip([[9, 136], [25, 166], [23, 204]], (t) => L.lerp(10, 5.5, t))), 'tail1', 0.4, 40), rough(q(strip([[9, 136], [4, 170], [-12, 192]], (t) => L.lerp(10, 5.5, t))), 'tail2', 0.4, 40), snip(q(circle(9, 135, 10)), 'knot', 1.2, 0.5)], color: C.moon, lift: 0.4, cock: 0, curl: 0.5 });
+    const ox = 1150, oy = 650, rt = -0.1, q = (pts) => xf(pts, ox, oy, rt);
+    piece(K, { polys: [rough(q(strip([[2, 16], [-4, -20], [-1, -40], [17, -52]], (t) => L.lerp(21, 11, t), 5)).filter((_, i) => i % 2 === 0), 'stem', 0.5, 40)], color: '#3a2212', lift: 0.5, cock: 0 });
+    piece(K, { polys: [snip(q(gourdOutline(84, 162, 240, 34)), 'gourd', 3.4, 2.6, 140)], color: C.red, lift: 1.2, creases: [[1178, 948, -34, 0.9], [1150, 760, 58, 0.5]], peel: [[1330, 1010, 110]] });
+    piece(K, { polys: [rough(q(strip([[-52, 160], [0, 174], [52, 158]], () => 15)), 'cord', 0.6, 40)], color: C.moon, lift: 0.3, cock: 0, curl: 0.5 });
+    piece(K, { polys: [rough(q(strip([[11, 170], [31, 208], [28, 256]], (t) => L.lerp(12.5, 7, t))), 'tail1', 0.4, 40), rough(q(strip([[11, 170], [5, 214], [-16, 242]], (t) => L.lerp(12.5, 7, t))), 'tail2', 0.4, 40), snip(q(circle(11, 169, 12.5)), 'knot', 1.2, 0.5)], color: C.moon, lift: 0.4, cock: 0, curl: 0.5 });
   }
 
   // ── 研钵与杵: the pestle goes down behind the rim of a thick white bowl ──
   {
-    piece(K, { polys: [rough(strip([[1742, 965], [1716, 850], [1690, 744]], (t) => L.lerp(40, 33, t), 8), 'pestle', 0.8, 70), snip(circle(1689, 742, 29), 'pknob', 1.6, 0.8)], color: '#fcf9f0', lift: 0.9 });
+    piece(K, { polys: [rough(strip([[1752, 1000], [1722, 870], [1694, 748]], (t) => L.lerp(46, 37, t), 8), 'pestle', 0.8, 70), snip(circle(1693, 744, 33), 'pknob', 1.7, 0.8)], color: '#fcf9f0', tex: 0.3, lift: 0.9 });
     const side = L.smoothPath([[137, 31], [132, 64], [113, 110], [86, 141], [70, 152]], 4);
     const outline = [[-150, 3], [-60, 7], [40, 6], [150, -2], [148, 23], ...side, [80, 160], [86, 190], [-86, 192], [-80, 161], ...side.map(([x, y]) => [-x, y + 1]).reverse(), [-148, 25]];
-    piece(K, { polys: [xf(snip(dens(outline, 4), 'bowl', 1.8, 1.0, 100), 1735, 884, 0.012, 1.25)], color: C.white, lift: 1.2, peel: [[1548, 886, 70]] });
+    piece(K, { polys: [xf(snip(dens(outline, 4), 'bowl', 1.8, 1.0, 100), 1768, 912, 0.012, 1.42)], color: C.white, tex: 0.3, lift: 1.2, peel: [[1557, 916, 80]] });
   }
 
   // ── one light over the whole collage: warm from the upper left, falling away to the lower right ──
@@ -445,7 +441,7 @@ function buildCollage(env) {
   G.fillStyle = L.radial(G, 420, 360, 100, 1500, [[0, 'rgba(255,246,224,0.12)'], [1, 'rgba(255,246,224,0)']]);
   G.fillRect(-PAD, -PAD, GW, GH);
   G.globalCompositeOperation = 'multiply';
-  G.fillStyle = L.radial(G, 420, 360, 900, 2200, [[0, 'rgb(255,255,255)'], [1, 'rgb(222,222,234)']]);
+  G.fillStyle = L.radial(G, 420, 360, 900, 2200, [[0, 'rgb(255,255,255)'], [1, 'rgb(230,230,240)']]);
   G.fillRect(-PAD, -PAD, GW, GH);
   G.restore();
   return { base, shadow, Y0S };

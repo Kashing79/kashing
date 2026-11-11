@@ -1,8 +1,9 @@
-// s24 — 白玉透雕. Macro of a round openwork plaque of mutton-fat white jade lying on pure black.
-// The arc is the plaque's outer rim: a plain rounded border with one incised line, its edge rising and falling a few
-// pixels in shallow petal lobes. Below it the field is pierced right through: a scrolling vine with two big blossoms,
-// leaves, tendrils and one small bird, wings spread, looking back over its shoulder. Every part touches its neighbours,
-// so the whole design hangs together as one net; the holes show the black ground.
+// s24 — 白玉透雕. Macro of a round openwork plaque of mutton-fat white jade lying on black cloth.
+// The arc is the plaque's outer rim: a plain border with one incised line, its edge rising and falling a few pixels in
+// shallow petal lobes. Below it the slab is carved in two layers, fine as lace: the ground is sawn into a diagonal
+// lattice (every hole started from a drill hole, so its corners are round), and standing proud of it a scrolling vine
+// with big blossoms, leaves, tendrils and one small bird, wings spread, looking back over its shoulder. Everything is
+// one piece of stone; the holes show the black ground and, under each bar, a sliver of the slab's thickness.
 //
 // How it is made (all in init):
 //   1. the design is drawn the way a relief is stacked, element by element in painter's order, into four canvases:
@@ -20,11 +21,16 @@ import * as L from '../../../lib/core.js';
 
 const { W, H, TAU } = L;
 const PAD = 110;
-const BW = 60;             // width of the plain border
+const K = 1.2;             // the figures are laid out at 1× (design px) and enlarged by K — macro framing
+const BW0 = 60;            // border width the figures were laid out against (design px)
+const BW = 56;             // width of the plain border (screen px)
+const LIFT = 8;            // the figures stand this far above the pierced ground (px)
+const NET = 66;            // pitch of the lattice along the arc (rows are NET / 2 apart)
+const BAR = 15;            // width of a lattice bar
 const LOBE = 330, LOBE_A = 5;   // petal lobes of the rim: length along the arc / depth of the notch between two lobes (px)
 const SEAM = 3.4;          // seam cut around every element where it lies on top of another
-const GD = 2.4;            // depth of an incised line
-const NW = 14;             // visible wall height in the holes (px)
+const GD = 3;              // depth of an incised line
+const NW = 15;             // visible wall height in the holes (px)
 const SHEEN_H = 480;       // rows of the travelling-highlight layer
 const BLACK = '#040404';
 let S = null;
@@ -36,6 +42,14 @@ const poly = (pts) => { const p = new Path2D(); p.moveTo(pts[0][0], pts[0][1]); 
 const line = (pts) => { const p = new Path2D(); p.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]); return p; };
 const disc = (x, y, r) => { const p = new Path2D(); p.arc(x, y, r, 0, TAU); return p; };
 const arcP = (x, y, r, a0, a1) => { const p = new Path2D(); p.arc(x, y, r, a0, a1); return p; };
+/** a diamond (half-diagonals a, b) with corners rounded to radius r — the shape a drilled-and-sawn lattice hole ends up with */
+function rdiamond(a, b, r) {
+  const p = new Path2D(), V = [[a, 0], [0, b], [-a, 0], [0, -b]];
+  p.moveTo(a / 2, -b / 2);
+  for (let i = 0; i < 4; i++) { const v = V[i], w = V[(i + 1) % 4]; p.arcTo(v[0], v[1], (v[0] + w[0]) / 2, (v[1] + w[1]) / 2, r); }
+  p.closePath();
+  return p;
+}
 /** closed Catmull-Rom through pts */
 function loop(pts, step = 5) {
   const n = pts.length, out = [];
@@ -143,24 +157,51 @@ function carve(env) {
   const [cA, gA] = mk(), [cP, gP] = mk(), [cZ, gZ] = mk(), [cG, gG] = mk();
   gA.fillStyle = '#fff'; gP.fillStyle = '#fff'; gP.strokeStyle = '#fff'; gP.lineWidth = SEAM;
   const ctxs = [gA, gP, gZ, gG];
-  const mp = (s, d) => { const th = s / R, r = R - d; return [cx + r * Math.sin(th), cy - r * Math.cos(th)]; };
+  /** screen px: s along the arc from the crest, d below the arc */
+  const raw = (s, d) => { const th = s / R, r = R - d; return [cx + r * Math.sin(th), cy - r * Math.cos(th)]; };
+  /** design px → screen: enlarged by K about the crest, hung from the inner edge of the border */
+  const mp = (s, d) => raw(s * K, BW + (d - BW0) * K);
   const at = (x, y, ang, fn, sx = 1, sy = 1) => { for (const g of ctxs) { g.save(); g.translate(x, y); g.rotate(ang); g.scale(sx, sy); } fn(); for (const g of ctxs) g.restore(); };
-  const atSD = (s, d, angDeg, fn, sx = 1, sy = 1) => { const p = mp(s, d); at(p[0], p[1], s / R + L.deg(angDeg), fn, sx, sy); };
-  /** one carved element: lv = level of its edge above the ground (px), b = bevel radius (px), k = rise per bevel radius */
-  const el = (p, lv, b, k = 0.7) => {
+  const atSD = (s, d, angDeg, fn, sx = 1, sy = 1) => { const p = mp(s, d); at(p[0], p[1], s * K / R + L.deg(angDeg), fn, sx * K, sy * K); };
+  const zcol = (lv, b, k) => `rgb(${Math.round(lv * 8)},${Math.round(b * 4)},${Math.round(k * 200)})`;
+  /** one carved element, screen px: lv = level of its edge, b = bevel radius, k = rise per bevel radius */
+  const put = (p, lv, b, k) => {
     gA.fill(p);
     gP.globalCompositeOperation = 'destination-out'; gP.stroke(p);
     gP.globalCompositeOperation = 'source-over'; gP.fill(p);
-    gZ.fillStyle = `rgb(${Math.round(lv * 10)},${Math.round(b * 5)},${Math.round(k * 200)})`; gZ.fill(p);
+    gZ.fillStyle = zcol(lv, b, k); gZ.fill(p);
     gG.globalCompositeOperation = 'destination-out'; gG.fill(p); gG.globalCompositeOperation = 'source-over';
   };
+  /** the same in design px, standing on the pierced ground */
+  const el = (p, lv, b, k = 0.7) => put(p, LIFT + lv * K, b * K, k);
   const groove = (p, w = 2.6, al = 1) => { gG.lineWidth = w; gG.strokeStyle = `rgba(255,255,255,${al})`; gG.stroke(p); };
+
+  // the pierced ground: the slab under the figures, sawn into a diagonal lattice. No two holes are quite alike.
+  {
+    const r = L.rng('s24net'), nz = L.makeNoise('s24net');
+    const slab = [];
+    for (let s = -1320; s <= 1320; s += 12) slab.push(raw(s, BW - 18));
+    slab.push([X0 + RW + 40, Y0 + RH + 40], [X0 - 40, Y0 + RH + 40]);
+    const sp = poly(slab);
+    gA.fill(sp); gP.fill(sp); gZ.fillStyle = zcol(0, BAR * 0.5, 0.8); gZ.fill(sp);
+    const half = NET / 2 - BAR * 0.7071;
+    for (const g of [gA, gP]) g.globalCompositeOperation = 'destination-out';
+    for (let j = 0, d = BW + NET * 0.5 - 2; d < 720; j++, d += NET / 2) {
+      for (let i = -21; i <= 21; i++) {
+        const s = (i + (j & 1) * 0.5) * NET + 9, q = raw(s + r.range(-2.6, 2.6), d + r.range(-2.6, 2.6));
+        const sz = half * (1 + 0.1 * nz.n2(s / 300, d / 300) + r.range(-0.07, 0.07));
+        const hole = rdiamond(sz * r.range(0.93, 1.07), sz * r.range(0.93, 1.07), r.range(5, 8)), tilt = s / R + r.range(-0.07, 0.07);
+        for (const g of [gA, gP]) { g.save(); g.translate(q[0], q[1]); g.rotate(tilt); g.fill(hole); g.restore(); }
+      }
+    }
+    for (const g of [gA, gP]) g.globalCompositeOperation = 'source-over';
+  }
 
   // the two vines
   const vineD = (s) => 240 - 178 * Math.cos(TAU * (s - 20) / 1180) + 12 * Math.sin(s / 173 + 1) + 6 * Math.sin(s / 61);
   const on = (s) => [s, vineD(s)];
   const SM = 1580;
-  const stem = (sd, wf, lv, k = 0.8, b = 17) => el(tube(L.smoothPath(sd.map(([s, d]) => mp(s, d)), 5), wf), lv, b, k);
+  const stem = (sd, wf, lv, k = 0.8, b = 17) => el(tube(L.smoothPath(sd.map(([s, d]) => mp(s, d)), 5), (u) => K * wf(u)), lv, b, k);
   // a lower swag hanging between the two troughs, under the bird
   stem([[-760, 392], [-600, 432], [-450, 470], [-300, 494], [-140, 479], [20, 502], [180, 484], [330, 497], [480, 463], [625, 430], [780, 395]], (u) => 27 + 3 * Math.sin(u * 23), 0.6, 0.8, 14);
   { const sd = []; for (let s = -SM; s <= SM; s += 40) sd.push(on(s)); stem(sd, (u) => 34 + 3.5 * Math.sin(u * 61) + 2 * Math.sin(u * 23 + 2), 1); }
@@ -214,8 +255,8 @@ function carve(env) {
       groove(line([[Math.cos(phi) * q0, Math.sin(phi) * q0], [Math.cos(phi) * q1, Math.sin(phi) * q1]]), 2.2, 0.7);
     };
     const tier = (n, off, r0, r1, wide, lv, b) => {
-      const ph = []; for (let i = 0; i < n; i++) ph.push(off + i * TAU / n + r.range(-0.07, 0.07));
-      for (const par of [0, 1]) for (let i = par; i < n; i += 2) petal(ph[i], rad * r0, rad * r1 * r.range(0.94, 1), Math.PI / n * wide, lv + par * 0.9, rad * b);
+      const ph = []; for (let i = 0; i < n; i++) ph.push(off + i * TAU / n + r.range(-0.11, 0.11));
+      for (const par of [0, 1]) for (let i = par; i < n; i += 2) petal(ph[i], rad * r0, rad * r1 * r.range(0.87, 1.02), Math.PI / n * wide * r.range(0.92, 1.1), lv + par * 0.9, rad * b);
     };
     tier(n1, 0, 0.3, 1, 1.3, 2.2, 0.11);
     tier(n2, Math.PI / n1, 0.12, 0.68, 1.28, 5, 0.1);
@@ -292,9 +333,9 @@ function carve(env) {
   const lobe = (s) => { const u = s + 16 * Math.sin(s / 410 + 1.3) - 15.4; return 1 - Math.pow(Math.abs(Math.cos(Math.PI * u / LOBE)), 0.85); };
   const dOut = (s) => LOBE_A * lobe(s), dIn = (s) => BW + 0.7 * LOBE_A * lobe(s) + 2 * Math.sin(s / 97);
   { const out = [], inn = [], gr = [];
-    for (let s = -SM; s <= SM; s += 6) { out.push(mp(s, dOut(s))); inn.push(mp(s, dIn(s))); gr.push(mp(s, BW - 15 + 0.85 * LOBE_A * lobe(s))); }
-    el(poly(out.concat(inn.reverse())), 3, 23, 0.5);
-    groove(line(gr), 3, 0.95);
+    for (let s = -1320; s <= 1320; s += 6) { out.push(raw(s, dOut(s))); inn.push(raw(s, dIn(s))); gr.push(raw(s, BW - 15 + 0.85 * LOBE_A * lobe(s) + 1.2 * Math.sin(s / 131))); }
+    put(poly(out.concat(inn.reverse())), LIFT + 4, 13, 0.8);
+    groove(line(gr), 3.4, 0.95);
   }
   return { cA, cP, cZ, cG, X0, Y0, RW, RH };
 }
@@ -303,7 +344,7 @@ function carve(env) {
 function build(env) {
   const a = env.arc, C = carve(env), { X0, Y0, RW, RH } = C, N = RW * RH;
   const px = (c) => c.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, RW, RH).data;
-  const dA = px(L.blurred(C.cA, 2.2)), dT = px(L.blurred(C.cA, 13)), dP = px(C.cP), dG = px(L.blurred(C.cG, 0.6));
+  const dA = px(L.blurred(C.cA, 2.4)), dT = px(L.blurred(C.cA, 15)), dP = px(C.cP), dG = px(L.blurred(C.cG, 0.7));
   // carving parameters, bled a few px outward so the pixels gained by the rounding inherit a neighbour's values
   const zc = L.makeCanvas(RW, RH), zg = zc.getContext('2d', { willReadFrequently: true });
   zg.drawImage(C.cZ, 0, 0); zg.globalCompositeOperation = 'destination-over';
@@ -326,10 +367,11 @@ function build(env) {
   for (let y = 0, i = 0; y < RH; y++) for (let x = 0; x < RW; x++, i++) {
     if (al[i] <= 0) continue;
     const o = i * 4;
-    let lv = dZ[o] / 10, b = dZ[o + 1] / 5, k = dZ[o + 2] / 200;
-    if (b < 2) { b = 10; k = 0.5; }
+    let lv = dZ[o] / 8, b = dZ[o + 1] / 4, k = dZ[o + 2] / 200;
+    if (b < 2) { b = 8; k = 0.6; }
     let t = (dist[i] - 0.5) / b; t = t < 0 ? 0 : t > 1 ? 1 : t;
-    Hh[i] = lv + k * b * Math.sin(t * 1.5708) - GD * dG[o + 3] / 255 + 0.8 * nz.n2(x / 76, y / 76) + 0.22 * nz.n2(x / 17 + 40, y / 17);
+    // the cut form, plus the slow unevenness of a hand-polished surface (no fine grain: jade takes a smooth polish)
+    Hh[i] = lv + k * b * Math.sin(t * 1.5708) - GD * dG[o + 3] / 255 + 1.0 * nz.n2(x / 96, y / 96) + 0.4 * nz.n2(x / 41 + 40, y / 41);
   }
   const Hs = blurMasked(Hh, al, RW, RH, 1, 3);
   const Hb = blurMasked(Hs, al, RW, RH, 6, 2);
@@ -358,18 +400,20 @@ function build(env) {
     }
     sh = sh > 2.5 ? 1 : sh / 2.5;
     let ao = (Hb[i] - h) / 6; ao = ao < 0 ? 0 : ao > 1 ? 1 : ao;
-    let dif = (ndl + 0.25) / 1.25; dif = dif < 0 ? 0 : dif > 1 ? 1 : dif;
-    lum[i] = dif * (1 - 0.55 * sh) * (1 - 0.45 * ao);
+    let dif = (ndl + 0.3) / 1.3; dif = dif < 0 ? 0 : dif > 1 ? 1 : dif;
+    const deep = 0.76 + 0.24 * sstep(1, LIFT + 5, h);          // the pierced ground lies in the figures' shade
+    lum[i] = dif * (1 - 0.55 * sh) * (1 - 0.5 * ao) * deep;
     const nh = (nx * Hx + ny * Hy + Hz) * inv, n2 = (nx * S2[0] + ny * S2[1] + S2[2]) * inv;
-    spc[i] = nh > 0 ? Math.pow(nh, 26) * (1 - 0.7 * sh) : 0;
+    spc[i] = nh > 0 ? (0.62 * Math.pow(nh, 16) + 0.5 * Math.pow(nh, 60)) * (1 - 0.7 * sh) * deep : 0;   // greasy lustre: broad, with a soft core
     shn[i] = n2 > 0 ? (1.25 * Math.pow(n2, 54) + 0.16 * Math.pow(n2, 9)) * (1 - 0.7 * sh) : 0;
   }
-  const lumS = blurMasked(lum, al, RW, RH, 3, 2);     // light diffusing under the surface
+  const lumS = blurMasked(lum, al, RW, RH, 4, 2);     // light diffusing under the surface
+  const spS = blurMasked(spc, al, RW, RH, 1, 2);
 
   // colour
   const rampLUT = (stops) => { const f = L.makeRamp(stops), o = new Float32Array(257 * 3); for (let i = 0; i <= 256; i++) { const c = f(i / 256); o[i * 3] = c[0]; o[i * 3 + 1] = c[1]; o[i * 3 + 2] = c[2]; } return o; };
-  const TK = rampLUT([[0, '#6c675a'], [0.28, '#a09a88'], [0.52, '#d0cab8'], [0.7, '#ebe6d7'], [0.86, '#f6f2e6'], [1, '#fcf9f0']]);
-  const TN = rampLUT([[0, '#a18b5e'], [0.28, '#c8b382'], [0.52, '#e1d2a8'], [0.7, '#efe6c9'], [0.86, '#f6efdb'], [1, '#fbf7ea']]);
+  const TK = rampLUT([[0, '#5e5848'], [0.28, '#9a9380'], [0.52, '#cdc6b2'], [0.7, '#eae4d3'], [0.86, '#f5f1e4'], [1, '#fcf9f0']]);
+  const TN = rampLUT([[0, '#8a7446'], [0.28, '#b9a474'], [0.52, '#d9cba2'], [0.7, '#ebe1c2'], [0.86, '#f4ecd6'], [1, '#fbf6e8']]);
   const img = new ImageData(RW, RH), d = img.data;
   const shImg = new ImageData(RW, SHEEN_H), sd = shImg.data;
   const WOX = []; for (let k = 0; k <= NW; k++) WOX.push(Math.round(k * 0.27));
@@ -377,10 +421,10 @@ function build(env) {
     const A = al[i], o = i * 4;
     let r = 0, g = 0, b = 0;
     if (A > 0) {
-      const cloud = 1 + 0.035 * nz.n2(x / 190 + 9, y / 190 - 4);
-      let lm = (0.42 * lum[i] + 0.58 * lumS[i]) * cloud; lm = lm < 0 ? 0 : lm > 1 ? 1 : lm;
+      const cloud = 1 + 0.05 * nz.n2(x / 230 + 9, y / 150 - 4) + 0.02 * nz.n2(x / 60 - 3, y / 44 + 8);   // the stone's own faint clouding
+      let lm = (0.36 * lum[i] + 0.64 * lumS[i]) * cloud; lm = lm < 0 ? 0 : lm > 1 ? 1 : lm;
       const th = sstep(0.06, 0.5, 1 - dT[o + 3] / 255);
-      const li = (lm * 256 | 0) * 3, sp = spc[i] * 46;
+      const li = (lm * 256 | 0) * 3, sp = spS[i] * 74;
       r = TK[li] + (TN[li] - TK[li]) * th + sp; g = TK[li + 1] + (TN[li + 1] - TK[li + 1]) * th + sp; b = TK[li + 2] + (TN[li + 2] - TK[li + 2]) * th + sp * 0.9;
       if (y < SHEEN_H) { sd[o] = 255; sd[o + 1] = 250; sd[o + 2] = 234; sd[o + 3] = 255 * A * Math.min(1, shn[i]); }
     }
@@ -395,7 +439,7 @@ function build(env) {
         if (v > best) { best = v; bk = k; }
       }
       if (depth) wc = 1; else if (best > 0) { wc = best; depth = bk; }
-      if (wc > 0) { const f = Math.pow(1 - (depth - 1) / NW, 1.5); wr = 30 + 122 * f; wg = 28 + 112 * f; wb = 24 + 92 * f; }
+      if (wc > 0) { const f = Math.pow(1 - (depth - 1) / NW, 1.7); wr = 16 + 128 * f; wg = 14 + 110 * f; wb = 10 + 78 * f; }
     }
     const aw = (1 - A) * wc, ao = A + aw;
     if (ao > 0) { d[o] = (r * A + wr * aw) / ao; d[o + 1] = (g * A + wg * aw) / ao; d[o + 2] = (b * A + wb * aw) / ao; d[o + 3] = 255 * ao; }
@@ -407,11 +451,33 @@ function build(env) {
   const full = (g) => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
   const layer = L.makeLayer(PAD, (g) => {
     g.fillStyle = BLACK; full(g);
-    g.drawImage(jade, X0, Y0);
-    g.globalCompositeOperation = 'multiply';
-    const pc = a.pt(-0.06, -110);
-    g.fillStyle = L.radial(g, pc.x, pc.y, 260, 1500, [[0, '#ffffff'], [0.45, '#efeadf'], [1, '#a8a191']]); full(g);
-    g.globalCompositeOperation = 'source-over';
+    // black cloth: a barely visible nap and a few specks of lint, a touch more where the key light lands
+    { const r = L.rng('s24cloth'), n = 256, t = L.makeCanvas(n, n), tg = t.getContext('2d'), id = tg.createImageData(n, n);
+      for (let i = 0; i < n * n; i++) { const v = 3 + 9 * Math.pow(r(), 2.2); id.data[i * 4] = v * 1.05; id.data[i * 4 + 1] = v; id.data[i * 4 + 2] = v * 0.94; id.data[i * 4 + 3] = 255; }
+      tg.putImageData(id, 0, 0);
+      g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = g.createPattern(t, 'repeat'); full(g);
+      for (let i = 0; i < 520; i++) {
+        const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), q = Math.pow(r(), 3);
+        g.fillStyle = `rgba(232,226,210,${(0.05 + 0.3 * q).toFixed(3)})`;
+        g.beginPath(); g.arc(x, y, 0.5 + 1.1 * q, 0, TAU); g.fill();
+      }
+      g.restore();
+      g.globalCompositeOperation = 'multiply';
+      const lc = a.pt(-0.1, 160);
+      g.fillStyle = L.radial(g, lc.x, lc.y, 150, 1250, [[0, '#ffffff'], [1, '#4a4a4a']]); full(g);
+      g.globalCompositeOperation = 'source-over';
+    }
+    const jl = L.makeLayer(PAD, (q) => {
+      q.drawImage(jade, X0, Y0);
+      q.globalCompositeOperation = 'source-atop';
+      // key-light pool: brightest just left of the crest, falling away to the sides and the bottom corners
+      const pc = a.pt(-0.07, -150);
+      q.globalCompositeOperation = 'multiply';
+      q.fillStyle = L.radial(q, pc.x, pc.y, 220, 1500, [[0, '#ffffff'], [0.36, '#ece7db'], [0.7, '#b3ad9e'], [1, '#7a7568']]); full(q);
+      q.globalCompositeOperation = 'destination-in'; q.drawImage(jade, X0, Y0);
+      q.globalCompositeOperation = 'source-over';
+    });
+    g.drawImage(jl, -PAD, -PAD);
   });
   const lg = layer.getContext('2d');
   const fx = a.cx - 30, fy = a.crestY + 130;
@@ -423,10 +489,10 @@ function build(env) {
     bg.restore();
     return b;
   };
-  const s1 = dof(2.2, 300, 620), s2 = dof(5.5, 520, 900);
+  const s1 = dof(2.4, 250, 540), s2 = dof(6, 400, 720);
   lg.drawImage(s1, -PAD, -PAD); lg.drawImage(s2, -PAD, -PAD);
   const bloom = L.blurred(layer, 18);
-  lg.globalCompositeOperation = 'screen'; lg.globalAlpha = 0.2; lg.drawImage(bloom, -PAD, -PAD);
+  lg.globalCompositeOperation = 'screen'; lg.globalAlpha = 0.17; lg.drawImage(bloom, -PAD, -PAD);
   lg.globalCompositeOperation = 'source-over'; lg.globalAlpha = 1;
 
   const scratch = L.makeCanvas(RW, SHEEN_H);

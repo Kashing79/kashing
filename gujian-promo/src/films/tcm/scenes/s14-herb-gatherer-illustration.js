@@ -100,8 +100,11 @@ const POSES = [
   { hh: 470, n: [95, 0, 0], f: [-235, -0.85, 33], sw: -0.6 },      // weight rolls onto the near leg, far foot peels off
   { hh: 504, n: [0, 0, 0], f: [-40, -0.35, 30], sw: -1 },          // near leg carries, far leg swings through
 ];
-const HX = [810, 905, 1000, 1095, 1190];        // hip x of each drawing: the planted foot stays put, the body advances 95 px
-const CEL_L = 620, CEL_W = 968, CEL_H = 724;    // each drawing lives on its own small sheet that travels with the hip
+const FS = 1.3;                                 // the figure is drawn in its own units and printed 1.3× — the camera sits close
+const TOP = -PAD / FS - 12;                     // top of the sheet, in figure units
+const HEM = 205;                                // the tunic's hem hangs this far below the hip joint (just above the knee)
+const HX = [-2, -1, 0, 1, 2].map((i) => 960 + i * 95 * FS);   // hip x (px) of each drawing: the planted foot stays put, the body advances one step
+const CEL_L = 620, CEL_W = 968, CEL_H = 724;    // each drawing lives on its own small sheet that travels with the hip (L, W in figure units)
 
 function knee(Hp, A) {
   const dx = A[0] - Hp[0], dy = A[1] - Hp[1], d = Math.hypot(dx, dy), dm = Math.min(d, TH + SH - 1);
@@ -166,63 +169,68 @@ function drawLeg(B, G, far, sw) {
 
 /** the short tunic's hem: one big ochre shape, slit at the side seam */
 function drawTunic(B, hx, hy, GN, GF, sw) {
-  const cen = (G) => { const d = unit(G.H, G.K); return add(G.H, d, 178); };
-  const cN = cen(GN), cF = cen(GF), top = -PAD - 10, yh = hy + 182;
+  const cen = (G) => { const d = unit(G.H, G.K); return add(G.H, d, HEM - 4); };
+  const cN = cen(GN), cF = cen(GF), top = TOP, yh = hy + HEM;
   const xf = Math.max(Math.max(cN[0], cF[0]) + 92, hx + 124);
   const xb = Math.min(Math.min(cN[0], cF[0]) - 100, hx - 122) - 12 - 9 * sw;
   const xs = hx * 0.4 + cN[0] * 0.6, lift = 10 + 8 * sw;
-  const front = [[hx + 84, top], [hx + 90, hy - 60], [hx + 96, hy + 40], [xf - 8, hy + 120], [xf, yh - 6]];
+  const front = [[hx + 84, top], [hx + 90, hy - 60], [hx + 96, hy + 40], [xf - 8, yh - 62], [xf, yh - 6]];
   const hemA = [[xf, yh - 6], [xf - 50, yh + 8], [xs + 42, yh + 12], [xs + 14, yh + 6]];
   const slitA = [[xs + 14, yh + 6], [xs + 5, yh - 40], [xs, yh - 88]];
   const slitB = [[xs, yh - 88], [xs - 10, yh - 30], [xs - 22, yh + 12]];
   const hemB = [[xs - 22, yh + 12], [xs - 72, yh + 19], [xb + 52, yh + 13], [xb, yh + 2 - lift]];
-  const back = [[xb, yh + 2 - lift], [xb + 24, hy + 104], [hx - 100, hy + 26], [hx - 92, hy - 60], [hx - 88, top]];
+  const back = [[xb, yh + 2 - lift], [xb + 24, yh - 78], [hx - 100, hy + 26], [hx - 92, hy - 60], [hx - 88, top]];
   part(B, [front, hemA, slitA, slitB, hemB, back, [[hx - 88, top], [hx + 84, top]]], PIG.ochre, { pool: 0.4 });
   const f1 = [[hx + 34, top], [hx + 50, hy + 16], [xf - 48, yh - 28]];
   const f2 = [[hx - 16, hy - 80], [xs - 4, hy + 24], [xs, yh - 88]];
   const f3 = [[hx - 58, hy - 40], [hx - 82, hy + 64], [xb + 46, yh - 22]];
   glaze(B, f1.map(([x, y]) => [x - 14, y]), PIG.ochre[1], 26, 0.3);
   glaze(B, f3.map(([x, y]) => [x - 12, y]), PIG.ochre[1], 30, 0.34);
-  glaze(B, [[xb + 30, hy + 120], [xb + 16, yh - 8]], PIG.ochre[1], 34, 0.3);
+  glaze(B, [[xb + 30, yh - 62], [xb + 16, yh - 8]], PIG.ochre[1], 34, 0.3);
   ink(B, front, 6.8); ink(B, hemA, 6.5); ink(B, slitA, 5); ink(B, slitB, 5); ink(B, hemB, 6.5); ink(B, back, 6.8);
   ink(B, f1, 4.6, { taper: [0.05, 0.4] }); ink(B, f2, 4.4, { taper: [0.3, 0.05] }); ink(B, f3, 4.6, { taper: [0.05, 0.4] });
 }
 
-/** the bottom of the bamboo back-basket: plaited strips drawn the woodcut way, rows of staggered "bricks" */
+/** the bottom of the bamboo back-basket: split-bamboo strips plaited on the two diagonals (big open diamonds), a stout foot hoop */
 function drawBasket(B, O, tau) {
   const u = [Math.sin(tau), -Math.cos(tau)], rt = [Math.cos(tau), Math.sin(tau)];
   const Pb = (v, s) => [O[0] + rt[0] * v + u[0] * s, O[1] + rt[1] * v + u[1] * s];
-  const hw = (s) => 96 + 0.13 * s, sag = (f) => -7 * (1 - f * f), ST = 400;
-  const left = [Pb(-hw(ST), ST), Pb(-hw(160), 160), Pb(-hw(40), 40), Pb(-hw(0) + 5, 10)];
-  const bottom = [Pb(-hw(0) + 5, 10), Pb(-72, -9), Pb(0, -13), Pb(72, -9), Pb(hw(0) - 5, 10)];
-  const right = [Pb(hw(0) - 5, 10), Pb(hw(40), 40), Pb(hw(160), 160), Pb(hw(ST), ST)];
+  const hw = (s) => 112 + 0.14 * s, sag = (f) => -8 * (1 - f * f), ST = 430;
+  const left = [Pb(-hw(ST), ST), Pb(-hw(160), 160), Pb(-hw(40), 40), Pb(-hw(0) + 6, 10)];
+  const bottom = [Pb(-hw(0) + 6, 10), Pb(-84, -10), Pb(0, -15), Pb(84, -10), Pb(hw(0) - 6, 10)];
+  const right = [Pb(hw(0) - 6, 10), Pb(hw(40), 40), Pb(hw(160), 160), Pb(hw(ST), ST)];
   const out = part(B, [left, bottom, right, [Pb(hw(ST), ST), Pb(-hw(ST), ST)]], PIG.yellow, { pool: 0.4 });
-  const rows = [24, 60, 98, 138, 180, 224, 270, 318, 368];
+  // the basket is round: a strip at angle phi round the wall sits at sin(phi) across the drawing
+  const Q = (phi, s) => { const f = Math.sin(phi); return Pb(f * hw(s), s + sag(f)); };
+  const PITCH = 0.52, RISE = 132, S0 = 30, HP = Math.PI / 2 - 0.03;
   const fr = L.rng('s14weave'), g = B.cg;
   g.save(); trace(g, out); g.clip();
   // some strips took the pigment darker, some went ochre with age
-  for (let i = 0; i < rows.length - 1; i++) for (let j = -1; j < 6; j++) {
-    const f0 = -1 + (2 * j + (i % 2)) / 5, f1 = f0 + 0.4, s0 = rows[i], s1 = rows[i + 1], roll = fr();
-    if (roll > 0.42) continue;
-    g.globalAlpha = roll < 0.16 ? 0.4 : 0.22; g.fillStyle = roll < 0.16 ? PIG.ochre[0] : PIG.yellow[1];
-    g.beginPath();
-    [[f0, s0], [f1, s0], [f1, s1], [f0, s1]].forEach(([f, s], q) => { const p = Pb(f * hw(s), s + sag(f)); if (q) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); });
+  for (let i = -9; i <= 3; i++) for (let j = -3; j <= 9; j++) {
+    const roll = fr();
+    if (roll > 0.4) continue;
+    const c0 = (i + 0.3) * PITCH, c1 = c0 + PITCH, d0 = (j + 0.1) * PITCH, d1 = d0 + PITCH;
+    const cor = [[c0, d0], [c1, d0], [c1, d1], [c0, d1]].map(([c, d]) => [(c + d) / 2, ((d - c) * RISE) / 2]);
+    if (cor.some(([ph, sv]) => Math.abs(ph) > HP || sv < S0 - 8 || sv > ST)) continue;
+    g.globalAlpha = roll < 0.14 ? 0.42 : 0.24; g.fillStyle = roll < 0.14 ? PIG.ochre[0] : PIG.yellow[1];
+    g.beginPath(); cor.forEach(([ph, sv], q) => { const p = Q(ph, sv); if (q) g.lineTo(p[0], p[1]); else g.moveTo(p[0], p[1]); });
     g.closePath(); g.fill();
   }
-  // the basket is round: both flanks turn away
+  // both flanks turn away from the lamp
   g.globalAlpha = 1;
   const pl = Pb(-hw(100), 100), pr = Pb(hw(100), 100);
-  g.fillStyle = L.linear(g, pl[0], pl[1], pr[0], pr[1], [[0, L.rgba(PIG.yellow[1], 0.6)], [0.3, L.rgba(PIG.yellow[1], 0)], [0.72, L.rgba(PIG.yellow[1], 0)], [1, L.rgba(PIG.ochre[1], 0.42)]]);
-  g.fillRect(O[0] - 400, O[1] - 600, 800, 800);
+  g.fillStyle = L.linear(g, pl[0], pl[1], pr[0], pr[1], [[0, L.rgba(PIG.yellow[1], 0.62)], [0.3, L.rgba(PIG.yellow[1], 0)], [0.7, L.rgba(PIG.yellow[1], 0)], [1, L.rgba(PIG.ochre[1], 0.46)]]);
+  g.fillRect(O[0] - 500, O[1] - 700, 1000, 900);
   g.restore();
-  ink(B, left, 6.5); ink(B, right, 6.5); ink(B, bottom, 7);
-  for (const s of rows) ink(B, [-1, -0.5, 0, 0.5, 1].map((f) => Pb(f * hw(s), s + sag(f))), s === rows[0] ? 5.4 : 4.2, { taper: [0.02, 0.02] });
-  for (let i = 0; i < rows.length - 1; i++) for (let j = 0; j < 6; j++) {
-    const f = -1 + (2 * j + (i % 2)) / 5;
-    if (Math.abs(f) > 0.93) continue;
-    ink(B, [Pb(f * hw(rows[i]), rows[i] + sag(f)), Pb(f * hw(rows[i + 1]), rows[i + 1] + sag(f))], 3.6, { taper: [0.05, 0.05], jit: 1.6 });
+  ink(B, left, 6.8); ink(B, right, 6.8); ink(B, bottom, 7.4);
+  for (const dir of [1, -1]) for (let i = -9; i <= 9; i++) {
+    const c = (i + (dir > 0 ? 0.3 : 0.1)) * PITCH, pts = [];
+    for (let sv = S0; sv <= ST; sv += 22) { const ph = c + (dir * sv) / RISE; if (Math.abs(ph) <= HP) pts.push(Q(ph, sv)); }
+    if (pts.length >= 2) ink(B, pts, 4.6, { taper: [0.02, 0.02], jit: 1 });
   }
-  for (let v = -78; v <= 80; v += 31) ink(B, [Pb(v, 22 + sag(v / 96)), Pb(v + 12, -6 + (v * v) / 1400)], 3.4, { taper: [0.05, 0.2] });   // lashing on the foot hoop
+  // the foot hoop, lashed on with cane
+  ink(B, [-1, -0.5, 0, 0.5, 1].map((f) => Pb(f * hw(S0), S0 + sag(f))), 6, { taper: [0.02, 0.02] });
+  for (let v = -88; v <= 90; v += 44) ink(B, [Pb(v, S0 - 2 + sag(v / 112)), Pb(v + 13, -8 + (v * v) / 1500)], 3.8, { taper: [0.05, 0.2] });
 }
 
 function drawLeaf(B, base, ang, len, wid, bend, pig) {
@@ -270,12 +278,12 @@ function drawHoe(B, pv, psi) {
 }
 
 function buildCel(env, k, tex) {
-  const a = env.arc, P = POSES[k], hx = HX[k], sw = P.sw;
-  const gy = (x) => a.yAt(x), hy = gy(hx) - P.hh;
-  const x0 = Math.round(hx - CEL_L), y0 = -PAD;
-  const cc = L.makeCanvas(CEL_W, CEL_H), ic = L.makeCanvas(CEL_W, CEL_H);
+  const a = env.arc, P = POSES[k], hx = HX[k] / FS, sw = P.sw;
+  const gy = (x) => a.yAt(x * FS) / FS, hy = gy(hx) - P.hh;      // the ridge, in figure units
+  const x0 = Math.round(HX[k] - CEL_L * FS), y0 = -PAD, cw = Math.ceil(CEL_W * FS);
+  const cc = L.makeCanvas(cw, CEL_H), ic = L.makeCanvas(cw, CEL_H);
   const cg = cc.getContext('2d'), ig = ic.getContext('2d');
-  cg.translate(-x0, -y0); ig.translate(-x0, -y0);
+  cg.translate(-x0, -y0); cg.scale(FS, FS); ig.translate(-x0, -y0); ig.scale(FS, FS);
   const B = { cg, ig, r: L.rng('s14jit' + k), seed: 's14k' + k + '_', n: 0 };
 
   const solve = (Hp, spec) => {
@@ -289,14 +297,14 @@ function buildCel(env, k, tex) {
   const GN = solve([hx + 4, hy], P.n), GF = solve([hx - 8, hy - 2], P.f);
 
   // back to front: hoe · basket · herbs · far leg · near leg · tunic
-  drawHoe(B, [hx - 404, -PAD - 40 + (hy - 70) * 0.5], 0.05 + 0.07 * sw);
-  const O = [hx - 212, hy + 104 - 5 * sw];
+  drawHoe(B, [hx - 418, TOP - 20 + (hy + 60) * 0.5], 0.09 + 0.08 * sw);
+  const O = [hx - 232, hy + 158 - 5 * sw];
   drawBasket(B, O, 0.06 + 0.014 * sw);
   const up = (v, s) => [O[0] + v + 0.06 * s, O[1] - s];
   drawSprig(B, [up(-54, 420), up(-70, 250), up(-92 - 10 * sw, 120), up(-128 - 26 * sw, 10)],
-    [[0.5, -1, 104, 40, 0.8, 0], [0.63, 1, 112, 42, 0.7, 0], [0.78, -1, 100, 38, 0.75, 1], [0.9, 1, 96, 36, 0.6, 0], [0.99, -1, 108, 36, 0.1, 0]], sw);
+    [[0.52, -1, 116, 46, 0.8, 0], [0.66, 1, 124, 48, 0.7, 0], [0.8, -1, 112, 44, 0.75, 1], [0.99, -1, 122, 42, 0.1, 0]], sw);
   drawSprig(B, [up(30, 420), up(22, 260), up(30 - 8 * sw, 130), up(8 - 22 * sw, 40)],
-    [[0.48, 1, 100, 40, 0.75, 0], [0.62, -1, 108, 40, 0.8, 0], [0.78, 1, 104, 40, 0.7, 0], [0.99, -1, 112, 38, 0.05, 1]], sw);
+    [[0.5, 1, 112, 46, 0.75, 0], [0.66, -1, 120, 46, 0.8, 1], [0.82, 1, 116, 46, 0.7, 0], [0.99, -1, 126, 44, 0.05, 0]], sw);
   drawLeg(B, GF, true, sw);
   drawLeg(B, GN, false, sw);
   drawTunic(B, hx, hy, GN, GF, sw);
@@ -305,8 +313,8 @@ function buildCel(env, k, tex) {
   cg.setTransform(1, 0, 0, 1, 0, 0); cg.globalCompositeOperation = 'destination-out';
   cg.drawImage(tex.gran, -((k * 173) % 400), -((k * 97) % 300));
   ig.setTransform(1, 0, 0, 1, 0, 0); ig.globalCompositeOperation = 'destination-out';
-  ig.fillStyle = ig.createPattern(tex.pin, 'repeat'); ig.translate(k * 61, k * 37); ig.fillRect(-400, -300, CEL_W + 400, CEL_H + 300);
-  const out = L.makeCanvas(CEL_W, CEL_H), og = out.getContext('2d');
+  ig.fillStyle = ig.createPattern(tex.pin, 'repeat'); ig.translate(k * 61, k * 37); ig.fillRect(-400, -300, cw + 400, CEL_H + 300);
+  const out = L.makeCanvas(cw, CEL_H), og = out.getContext('2d');
   og.filter = 'blur(0.7px)'; og.drawImage(cc, 0, 0);
   og.globalCompositeOperation = 'multiply';
   og.filter = 'blur(3px)'; og.globalAlpha = 0.32; og.drawImage(ic, 0, 0);     // ink soaking a little way into the paper
@@ -315,8 +323,8 @@ function buildCel(env, k, tex) {
   // shallow focus: sharp on the ridge, a touch soft toward the top of the frame
   const soft = L.blurred(out, 2.6), sg = soft.getContext('2d');
   const mask = (g) => L.radial(g, a.cx - x0, a.cy - y0, a.R + 200, a.R + 620, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
-  sg.globalCompositeOperation = 'destination-in'; sg.fillStyle = mask(sg); sg.fillRect(0, 0, CEL_W, CEL_H);
-  og.globalCompositeOperation = 'destination-out'; og.fillStyle = mask(og); og.fillRect(0, 0, CEL_W, CEL_H);
+  sg.globalCompositeOperation = 'destination-in'; sg.fillStyle = mask(sg); sg.fillRect(0, 0, cw, CEL_H);
+  og.globalCompositeOperation = 'destination-out'; og.fillStyle = mask(og); og.fillRect(0, 0, cw, CEL_H);
   og.globalCompositeOperation = 'lighter'; og.drawImage(soft, 0, 0);
   return { img: out, x0, y0 };
 }
@@ -324,14 +332,14 @@ function buildCel(env, k, tex) {
 // ───────────────────────── the sheet ─────────────────────────
 function tide(g, cx, cy, rx, ry, seed, strength = 1) {
   const nz = L.makeNoise(seed), pts = [];
-  for (let i = 0; i < 110; i++) {
-    const t = (i / 110) * L.TAU, k = 1 + 0.3 * nz.fbm(Math.cos(t) * 1.4 + 5, Math.sin(t) * 1.4, 3) + 0.03 * nz.n2(Math.cos(t) * 7, Math.sin(t) * 7);
+  for (let i = 0; i < 160; i++) {
+    const t = (i / 160) * L.TAU, k = 1 + 0.34 * nz.fbm(Math.cos(t) * 0.9 + 5, Math.sin(t) * 0.9, 2) + 0.05 * nz.n2(Math.cos(t) * 3.2, Math.sin(t) * 3.2);
     pts.push([cx + Math.cos(t) * rx * k, cy + Math.sin(t) * ry * k]);
   }
   g.save();
-  trace(g, pts); g.fillStyle = L.rgba('#b98a44', 0.07 * strength); g.fill(); g.clip();
-  g.strokeStyle = '#9c6626'; g.lineJoin = 'round';
-  for (const [lw, al] of [[52, 0.035], [24, 0.06], [10, 0.1], [4, 0.17]]) { g.lineWidth = lw; g.globalAlpha = al * strength; g.stroke(); }
+  trace(g, pts); g.fillStyle = L.rgba('#b98a44', 0.06 * strength); g.fill(); g.clip();
+  g.strokeStyle = '#a06c2a'; g.lineJoin = 'round';
+  for (const [lw, al] of [[70, 0.03], [30, 0.05], [12, 0.08], [4.5, 0.13]]) { g.lineWidth = lw; g.globalAlpha = al * strength; g.stroke(); }
   g.restore();
 }
 function crease(g, x0, y0, x1, y1, seed) {
@@ -349,10 +357,10 @@ function crease(g, x0, y0, x1, y1, seed) {
 }
 function foxing(g) {
   const r = L.rng('s14fox');
-  const clusters = [[250, 900, 190], [1660, 250, 230], [1280, 990, 170], [90, 330, 150], [1830, 820, 160]];
-  for (let i = 0; i < 46; i++) {
+  const clusters = [[250, 930, 190], [1700, 960, 210], [1180, 1010, 170], [640, 880, 150], [1840, 300, 150]];
+  for (let i = 0; i < 40; i++) {
     let x, y;
-    if (r.chance(0.7)) { const c = r.pick(clusters); x = c[0] + r.gauss() * c[2]; y = c[1] + r.gauss() * c[2] * 0.7; } else { x = r.range(-PAD, W + PAD); y = r.range(-PAD, H + PAD); }
+    if (r.chance(0.78)) { const c = r.pick(clusters); x = c[0] + r.gauss() * c[2]; y = c[1] + r.gauss() * c[2] * 0.7; } else { x = r.range(-PAD, W + PAD); y = r.range(-PAD, H + PAD); }
     const big = r.chance(0.12), rad = big ? r.range(16, 30) : r.range(3, 11), al = r.range(0.1, 0.34) * (big ? 0.45 : 1);
     for (let j = 0; j < 3; j++) {
       const ox = r.gauss() * rad * 0.35, oy = r.gauss() * rad * 0.35, rr = rad * r.range(0.6, 1);
@@ -366,32 +374,32 @@ function foxing(g) {
 function buildHill(env, tex) {
   const a = env.arc, s = a.span(PAD + 90), N = 170;
   const nz = L.makeNoise('s14hill'), r = L.rng('s14hill');
-  const thick = (th) => 108 + 9 * nz.fbm((th * a.R) / 330, 8.4, 2) - 24 * Math.pow(Math.abs(th) / s, 1.5);
+  const thick = (th) => 150 + 13 * nz.fbm((th * a.R) / 330, 8.4, 2) - 30 * Math.pow(Math.abs(th) / s, 1.5);
   const topPts = [], botPts = [];
   for (let i = 0; i <= N; i++) {
     const th = L.lerp(-s, s, i / N), u = th * a.R;
-    const p = a.pt(th, 1.5 + 3 * nz.fbm(u / 190, 3.1, 2)); topPts.push([p.x, p.y]);
-    const q = a.pt(th, -thick(th) + 5 * nz.fbm(u / 90, 5.5, 2)); botPts.push([q.x, q.y]);
+    const p = a.pt(th, 2 + 5 * nz.fbm(u / 230, 3.1, 2)); topPts.push([p.x, p.y]);                 // the brush never quite keeps to the printed line
+    const q = a.pt(th, -thick(th) + 8 * nz.fbm(u / 120, 5.5, 2) + 3 * nz.n2(u / 26, 1.3)); botPts.push([q.x, q.y]);
   }
   const band = topPts.concat(botPts.slice().reverse());
   const wl = L.makeLayer(PAD, (g) => {
     trace(g, band); g.globalAlpha = 0.96; g.fillStyle = PIG.green[0]; g.fill();
     g.save(); g.clip(); g.globalAlpha = 1;
     // the brush was loaded heavier along the foot of the slope
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 120, a.R - 30, [[0, L.rgba(PIG.green[1], 0.5)], [0.6, L.rgba(PIG.green[1], 0.16)], [1, L.rgba(PIG.green[1], 0)]]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 170, a.R - 40, [[0, L.rgba(PIG.green[1], 0.55)], [0.42, L.rgba(PIG.green[1], 0.26)], [0.7, L.rgba(PIG.green[1], 0.06)], [1, L.rgba(PIG.green[1], 0)]]);
     g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.strokeStyle = PIG.green[1]; g.lineJoin = 'round';
-    g.globalAlpha = 0.16; g.lineWidth = 20; g.stroke(); g.globalAlpha = 0.3; g.lineWidth = 7; g.stroke();
+    g.globalAlpha = 0.15; g.lineWidth = 26; g.stroke(); g.globalAlpha = 0.28; g.lineWidth = 8; g.stroke();
     g.restore();
   });
   const wg = wl.getContext('2d');
   // long brush drags following the slope, then granulation; a few pale blooms where water ran back in
   wg.save(); wg.setTransform(1, 0, 0, 1, 0, 0); wg.globalCompositeOperation = 'destination-out';
   wg.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's14drag', scale: 30, sx: 11, sy: 0.6, octaves: 3, res: 0.4, contrast: 1.6, ramp: [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,0.04)'], [1, 'rgba(0,0,0,0.4)']] }), 0, 0);
-  wg.drawImage(tex.gran, 0, 0);
+  wg.drawImage(tex.base, 0, 0);
   wg.restore();
   wg.save(); wg.globalCompositeOperation = 'destination-out';
-  for (const [th, dr, rad, al] of [[-0.27, -52, 95, 0.3], [-0.06, -40, 70, 0.22], [0.13, -60, 110, 0.3], [0.3, -44, 80, 0.26]]) {
+  for (const [th, dr, rad, al] of [[-0.27, -62, 120, 0.3], [-0.07, -48, 90, 0.2], [0.14, -74, 140, 0.3], [0.31, -52, 100, 0.26]]) {
     const p = a.pt(th, dr);
     wg.fillStyle = L.radial(wg, p.x, p.y, 0, rad, [[0, `rgba(0,0,0,${al})`], [0.7, `rgba(0,0,0,${al * 0.5})`], [1, 'rgba(0,0,0,0)']]);
     wg.save(); wg.translate(p.x, p.y); wg.rotate(th); wg.scale(1.9, 0.5); wg.translate(-p.x, -p.y); wg.fillRect(p.x - rad, p.y - rad, rad * 2, rad * 2); wg.restore();
@@ -403,16 +411,20 @@ function buildHill(env, tex) {
 
   // deep-green brush work, on its own sheet so the dry-brush scratches don't bite into the wash
   const dl = L.makeLayer(PAD, (g) => {
-    const lineAt = (t0, t1, off, n) => { const o = []; for (let i = 0; i <= n; i++) { const th = L.lerp(t0, t1, i / n); const p = a.pt(th, -thick(th) + 17 + off + 2.4 * nz.n2(th * 40, 1.7)); o.push([p.x, p.y]); } return o; };
+    const lineAt = (t0, t1, off, n) => { const o = []; for (let i = 0; i <= n; i++) { const th = L.lerp(t0, t1, i / n); const p = a.pt(th, -thick(th) + 24 + off + 3 * nz.n2(th * 40, 1.7)); o.push([p.x, p.y]); } return o; };
     // the line pressed along the lower edge: four loads of the brush, overlapping where it was re-charged
     [[-s, -0.185], [-0.2, 0.07], [0.058, 0.262], [0.25, s]].forEach(([t0, t1], i) => {
-      L.inkStroke(g, lineAt(t0, t1, r.range(-1.5, 1.5), 16), { width: 9.5, color: DEEP, seed: 's14deep' + i, taper: [0.03, 0.08], wobble: 0.45, dry: 0.35, smoothStep: 5 });
+      L.inkStroke(g, lineAt(t0, t1, r.range(-2, 2), 16), { width: 13, color: DEEP, seed: 's14deep' + i, taper: [0.03, 0.08], wobble: 0.5, dry: 0.3, smoothStep: 5 });
     });
-    // a few drier strokes following the slope inside the band
-    for (let i = 0; i < 15; i++) {
-      const th = L.lerp(-s, s, (i + r.range(0.1, 0.9)) / 15), len = r.range(0.035, 0.075), dr = -r.range(22, 66);
-      const pts = []; for (let j = 0; j <= 4; j++) { const p = a.pt(th + (len * j) / 4, dr + r.range(-2, 2) - 5 * Math.sin((j / 4) * Math.PI)); pts.push([p.x, p.y]); }
-      L.inkStroke(g, pts, { width: r.range(3.4, 5.2), color: DEEP, seed: 's14cun' + i, taper: [0.1, 0.5], wobble: 0.4, dry: 0.5, alpha: r.range(0.45, 0.8) });
+    // grass: a few fans of short strokes flicked up the slope
+    for (const [th0, dr0, sc] of [[-0.335, -70, 1.05], [-0.212, -84, 0.9], [-0.118, -62, 1.1], [0.018, -88, 0.95], [0.105, -60, 1], [0.228, -80, 1.1], [0.325, -66, 0.9]]) {
+      const n = r.int(3, 4);
+      for (let i = 0; i < n; i++) {
+        const lean = L.lerp(-0.55, 0.75, (i + r.range(-0.2, 0.2)) / (n - 1)), len = sc * r.range(34, 50);
+        const b = a.pt(th0 + ((i - (n - 1) / 2) * 13 * sc) / a.R, dr0 + r.range(-3, 3)), ang = -Math.PI / 2 + lean + th0;
+        const pts = [[b.x, b.y], [b.x + Math.cos(ang - 0.12) * len * 0.5, b.y + Math.sin(ang - 0.12) * len * 0.5], [b.x + Math.cos(ang + 0.1) * len, b.y + Math.sin(ang + 0.1) * len]];
+        L.inkStroke(g, pts, { width: sc * r.range(6, 8), color: DEEP, seed: 's14cun' + th0 + '_' + i, taper: [0.02, 0.8], wobble: 0.35, alpha: r.range(0.6, 0.9) });
+      }
     }
   });
   wg.save(); wg.setTransform(1, 0, 0, 1, 0, 0); wg.globalCompositeOperation = 'multiply'; wg.filter = 'blur(0.6px)'; wg.drawImage(dl, 0, 0); wg.restore();
@@ -421,17 +433,17 @@ function buildHill(env, tex) {
   const il = L.makeLayer(PAD, (g) => {
     const ridge = (t0, t1, n) => { const o = []; for (let i = 0; i <= n; i++) { const p = a.pt(L.lerp(t0, t1, i / n), -1.6 + r.range(-0.7, 0.7)); o.push([p.x, p.y]); } return o; };
     [[-s, -0.128], [-0.133, 0.212], [0.206, s]].forEach(([t0, t1], i) => {
-      L.inkStroke(g, ridge(t0, t1, 22), { width: 7.6, color: INK, seed: 's14ridge' + i, taper: [0.012, 0.02], wobble: 0.24, smoothStep: 5 });
+      L.inkStroke(g, ridge(t0, t1, 22), { width: 9.6, color: INK, seed: 's14ridge' + i, taper: [0.012, 0.02], wobble: 0.3, smoothStep: 5 });
     });
-    for (const [x, sc] of [[150, 1.05], [432, 0.8], [676, 1], [1368, 0.95], [1575, 1.1], [1806, 0.85]]) {
+    for (const [x, sc] of [[196, 1.9], [452, 1.45], [1492, 1.6], [1752, 2.05]]) {
       const th = a.thetaAtX(x), n = r.int(4, 6);
       for (let i = 0; i < n; i++) {
         const lean = L.lerp(-0.8, 0.8, (i + r.range(-0.3, 0.3)) / (n - 1)) + 0.16;
         const len = sc * r.range(36, 66) * (1 - 0.35 * Math.abs(lean));
-        const b = a.pt(th + ((i - (n - 1) / 2) * 8) / a.R, -9), bend = r.range(-0.3, 0.3) + lean * 0.6;
+        const b = a.pt(th + ((i - (n - 1) / 2) * 9 * sc) / a.R, -9), bend = r.range(-0.3, 0.3) + lean * 0.6;
         const pts = [[b.x, b.y]]; let ang = -Math.PI / 2 + lean + th, px = b.x, py = b.y;
         for (let q = 0; q < 3; q++) { px += (Math.cos(ang) * len) / 3; py += (Math.sin(ang) * len) / 3; ang += bend / 3; pts.push([px, py]); }
-        L.inkStroke(g, pts, { width: sc * r.range(5.5, 8), color: i % 3 === 1 ? INK : DEEP, seed: 's14tuft' + x + '_' + i, taper: [0, 0.85], wobble: 0.2 });
+        L.inkStroke(g, pts, { width: sc * r.range(4.6, 6.4), color: i % 3 === 1 ? INK : DEEP, seed: 's14tuft' + x + '_' + i, taper: [0, 0.85], wobble: 0.25 });
       }
     }
   });
@@ -445,26 +457,29 @@ function buildPage(env, tex) {
   const a = env.arc, w = W + PAD * 2, h = H + PAD * 2;
   const full = (g) => g.fillRect(-PAD, -PAD, w, h);
   const page = L.makeLayer(PAD, (g) => {
-    g.drawImage(L.paperTex(w, h, { base: '#e9dab3', seed: 's14paper', tone: '#a67a34', fiber: 0.6, stain: 0.5, grain: 0.2 }), -PAD, -PAD);
+    g.drawImage(L.paperTex(w, h, { base: '#eddfb5', seed: 's14paper', tone: '#b0863e', fiber: 0.6, stain: 0.24, grain: 0.17 }), -PAD, -PAD);
     // long fibres and the odd fleck of bark caught in the pulp
     const r = L.rng('s14fibre'); g.lineCap = 'round';
-    for (let i = 0; i < 260; i++) {
+    for (let i = 0; i < 220; i++) {
       const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), len = r.range(50, 190), an = r.range(0, Math.PI), cv = r.range(-0.5, 0.5);
-      g.strokeStyle = r.chance(0.55) ? L.rgba('#fff8e2', r.range(0.1, 0.3)) : L.rgba('#8a6430', r.range(0.06, 0.2));
+      g.strokeStyle = r.chance(0.55) ? L.rgba('#fff8e2', r.range(0.1, 0.3)) : L.rgba('#8a6430', r.range(0.05, 0.16));
       g.lineWidth = r.range(0.6, 1.7);
       g.beginPath(); g.moveTo(x, y);
       g.quadraticCurveTo(x + Math.cos(an + cv) * len * 0.5, y + Math.sin(an + cv) * len * 0.5, x + Math.cos(an) * len, y + Math.sin(an) * len); g.stroke();
     }
-    L.speckle(g, { seed: 's14fleck', count: 520, x: -PAD, y: -PAD, w, h, rMin: 0.6, rMax: 2.6, colors: ['#7a5424', '#9a7436', '#5e3f1a'], alpha: [0.1, 0.5], squash: 0.6 });
+    L.speckle(g, { seed: 's14fleck', count: 340, x: -PAD, y: -PAD, w, h, rMin: 0.6, rMax: 2.6, colors: ['#7a5424', '#9a7436', '#5e3f1a'], alpha: [0.1, 0.5], squash: 0.6 });
     // laid lines of the papermaker's screen, barely there
     g.strokeStyle = 'rgba(120,88,40,0.045)'; g.lineWidth = 1.2;
     g.beginPath(); for (let y = -PAD; y < H + PAD; y += 7) { g.moveTo(-PAD, y + 0.5); g.lineTo(W + PAD, y + 3.5); } g.stroke();
     // old water stains with their tide lines
-    tide(g, 1590, 1040, 470, 270, 's14tideA', 1);
-    tide(g, 70, 20, 330, 230, 's14tideB', 0.8);
-    tide(g, 600, 985, 120, 70, 's14tideC', 0.7);
+  });
+  // old water stains with their tide lines — under the hill only; the sheet above it is left clean
+  const stains = L.makeLayer(PAD, (c) => {
+    tide(c, 1610, 1075, 500, 250, 's14tideA', 1);
+    tide(c, 190, 1120, 380, 210, 's14tideB', 0.8);
   });
   const g = page.getContext('2d');
+  g.save(); g.filter = 'blur(1.6px)'; g.drawImage(stains, -PAD, -PAD); g.restore();
   const [wl, il] = buildHill(env, tex);
   g.globalCompositeOperation = 'multiply';
   g.drawImage(wl, -PAD, -PAD);
@@ -476,8 +491,8 @@ function buildPage(env, tex) {
   crease(g, 1490, -PAD, 1506, H + PAD, 's14foldV');
   g.globalCompositeOperation = 'multiply'; foxing(g);
   // warm lamp from the upper left: the sheet falls off toward the right and the lower corners; it also cockles a little
-  g.fillStyle = L.radial(g, 780, 400, 260, 1500, [[0, '#ffffff'], [0.5, '#f6ecd4'], [1, '#d9c597']]); full(g);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.5;
+  g.fillStyle = L.radial(g, 780, 400, 260, 1500, [[0, '#ffffff'], [0.5, '#f8f0dc'], [1, '#e2d0a4']]); full(g);
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.22;
   const cockle = L.bumpLight(L.noiseTex(w, h, { seed: 's14cockle', scale: 420, octaves: 3, res: 0.12, sx: 1.6 }), { angle: 45, strength: 9, res: 0.2 });
   g.drawImage(cockle, -PAD, -PAD);
   g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
@@ -493,12 +508,20 @@ function buildPage(env, tex) {
 }
 
 function buildTextures() {
-  const w = W + PAD * 2, h = H + PAD * 2;
-  // pigment granulation: alpha here is what gets taken OUT of a wash (the paper shows through where it lies thin)
-  const gran = L.noiseTex(w, h, { seed: 's14gran', scale: 24, octaves: 4, gain: 0.6, res: 0.5, contrast: 1.5, ramp: [[0, 'rgba(0,0,0,0)'], [0.45, 'rgba(0,0,0,0.05)'], [1, 'rgba(0,0,0,0.42)']] });
-  // pinholes and starved patches in the printed line
-  const pin = L.noiseTex(900, 700, { seed: 's14pin', scale: 5, octaves: 2, res: 0.6, contrast: 2.2, ramp: [[0, 'rgba(0,0,0,0)'], [0.63, 'rgba(0,0,0,0)'], [0.8, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,0.9)']] });
-  return { gran, pin };
+  const w = W + PAD * 2, h = H + PAD * 2, T = 'rgba(0,0,0,0)';
+  // alpha in these is what gets taken OUT of a wash (the paper shows through where the colour lies thin):
+  // the uneven load of the brush + the grain of the pigment in the paper's tooth …
+  const base = L.makeCanvas(w, h), bg = base.getContext('2d');
+  bg.drawImage(L.noiseTex(w, h, { seed: 's14load', scale: 190, octaves: 3, res: 0.2, contrast: 1.6, ramp: [[0, T], [0.48, 'rgba(0,0,0,0.03)'], [1, 'rgba(0,0,0,0.3)']] }), 0, 0);
+  bg.drawImage(L.noiseTex(w, h, { seed: 's14gran', scale: 6, octaves: 2, res: 0.6, contrast: 1.7, ramp: [[0, T], [0.56, T], [1, 'rgba(0,0,0,0.17)']] }), 0, 0);
+  // … and, on the figure, the drag of the bristles (the colourist pulls the brush down to the left)
+  const gran = L.makeCanvas(w, h), gg = gran.getContext('2d'), dw = Math.ceil(Math.hypot(w, h));
+  gg.drawImage(base, 0, 0);
+  const drag = L.noiseTex(dw, dw, { seed: 's14bristle', scale: 20, sx: 11, sy: 0.5, octaves: 3, res: 0.4, contrast: 1.7, ramp: [[0, T], [0.56, 'rgba(0,0,0,0.02)'], [1, 'rgba(0,0,0,0.3)']] });
+  gg.translate(w / 2, h / 2); gg.rotate(-0.95); gg.drawImage(drag, -dw / 2, -dw / 2);
+  // the odd void and starved patch in the printed line
+  const pin = L.noiseTex(900, 700, { seed: 's14pin', scale: 6, octaves: 2, res: 0.6, contrast: 2.1, ramp: [[0, T], [0.76, T], [0.9, 'rgba(0,0,0,0.6)'], [1, 'rgba(0,0,0,0.85)']] });
+  return { base, gran, pin };
 }
 
 // per-drawing gate weave of the sheet under the rostrum camera: [dx, dy, rotation, exposure]

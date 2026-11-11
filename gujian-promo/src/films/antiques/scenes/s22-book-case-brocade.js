@@ -15,8 +15,8 @@ const { W, H } = L;
 const PAD = 100;
 const LW = W + PAD * 2, LH = H + PAD * 2;
 const WP = 4, FP = 7;          // brocade: warp pitch, weft (pick) pitch in px
-const NB = 6;                  // every 6th warp binds the gold weft, stepping one warp per pick → twill diagonals in the gold
-const CPX = 9.4, CPY = 10.3;    // cotton: warp / weft pitch
+const NB = 8;                  // every 8th warp binds the gold weft, stepping one warp per pick → twill diagonals in the gold
+const CPX = 7.3, CPY = 8.2;     // cotton: warp / weft pitch
 let S = null;
 
 // ───────────────────────── small helpers ─────────────────────────
@@ -62,12 +62,13 @@ function buildCloth(env) {
   const lp = field(LW, CH, 16, (x, y) => pool(x - PAD, y - PAD));
   const OFF = 64, rw = L.rng('s22warp');
   const nI = Math.ceil((LW + 300) / CPX) + OFF * 2, nJ = Math.ceil((LH + 300) / CPY) + OFF * 2;
-  const wB = new Float32Array(nI), fB = new Float32Array(nJ);
-  for (let i = 0; i < nI; i++) wB[i] = 1 + 0.1 * rw.gauss() + (rw.chance(0.05) ? 0.2 : 0);
-  for (let j = 0; j < nJ; j++) fB[j] = 0.92 + 0.08 * rw.gauss();
-  const DEEP = lut([[0, '#030816'], [0.2, '#0a1738'], [0.42, '#162c5f'], [0.6, '#1f3f84'], [0.8, '#2f5aac'], [1.0, '#4d7ccb'], [1.3, '#8fb2ec']], VMAX);
-  const PALE = lut([[0, '#050a17'], [0.2, '#0f1d3c'], [0.42, '#213a6a'], [0.6, '#33538d'], [0.8, '#5173ac'], [1.0, '#7696c9'], [1.3, '#aec5e8']], VMAX);
-  const RIN = (R - 20) * (R - 20);
+  const wB = new Float32Array(nI), fB = new Float32Array(nJ), wW = new Float32Array(nI), fW = new Float32Array(nJ);
+  // hand-spun, vat-dyed yarn: every end has its own depth of blue and its own thickness; now and then a thick pale one
+  for (let i = 0; i < nI; i++) { wB[i] = 1 + 0.13 * rw.gauss() + (rw.chance(0.06) ? 0.24 : 0); wW[i] = 1 + 0.16 * rw.gauss() + (rw.chance(0.05) ? 0.22 : 0); }
+  for (let j = 0; j < nJ; j++) { fB[j] = 1.0 + 0.1 * rw.gauss(); fW[j] = 1 + 0.14 * rw.gauss(); }
+  const DEEP = lut([[0, '#03081a'], [0.2, '#081434'], [0.42, '#112656'], [0.6, '#1a3876'], [0.8, '#274f98'], [1.0, '#4270b6'], [1.3, '#84a6dc']], VMAX);
+  const PALE = lut([[0, '#050a18'], [0.2, '#0e1c3c'], [0.42, '#1f3868'], [0.6, '#31518a'], [0.8, '#4f71a8'], [1.0, '#7594c4'], [1.3, '#b0c6e6']], VMAX);
+  const RIN = (R - 44) * (R - 44);
   for (let py = 0; py < CH; py++) {
     const y = py - PAD, ddy = cy - y;
     for (let px = 0; px < LW; px++) {
@@ -76,25 +77,28 @@ function buildCloth(env) {
       const u = x * ca + y * sa + wu(px, py), v = -x * sa + y * ca + wv(px, py);
       const ui = u / CPX + OFF, vj = v / CPY + OFF;
       const i = Math.floor(ui), j = Math.floor(vj), fx = ui - i, fy = vj - j;
-      let ac, al, id, run, tb, la, ll;
-      if ((i + j) & 1) { ac = fy; al = fx; id = j + 4096; run = u; tb = fB[j]; la = -0.62; ll = -0.78; }   // weft float
-      else { ac = fx; al = fy; id = i; run = v; tb = wB[i]; la = -0.78; ll = -0.62; }                       // warp float
-      const sl = vn(id, run / 46);                              // slub: the yarn swells and thins along its length
+      let ac, al, id, run, tb, tw, la, ll, weft;
+      if ((i + j) & 1) { ac = fy; al = fx; id = j + 4096; run = u; tb = fB[j]; tw = fW[j]; la = -0.62; ll = -0.78; weft = 1; }   // weft float
+      else { ac = fx; al = fy; id = i; run = v; tb = wB[i]; tw = wW[i]; la = -0.78; ll = -0.62; weft = 0; }                       // warp float
+      const sl = vn(id, run / 38);                              // slub: the yarn swells and thins along its length
+      ac += (vn(id + 911, run / 58) - 0.5) * 0.26;              // … and never lies dead straight
       const ey = (al - 0.5) * 2;
-      const hw = (0.4 + 0.12 * sl) * Math.sqrt(1 - 0.46 * ey * ey), ex = (ac - 0.5) / hw;      // each float is a little lens-shaped bead
-      let b;
+      const hw = (0.46 + 0.13 * sl) * tw * Math.sqrt(1 - 0.78 * ey * ey), ex = (ac - 0.5) / hw;     // each float is a little pointed lens
+      const hv = h2(i * 31 + 7, j * 17 + 3);                    // heather: no two floats took the dye alike
+      let b, pale = 0;
       if (ex > -1 && ex < 1) {
         const top = Math.sqrt(1 - ex * ex);
         const dif = -(ex * la + ey * 0.5 * ll);
-        b = (0.7 + 0.24 * dif) * (0.46 + 0.54 * top) * (0.66 + 0.34 * Math.cos(ey * 1.3));
-        b *= 1 + 0.06 * Math.sin((ex * hw * 9 + run * 0.55) * 1.9);                 // twist of the yarn
-        b *= 1 + 0.16 * (vn(id * 7 + ((ex * 2.5 + 8) | 0), run / 4.5) - 0.5);      // loose fibres lying along it
-        b *= tb * (0.9 + 0.2 * sl);
-      } else b = 0.27 + 0.1 * vn(id + 77, run / 6);
+        b = (0.74 + 0.2 * dif) * (0.56 + 0.44 * top) * (0.72 + 0.28 * Math.cos(ey * 1.3));
+        b *= 1 + 0.07 * Math.sin((ex * hw * 9 + run * 0.55) * 1.9);                 // twist of the yarn
+        b *= 1 + 0.2 * (vn(id * 7 + ((ex * 2.5 + 8) | 0), run / 4.5) - 0.5);       // loose fibres lying along it
+        b *= tb * (0.9 + 0.2 * sl) * (0.9 + 0.2 * hv) * (weft ? 1.04 : 1);
+        if (hv > 0.97) { b *= 1.1; pale = 0.3; }                                    // a rubbed float: the undyed heart of the yarn shows
+      } else b = 0.38 + 0.12 * vn(id + 77, run / 6);
       const fd = fade(px, py);
-      b *= (1 + 0.3 * fd) * (0.6 + 0.42 * lp(px, py));
+      b *= (1 + 0.3 * fd) * (0.7 + 0.34 * lp(px, py));
       b += (h2(px, py) - 0.5) * 0.07 + (h2(px >> 1, (py >> 1) + 9000) - 0.5) * 0.05;
-      const m = L.clamp(0.2 + 1.4 * fd), q = li(b), o = (py * LW + px) * 4;
+      const m = L.clamp(0.16 + 1.3 * fd + pale + 0.1 * weft), q = li(b), o = (py * LW + px) * 4;
       d[o] = DEEP[q] + (PALE[q] - DEEP[q]) * m; d[o + 1] = DEEP[q + 1] + (PALE[q + 1] - DEEP[q + 1]) * m; d[o + 2] = DEEP[q + 2] + (PALE[q + 2] - DEEP[q + 2]) * m; d[o + 3] = 255;
     }
   }
@@ -111,30 +115,28 @@ function petalPath(g, r0, r1, hw) {
   g.bezierCurveTo(r0 + m * 0.78, hw * 0.8, r0 + m * 0.2, hw * 1.3, r0, hw * 0.4);
   g.closePath();
 }
-/** a lotus head seen full face: seed pod, a ring of short petals, a ring of long pointed petals — solid gold, red only in the veins */
+/** a lotus head seen full face: seed pod, a ring of short petals, a ring of broad pointed petals —
+ *  solid gold, the red ground showing only as the lines that part one petal from the next */
 function lotus(g, x, y, R, rot) {
   g.save(); g.translate(x, y); g.rotate(rot);
-  const N = 8;
-  g.lineCap = 'round';
-  for (let k = 0; k < N; k++) {
+  const N = 8, gap = 0.036 * R;
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const petal = (k, r0, r1, hw, vein) => {
     g.save(); g.rotate((k / N) * L.TAU);
-    g.fillStyle = '#fff'; petalPath(g, 0.44 * R, R, 0.255 * R); g.fill();
-    g.strokeStyle = '#000'; g.lineWidth = 0.036 * R; g.beginPath(); g.moveTo(0.63 * R, 0); g.lineTo(0.87 * R, 0); g.stroke();
-    g.restore();
-  }
-  for (let k = 0; k < N; k++) {
-    g.save(); g.rotate(((k + 0.5) / N) * L.TAU);
-    petalPath(g, 0.26 * R, 0.66 * R, 0.19 * R);
-    g.strokeStyle = '#000'; g.lineWidth = 0.075 * R; g.stroke();
+    petalPath(g, r0, r1, hw);
+    g.strokeStyle = '#000'; g.lineWidth = gap * 2; g.stroke();
     g.fillStyle = '#fff'; g.fill();
+    if (vein) { g.lineWidth = gap * 1.25; g.beginPath(); g.moveTo(r0 + (r1 - r0) * 0.42, 0); g.lineTo(r1 - (r1 - r0) * 0.2, 0); g.stroke(); }
     g.restore();
-  }
-  g.fillStyle = '#000'; g.beginPath(); g.arc(0, 0, 0.315 * R, 0, L.TAU); g.fill();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(0, 0, 0.25 * R, 0, L.TAU); g.fill();
+  };
+  for (let k = 0; k < N; k++) petal(k, 0.4 * R, R, 0.31 * R, true);
+  for (let k = 0; k < N; k++) petal(k + 0.5, 0.25 * R, 0.64 * R, 0.2 * R, false);
+  g.fillStyle = '#000'; g.beginPath(); g.arc(0, 0, 0.33 * R, 0, L.TAU); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(0, 0, 0.26 * R, 0, L.TAU); g.fill();
   g.fillStyle = '#000';
   for (let k = 0; k < 7; k++) {
-    const rr = k ? 0.15 * R : 0, an = (k / 6) * L.TAU + 0.3;
-    g.beginPath(); g.arc(rr * Math.cos(an), rr * Math.sin(an), 0.043 * R, 0, L.TAU); g.fill();
+    const rr = k ? 0.155 * R : 0, an = (k / 6) * L.TAU + 0.3;
+    g.beginPath(); g.arc(rr * Math.cos(an), rr * Math.sin(an), 0.05 * R, 0, L.TAU); g.fill();
   }
   g.restore();
 }
@@ -160,7 +162,7 @@ function leafFill(g, pts, wmax, side) {
   g.beginPath(); g.arc(e[0], e[1], wmax * 0.11, 0, L.TAU); g.fill();
 }
 function drawScroll(g) {
-  const Rf = 235, rs = 277, HX = 680, DY = 320, PC = 620, xL = 720, yL = 860, SW = 28;
+  const Rf = 240, rs = 286, HX = 680, DY = 320, PC = 620, xL = 720, yL = 866, SW = 40;
   const r = L.rng('s22scroll');
   const d = Math.hypot(HX, DY), al = Math.asin((2 * rs) / d), hh = Math.sqrt((d * d) / 4 - rs * rs);
   const flowers = [], belts = [];
@@ -195,9 +197,9 @@ function drawScroll(g) {
   const clear = (lp, wm) => {
     for (const p of lp) {
       if (p[3] < 0.15) continue;
-      const need = rs + (p[3] < 0.3 ? 20 : 16 + wm * 0.5);
+      const need = rs + (p[3] < 0.3 ? 26 : 22 + wm * 0.5);
       for (const f of flowers) if (Math.hypot(p[0] - f.x, p[1] - f.y) < need) return false;
-      for (const q of placed) if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 30 + wm * 0.75) return false;
+      for (const q of placed) if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 34 + wm * 0.75) return false;
     }
     return true;
   };
@@ -211,13 +213,13 @@ function drawScroll(g) {
       const tang = Math.atan2(q[1] - p[1], q[0] - p[0]);
       let done = false;
       for (let tries = 0; tries < 8 && !done; tries++) {
-        const len = r.range(150, 235) * (tries > 3 ? 0.78 : 1), wm = len * r.range(0.3, 0.36);
+        const len = r.range(165, 250) * (tries > 3 ? 0.78 : 1), wm = len * r.range(0.34, 0.4);
         const lp = leafPts(p[0], p[1], tang + side * r.range(0.5, 1.05), len, side);
         if (clear(lp, wm)) {
           leafFill(g, lp, wm, side);
           const b = lp[8], lobe = leafPts(b[0], b[1], b[2] - side * 0.95, len * 0.56, -side);
           leafFill(g, lobe, wm * 0.66, -side);
-          g.strokeStyle = '#000'; g.lineWidth = 7.5; g.beginPath();
+          g.strokeStyle = '#000'; g.lineWidth = 11; g.beginPath();
           for (let i = 5; i <= 18; i++) { if (i === 5) g.moveTo(lp[i][0], lp[i][1]); else g.lineTo(lp[i][0], lp[i][1]); }
           g.stroke();
           for (const s of lp) if (s[3] > 0.15) placed.push(s);
@@ -274,8 +276,9 @@ function buildBrocade(env) {
   const rowB = new Float32Array(GH), colB = new Float32Array(GW), colE = new Float32Array(GW);
   for (let j = 0; j < GH; j++) rowB[j] = 0.8 + 0.2 * rr() + (rr.chance(0.1) ? -0.1 : 0);
   for (let i = 0; i < GW; i++) { colB[i] = 0.93 + 0.14 * rr(); colE[i] = rr(); }
-  const GOLD = lut([[0, '#2c1202'], [0.2, '#6e3c08'], [0.4, '#9a6212'], [0.58, '#cf9624'], [0.76, '#e9b83c'], [0.92, '#f8d461'], [1.1, '#ffe99a'], [1.3, '#fff8dc']], VMAX);
-  const RED = lut([[0, '#260505'], [0.25, '#5a1410'], [0.5, '#9c1a14'], [0.72, '#c8281e'], [0.9, '#e6432a'], [1.06, '#f96e46'], [1.3, '#ffab84']], VMAX);
+  const GOLD = lut([[0, '#2c1202'], [0.2, '#6a3806'], [0.4, '#99600f'], [0.56, '#c98d1e'], [0.72, '#e6b236'], [0.88, '#f6d05a'], [1.06, '#ffe796'], [1.3, '#fff8dc']], VMAX);
+  const RED = lut([[0, '#240404'], [0.25, '#5a1410'], [0.5, '#98170f'], [0.72, '#c8281e'], [0.9, '#e23c26'], [1.06, '#f6643e'], [1.3, '#ffa67e']], VMAX);
+  const FRAY = lut([[0, '#3a0806'], [0.3, '#8c1a12'], [0.55, '#cf3a26'], [0.78, '#f06a4a'], [1.0, '#ff9d7c'], [1.3, '#ffd4bc']], VMAX);
   const WORN = lut([[0, '#220a04'], [0.4, '#6e2c10'], [0.8, '#a8571e'], [1.3, '#d99a58']], VMAX);
   for (let py = 0; py < BH; py++) {
     const y = Y0 + py, ddy = cy - y;
@@ -285,51 +288,67 @@ function buildBrocade(env) {
       if (dr > 8) continue;
       const rx = x - pvx, ry = y - pvy;
       const u = pvx + rx * ca - ry * sa + wu(px, py), v = pvy + rx * sa + ry * ca + wv(px, py);
-      const gu = (u - U0) / WP, gv = (v - V0) / FP;
-      const gi = Math.floor(gu), gj = Math.floor(gv), fx = gu - gi, fy = gv - gj, k = gj * GW + gi;
-      let alpha = 255, bare = false;
-      if (dr > -36) {
+      let gu = (u - U0) / WP;
+      const gv = (v - V0) / FP;
+      let gi = Math.floor(gu), fx = gu - gi;
+      const gj = Math.floor(gv), fy = gv - gj;
+      let alpha = 255, bare = 0;
+      if (dr > -52) {
         const s = Math.atan2(ddx, ddy) * R;
-        const cut = 0.5 + 5.5 * colE[gi] + 3.2 * vn(9, s / 23);       // every warp end stops at its own height
+        const depth = 17 + 15 * vn(7, s / 85) + 9 * vn(17, s / 19) + 5 * colE[gi];      // the last picks of weft are gone: bare warp ends
+        if (dr > -depth) {
+          // freed from the weft, the ends lean together into little tufts
+          const tt = (dr + depth) / depth;
+          gu += tt * tt * (2.6 * (vn(11, s / 44) - 0.5) + 1.5 * (vn(13, s / 13) - 0.5));
+          gi = Math.floor(gu); fx = gu - gi; bare = 0.25 + 0.75 * tt;
+        }
+        const cut = 0.5 + 6.5 * colE[gi] + 3.2 * vn(9, s / 23);       // every warp end stops at its own height
         if (dr > -cut) continue;
         if (dr > -cut - 1.5) alpha *= (-cut - dr) / 1.5;
-        bare = dr > -(12 + 13 * vn(7, s / 85) + 5 * colE[gi]);        // the last picks of weft are gone: bare warp ends
       }
+      const k = gj * GW + gi;
       const lt = lp(px, py), ud = und(px, py);
       const o = (py * LW + px) * 4;
       const cyl = Math.sin(Math.PI * fx);
       let cr, cg, cb;
       if (bare) {
-        if (fx < 0.13 || fx > 0.87) alpha *= 0.4;
-        const b = (0.34 + 0.66 * cyl) * colB[gi] * (0.62 + 0.52 * lt) * (0.86 + 0.3 * colE[gi]);
-        const q = li(b); cr = RED[q]; cg = RED[q + 1]; cb = RED[q + 2];
+        // loose silk: each end a bright little cylinder, the shadowed cotton showing between them
+        const ce = colE[gi], wth = 0.3 + 0.16 * ce, ax = Math.abs(fx - 0.5);
+        if (ax > wth) { const ga = L.clamp(1 - (ax - wth) / 0.1); alpha *= ga + (1 - ga) * 0.5 * (1 - bare); }
+        if (ce < 0.1 && bare > 0.5) alpha *= 0.25;                     // an end that has pulled right out
+        const b = (0.3 + 0.7 * cyl) * colB[gi] * (0.62 + 0.52 * lt) * (0.78 + 0.5 * ce) * (0.9 + 0.25 * bare);
+        const q = li(b), m = L.clamp(bare * (0.35 + 0.75 * h2(gi, 77)));
+        cr = RED[q] + (FRAY[q] - RED[q]) * m; cg = RED[q + 1] + (FRAY[q + 1] - RED[q + 1]) * m; cb = RED[q + 2] + (FRAY[q + 2] - RED[q + 2]) * m;
       } else if (pat[k]) {
-        // ── a gold pick ──
+        // ── a gold pick: a flat gilt strip floating over seven ends, tied down by the eighth ──
         const kk = gi - gj, kb = ((kk % NB) + NB) % NB;
-        const lite = 0.6 + 0.62 * lt + 0.5 * ud;
-        if (kb === 0) {                     // a binding warp crosses over the gold
-          const b = (0.42 + 0.58 * cyl) * (0.7 + 0.3 * Math.sin(Math.PI * fy)) * colB[gi] * (0.56 + 0.5 * lt);
-          const q = li(b * 0.86); cr = RED[q]; cg = RED[q + 1]; cb = RED[q + 2];
+        const lite = 0.66 + 0.5 * lt + 0.62 * ud;
+        let tf = (kb + fx - 0.5) / NB, fid = (kk - kb) / NB;                // 0..1 along the float, from one tie to the next
+        if (tf < 0) { tf += 1; fid -= 1; }
+        const hf = h2(gj * 7 + 3, fid), bulge = Math.sin(Math.PI * tf);
+        const fyw = fy + 0.16 * (vn(gj * 5 + 1, u / 70) - 0.5);          // the strips are not ruled: their edges waver
+        const edge = (fyw < 0.5 ? fyw : 1 - fyw) * FP;                    // px from the pick's edge
+        const tie = kb === 0 && Math.abs(fx - 0.5) < 0.36 && fy > 0.06 && fy < 0.94;
+        if (tie) {                          // a binding warp crosses over the gold
+          const b = (0.5 + 0.5 * Math.sin(Math.PI * (fx - 0.14) / 0.72)) * (0.74 + 0.26 * Math.sin(Math.PI * fy)) * colB[gi] * (0.6 + 0.5 * lt);
+          const q = li(b * 0.92); cr = RED[q]; cg = RED[q + 1]; cb = RED[q + 2];
         } else {
-          const tf = (kb - 1 + fx) / (NB - 1), bulge = Math.sin(Math.PI * tf);
-          const fid = (kk - kb) / NB, hf = h2(gj * 7 + 3, fid);
-          const e = fy - 0.3;
-          let pf = 0.6 + 0.46 * Math.exp(-(e * e) / 0.05);
-          if (fy > 0.66) pf -= 0.3 * (fy - 0.66) / 0.34;
-          const edge = (fy < 0.5 ? fy : 1 - fy) * FP;                     // px from the pick's edge
-          let b = rowB[gj] * pf * (0.58 + 0.42 * Math.sqrt(bulge)) * lite;
-          b += hf > 0.68 ? (hf - 0.68) * 0.95 * bulge * (0.4 + lt) : hf < 0.2 ? -0.1 : 0;      // some floats flash, some sulk
+          const e = fy - 0.32;
+          let pf = 0.74 + 0.34 * Math.exp(-(e * e) / 0.07);
+          if (fy > 0.7) pf -= 0.22 * (fy - 0.7) / 0.3;
+          let b = rowB[gj] * pf * (0.7 + 0.3 * Math.pow(bulge, 0.4)) * lite;
+          b += hf > 0.66 ? (hf - 0.66) * 0.9 * bulge * (0.4 + lt) : hf < 0.16 ? -0.12 : 0;      // some floats flash, some sulk
           if (!pat[k - GW]) b += 0.1 * (1 - fy);                          // the top edge of a figure catches the light
-          if (!pat[k + GW]) b -= 0.1 * fy;
-          if (!pat[k - 1]) b += 0.08 * (1 - fx); else if (!pat[k + 1]) b -= 0.12 * fx;
-          if (edge < 0.9) b *= 0.34 + 0.5 * edge;
-          b += (h2(px, py) - 0.5) * 0.06;
+          if (!pat[k + GW]) b -= 0.12 * fy;
+          if (!pat[k - 1]) b += 0.08 * (1 - fx); else if (!pat[k + 1]) b -= 0.14 * fx;
+          if (edge < 0.8) b *= 0.46 + 0.675 * edge;
+          b += (h2(px, py) - 0.5) * 0.06 + (h2(px >> 2, gj * 3 + 5000) - 0.5) * 0.05;
           const q = li(b);
           cr = GOLD[q]; cg = GOLD[q + 1]; cb = GOLD[q + 2];
           // gilding rubbed away in patches: the lacquered paper strip shows through
           const wr = wear(px, py) + 0.16 * (h2(gj, fid + 91) - 0.5);
-          if (wr > 0.2) { const m = L.clamp((wr - 0.2) / 0.1) * 0.85; cr += (WORN[q] - cr) * m; cg += (WORN[q + 1] - cg) * m; cb += (WORN[q + 2] - cb) * m; }
-          else if (edge >= 0.9) {
+          if (wr > 0.34) { const m = L.clamp((wr - 0.34) / 0.1) * 0.7; cr += (WORN[q] - cr) * m; cg += (WORN[q + 1] - cg) * m; cb += (WORN[q + 2] - cb) * m; }
+          else if (edge >= 0.8) {
             // specular glint, kept on its own layer
             const h3 = h2(gj * 13 + 5, fid * 3 + 1), gl = Math.exp(-(e * e) / 0.03) * bulge * (0.16 + 0.84 * h3 * h3 * h3);
             gd[o] = 255; gd[o + 1] = 240; gd[o + 2] = 178; gd[o + 3] = 255 * L.clamp(gl * 1.25) * (alpha / 255);
@@ -339,11 +358,11 @@ function buildBrocade(env) {
         // ── satin ground: long warp floats, one tiny tie in five ──
         const s5 = (((gi * 2 + gj) % 5) + 5) % 5;
         let b;
-        if (s5 === 0) b = 0.5 + 0.2 * cyl * Math.sin(Math.PI * fy);
+        if (s5 === 0) b = 0.52 + 0.2 * cyl * Math.sin(Math.PI * fy);
         else b = (0.76 + 0.24 * Math.sin((Math.PI * (s5 - 1 + fy)) / 4)) * (0.62 + 0.38 * cyl);
-        b *= colB[gi] * (0.55 + 0.47 * lt + 0.34 * ud);
-        if (pat[k - GW]) b *= 1 - 0.42 * (1 - fy) * (1 - fy);              // the raised gold drops a little shadow down-right
-        if (pat[k - 1]) b *= 1 - 0.3 * (1 - fx);
+        b *= colB[gi] * (0.5 + 0.47 * lt + 0.4 * ud);
+        if (pat[k - GW]) b *= 1 - 0.46 * (1 - fy) * (1 - fy);              // the raised gold drops a little shadow down-right
+        if (pat[k - 1]) b *= 1 - 0.32 * (1 - fx);
         b += (h2(px, py) - 0.5) * 0.05;
         const q = li(b); cr = RED[q]; cg = RED[q + 1]; cb = RED[q + 2];
       }
@@ -360,47 +379,67 @@ function buildBrocade(env) {
 function makeFringe(env) {
   const a = env.arc, r = L.rng('s22fringe'), nz = L.makeNoise('s22fr');
   const span = a.span(PAD + 40);
-  const RED = ['#d8402a', '#d8402a', '#ea5a3c', '#ea5a3c', '#f6805c', '#f6805c', '#b82418', '#ffa98a', '#ffa98a', '#8f1810'];
+  const BASE = ['#c42a1c', '#c42a1c', '#b32216', '#d4361f', '#a81c12'];
+  const TIP = ['#f0684a', '#f0684a', '#f88a68', '#f88a68', '#ffab8c', '#ffc8ae', '#e24a30', '#ffd9c6'];
   const silk = [], gold = [], wisps = [];
-  const calm = (x) => Math.abs(x - a.cx) < 230;       // under the tagline the fringe stays short
-  // red silk warp ends: a dense comb, combed into tufts, a few bald gaps
-  for (let th = -span; th < span; th += (3.1 / a.R) * r.range(0.6, 1.4)) {
+  const calm = (x) => L.smooth((Math.abs(x - a.cx) - 250) / 150);       // 0 under the tagline (the fringe stays short there) → 1 out to the sides
+  // red silk warp ends: a dense comb, leaning together in tufts, a few bald gaps
+  for (let th = -span; th < span; th += (2.2 / a.R) * r.range(0.55, 1.45)) {
     const s = th * a.R;
-    if (nz.n2(s / 40, 20.2) > 0.58 && r.chance(0.7)) continue;
-    const clump = nz.n2(s / 64, 3.1) * 0.5 + 0.5, lean = nz.n2(s / 120, 9.7) + 0.5 * nz.n2(s / 31, 5.5);
-    let len = 13 + 17 * clump + r.range(-5, 8);
-    if (r.chance(0.08)) len += r.range(10, 30);
-    const p0 = a.pt(th, -r.range(6, 13));
-    if (calm(p0.x)) len = Math.min(len, 21 + r.range(0, 6));
-    const dir = th * 0.5 + lean * 0.42 + r.gauss() * 0.13, curl = r.gauss() * 0.4 + lean * 0.35;
+    if (nz.n2(s / 46, 20.2) > 0.56 && r.chance(0.75)) continue;
+    const clump = nz.n2(s / 70, 3.1) * 0.5 + 0.5, lean = nz.n2(s / 130, 9.7) + 0.6 * nz.n2(s / 34, 5.5);
+    const back = r.chance(0.36);
+    const dr0 = -r.range(9, 26);
+    let tip = 9 + 22 * clump + r.range(-7, 10);
+    if (r.chance(0.06)) tip += r.range(8, 22);
+    const p0 = a.pt(th, dr0), cm = calm(p0.x);
+    tip = Math.min(tip, L.lerp(10 + r.range(0, 9), 60, cm));
+    if (back) tip *= 0.8;
+    const len = tip - dr0;
+    const dir = th * 0.55 + lean * 0.34 + r.gauss() * 0.11, curl = r.gauss() * 0.34 + lean * 0.3;
     const dx = Math.sin(dir), dy = -Math.cos(dir);
-    silk.push({
+    const t = {
       x0: p0.x, y0: p0.y, x1: p0.x + dx * len * 0.55, y1: p0.y + dy * len * 0.55,
       x2: p0.x + dx * len * 0.5 + Math.sin(dir + curl) * len * 0.5, y2: p0.y + dy * len * 0.5 - Math.cos(dir + curl) * len * 0.5,
-      w: r.range(1.5, 2.9), c: r.pick(RED), k: r(),
-    });
-  }
-  // a few gold wefts have worked loose: they leave the edge almost along it, then lift and wander
-  const NG = 11;
-  for (let n = 0; n < NG; n++) {
-    const th = L.lerp(-span, span, (n + r.range(0.15, 0.85)) / NG), side = r.sign(), len = r.range(70, 250);
-    const x0 = a.pt(th, 0).x, low = calm(x0) || calm(x0 + side * len);
-    if (low && r.chance(0.5)) continue;
-    const rise = low ? r.range(4, 11) : r.range(8, 44), ph = r.range(0, L.TAU), fq = r.range(5, 12), wav = r.range(1.5, 5), hook = low ? 0 : r.range(-10, 30);
-    const pts = [];
-    for (let k = 0; k <= 30; k++) {
-      const t = k / 30, s = th * a.R + side * len * t;
-      const dr = -6 + rise * Math.pow(t, 0.7) + wav * Math.sin(t * fq + ph) * t + hook * t * t * t;
-      const p = a.pt(s / a.R, dr); pts.push([p.x, p.y]);
+      w: r.range(2.0, 3.5), back, k: r(), hi: r(),
+      cb: back ? r.pick(['#6c100a', '#84160e', '#7a140c']) : r.pick(BASE), ct: back ? r.pick(['#b83020', '#c63a26', '#a4261a']) : r.pick(TIP),
+      splay: null,
+    };
+    // the very tip of an end untwists into two or three filaments
+    if (!back && r.chance(0.3)) {
+      t.splay = [];
+      for (let n = r.int(2, 3); n > 0; n--) { const an = dir + curl + r.gauss() * 0.55, l = r.range(4, 10) * (0.5 + 0.5 * cm); t.splay.push([t.x2 + Math.sin(an) * l, t.y2 - Math.cos(an) * l]); }
     }
-    gold.push({ pts, w: r.range(2.6, 3.8) });
+    silk.push(t);
+  }
+  // a few gold threads have worked loose: each leaves the edge almost along it, lifts, and curls over at its end
+  const NG = 8;
+  for (let n = 0; n < NG; n++) {
+    const th = L.lerp(-span, span, (n + r.range(0.2, 0.8)) / NG), side = r.sign();
+    const p0 = a.pt(th, -9), low = calm(p0.x) < 0.7;
+    if (r.chance(low ? 0.6 : 0.22)) continue;
+    for (let tries = 0; tries < 6; tries++) {
+      const len = low ? r.range(40, 80) : r.range(60, 150), lift = low ? r.range(0.06, 0.16) : r.range(0.16, 0.62);
+      const c0 = r.gauss() * 0.0035, cEnd = r.sign() * r.range(0.025, 0.06), ph = r.range(0, L.TAU), wf = r.range(0.05, 0.11);
+      let x = p0.x, y = p0.y, phi = side > 0 ? th - lift : Math.PI + th + lift, ok = true;
+      const pts = [[x, y]], n2 = Math.ceil(len / 3);
+      for (let k = 1; k <= n2 && ok; k++) {
+        const t = k / n2;
+        phi += 3 * (c0 + 0.012 * Math.sin(k * 3 * wf + ph) + cEnd * L.smooth((t - 0.62) / 0.38) * (low ? 0.4 : 1));
+        x += 3 * Math.cos(phi); y += 3 * Math.sin(phi);
+        const dr = a.drAt(x, y);
+        if ((k > 3 && dr < -7) || dr > (low ? 13 : 48)) ok = false;
+        pts.push([x, y]);
+      }
+      if (ok) { gold.push({ pts, w: r.range(2.6, 3.6) }); break; }
+    }
   }
   // single filaments of floss
-  for (let n = 0; n < 60; n++) {
-    const th = r.range(-span, span), p0 = a.pt(th, -4), low = calm(p0.x);
-    const len = low ? r.range(14, 26) : r.range(28, 80), dir = th + r.gauss() * 0.6;
+  for (let n = 0; n < 90; n++) {
+    const th = r.range(-span, span), p0 = a.pt(th, -4), cm = calm(p0.x);
+    const len = L.lerp(r.range(10, 20), r.range(26, 78), cm), dir = th + r.gauss() * 0.6;
     const q = [p0.x + Math.sin(dir) * len * 0.5 + r.range(-14, 14), p0.y - Math.cos(dir) * len * 0.5];
-    const e = [p0.x + Math.sin(dir + r.gauss() * 0.9) * len, p0.y - Math.cos(dir) * len * (low ? 0.8 : r.range(0.5, 1))];
+    const e = [p0.x + Math.sin(dir + r.gauss() * 0.9) * len, p0.y - Math.cos(dir) * len * L.lerp(0.8, r.range(0.5, 1), cm)];
     wisps.push({ p0, q, e, c: r.pick(['#ffb9a0', '#f58a6a', '#ffd9a0', '#e86a4c']), a: r.range(0.35, 0.75), w: r.range(0.6, 1.1) });
   }
   return { silk, gold, wisps };
@@ -408,9 +447,10 @@ function makeFringe(env) {
 function drawFringe(g, F, shadow) {
   g.save(); g.lineCap = 'round'; g.lineJoin = 'round';
   const path = (pts) => { g.beginPath(); pts.forEach((p, k) => (k ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); };
+  const end = (t, ox) => { g.beginPath(); g.moveTo(t.x0 + ox, t.y0); g.quadraticCurveTo(t.x1 + ox, t.y1, t.x2 + ox, t.y2); };
   if (shadow) {
     g.strokeStyle = 'rgb(3,6,18)';
-    for (const t of F.silk) { g.lineWidth = t.w + 1; g.beginPath(); g.moveTo(t.x0, t.y0); g.quadraticCurveTo(t.x1, t.y1, t.x2, t.y2); g.stroke(); }
+    for (const t of F.silk) { g.lineWidth = t.w + 1; end(t, 0); g.stroke(); }
     for (const t of F.gold) { g.lineWidth = t.w + 1.5; path(t.pts); g.stroke(); }
     g.restore(); return;
   }
@@ -419,17 +459,23 @@ function drawFringe(g, F, shadow) {
     g.beginPath(); g.moveTo(t.p0.x, t.p0.y); g.quadraticCurveTo(t.q[0], t.q[1], t.e[0], t.e[1]); g.stroke();
   }
   g.globalAlpha = 1;
+  const one = (t) => {
+    g.strokeStyle = t.back ? 'rgba(40,5,6,0.5)' : 'rgba(70,8,6,0.6)'; g.lineWidth = t.w + 1.1; end(t, 0.5); g.stroke();
+    const gr = g.createLinearGradient(t.x0, t.y0, t.x2, t.y2);
+    gr.addColorStop(0, t.cb); gr.addColorStop(0.4, L.mix(t.cb, t.ct, 0.45)); gr.addColorStop(1, t.ct);
+    g.strokeStyle = gr; g.lineWidth = t.w; end(t, 0); g.stroke();
+    if (!t.back && t.hi > 0.4) { g.strokeStyle = 'rgba(255,226,208,0.55)'; g.lineWidth = t.w * 0.36; end(t, -0.6); g.stroke(); }
+    if (t.splay) { g.strokeStyle = t.ct; g.lineWidth = 0.9; for (const e of t.splay) { g.beginPath(); g.moveTo(t.x2, t.y2); g.lineTo(e[0], e[1]); g.stroke(); } }
+  };
   const order = F.silk.slice().sort((p, q) => p.k - q.k);
-  for (const t of order) {
-    g.strokeStyle = 'rgba(70,8,6,0.55)'; g.lineWidth = t.w + 0.9; g.beginPath(); g.moveTo(t.x0, t.y0); g.quadraticCurveTo(t.x1, t.y1, t.x2, t.y2); g.stroke();
-    g.strokeStyle = t.c; g.lineWidth = t.w; g.beginPath(); g.moveTo(t.x0, t.y0); g.quadraticCurveTo(t.x1, t.y1, t.x2, t.y2); g.stroke();
-    if (t.k > 0.45) { g.strokeStyle = 'rgba(255,214,190,0.5)'; g.lineWidth = t.w * 0.4; g.beginPath(); g.moveTo(t.x0 - 0.5, t.y0); g.quadraticCurveTo(t.x1 - 0.6, t.y1, t.x2 - 0.5, t.y2); g.stroke(); }
-  }
+  for (const t of order) if (t.back) one(t);
+  for (const t of order) if (!t.back) one(t);
   for (const t of F.gold) {
-    g.strokeStyle = '#4a2a06'; g.lineWidth = t.w + 1.5; path(t.pts); g.stroke();
-    g.strokeStyle = '#c9952a'; g.lineWidth = t.w; path(t.pts); g.stroke();
-    g.strokeStyle = '#f2cf62'; g.lineWidth = t.w * 0.5; path(t.pts.map((p) => [p[0] - 0.5, p[1] - 0.7])); g.stroke();
-    g.setLineDash([4, 6]); g.strokeStyle = '#fff3c4'; g.lineWidth = t.w * 0.42; path(t.pts.map((p) => [p[0] - 0.5, p[1] - 0.8])); g.stroke(); g.setLineDash([]);
+    // gilt paper wound on a silk core: a dark cord, bright turns of gold, a thread of light along the lit side
+    g.strokeStyle = '#3a1f04'; g.lineWidth = t.w + 1.6; path(t.pts); g.stroke();
+    g.strokeStyle = '#a87416'; g.lineWidth = t.w; path(t.pts); g.stroke();
+    g.lineCap = 'butt'; g.setLineDash([3.2, 1.9]); g.strokeStyle = '#eec555'; g.lineWidth = t.w * 0.82; path(t.pts); g.stroke(); g.setLineDash([]); g.lineCap = 'round';
+    g.strokeStyle = 'rgba(255,246,208,0.7)'; g.lineWidth = t.w * 0.3; path(t.pts.map((p) => [p[0] - 0.6, p[1] - 0.9])); g.stroke();
   }
   g.restore();
 }

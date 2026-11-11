@@ -47,12 +47,12 @@ const li3 = (v, max) => ((Math.sqrt(v >= max ? 1 : v <= 0 ? 0 : v / max) * (NL -
 
 // dust energy → colour (added on top of the black)
 const EMAX = 4.5;
-const DUST = lutE([[0, '#000000'], [0.04, '#1c0403'], [0.16, '#520a06'], [0.4, '#8a140c'], [0.75, '#c01e10'], [1.1, '#e8301c'],
-  [1.75, '#ff5a3a'], [2.7, '#ff9072'], [4.5, '#ffe2d6']], EMAX);
+const DUST = lutE([[0, '#000000'], [0.04, '#1a0403'], [0.14, '#480907'], [0.36, '#84120c'], [0.7, '#b81a12'], [1.05, '#e22a1e'],
+  [1.6, '#ff4a3c'], [2.3, '#ff8a80'], [3.2, '#ffd0cc'], [4.5, '#fff2ef']], EMAX);
 // powder bed and crystal body, indexed by light
 const IMAX = 1.5;
-const POWDER = lutE([[0, '#140202'], [0.16, '#4a0906'], [0.36, '#8a140c'], [0.56, '#bd1f10'], [0.76, '#e8301c'], [1, '#ff5a3a'], [1.5, '#ff9478']], IMAX);
-const XTAL = lutE([[0, '#070101'], [0.14, '#260403'], [0.32, '#560907'], [0.52, '#8a110b'], [0.72, '#c01d11'], [0.92, '#ec3820'], [1.18, '#ff6a4a'], [1.5, '#ffbaa4']], IMAX);
+const POWDER = lutE([[0, '#120202'], [0.16, '#440807'], [0.36, '#84120c'], [0.58, '#bc1c11'], [0.8, '#e8301c'], [1.05, '#ff5540'], [1.5, '#ff907c']], IMAX);
+const XTAL = lutE([[0, '#050101'], [0.12, '#220303'], [0.3, '#4e0707'], [0.5, '#84100c'], [0.7, '#bc1a12'], [0.9, '#e62e1e'], [1.15, '#ff5c48'], [1.5, '#ffb8a8']], IMAX);
 
 /** additive point source: gaussian when sharp, a flat disc with a slightly brighter edge when defocused */
 function splat(buf, x, y, sig, pk) {
@@ -98,12 +98,12 @@ function pileShape() {
   const xc = 962, yc = 1240, ax = 735, ay = 440, Hm = 150;
   const nz = L.makeNoise('s33pile');
   const LOBE = new Float32Array(1026);
-  for (let i = 0; i < 1026; i++) { const ang = -Math.PI + (i / 1024) * L.TAU; LOBE[i] = 1 + 0.08 * nz.n2(ang * 2.6 + 5, 0.3) + 0.04 * nz.n2(ang * 7.3, 4.4); }
+  for (let i = 0; i < 1026; i++) { const ang = -Math.PI + (i / 1024) * L.TAU; LOBE[i] = 1 + 0.09 * nz.n2(ang * 2.6 + 5, 0.3) + 0.06 * nz.n2(ang * 7.3, 4.4) + 0.025 * nz.n2(ang * 19, 8.1); }
   const lobe = (ang) => { const t = ((ang + Math.PI) / L.TAU) * 1024, i = t | 0; return LOBE[i] + (LOBE[i + 1] - LOBE[i]) * (t - i); };
   const rad = (x, y) => { const dx = (x - xc) / ax, dy = (y - yc) / ay; return Math.hypot(dx, dy) / lobe(Math.atan2(dy, dx)); };
   return { xc, yc, ax, ay, Hm, rad, lobe };
 }
-const lpPile = (x, y) => 0.5 + 0.72 * Math.exp(-(((x - 800) / 600) ** 2) - (((y - 850) / 215) ** 2));
+const lpPile = (x, y) => 0.47 + 0.62 * Math.exp(-(((x - 800) / 600) ** 2) - (((y - 850) / 215) ** 2));
 
 // ───────────────────────── dust ─────────────────────────
 function buildDust(env, P) {
@@ -119,18 +119,18 @@ function buildDust(env, P) {
   for (let j = 0; j < ch; j++) for (let i = 0; i < cw; i++) {
     const x = i * CS - PAD, y = j * CS - PAD, k = j * cw + i;
     const ddx = x - cx, ddy = cy - y, dr = Math.hypot(ddx, ddy) - R, s = Math.atan2(ddx, ddy) * R;
-    const m = 1 - sstep(0.7, 1.28, Math.hypot((x - tx) / 500, (y - ty) / 225));
+    const m = 1 - sstep(0.5, 1.45, Math.hypot((x - tx) / 500, (y - ty) / 225));
     MK[k] = m;
-    LP[k] = (0.62 + 0.62 * Math.exp(-(((x - 640) / 1100) ** 2) - ((Math.max(0, dr - 20) / 520) ** 2))) * (1 - 0.42 * m);
+    LP[k] = (0.66 + 0.58 * Math.exp(-(((x - 640) / 1100) ** 2) - ((Math.max(0, dr - 20) / 520) ** 2))) * (1 - 0.3 * m);
     CO[k] = 1.7 * sstep(260, 860, dr) + 0.8 * sstep(800, 1160, Math.abs(x - 960));
     if (dr < -12) continue;
     const cloud = nA.fbm(x / 430 + 3, y / 430 - 8, 4), ray = nB.fbm(s / 80 + 20, dr / 950 + 2, 3), fine = nB.fbm(x / 95 - 40, y / 95 + 13, 3);
-    let d = 0.3 + 0.7 * Math.exp(-Math.max(0, dr - 56) / 260);                       // thickest near the dish
-    d *= 0.52 + 0.96 * sstep(-0.45, 0.6, 0.55 * cloud + 0.42 * ray + 0.25 * fine);   // drifts, and rays thrown outward from the rim
+    let d = 0.45 + 0.55 * Math.exp(-Math.max(0, dr - 56) / 320);                     // thickest near the dish
+    d *= 0.8 + 0.4 * sstep(-0.45, 0.6, 0.55 * cloud + 0.42 * ray + 0.25 * fine);     // drifts, and rays thrown outward from the rim
     d *= 1 - 0.9 * sstep(29, 37, dr) * (1 - sstep(55, 65, dr));                      // the groove outside the rim stays clean
-    if (dr < 29) d *= 1.2;
+    if (dr < 29) d *= 1.1 + 0.9 * Math.exp(-Math.max(0, dr) / 8);                    // powder banked up against the lip
     d *= sstep(-7, 0.5, dr);
-    d *= 1 - 0.64 * m;
+    d *= 1 - 0.5 * m;
     D[k] = d;
   }
   const bil = (F, x, y) => {
@@ -141,20 +141,30 @@ function buildDust(env, P) {
   // 1) the star field on the table and on the rim's top face
   const r = L.rng('s33dust');
   const yMax = a.yAt(-PAD) + 10;
+  // glitter, not LEDs: most grains are dull crimson flecks of no particular shape, a fifth are lit, and only the few flakes
+  // that happen to lie flat to the lamp burn out to a pale point
   const grain = (x, y, boost) => {
-    const u = r(), lp = bil(LP, x, y), coc = bil(CO, x, y);
-    const b = (0.07 + 2.2 * u ** 7) * lp * boost;
-    const sig = 0.45 + 0.55 * r() ** 3 + (u > 0.92 ? 0.2 : 0), sg = Math.hypot(sig, coc);
-    splat(E, x + PAD, y + PAD, sg, (b * (sig * sig)) / (sg * sg) * (1 + 0.8 * coc));
-    if (r() < 0.07 * (1 - 0.85 * bil(MK, x, y))) flashes.push(x + PAD, y + PAD, Math.min(2, sg + 0.2), (r.range(0.8, 2.6) * lp) / (1 + 0.5 * coc), r.int(0, 2));
+    const u = r(), lp = bil(LP, x, y), coc = bil(CO, x, y), mk = bil(MK, x, y);
+    let b, sig;
+    if (u > 0.968) { b = r.range(2.4, 5.6) * (1 - 0.6 * mk); sig = r.range(0.58, 0.95); }
+    else if (u > 0.91) { b = r.range(0.45, 1.2); sig = r.range(0.5, 0.85); }
+    else { b = 0.04 + 0.24 * r() ** 2; sig = r.range(0.5, 1.0); }
+    b *= lp * boost;
+    const sg = Math.hypot(sig, coc), pk = (b * (sig * sig)) / (sg * sg) * (1 + 0.8 * coc);
+    splat(E, x + PAD, y + PAD, sg, pk);
+    if (u <= 0.968 && r() < 0.4) {
+      const an = r.range(0, L.TAU), d = sig * r.range(0.9, 1.7);
+      splat(E, x + PAD + Math.cos(an) * d, y + PAD + Math.sin(an) * d, sg * 0.85, pk * 0.7);
+    }
+    if (r() < 0.07 * (1 - 0.85 * mk)) flashes.push(x + PAD, y + PAD, Math.min(2, sg + 0.2), (r.range(0.8, 2.6) * lp) / (1 + 0.5 * coc), r.int(0, 2));
   };
-  for (let n = 0; n < 300000; n++) {
+  for (let n = 0; n < 230000; n++) {
     const x = r.range(-PAD, W + PAD), y = r.range(-PAD, yMax);
     if (r() * 2.2 > bil(D, x, y)) continue;
     grain(x, y, 1);
   }
   // pinches of powder that landed together
-  for (let c = 0, t = 0; c < 40 && t < 1500; t++) {
+  for (let c = 0, t = 0; c < 16 && t < 1500; t++) {
     const x0 = r.range(-PAD, W + PAD), y0 = r.range(-PAD, yMax), d = bil(D, x0, y0);
     if (r() * 1.4 > d || bil(MK, x0, y0) > 0.25) continue;
     c++;
@@ -200,7 +210,7 @@ function buildDust(env, P) {
   const rf = L.rng('s33foot');
   for (let n = 0; n < 12000; n++) {
     const ang = rf.range(-Math.PI * 0.985, -Math.PI * 0.015);
-    const over = Math.abs(rf.gauss()) * 0.03 + rf() ** 3 * 0.15;
+    const over = Math.abs(rf.gauss()) * 0.022 + rf() ** 4 * 0.1;
     const rr = (1 + over) * P.lobe(ang);
     const x = P.xc + P.ax * rr * Math.cos(ang) + rf.gauss() * 4, y = P.yc + P.ay * rr * Math.sin(ang) + rf.gauss() * 4;
     if (x < -PAD + 3 || x > W + PAD - 3 || y > H + PAD - 3 || a.drAt(x, y) > -16) continue;
@@ -209,7 +219,7 @@ function buildDust(env, P) {
     splat(E, x + PAD, y + PAD, sig, b);
     if (rf() < 0.05) flashes.push(x + PAD, y + PAD, sig + 0.2, rf.range(0.8, 2.2) * Math.exp(-over * 6), rf.int(0, 2));
   }
-  for (let n = 0; n < 260; n++) {
+  for (let n = 0; n < 140; n++) {
     const x = rf.range(-PAD, W + PAD), y = rf.range(a.crestY, H + PAD);
     const dr = a.drAt(x, y);
     if (dr > -22 || P.rad(x, y) < 1.02) continue;
@@ -234,7 +244,10 @@ function dustImages(env, dust, G) {
         if (dr > -8) {
           tb = sstep(-3, 2, dr);                            // the table is a hair lighter than the inside of the dish
           // powder too fine to resolve: a grainy red haze wherever the dust lies thick
-          if (i < LW - 8) e += 0.05 * bil(D, x, y) * (0.25 + 1.5 * h01(i, j));
+          if (i < LW - 8) {
+            const mo = vn(x / 6.3 + 11, y / 6.3 - 3) * 0.6 + vn(x / 2.6 - 5, y / 2.6 + 17) * 0.4;
+            e += bil(D, x, y) * bil(dust.LP, x, y) * (0.03 + 0.11 * mo * mo) * (0.5 + h01(i, j));
+          }
           E[idx] = e;
         }
       }
@@ -297,6 +310,9 @@ function boxBlur2(src, w, h, rad) {
 function buildCrystals(env, P, dust, G) {
   const a = env.arc, { xc, yc, ax, ay, Hm } = P;
   const Z = new Float32Array(NPX), F = new Int32Array(NPX).fill(-1);     // F: −1 nothing, −2 powder bed, ≥ 0 crystal facet
+  // per crystal pixel: the facet that would come next (F2) and how far below it lies (GAP → 0 on a ridge), and the back
+  // facet seen through the fragment (FB)
+  const F2 = new Int32Array(NPX), FB = new Int32Array(NPX), GAP = new Float32Array(NPX);
 
   // 1) the powder mound. Outline and slow swells come from a coarse grid; the granules are per pixel.
   const jA = Math.max(1, Math.floor(yc - ay * 1.18) + PAD), iA = Math.max(1, Math.floor(xc - ax * 1.18) + PAD), iB = Math.min(LW - 2, Math.ceil(xc + ax * 1.18) + PAD);
@@ -350,10 +366,10 @@ function buildCrystals(env, P, dust, G) {
   };
   scatter(34, 4000, 26, 52, 1.6, (rd) => (rd > 0.3 && rd < 0.97 ? 1 : 0), 0.82);
   scatter(200, 9000, 9, 25, 1.8, (rd) => (rd < 0.9 ? 0.55 : rd < 1.03 ? 1 : 0), 0);
-  scatter(1300, 30000, 3.2, 8.5, 2, (rd) => (rd < 1 ? 0.8 : Math.exp(-(rd - 1) * 26)), 0);
-  scatter(2400, 60000, 1.3, 3.2, 1.5, (rd) => (rd < 0.95 ? 0.3 : Math.exp(-(rd - 0.95) * 16)), 0);
+  scatter(1300, 30000, 3.2, 8.5, 2, (rd) => (rd < 1 ? 0.8 : Math.exp(-(rd - 1) * 40)), 0);
+  scatter(2400, 60000, 1.3, 3.2, 1.5, (rd) => (rd < 0.95 ? 0.3 : Math.exp(-(rd - 0.95) * 26)), 0);
   // a few strays on the black of the dish
-  for (let c = 0, t = 0; c < 22 && t < 4000; t++) {
+  for (let c = 0, t = 0; c < 12 && t < 4000; t++) {
     const x = r.range(-PAD, W + PAD), y = r.range(a.crestY + 30, H + PAD);
     const rd = P.rad(x, y), s = L.lerp(1.3, 5, r() ** 2.2);
     if (!inDish(x, y, 30) || rd < 1.1 || r() > Math.exp(-(rd - 1.1) * 4.5)) continue;
@@ -368,26 +384,45 @@ function buildCrystals(env, P, dust, G) {
     list.push(mkCrystal(r, x, y, s, 0)); c++;
   }
 
-  const FN = [], FCI = [];            // facet normals (x, y, z) and the crystal each facet belongs to
+  const FN = [], FCI = [], FIRE = [];  // facet normals (x, y, z), the crystal each facet belongs to, and its glow as a back facet
+  const rq = L.rng('s33fire');
   list.forEach((c, ci0) => {
     const f0 = FCI.length;
-    for (let k = 0; k < c.np; k++) { const n = norm3(c.pa[k], c.pb[k], 1); FN.push(n[0], n[1], n[2]); FCI.push(ci0); }
+    c.q = 1 / Math.max(8, c.s * 0.5);
+    const bx = c.s * rq.range(-0.3, 0.3), by = c.s * rq.range(-0.3, 0.3);
+    for (let k = 0; k < c.np; k++) {
+      const n = norm3(c.pa[k], c.pb[k], 1); FN.push(n[0], n[1], n[2]); FCI.push(ci0);
+      const nb = norm3(-c.pa[k] * 0.5, -c.pb[k] * 0.5, 1);
+      FIRE.push(Math.pow(Math.max(0, nb[0] * Hm0[0] + nb[1] * Hm0[1] + nb[2] * Hm0[2]), 5) * rq.range(0.35, 1));
+    }
     const e = Math.ceil(c.ext), ci = c.x + PAD, cj = c.y + PAD;
     const i0 = Math.max(1, Math.floor(ci - e)), i1 = Math.min(LW - 2, Math.ceil(ci + e)), j0 = Math.max(1, Math.floor(cj - e)), j1 = Math.min(LH - 2, Math.ceil(cj + e));
     const wob = c.s > 6 ? c.s * 0.075 : 0, q1 = 1 / (c.s * 0.36), q2 = 1 / (c.s * 0.15), slack = wob * 1.5;
     const { pa, pb, pc, pw, pv, np, z0 } = c;
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const dx = i + 0.5 - ci, dy = j + 0.5 - cj, idx = j * LW + i, lim = Z[idx] - z0 - slack;
-      let hm = 1e9, km = 0;
-      for (let k = 0; k < np; k++) { const h = pc[k] - pa[k] * dx - pb[k] * dy; if (h < hm) { hm = h; km = k; if (h < lim) break; } }
+      let hm = 1e9, km = 0, h2 = 1e9, k2 = 0;
+      for (let k = 0; k < np; k++) {
+        const h = pc[k] - pa[k] * dx - pb[k] * dy;
+        if (h < hm) { h2 = hm; k2 = km; hm = h; km = k; if (h < lim) break; } else if (h < h2) { h2 = h; k2 = k; }
+      }
       if (hm < lim) continue;
       if (wob) {    // fracture faces are never dead flat: let the planes swell and sag a little
         const w1 = (vn(i * q1 + c.seed, j * q1) - 0.5) * 2 * wob, w2 = (vn(i * q2 - c.seed, j * q2 + 9) - 0.5) * wob;
-        hm = 1e9;
-        for (let k = 0; k < np; k++) { const h = pc[k] - pa[k] * dx - pb[k] * dy + w1 * pw[k] + w2 * pv[k]; if (h < hm) { hm = h; km = k; } }
+        hm = 1e9; h2 = 1e9;
+        for (let k = 0; k < np; k++) {
+          const h = pc[k] - pa[k] * dx - pb[k] * dy + w1 * pw[k] + w2 * pv[k];
+          if (h < hm) { h2 = hm; k2 = km; hm = h; km = k; } else if (h < h2) { h2 = h; k2 = k; }
+        }
       }
       const h = z0 + hm;
-      if (h > Z[idx]) { Z[idx] = h; F[idx] = f0 + km; }
+      if (h > Z[idx]) {
+        Z[idx] = h; F[idx] = f0 + km; F2[idx] = f0 + k2; GAP[idx] = h2 - hm;
+        // the far side of the fragment, seen through it: the same planes mirrored and shifted
+        let bm = 1e9, kb = 0;
+        for (let k = 0; k < np; k++) { const hb = pc[k] * 0.8 + pa[k] * (dx - bx) + pb[k] * (dy - by); if (hb < bm) { bm = hb; kb = k; } }
+        FB[idx] = f0 + kb;
+      }
     }
   });
   const nf = FCI.length;
@@ -410,7 +445,7 @@ function buildCrystals(env, P, dust, G) {
       if (f === -1) continue;
       const x = i - PAD, z = Z[idx], o = idx * 4;
       const powder = f === -2;
-      let nx, ny, nz, c = null;
+      let nx, ny, nz, c = null, pm = 0.5;
       if (powder) {
         let gx = (Z[idx + 1] - Z[idx - 1]) * 0.5, gy = (Z[idx + LW] - Z[idx - LW]) * 0.5;
         gx = gx < -2.2 ? -2.2 : gx > 2.2 ? 2.2 : gx; gy = gy < -2.2 ? -2.2 : gy > 2.2 ? 2.2 : gy;
@@ -418,9 +453,10 @@ function buildCrystals(env, P, dust, G) {
         nx = -gx * inv; ny = -gy * inv; nz = inv;
       } else {
         c = list[FCI[f]];
-        const sd = c.seed, pn = vn(i / 9 + sd, j / 9), pm = vn(i / 9 - 31, j / 9 + sd);
-        nx = FN[f * 3] + (pn - 0.5) * 0.13 + (h01(i, j) - 0.5) * 0.04;
-        ny = FN[f * 3 + 1] + (pm - 0.5) * 0.13 + (h01(i + 7, j + 3) - 0.5) * 0.04;
+        // cleavage faces are mirror-smooth: the normal only drifts slowly across a face, so a highlight grades over it
+        const sd = c.seed, q = c.q, pn = vn(i * q + sd, j * q); pm = vn(i * q - 31, j * q + sd);
+        nx = FN[f * 3] + (pn - 0.5) * 0.12;
+        ny = FN[f * 3 + 1] + (pm - 0.5) * 0.12;
         nz = FN[f * 3 + 2];
         const inv = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
         nx *= inv; ny *= inv; nz *= inv;
@@ -439,7 +475,7 @@ function buildCrystals(env, P, dust, G) {
       const lp = onTable ? dust.bil(dust.LP, x, y) * 1.15 : lpPile(x, y);
       const hsh = h01(i + 13, j + 29);
       if (powder) {
-        const I = (0.15 + 0.92 * lam * sh) * ao * (0.8 + 0.42 * hsh) * lp;
+        const I = (0.11 + 0.76 * lam * sh) * ao * (0.8 + 0.42 * hsh) * lp;
         const li = li3(I, IMAX);
         out[o] = POWDER[li]; out[o + 1] = POWDER[li + 1]; out[o + 2] = POWDER[li + 2]; out[o + 3] = 255;
         G0[o] = G0[o + 1] = G0[o + 2] = G1[o] = G1[o + 1] = G1[o + 2] = G2[o] = G2[o + 1] = G2[o + 2] = 0;
@@ -448,22 +484,33 @@ function buildCrystals(env, P, dust, G) {
         if (hg > 0.9925 && sh > 0.6) { const Gg = G[(hg * 4096 | 0) % 3], k = (0.4 + 0.6 * lam) * lp; Gg[o] = 255 * k; Gg[o + 1] = 150 * k; Gg[o + 2] = 118 * k; }
       } else {
         const tex = vn(i / 5.5 + c.seed, j / 5.5);
-        const sheen = 0.55 * Math.pow(Math.max(0, nx * Hm0[0] + ny * Hm0[1] + nz * Hm0[2]), 9) * sh;
+        // powder clinging to the faces (matte, brighter scarlet), in patches, more of it on the faces that look up
+        const dusted = vn(i / 1.9 + c.seed, j / 1.9 - 4) > 0.95 - 0.34 * pm - 0.1 * nz ? 0.55 : 0;
+        // the body is dark, dense crimson; what makes it a crystal is what it reflects
+        const sheen = 0.5 * Math.pow(Math.max(0, nx * Hm0[0] + ny * Hm0[1] + nz * Hm0[2]), 12) * sh;
         // faces turned away from the lamp are not dead: light that entered the crystal elsewhere glows out of them, deep red
-        const trans = 0.24 * sstep(0.15, 0.8, -(nx * dirx + ny * diry)) * (0.35 + 0.65 * ao);
-        const I = ((0.07 + 0.7 * lam * sh) * ao * c.tone * (0.84 + 0.32 * tex) + sheen + trans) * lp;
-        // powder clinging to the faces (matte, brighter scarlet), more of it on the faces that look up
-        const dusted = vn(i / 1.9 + c.seed, j / 1.9 - 4) > 0.86 - 0.3 * pm - 0.12 * nz ? 0.62 : 0;
+        const trans = 0.2 * sstep(0.15, 0.8, -(nx * dirx + ny * diry)) * (0.35 + 0.65 * ao);
+        // … and through the faces one sees the far facets, some of them throwing the lamp back
+        const fire = 0.3 * FIRE[FB[idx]] * (0.45 + 0.55 * ao) * (0.4 + 0.6 * sh);
+        // ridges where two faces meet are chipped and catch the light as thin bright lines
+        const f2 = F2[idx];
+        let ex = FN[f * 3] + FN[f2 * 3], ey = FN[f * 3 + 1] + FN[f2 * 3 + 1], ez = FN[f * 3 + 2] + FN[f2 * 3 + 2];
+        const einv = 1 / Math.sqrt(ex * ex + ey * ey + ez * ez); ex *= einv; ey *= einv; ez *= einv;
+        const ridge = c.s > 4 ? Math.exp(-GAP[idx] * 0.9) * (0.3 + 0.95 * vn(i / 2.3 + c.seed, j / 2.3)) * (0.3 + 0.7 * sh) : 0;
+        const eh = Math.max(0, ex * Hm0[0] + ey * Hm0[1] + ez * Hm0[2]);
+        const I = ((0.045 + 0.32 * lam * sh) * ao * c.tone * (0.88 + 0.24 * tex) + sheen + trans + fire + 0.6 * ridge * eh * eh * eh) * lp;
         const li = li3(I, IMAX);
         let cr = XTAL[li], cg = XTAL[li + 1], cb = XTAL[li + 2];
         if (dusted) { const lq = li3((0.2 + 0.85 * lam * sh) * ao * (0.8 + 0.4 * hsh) * lp, IMAX); cr += (POWDER[lq] - cr) * dusted; cg += (POWDER[lq + 1] - cg) * dusted; cb += (POWDER[lq + 2] - cb) * dusted; }
         let base = 0;
-        const gain = (0.25 + 0.75 * sh) * (1 - dusted) * Math.min(1.2, lp * 1.1) * (0.5 + 0.5 * tex);
+        const gain = (0.25 + 0.75 * sh) * (1 - dusted) * Math.min(1.2, lp * 1.1) * (0.82 + 0.18 * tex);
         for (let g = 0; g < 3; g++) {
           const hv = HV[g], d = nx * hv[0] + ny * hv[1] + nz * hv[2];
-          const sp = d > 0.9 ? Math.pow(d, 70) * gain : 0;
+          let sp = d > 0.9 ? Math.pow(d, 70) * gain : 0;
+          if (ridge > 0.05) { const de = ex * hv[0] + ey * hv[1] + ez * hv[2]; if (de > 0.85) { const se = Math.pow(de, 36) * ridge * 1.1; if (se > sp) sp = se; } }
+          if (sp > 1.15) sp = 1.15;
           const Gg = G[g];
-          Gg[o] = 255 * sp; Gg[o + 1] = (60 + 150 * sp) * sp; Gg[o + 2] = (40 + 150 * sp) * sp;
+          Gg[o] = 255 * sp; Gg[o + 1] = (66 + 150 * sp) * sp; Gg[o + 2] = (50 + 150 * sp) * sp;
           if (sp > 0.2) { FS[g][f] += sp; FX[g][f] += sp * i; FY[g][f] += sp * j; }
           base += sp;
         }
@@ -505,21 +552,13 @@ function glowOf(src, px, k) {
   return c;
 }
 
-/** a point of light as the lens sees it: hot core, red halo, two faint diffraction streaks. (x, y) in layer pixels */
+/** a point of light as the lens sees it: a burnt-out core in a small red halo — no star filter. (x, y) in layer pixels */
 function star(g, x, y, size, alpha) {
   g.save();
   g.globalCompositeOperation = 'lighter';
   g.translate(x, y);
-  g.fillStyle = L.radial(g, 0, 0, 0, size, [[0, `rgba(255,236,226,${alpha})`], [0.1, `rgba(255,150,120,${alpha * 0.6})`], [0.4, `rgba(232,48,28,${alpha * 0.14})`], [1, 'rgba(232,48,28,0)']]);
+  g.fillStyle = L.radial(g, 0, 0, 0, size, [[0, `rgba(255,240,232,${alpha})`], [0.12, `rgba(255,156,132,${alpha * 0.55})`], [0.42, `rgba(232,48,28,${alpha * 0.12})`], [1, 'rgba(232,48,28,0)']]);
   g.fillRect(-size, -size, size * 2, size * 2);
-  g.rotate(0.42);
-  for (let k = 0; k < 2; k++) {
-    g.save(); g.rotate(k * Math.PI / 2); g.scale(1, 0.045);
-    const rr = size * (k ? 1.7 : 2.4);
-    g.fillStyle = L.radial(g, 0, 0, 0, rr, [[0, `rgba(255,214,200,${alpha * 0.8})`], [0.3, `rgba(255,110,84,${alpha * 0.4})`], [1, 'rgba(232,48,28,0)']]);
-    g.fillRect(-rr, -rr, rr * 2, rr * 2);
-    g.restore();
-  }
   g.restore();
 }
 
@@ -541,12 +580,12 @@ export default {
       g.drawImage(dustC, -PAD, -PAD);
       // halation: the bright grains and the red line bleed a little into the black
       g.globalCompositeOperation = 'lighter';
-      g.globalAlpha = 0.22; g.drawImage(glowOf(dustC, 4, 2), -PAD, -PAD, LW, LH);
-      g.globalAlpha = 0.12; g.drawImage(glowOf(dustC, 18, 6), -PAD, -PAD, LW, LH);
+      g.globalAlpha = 0.18; g.drawImage(glowOf(dustC, 4, 2), -PAD, -PAD, LW, LH);
+      g.globalAlpha = 0.1; g.drawImage(glowOf(dustC, 18, 6), -PAD, -PAD, LW, LH);
       g.globalAlpha = 1;
       // the polished inner wall of the dish mirrors the red line: a soft glow that dies within a few dozen px, weaker away from the lamp
       const wall = L.makeLayer(PAD, (w) => {
-        w.fillStyle = L.radial(w, a.cx, a.cy, R - 86, R, [[0, 'rgba(200,36,20,0)'], [0.5, 'rgba(200,36,20,0.03)'], [0.86, 'rgba(232,48,28,0.1)'], [1, 'rgba(255,90,58,0.2)']]);
+        w.fillStyle = L.radial(w, a.cx, a.cy, R - 86, R, [[0, 'rgba(200,36,20,0)'], [0.5, 'rgba(200,36,20,0.014)'], [0.86, 'rgba(232,48,28,0.05)'], [1, 'rgba(255,84,58,0.12)']]);
         full(w);
         w.globalCompositeOperation = 'destination-in';
         w.fillStyle = L.linear(w, -PAD, 0, W + PAD, 0, [[0, 'rgba(0,0,0,0.7)'], [0.36, 'rgba(0,0,0,1)'], [0.6, 'rgba(0,0,0,0.8)'], [1, 'rgba(0,0,0,0.4)']]);
@@ -555,7 +594,7 @@ export default {
       g.save(); a.clipBelow(g, -2); g.drawImage(wall, -PAD, -PAD); g.restore();
       // the heap glows faintly on the black floor around it
       g.save(); a.clipBelow(g, -40);
-      g.globalAlpha = 0.3; g.drawImage(glowOf(xtC, 30, 8), -PAD, -PAD, LW, LH);
+      g.globalAlpha = 0.14; g.drawImage(glowOf(xtC, 30, 8), -PAD, -PAD, LW, LH);
       g.restore();
       // heap, strays and crumbs (a half-pixel resample over the top takes the stair-steps off the facet edges)
       g.globalCompositeOperation = 'source-over';
@@ -614,9 +653,9 @@ export default {
     const hp = a.pt(L.lerp(-0.2, 0.13, p), 0);
     const bell = (c, k) => L.linear(ctx, hp.x - 270, 0, hp.x + 270, 0, [[0, L.rgba(c, 0)], [0.3, L.rgba(c, 0.22 * k)], [0.5, L.rgba(c, k)], [0.7, L.rgba(c, 0.22 * k)], [1, L.rgba(c, 0)]]);
     ctx.save();
-    ctx.globalCompositeOperation = 'color-dodge'; ctx.strokeStyle = bell('#c8b4ac', 0.9); ctx.lineWidth = 14; a.stroke(ctx, 2);
+    ctx.globalCompositeOperation = 'color-dodge'; ctx.strokeStyle = bell('#c8b4ac', 0.75); ctx.lineWidth = 12; a.stroke(ctx, 1);
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = bell('#ff5a3a', 0.16); ctx.lineWidth = 10; a.stroke(ctx, -1);
+    ctx.strokeStyle = bell('#ff5038', 0.1); ctx.lineWidth = 9; a.stroke(ctx, -1);
     ctx.strokeStyle = bell('#ffb49c', 0.45); ctx.lineWidth = 1.8; a.stroke(ctx, -1.6);
     ctx.restore();
   },

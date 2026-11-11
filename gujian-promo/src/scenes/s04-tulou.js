@@ -72,7 +72,7 @@ function paintGallery(g, FW) {
   // boarded railing of the top gallery: upright planks, one by one
   for (let x = 0; x < FW;) {
     const w = r.range(9, 15);
-    g.fillStyle = L.shade('#b4601f', r.range(-0.3, 0.1)); g.fillRect(x, rail0, w - 1.6, rail1 - rail0);
+    g.fillStyle = L.shade('#c4691c', r.range(-0.26, 0.12)); g.fillRect(x, rail0, w - 1.6, rail1 - rail0);
     g.fillStyle = 'rgba(255,196,130,0.24)'; g.fillRect(x, rail0, 1.6, rail1 - rail0);
     x += w;
   }
@@ -97,12 +97,12 @@ function paintGallery(g, FW) {
   g.restore();
   // the sun rakes the ring from the left: the galleries on the right face it squarely, those on the left turn away into cool shade
   g.save(); g.globalCompositeOperation = 'multiply';
-  g.fillStyle = L.linear(g, 0, 0, FW, 0, [[0, '#4d5263'], [0.2, '#5f6170'], [0.5, '#b9aa98'], [0.8, '#f4ece2'], [1, '#f4ece2']]);
+  g.fillStyle = L.linear(g, 0, 0, FW, 0, [[0, '#4d5263'], [0.22, '#6a6872'], [0.42, '#cdbfae'], [0.6, '#fbf3e8'], [1, '#fff8ee']]);
   g.fillRect(0, E - 16, FW, beam1 - E + 16);
   g.restore();
   // the deep eave's shadow over the top of the gallery
-  g.fillStyle = L.linear(g, 0, E - 16, 0, E + 66, [[0, 'rgba(7,4,3,0.97)'], [0.55, 'rgba(7,4,3,0.94)'], [0.8, 'rgba(7,4,3,0.5)'], [1, 'rgba(7,4,3,0)']]);
-  g.fillRect(0, E - 16, FW, 82);
+  g.fillStyle = L.linear(g, 0, E - 16, 0, E + 54, [[0, 'rgba(7,4,3,0.97)'], [0.5, 'rgba(7,4,3,0.94)'], [0.78, 'rgba(7,4,3,0.5)'], [1, 'rgba(7,4,3,0)']]);
+  g.fillRect(0, E - 16, FW, 70);
 }
 
 /** round colonies of crusty lichen (R = pale grey-green, G = ochre), scattered over the strip */
@@ -112,7 +112,7 @@ function lichenMap(FW, RH) {
   g.globalCompositeOperation = 'lighter';
   const n = Math.round(FW * 0.36);
   for (let i = 0; i < n; i++) {
-    const x = r() * FW, y = TOPM + Math.pow(r(), 0.8) * (D.eave + 10), rad = 2.5 + 15 * Math.pow(r(), 2.6), ochre = r.chance(0.16), a = r.range(0.35, 1);
+    const x = r() * FW, y = TOPM + Math.pow(r(), 0.8) * (D.eave + 10), rad = 2.5 + 15 * Math.pow(r(), 2.6), ochre = false, a = r.range(0.35, 1);
     const lobes = rad > 6 ? r.int(3, 6) : 1;
     for (let j = 0; j < lobes; j++) {
       const lx = x + (lobes > 1 ? r.range(-0.5, 0.5) * rad : 0), ly = y + (lobes > 1 ? r.range(-0.5, 0.5) * rad : 0), lr = rad * (lobes > 1 ? r.range(0.45, 0.8) : 1);
@@ -142,10 +142,12 @@ function buildStrip(env) {
   const ci = [], co = [], ti_ = [], to_ = [];
   const lenIn = sE + 40, lenOut = D.ridge + TOPM + 24;
   for (let i = 0; i < nR; i++) {
-    cOff[i] = rr.range(-3.5, 3.5); cHW[i] = ((P * SPLIT) / 2) * rr.range(0.92, 1.06); rowTone[i] = rr.range(0.9, 1.1);
+    cOff[i] = rr.range(-5.5, 5.5); cHW[i] = ((P * SPLIT) / 2) * rr.range(0.87, 1.1); rowTone[i] = rr.range(0.86, 1.12);
     ci.push(makeRun('s04ci' + i, lenIn, 25, 0.24)); co.push(makeRun('s04co' + i, lenOut, 11.5, 0.22));
     ti_.push(makeRun('s04ti' + i, lenIn, 30, 0.24)); to_.push(makeRun('s04to' + i, lenOut, 14, 0.22));
   }
+  const nzW = L.makeNoise('s04gauge'), warp = new Float32Array(FW);
+  for (let x = 0; x < FW; x++) warp[x] = 9 * nzW.fbm(x / 330, 7.3, 2) + 3 * nzW.fbm(x / 120, 2.1, 2);
   const hgt = new Float32Array(FW * RH), alb = new Uint8ClampedArray(FW * RH * 3), glo = new Uint8Array(FW * RH), alp = new Uint8ClampedArray(FW * RH);
 
   // ── pass 1: height + albedo, tile by tile
@@ -157,7 +159,7 @@ function buildStrip(env) {
       const dd = d - D.ridge + (nb - 128) * 0.022;                         // the ridge line wanders a few px
       const side = dd >= 0 ? 1 : -1;            // +1 inner slope (faces the camera), −1 outer slope (falls away)
       const s = dd >= 0 ? dd : -dd;             // distance down the slope from the ridge line
-      const xr = x + (nm - 128) * 0.012 + (nb - 128) * 0.03;              // rows meander a little
+      const xr = x + warp[x] + (nm - 128) * 0.014 + (nb - 128) * 0.05 + (side < 0 ? 37 : 0);   // rows meander; the two slopes were laid independently
       let ri = (xr / P) | 0; if (ri < 0) ri = 0; else if (ri >= nR) ri = nR - 1;
       const fx = xr - (ri + 0.5) * P - cOff[ri];
       const hw = cHW[ri];
@@ -180,12 +182,12 @@ function buildStrip(env) {
           const au = uc < 0 ? -uc : uc;
           const prof = (Math.sqrt(1 - 0.84 * uc * uc) - 0.4) / 0.6;        // 1 on the crown → 0 at the edges
           h = 5 + 13.5 * prof + (side > 0 ? 3 : 1.8) * f * (q < face ? (q < 0 ? 0 : q / face) : 1) + (ho - 0.5) * 2 + (hp - 0.5) * 2.6 * uc;
-          tone = rowTone[ri] * (0.78 + 0.44 * hk);
-          if (ho > 0.94) tone *= 1.3; else if (ho < 0.1) tone *= 0.66;
+          tone = side > 0 ? rowTone[ri] * (0.78 + 0.44 * hk) : (0.74 + 0.4 * h2(ri, 77)) * (0.9 + 0.2 * hk);
+          if (ho > 0.94) tone *= 1.18; else if (ho < 0.1) tone *= 0.7;
           warm = hq - 0.5;
           hd = se - b0;
-          if (hd < 4.5) tone *= 0.5 + 0.5 * (hd / 4.5);                    // dirt packed under the tile above
-          if (q >= face && q < face + 2.5) tone *= 1.2;                    // worn, paler lip
+          if (hd < 4.5) tone *= side > 0 ? 0.5 + 0.5 * (hd / 4.5) : 0.8 + 0.2 * (hd / 4.5);   // dirt packed under the tile above
+          if (side > 0 && q >= face && q < face + 2.5) tone *= 1.14;       // worn, paler lip
           if (au > 0.86) tone *= 1 - (au - 0.86) * 2.4;
           if (hp > 0.86) {                                                 // a chipped corner shows the tile underneath
             const cw = 0.25 + 0.4 * hq, ch = 8 + 10 * ho;
@@ -212,7 +214,7 @@ function buildStrip(env) {
         const f = (se - b0) / e; let q = b0 + e - se;
         if (side > 0 && sE + 6 - se < q) q = sE + 6 - se;
         h = -1.5 - 9 * tr + (side > 0 ? 2.6 : 1.5) * f * (q < face ? (q < 0 ? 0 : q / face) : 1) + (hk - 0.5) * 1.8;
-        tone = 0.82 * (0.8 + 0.4 * hk);
+        tone = (side > 0 ? 0.82 : 0.56) * (0.8 + 0.4 * hk);
         warm = run.hq[ti] - 0.5;
         hd = se - b0;
         if (hd < 4.5) tone *= 0.55 + 0.45 * (hd / 4.5);
@@ -229,8 +231,8 @@ function buildStrip(env) {
       if (side > 0) { if (s < 80) tone *= 1 - 0.3 * sm((nr - 132) / 50) * (1 - s / 80); tone *= 1 - 0.2 * sm((s - 190) / 140); }
       // fired clay: cool grey ↔ warm grey-brown, drifting in big patches and tile by tile
       let wm = 0.5 + warm * 0.8 + (nb - 128) * 0.0035; if (wm < 0) wm = 0; else if (wm > 1) wm = 1;
-      const tx = tone * (0.74 + 0.52 * (nf / 255)) * (0.82 + 0.36 * (nr / 255));
-      let cr = (71 + 15 * wm) * tx, cg = (73 - 1 * wm) * tx, cb = (77 - 15 * wm) * tx;
+      const tx = tone * (0.74 + 0.52 * (nf / 255)) * (0.82 + 0.36 * (nr / 255)) * (side > 0 ? 1 : 0.94);
+      let cr = (73 + 11 * wm) * tx, cg = (72 - 1 * wm) * tx, cb = (74 - 12 * wm) * tx;
       // ── the ridge: roof tiles stacked on edge like a row of leaning books, bedded in lime mortar
       if (dd > -D.rh * 1.6 && dd < D.rh * 1.6) {
         const t = dd / D.rh, t2 = t * t;
@@ -260,17 +262,17 @@ function buildStrip(env) {
       let li = lich[k4] + lich[k4 + 1];
       if (li > 0) {
         const och = lich[k4 + 1] > lich[k4];
-        li = (li > 255 ? 1 : li / 255) * (cover ? 0.78 : 0.3) * (0.5 + 0.5 * (nf / 255)) * (side > 0 ? 1 : 0.6);
-        if (och) { cr += (150 - cr) * li; cg += (124 - cg) * li; cb += (62 - cb) * li; } else { cr += (146 - cr) * li; cg += (152 - cg) * li; cb += (138 - cb) * li; }
+        li = (li > 255 ? 1 : li / 255) * (cover ? 0.6 : 0.22) * (0.5 + 0.5 * (nf / 255)) * (side > 0 ? 1 : 0.6);
+        if (och) { cr += (150 - cr) * li; cg += (124 - cg) * li; cb += (62 - cb) * li; } else { cr += (150 - cr) * li; cg += (149 - cg) * li; cb += (142 - cb) * li; }
         gl *= 1 - li; h += li * 0.8;
       }
       // moss and black dirt gathering in the troughs and under every lap
-      const wz = side > 0 ? 0.25 + 0.75 * sm((s - 120) / 190) : 0.8;       // dampness: toward the inner eave; all of the shaded slope
+      const wz = side > 0 ? 0.25 + 0.75 * sm((s - 120) / 190) : 0.45;       // dampness: toward the inner eave; all of the shaded slope
       let mm = sm((nr - 108) / 60) * wz * (cover ? (hd < 7 ? (1 - hd / 7) * 0.7 : 0) : tr * 1.1 + (hd < 7 ? (1 - hd / 7) * 0.5 : 0));
       if (mm > 0) {
         if (mm > 1) mm = 1; mm *= 0.45 + 0.55 * (nm / 255);
         const tip = nf / 255;
-        cr += (24 + 34 * tip - cr) * mm; cg += (28 + 40 * tip - cg) * mm; cb += (16 + 14 * tip - cb) * mm; gl *= 1 - mm; h += mm * (0.6 + 2.6 * tip);
+        cr += (22 + 24 * tip - cr) * mm; cg += (24 + 27 * tip - cg) * mm; cb += (17 + 13 * tip - cb) * mm; gl *= 1 - mm; h += mm * (0.6 + 2.6 * tip);
       }
       hgt[k] = h; alb[k * 3] = cr; alb[k * 3 + 1] = cg; alb[k * 3 + 2] = cb; glo[k] = gl;
       // silhouettes: the bumpy far eave above, the scalloped inner eave below
@@ -320,15 +322,16 @@ function buildStrip(env) {
       let ao = 1 - (hb[k] - h0) * 0.06; if (ao < 0.36) ao = 0.36; else if (ao > 1.12) ao = 1.12;
       const amb = (0.5 + 0.5 * nz) * ao;
       let bk = ny * -0.8 + nz * 0.6; bk = bk > 0 ? bk * ao : 0;
-      const sun = diff * (1 - sh);
+      const lit = 0.24 + 0.76 * sm(((x - FW / 2 + (y - TOPM) * 0.55 + (nBig[k] - 128) * 0.5) / R + 0.3) / 0.25);
+      const sun = diff * (1 - sh) * lit;
       let r = alb[k * 3] * (0.5 * amb + 0.08 * bk + 1.4 * sun);
       let g = alb[k * 3 + 1] * (0.57 * amb + 0.1 * bk + 1.16 * sun);
       let b = alb[k * 3 + 2] * (0.68 * amb + 0.12 * bk + 0.86 * sun);
       const gl = glo[k] / 255;
       if (gl > 0) {      // damp tiles: a cool sheen at grazing angles, small warm glints toward the sun
-        let fr = 1 - (ny * 0.64 + nz * 0.77); fr = fr > 0 ? fr * fr * fr * ao : 0;
-        let sp = nx * hsx[x] + ny * hsy[x] + nz * hsz[x]; sp = sp > 0 ? Math.pow(sp, 26) * (1 - sh) : 0;
-        r += gl * (fr * 50 + sp * 190); g += gl * (fr * 57 + sp * 172); b += gl * (fr * 66 + sp * 140);
+        let fr = 1 - (ny * 0.64 + nz * 0.77); fr = fr > 0 ? (fr > 1 ? 1 : fr * fr * fr) * ao : 0;
+        let sp = nx * hsx[x] + ny * hsy[x] + nz * hsz[x]; sp = sp > 0 ? Math.pow(sp, 26) * (1 - sh) * lit : 0;
+        r += gl * (fr * 62 + sp * 190); g += gl * (fr * 71 + sp * 172); b += gl * (fr * 83 + sp * 140);
       }
       if (r > 196) r = 196 + (r - 196) * 0.5; if (g > 196) g = 196 + (g - 196) * 0.5; if (b > 196) b = 196 + (b - 196) * 0.5;
       const k4 = k * 4;
@@ -396,7 +399,7 @@ function buildBack(env) {
   const X = -BP, Y = -BP, WW = W + BP * 2, HH = H + BP * 2;
   const c = L.makeCanvas(WW, HH); c._pad = BP;
   const g = c.getContext('2d'); g.translate(BP, BP);
-  g.fillStyle = L.linear(g, 0, Y, 0, a.crestY + 300, [[0, '#cbd9e5'], [0.4, '#dde7ee'], [0.75, '#ecf2f5'], [1, '#f5f8fa']]);
+  g.fillStyle = L.linear(g, 0, Y, 0, a.crestY + 300, [[0, '#cfdce7'], [0.4, '#dfe8ef'], [0.75, '#eef3f6'], [1, '#f7f9fb']]);
   g.fillRect(X, Y, WW, HH);
   // drawn at 1/8 size and scaled up: far out of focus for free
   const hill = L.makeCanvas(WW / 8, HH / 8), q = hill.getContext('2d'); q.scale(1 / 8, 1 / 8); q.translate(BP, BP);
@@ -406,7 +409,7 @@ function buildBack(env) {
     q.lineTo(x, 380 - 60 * Math.exp(-(((x - 330) / 420) ** 2)) - 36 * Math.exp(-(((x - 1650) / 380) ** 2)) - 30 * nz.fbm((x / W) * 2.4 + 3.7, 1.3, 3));
   }
   q.lineTo(W + BP + 40, HH); q.closePath();
-  q.fillStyle = L.linear(q, 0, 290, 0, 600, [[0, 'rgba(150,176,198,0.3)'], [0.4, 'rgba(160,184,204,0.18)'], [1, 'rgba(190,208,222,0)']]); q.fill();
+  q.fillStyle = L.linear(q, 0, 290, 0, 600, [[0, 'rgba(150,176,198,0.2)'], [0.4, 'rgba(160,184,204,0.12)'], [1, 'rgba(190,208,222,0)']]); q.fill();
   g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
   g.drawImage(hill, X, Y, WW, HH);
   // slow, very low-contrast unevenness in the mist so it is air, not a flat fill
@@ -441,7 +444,7 @@ export default {
       const s = a.pt(0.2, -300);
       L.glow(ctx, s.x, s.y, 640, '#ffd6a0', 0.4, 'overlay');
       const q = a.pt(-0.42, -250);
-      L.glow(ctx, q.x, q.y, 600, '#16202e', 0.38, 'overlay');
+      L.glow(ctx, q.x, q.y, 600, '#16202e', 0.22, 'overlay');
       ctx.restore();
     });
   },

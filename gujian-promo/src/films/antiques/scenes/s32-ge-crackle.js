@@ -39,8 +39,8 @@ function buildNet(env) {
   const a = env.arc, R = a.R;
   const r = L.rng('s32-ge-net-3');
   const UM = 1250, VT = -54, VB = 680;
-  const Siron = (v) => 100 + 250 * sstep(30, 560, v);      // size of an iron-line block: small under the rim, large in the well
-  const Sgold = (v) => 44 + 78 * sstep(30, 560, v);        // size of a gold-thread cell inside it
+  const Siron = (v) => 96 + 290 * sstep(10, 440, v);      // size of an iron-line block: small under the rim, large in the well
+  const Sgold = (v) => 46 + 90 * sstep(10, 440, v);        // size of a gold-thread cell inside it
   const cracks = [], blocks = [], cells = [];
 
   const area = (P) => { let s = 0; for (let i = 0, n = P.length; i < n; i++) { const p = P[i], q = P[(i + 1) % n]; s += p[0] * q[1] - q[0] * p[1]; } return s / 2; };
@@ -122,9 +122,9 @@ function buildNet(env) {
     const ax = axes(P), ar = Math.abs(area(P)), c = centroid(P);
     const target = Siron(c[1]) * r.range(0.74, 1.38);
     if (gen < 30 && (Math.sqrt(ar) > target || (ax.len > 2.3 * (ar / ax.len) && ax.len > target * 1.25))) {
-      const sp = split(P, ax, 1, gen <= 2 ? 0.55 : 0.38);
+      const sp = split(P, ax, 1, gen <= 2 ? 0.34 : 0.24);
       if (sp) {
-        const w = gen <= 1 ? r.range(8.6, 10.6) : gen <= 3 ? r.range(6.6, 8.8) : gen <= 5 ? r.range(5.0, 7.0) : r.range(4.0, 5.6);
+        const w = gen <= 1 ? r.range(8.2, 10.6) : gen <= 3 ? r.range(6.0, 8.8) : gen <= 5 ? r.range(4.2, 6.8) : r.range(3.0, 5.2);
         cracks.push({ uv: sp.path, kind: 0, gen, w, seed: r.range(0, 900) });
         stack.push({ P: sp.c1, gen: gen + 1 }, { P: sp.c2, gen: gen + 1 });
         continue;
@@ -141,10 +141,10 @@ function buildNet(env) {
       const ax = axes(P), ar = Math.abs(area(P)), c = centroid(P);
       const target = Sgold(c[1]) * dens * r.range(0.72, 1.4);
       if (gen < 20 && (Math.sqrt(ar) > target || (ax.len > 2.4 * (ar / ax.len) && ax.len > target * 1.3))) {
-        const sp = split(P, ax, 1.15, 0.4);
+        const sp = split(P, ax, 1.15, 0.3);
         if (sp) {
-          const k = { uv: sp.path, kind: 1, gen, w: gen === 0 ? r.range(3.6, 4.8) : r.range(2.6, 3.8), seed: r.range(0, 900), tone: r.int(0, 3), al: Math.min(1, r.range(0.72, 1.4)) };
-          if (gen >= 1 && r.chance(0.13)) { k.cut = r.range(0.5, 0.82); k.rev = r.chance(0.5); }   // some threads die out before they reach the other side
+          const k = { uv: sp.path, kind: 1, gen, w: gen === 0 ? r.range(3.0, 4.2) : r.range(2.0, 3.3), seed: r.range(0, 900), tone: r.int(0, 3), al: Math.min(1, r.range(0.55, 1.35)) };
+          if (gen >= 1 && r.chance(0.24)) { k.cut = r.range(0.5, 0.82); k.rev = r.chance(0.5); }   // some threads die out before they reach the other side
           cracks.push(k);
           stack.push({ P: sp.c1, gen: gen + 1 }, { P: sp.c2, gen: gen + 1 });
           continue;
@@ -157,8 +157,8 @@ function buildNet(env) {
   // ── to the frame: one shared warp (lines waver, junctions stay closed), then wrap onto the rim circle ──
   const nz = L.makeNoise('s32warp'), nw = L.makeNoise('s32width');
   const toXY = (u, v) => {
-    const wu = u + 36 * nz.n2(u / 560 + 3.3, v / 560 - 8.1) + 14 * nz.n2(u / 250, v / 250) + 5 * nz.n2(u / 90 + 7.3, v / 90 - 3.1) + 1.2 * nz.n2(u / 21 + 40, v / 21 + 9);
-    const wv = v + 30 * nz.n2(u / 560 - 14.2, v / 560 + 5.5) * sstep(-40, 160, v) + 14 * nz.n2(u / 250 + 31.7, v / 250 + 11.2) + 5 * nz.n2(u / 90 - 19.4, v / 90 + 23.8) + 1.2 * nz.n2(u / 21 - 8, v / 21 + 60);
+    const wu = u + 34 * nz.n2(u / 560 + 3.3, v / 560 - 8.1) + 20 * nz.n2(u / 250, v / 250) + 8 * nz.n2(u / 90 + 7.3, v / 90 - 3.1) + 2.2 * nz.n2(u / 30 + 40, v / 30 + 9);
+    const wv = v + 30 * nz.n2(u / 560 - 14.2, v / 560 + 5.5) * sstep(-40, 160, v) + 18 * nz.n2(u / 250 + 31.7, v / 250 + 11.2) * sstep(-50, 60, v) + 8 * nz.n2(u / 90 - 19.4, v / 90 + 23.8) + 2.2 * nz.n2(u / 30 - 8, v / 30 + 60);
     const th = wu / R, rr = R - wv;
     return [a.cx + rr * Math.sin(th), a.cy - rr * Math.cos(th)];
   };
@@ -175,7 +175,7 @@ function buildNet(env) {
     const tot = sl[n - 1], hw = new Float32Array(n), et = new Float32Array(n), young = c.gen > 0 || c.kind === 1;
     for (let i = 0; i < n; i++) {
       const s = sl[i];
-      const f = 1 + 0.38 * nw.n2(s / 75 + c.seed, c.seed * 0.37) + 0.15 * nw.n2(s / 16, c.seed + 5);
+      const f = Math.max(0.4, 1 + 0.5 * nw.n2(s / 75 + c.seed, c.seed * 0.37) + 0.2 * nw.n2(s / 16, c.seed + 5));
       const j0 = free0 ? sstep(0, 44, s) : young ? L.lerp(0.6, 1, sstep(0, 30, s)) : 1;
       const j1 = free1 ? sstep(0, 44, tot - s) : young ? L.lerp(0.6, 1, sstep(0, 30, tot - s)) : 1;
       hw[i] = 0.5 * c.w * f * j0 * j1;
@@ -184,7 +184,7 @@ function buildNet(env) {
     c.xy = xy; c.hw = hw; c.et = et;
   }
   // celadon clusters (u, v, radius)
-  const clusters = [[-770, 255, 235], [-200, 410, 185], [440, 215, 235], [985, 310, 215]];
+  const clusters = [[-800, 235, 230], [-250, 150, 165], [-110, 450, 190], [470, 205, 230], [1000, 300, 210]];
   const nc = L.makeNoise('s32cel');
   for (const b of blocks) {
     b.xy = b.P.map(([u, v]) => toXY(u, v));
@@ -230,9 +230,9 @@ function buildGlaze(env, net) {
   // 1) every iron-line block fired a slightly different butter-cream …
   put(g, blur(mk((t) => {
     for (const b of net.blocks) {
-      const cream = L.mix(COL.cream, rt.pick(['#e7d596', '#d8c68e', '#e8dbae', '#dfca88']), rt.range(0.2, 0.85));
-      const cel = L.mix(COL.celadon, rt.pick(['#98ae9e', '#b4bca6', '#90a698']), rt.range(0.1, 0.8));
-      t.fillStyle = t.strokeStyle = L.mix(cream, cel, b.cel * 0.5);
+      const cream = L.mix(COL.cream, rt.pick(['#e2d3a2', '#d4c494', '#e7dbb4', '#d9c998']), rt.range(0.2, 0.85));
+      const cel = L.mix(COL.celadon, rt.pick(['#93aa9e', '#aebaa8', '#86a094']), rt.range(0.1, 0.8));
+      t.fillStyle = t.strokeStyle = L.mix(cream, cel, b.cel * 0.72);
       t.lineWidth = 2; poly(t, b.xy); t.fill(); t.stroke();
     }
   }), 9));
@@ -241,7 +241,7 @@ function buildGlaze(env, net) {
     for (const [cu, cv, cr] of net.clusters) {
       const [x, y] = net.toXY(cu, cv);
       t.save(); t.translate(x, y); t.rotate(cu / a.R); t.scale(1.12, 0.92);
-      t.fillStyle = L.radial(t, 0, 0, 0, cr * 1.05, [[0, 'rgba(138,168,155,0.96)'], [0.45, 'rgba(150,174,158,0.72)'], [0.8, 'rgba(169,179,162,0.24)'], [1, 'rgba(169,179,162,0)']]);
+      t.fillStyle = L.radial(t, 0, 0, 0, cr * 1.05, [[0, 'rgba(134,166,155,0.9)'], [0.45, 'rgba(148,173,160,0.62)'], [0.8, 'rgba(169,179,162,0.2)'], [1, 'rgba(169,179,162,0)']]);
       t.fillRect(-cr * 1.3, -cr * 1.3, cr * 2.6, cr * 2.6);
       t.restore();
     }
@@ -253,18 +253,26 @@ function buildGlaze(env, net) {
     for (const c of net.cells) {
       const b = net.blocks[c.block], v = rt();
       if (b.cel > 0.2 && v < 0.5) t.fillStyle = L.rgba(rt.pick(['#8ea697', '#a2b5a5', '#c6ccb4']), rt.range(0.1, 0.42) * b.cel);
-      else if (v < 0.5) t.fillStyle = L.rgba('#f6ecd0', rt.range(0.05, 0.34));
-      else t.fillStyle = L.rgba('#c4a964', rt.range(0.04, 0.28));
+      else if (v < 0.5) t.fillStyle = L.rgba('#f6eed6', rt.range(0.04, 0.26));
+      else t.fillStyle = L.rgba('#c2ac74', rt.range(0.03, 0.2));
       poly(t, c.xy); t.fill();
     }
   }), 4.5));
   // 3) the glaze itself: fat, opaque, clouded
   put(g, noise({ seed: 's32cloud', scale: 250, octaves: 4, warp: 0.7, res: 0.2, contrast: 1.5 }), 0.2, 'soft-light');
   put(g, noise({ seed: 's32curd', scale: 54, octaves: 3, res: 0.4, contrast: 1.5 }), 0.1, 'soft-light');
+  // … and full of bubbles (聚沫攒珠): a close-packed froth just under the surface, thicker in some places than others
+  const foam = L.noiseTex(LW, BH, { seed: 's32foam', scale: 9, cellular: true, res: 1, ramp: [[0, '#e6e6e6'], [0.26, '#909090'], [0.52, '#5e5e5e'], [1, '#5e5e5e']] });
+  foam._y0 = Y0;
+  const fg = foam.getContext('2d');
+  fg.globalCompositeOperation = 'destination-out';
+  fg.drawImage(L.noiseTex(LW, BH, { seed: 's32foammask', scale: 130, octaves: 3, warp: 0.6, res: 0.2, contrast: 1.6, ramp: [[0, 'rgba(0,0,0,0.85)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0)']] }), 0, 0);
+  put(g, foam, 0.46, 'soft-light');
+  put(g, noise({ seed: 's32mottle', scale: 20, octaves: 2, res: 0.5, contrast: 1.6 }), 0.1, 'soft-light');
 
   // 4) stain bleeding out of the cracks into the glaze (洇染)
-  put(g, blur(mk((t) => { t.fillStyle = '#8a6238'; cracksOf(t, 0, 1, 8); }), 4), 0.5, 'multiply');
-  put(g, blur(mk((t) => { t.fillStyle = '#e0a02e'; cracksOf(t, 1, 1, 5, (c) => { t.globalAlpha = c.al; }); }), 2.6), 0.6, 'multiply');
+  put(g, blur(mk((t) => { t.fillStyle = '#93714c'; cracksOf(t, 0, 1, 9); }), 5), 0.42, 'multiply');
+  put(g, blur(mk((t) => { t.fillStyle = '#e0b256'; cracksOf(t, 1, 1, 4, (c) => { t.globalAlpha = c.al; }); }), 2.4), 0.42, 'multiply');
 
   // 5) relief: every block is a shallow cushion, every crack a soft groove
   const hIron = mk((t) => { t.fillStyle = '#fff'; full(t); t.fillStyle = '#000'; cracksOf(t, 0, 1, 9); });
@@ -272,9 +280,9 @@ function buildGlaze(env, net) {
   const dome = L.bumpLight(hIron, { angle: 45, strength: 10, blur: 30, res: 0.5 }); dome._y0 = Y0;
   const groove = L.bumpLight(hIron, { angle: 45, strength: 1.4, blur: 6, res: 0.5 }); groove._y0 = Y0;
   const fine = L.bumpLight(hGold, { angle: 45, strength: 1.1, blur: 3, res: 0.5 }); fine._y0 = Y0;
-  put(g, dome, 0.7, 'overlay');
-  put(g, groove, 0.55, 'overlay');
-  put(g, fine, 0.45, 'overlay');
+  put(g, dome, 0.4, 'overlay');
+  put(g, groove, 0.5, 'overlay');
+  put(g, fine, 0.28, 'overlay');
 
   // 6) satin sheen (酥光): a soft band of light lying round the wall, broken into facets because every cell tilts a little
   const facet = blur(mk((t) => { for (const c of net.cells) { t.fillStyle = `rgba(255,255,255,${(0.3 + 0.7 * Math.pow(rt(), 1.4)).toFixed(3)})`; poly(t, c.xy); t.fill(); } }), 3);
@@ -284,24 +292,29 @@ function buildGlaze(env, net) {
     t.fillStyle = L.linear(t, 0, 0, W, 0, [[0, 'rgba(0,0,0,0.2)'], [0.32, 'rgba(0,0,0,1)'], [0.6, 'rgba(0,0,0,0.34)'], [1, 'rgba(0,0,0,0.06)']]); full(t);
     put(t, facet, 1, 'destination-in');
   });
-  put(g, sheen, 0.55, 'soft-light');
-  put(g, sheen, 0.16, 'screen');
+  put(g, sheen, 0.5, 'soft-light');
+  put(g, sheen, 0.1, 'screen');
 
   // 7) the cracks themselves — inside the glaze, so their edges are a little soft. Young gold first, old iron over it.
   put(g, blur(mk((t) => {
     const tones = ['#c8922e', '#b87a14', '#cf962c', '#bf8218'];
     cracksOf(t, 1, 1, 0, (c) => { t.fillStyle = tones[c.tone]; t.globalAlpha = c.al; });
   }), 0.5));
-  put(g, blur(mk((t) => { t.fillStyle = '#4a3222'; cracksOf(t, 0, 1, 2.2); }), 1.3), 0.85);
-  put(g, blur(mk((t) => { t.fillStyle = COL.iron; cracksOf(t, 0, 1, 0); }), 0.6));
+  put(g, blur(mk((t) => { t.fillStyle = '#4a3222'; cracksOf(t, 0, 1, 2.6); }), 1.6), 0.7);
+  put(g, blur(mk((t) => {
+    // the thin young ones never took as much stain; and along any one line the black thins to rust here and there
+    cracksOf(t, 0, 1, 0, (c) => { t.fillStyle = L.mix(COL.iron, '#3b2a1f', L.clamp((7.5 - c.w) / 5) * 0.8); });
+    t.globalCompositeOperation = 'source-atop';
+    t.drawImage(L.noiseTex(LW, BH, { seed: 's32rust', scale: 64, octaves: 3, res: 0.25, contrast: 1.8, ramp: [[0, 'rgba(98,62,36,0.8)'], [0.42, 'rgba(98,62,36,0)'], [1, 'rgba(98,62,36,0)']] }), -PAD, Y0);
+  }), 0.7));
 
   // 8) bubbles held in the glaze: a dust of pearl points, a few big enough to see
   g.save(); a.clipBelow(g, 30);
   L.speckle(g, { seed: 's32bub', count: 2600, x: -PAD, y: Y0, w: LW, h: BH, rMin: 0.6, rMax: 1.7, colors: ['#fffdf2', '#fff8e0'], alpha: [0.12, 0.5] });
   L.speckle(g, { seed: 's32pin', count: 500, x: -PAD, y: Y0, w: LW, h: BH, rMin: 0.5, rMax: 1.4, colors: ['#8a7446', '#6e5a36'], alpha: [0.1, 0.34] });
   const rb = L.rng('s32pearl'), pearls = [];
-  for (let i = 0; i < 110; i++) {
-    const x = rb.range(-PAD, W + PAD), y = rb.range(Y0, Y1), rad = rb.range(2.0, 3.8);
+  for (let i = 0; i < 300; i++) {
+    const x = rb.range(-PAD, W + PAD), y = rb.range(Y0, Y1), rad = 1.7 + 3.4 * Math.pow(rb(), 2.4);
     if (a.drAt(x, y) > -26) continue;
     g.fillStyle = L.radial(g, x + rad * 0.3, y + rad * 0.3, rad * 0.4, rad * 1.5, [[0, 'rgba(120,96,52,0)'], [0.6, 'rgba(120,96,52,0.28)'], [1, 'rgba(120,96,52,0)']]);
     g.beginPath(); g.arc(x, y, rad * 1.5, 0, L.TAU); g.fill();
@@ -315,15 +328,15 @@ function buildGlaze(env, net) {
   const lp = a.pt(-0.11, -200);
   g.save();
   g.globalCompositeOperation = 'soft-light';
-  g.fillStyle = L.radial(g, lp.x, lp.y, 40, 700, [[0, 'rgba(255,250,232,0.4)'], [0.5, 'rgba(255,250,232,0.16)'], [1, 'rgba(255,250,232,0)']]); full(g);
+  g.fillStyle = L.radial(g, lp.x, lp.y, 40, 700, [[0, 'rgba(255,250,232,0.26)'], [0.5, 'rgba(255,250,232,0.1)'], [1, 'rgba(255,250,232,0)']]); full(g);
   g.globalCompositeOperation = 'multiply';
-  g.fillStyle = L.radial(g, lp.x, lp.y, 340, 1450, [[0, '#ffffff'], [0.45, '#ebdfbe'], [1, '#b8a174']]); full(g);
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 110, a.R, [[0, 'rgba(160,128,84,0)'], [0.6, 'rgba(160,128,84,0.16)'], [1, 'rgba(150,112,76,0.42)']]); full(g);
+  g.fillStyle = L.radial(g, lp.x, lp.y, 340, 1450, [[0, '#ffffff'], [0.45, '#efe7d2'], [1, '#c9bb9d']]); full(g);
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 110, a.R, [[0, 'rgba(150,126,98,0)'], [0.6, 'rgba(150,126,98,0.14)'], [1, 'rgba(140,110,90,0.36)']]); full(g);
   g.restore();
 
   // 10) depth of field: sharp under the crest, softening toward the sides and the bottom of frame
   const fc = { x: a.cx - 40, y: a.crestY + 130 };
-  for (const [px, r0, r1] of [[2.2, 400, 820], [5.5, 720, 1260]]) {
+  for (const [px, r0, r1] of [[2.4, 380, 780], [6.5, 660, 1180]]) {
     const soft = blur(glaze, px), sg = soft.getContext('2d');
     sg.globalCompositeOperation = 'destination-in';
     sg.fillStyle = L.radial(sg, fc.x + PAD, fc.y - Y0, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
@@ -347,66 +360,84 @@ function buildGlaze(env, net) {
 // ───────────────────────── the rim: 紫口, its sheen, and the shadow it drops on the silk ─────────────────────────
 function buildRim(env) {
   const a = env.arc;
-  const Y0 = Math.floor(a.crestY) - 130, Y1 = Math.ceil(a.yAt(-PAD)) + 70;
-  const full = (g) => g.fillRect(-PAD, Y0, LW, Y1 - Y0);
+  const Y0 = Math.floor(a.crestY) - 130, Y1 = Math.ceil(a.yAt(-PAD)) + 110, BH = Y1 - Y0;
+  const full = (g) => g.fillRect(-PAD, Y0, LW, BH);
   const nz = L.makeNoise('s32rim');
   const s = a.span(PAD + 60), N = 260;
-  const inner = (th) => { const u = th * a.R; return -(16.5 + 5 * nz.n2(u / 130, 1.7) + 2.6 * nz.n2(u / 34, 9.2) + 1.0 * nz.n2(u / 9, 4.4)); };
+  // how far in from the lip the body still shows: the glaze ran off the lip unevenly, so the band swells and pinches
+  const inner = (th) => { const u = th * a.R; return -(30 + 9 * nz.n2(u / 150, 1.7) + 5 * nz.n2(u / 40, 9.2) + 1.6 * nz.n2(u / 11, 4.4)); };
   const bandPath = (g, extra) => {
     g.beginPath(); a.trace(g, 6, -s, s);
     for (let i = N; i >= 0; i--) { const th = L.lerp(-s, s, i / N), p = a.pt(th, inner(th) - extra); g.lineTo(p.x, p.y); }
     g.closePath();
   };
-  // the mouth: body colour showing through the thinned glaze, feathering into the cream below
-  const mouth = band(Y0, Y1, (g) => {
-    g.fillStyle = 'rgba(126,86,78,0.55)'; bandPath(g, 9); g.fill();
-  });
-  const m2 = blur(mouth, 5), mg = m2.getContext('2d');
+  // where the glaze is thin but not gone the body warms it to a brown that melts into the cream
+  const mouth = band(Y0, Y1, (g) => { g.fillStyle = 'rgba(140,98,74,0.52)'; bandPath(g, 17); g.fill(); });
+  const m2 = blur(mouth, 8), mg = m2.getContext('2d');
   mg.translate(PAD, -Y0);
+  // the lip itself: darkest where it turns over the edge, plum on the crown, browner as the glaze begins to cover it
   put(mg, blur(band(Y0, Y1, (g) => {
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 26, a.R + 2, [[0, '#603f44'], [0.45, COL.mouth], [1, '#38222b']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 48, a.R + 2, [[0, '#7a564c'], [0.3, '#603e42'], [0.62, COL.mouth], [0.86, '#3a2430'], [1, '#22131b']]);
     bandPath(g, 0); g.fill();
-    // the body is not one flat colour: iron-dark flecks and thin places where a little glaze still clouds it
+    // the body is not one flat colour: iron-dark streaks, and thin places where a little glaze still clouds it
     g.save(); bandPath(g, 0); g.clip();
     const r = L.rng('s32mouth');
-    for (let i = 0; i < 340; i++) {
-      const th = r.range(-s, s), dr = -r.range(1, 19), len = r.range(8, 46), w = r.range(1, 3.4);
+    for (let i = 0; i < 460; i++) {
+      const th = r.range(-s, s), dr = -r.range(1, 40), len = r.range(12, 60), w = r.range(1.6, 5);
       a.at(g, th, dr, () => {
-        g.fillStyle = r.chance(0.5) ? L.rgba('#2b1820', r.range(0.2, 0.55)) : L.rgba('#7c5a5e', r.range(0.15, 0.45));
+        g.fillStyle = r.chance(0.55) ? L.rgba('#24131b', r.range(0.2, 0.55)) : L.rgba(dr < -16 ? '#9a7462' : '#76545a', r.range(0.15, 0.42));
         g.beginPath(); g.ellipse(0, 0, len, w, 0, 0, L.TAU); g.fill();
       });
     }
     g.restore();
-  }), 0.9));
+  }), 3));
   // a crisp silhouette exactly on the arc
   mg.globalCompositeOperation = 'destination-out';
   mg.fillStyle = '#000'; a.pathAbove(mg, 0); mg.fill();
   mg.globalCompositeOperation = 'source-over';
 
+  // a highlight that runs along the lip the way one does on a real, slightly uneven edge: strongest toward the key light, breaking up as it goes
+  const lipLight = (t, dr, lw, k) => {
+    for (let i = 0; i < N; i++) {
+      const th0 = L.lerp(-s, s, i / N), th1 = L.lerp(-s, s, (i + 1.2) / N), u = th0 * a.R, x01 = (a.cx + u) / W;
+      const key = Math.exp(-Math.pow((x01 - 0.3) / 0.2, 2)) + 0.2 * Math.exp(-Math.pow((x01 - 0.8) / 0.1, 2)) + 0.07;
+      const br = L.clamp(0.6 + 0.55 * nz.n2(u / 70, 21.3) + 0.25 * nz.n2(u / 17, 3.9));
+      t.strokeStyle = `rgba(255,240,230,${Math.min(1, k * key * br).toFixed(3)})`;
+      t.lineWidth = lw * (0.65 + 0.6 * br);
+      t.beginPath(); a.trace(t, dr, th0, th1); t.stroke();
+    }
+  };
+
   const rim = band(Y0, Y1, (g) => {
-    // shadow on the silk: a tight contact shade all round, and the dish's own shadow thrown to the right by the key light
+    // shadow on the silk. The key light is upper left, so on that side the cloth runs lit right up to the lip;
+    // the dish's own shadow only swings out from under it toward the right. A breath of occlusion all round.
     g.save(); a.clipAbove(g, -5);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 30, [[0, 'rgba(112,100,90,0.5)'], [0.3, 'rgba(112,100,90,0.22)'], [1, 'rgba(112,100,90,0)']]); full(g);
-    g.fillStyle = L.radial(g, a.cx + 64, a.cy - 4, a.R - 22, a.R + 40, [[0, 'rgba(116,104,94,0.5)'], [0.36, 'rgba(116,104,94,0.4)'], [0.7, 'rgba(116,104,94,0.12)'], [1, 'rgba(116,104,94,0)']]); full(g);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 30, [[0, 'rgba(104,100,94,0.3)'], [0.4, 'rgba(104,100,94,0.1)'], [1, 'rgba(104,100,94,0)']]); full(g);
+    g.fillStyle = L.radial(g, a.cx + 92, a.cy + 6, a.R - 30, a.R + 62, [[0, 'rgba(100,97,92,0.56)'], [0.4, 'rgba(100,97,92,0.4)'], [0.72, 'rgba(100,97,92,0.13)'], [1, 'rgba(100,97,92,0)']]); full(g);
     g.restore();
     put(g, m2);
-    // the fat roll of glaze just inside the mouth catches the light
     g.save(); a.clipBelow(g, 0);
+    // the fat roll of glaze just inside the mouth catches the light
     const roll = blur(band(Y0, Y1, (t) => {
       t.strokeStyle = L.linear(t, 0, 0, W, 0, [[0, 'rgba(255,250,232,0.25)'], [0.3, 'rgba(255,250,232,0.85)'], [0.6, 'rgba(255,250,232,0.4)'], [1, 'rgba(255,250,232,0.12)']]);
-      t.lineWidth = 13; t.beginPath();
-      for (let i = 0; i <= N; i++) { const th = L.lerp(-s, s, i / N), p = a.pt(th, inner(th) - 21); if (i) t.lineTo(p.x, p.y); else t.moveTo(p.x, p.y); }
+      t.lineWidth = 16; t.beginPath();
+      for (let i = 0; i <= N; i++) { const th = L.lerp(-s, s, i / N), p = a.pt(th, inner(th) - 27); if (i) t.lineTo(p.x, p.y); else t.moveTo(p.x, p.y); }
       t.stroke();
-    }), 6);
-    put(g, roll, 0.55, 'soft-light');
-    // soft sheen on the lip itself
-    const lip = blur(band(Y0, Y1, (t) => {
-      t.strokeStyle = L.linear(t, 0, 0, W, 0, [[0, 'rgba(255,236,226,0.1)'], [0.27, 'rgba(255,240,230,0.75)'], [0.55, 'rgba(255,236,226,0.3)'], [1, 'rgba(255,236,226,0.06)']]);
-      t.lineWidth = 2.4; a.stroke(t, -3.4, -s, s);
-    }), 1.1);
-    put(g, lip, 0.8, 'screen');
+    }), 7);
+    put(g, roll, 0.6, 'soft-light');
+    // the lip is rounded and still has a skin of glaze on it: a soft sheen with a thin hot core
+    put(g, blur(band(Y0, Y1, (t) => lipLight(t, -10, 7, 0.7)), 3), 0.34, 'screen');
+    put(g, blur(band(Y0, Y1, (t) => lipLight(t, -8, 2.4, 1.7)), 0.8), 0.8, 'screen');
+    g.strokeStyle = 'rgba(24,12,18,0.6)'; g.lineWidth = 4; a.stroke(g, -1.5, -s, s);
     g.restore();
   });
+
+  // depth of field: the lip is sharp across the middle of the frame and softens toward both sides, like the glaze under it
+  const mask = (g) => L.linear(g, a.cx - 1000, 0, a.cx + 1000, 0, [[0, 'rgba(0,0,0,1)'], [0.275, 'rgba(0,0,0,0)'], [0.71, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+  const soft = blur(rim, 3.2), sg = soft.getContext('2d'), rg = rim.getContext('2d');
+  sg.translate(PAD, -Y0); sg.globalCompositeOperation = 'destination-in'; sg.fillStyle = mask(sg); full(sg);
+  rg.globalCompositeOperation = 'destination-out'; rg.fillStyle = mask(rg); full(rg);
+  put(rg, soft, 1, 'lighter');
   return rim;
 }
 
@@ -424,14 +455,14 @@ function buildSilk(env) {
     const up = ((ix + iy) & 3) < 2;
     const prof = Math.sin((up ? fx : fy) * Math.PI);
     const v = L.clamp(0.5 + (up ? 0.16 : -0.14) + 0.5 * (prof - 0.64) + 0.14 * (up ? tw[ix] : tf[iy]));   // 0 = in the shade between threads, 1 = crown of a float
-    const o = (y * T + x) * 4; d[o] = 226 + 29 * v; d[o + 1] = 222 + 33 * v; d[o + 2] = 210 + 45 * v; d[o + 3] = 255;
+    const o = (y * T + x) * 4; d[o] = 226 + 29 * v; d[o + 1] = 224 + 31 * v; d[o + 2] = 215 + 40 * v; d[o + 3] = 255;
   }
   const tile = L.makeCanvas(T, T); tile.getContext('2d').putImageData(img, 0, 0);
   const sharp = band(Y0, Y1, (g) => {
     const full = () => g.fillRect(-PAD, Y0, LW, BH);
-    g.fillStyle = '#f6f3e8'; full();      // the weave multiplies this down to 月白 #eeeadc on average
+    g.fillStyle = '#f4f3ea'; full();      // the weave multiplies this down to 月白 on average
     g.save(); g.rotate(-0.13);
-    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.9;
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.75;
     g.fillStyle = g.createPattern(tile, 'repeat'); g.fillRect(-600, -600, 3000, 2200);
     g.restore();
     // the slow lustre of the cloth
@@ -441,9 +472,9 @@ function buildSilk(env) {
     g.restore();
     // key light from the upper left
     g.fillStyle = L.radial(g, 380, 60, 100, 1500, [[0, 'rgba(255,255,252,0.6)'], [0.5, 'rgba(255,255,252,0.2)'], [1, 'rgba(255,255,252,0)']]); full();
-    g.fillStyle = L.radial(g, 380, 60, 800, 2000, [[0, 'rgba(214,207,190,0)'], [1, 'rgba(214,207,190,0.42)']]); full();
+    g.fillStyle = L.radial(g, 380, 60, 700, 2000, [[0, 'rgba(198,197,186,0)'], [1, 'rgba(198,197,186,0.55)']]); full();
   });
-  return blur(sharp, 0.8);
+  return blur(sharp, 1.3);
 }
 
 export default {
@@ -462,15 +493,11 @@ export default {
     const a = env.arc;
     const rot = L.lerp(-0.0045, 0.0045, p), zoom = L.lerp(1.0, 1.022, p);
     const lay = (g, c, o, sc = 1) => L.cam(g, env, o, () => g.drawImage(c, -PAD, c._y0, c.width * sc, c.height * sc));
-    const T = [performance.now()];
-    const tick = () => { ctx.getImageData(0, 0, 1, 1); T.push(performance.now()); };
     // silk: far below the rim, hardly moves
     lay(ctx, S.silk, { rot: rot * 0.3, zoom: 1 + (zoom - 1) * 0.3 });
-    tick();
     // glaze — clipped on the true arc, so the push-in can never lift the edge off the line
     ctx.save(); a.clipBelow(ctx, 0);
     lay(ctx, S.glaze, { rot, zoom });
-    tick();
     // a soft light wandering over the cushions of the blocks
     const lp = a.pt(L.lerp(-0.2, -0.05, p), -L.lerp(160, 215, p));
     const sg = S.sg;
@@ -480,12 +507,10 @@ export default {
     sg.globalCompositeOperation = 'destination-in';
     sg.fillStyle = L.radial(sg, lp.x, lp.y, 0, 540, [[0, 'rgba(0,0,0,1)'], [0.45, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]);
     sg.fillRect(0, S.ys, W, H - S.ys);
-    ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.5;
+    ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.36;
     ctx.drawImage(S.scr, 0, S.ys);
     ctx.globalAlpha = 1;
-    tick();
-    L.glow(ctx, lp.x, lp.y, 520, '#fff6dc', 0.2, 'soft-light');
-    tick();
+    L.glow(ctx, lp.x, lp.y, 520, '#fff6dc', 0.12, 'soft-light');
     // pearl points flash as the light passes
     L.cam(ctx, env, { rot, zoom }, () => {
       ctx.globalCompositeOperation = 'screen';
@@ -499,12 +524,8 @@ export default {
       }
     });
     ctx.restore();
-    tick();
     // the mouth rim and its shadow: slides along the arc with the dish, never zooms → the edge stays exactly on the arc
     lay(ctx, S.rim, { rot });
-    tick();
-    L.vignette(ctx, { strength: 0.2, color: '#4a3a26', inner: 0.5 });
-    tick();
-    if (Math.abs(p - 0.5) < 0.01) console.log('s32 timing ' + T.slice(1).map((t, i) => (t - T[i]).toFixed(0)).join(' '));
+    L.vignette(ctx, { strength: 0.18, color: '#3c3830', inner: 0.5 });
   },
 };

@@ -12,9 +12,13 @@ import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
 const PAD = 100;
-const RIM = 50, GAP = 9, THIN = 11, RING = RIM + GAP + THIN / 2;   // rim band, slot, thin inner line (px, measured inward)
-const EDGE = 5.2, REL = 7.5;   // heights (px): round-over of a bar, full range of the relief map
-const WALL = 6;                // visible depth of the pierced walls (px)
+const G = 1.2;                 // how far the lens is pushed in: design units of the pierced pattern → px
+const RIM = 76, GAP = 12, THIN = 15, RING = RIM + GAP + THIN / 2;   // rim band, slot, thin inner line (px, measured inward)
+const RING0 = 64.5;            // design-space v of the inner line's centre (the motifs below were laid out against it)
+const USHIFT = -20;            // the blossom sits a touch off the crest, as a hand-held macro would frame it
+const FAT = 3.5;               // every cast shape is this much fatter than drawn (px): chunky metal, small piercings
+const EDGE = 6.4, REL = 9;     // heights (px): round-over of a bar, full range of the relief map
+const WALL = 8;                // visible depth of the pierced walls (px)
 const D = Math.PI / 180;
 let S = null;
 
@@ -24,14 +28,16 @@ const gray = (h) => { const g = Math.round(L.clamp(h) * 255); return `rgb(${g},$
 // ───────────────────────── drawing state ─────────────────────────
 // Pattern space: u = px along the rim (0 under the crest), v = px inward from the rim's outer edge.
 // FLIP mirrors u (the right half is the left half drawn again with other random numbers); T is a local frame for motifs.
-let A = null, NZ = null, MG = null, RG = null, FLIP = 1;
+// RAW = true: u, v are real px (used for the rim); otherwise they are design units, scaled by G about the inner line.
+let A = null, NZ = null, MG = null, RG = null, FLIP = 1, RAW = false;
 let T = { ou: 0, ov: 0, s: 1, c: 1, sn: 0 };
 const setT = (ou = 0, ov = 0, s = 1, rot = 0) => { T = { ou, ov, s, c: Math.cos(rot), sn: Math.sin(rot) }; };
+const Q = (u, v) => { const th = u / A.R, r = A.R - v; return [A.cx + r * Math.sin(th), A.cy - r * Math.cos(th)]; };
 const P = (x, y) => {
   const u = T.ou + T.s * (x * T.c - y * T.sn), v = T.ov + T.s * (x * T.sn + y * T.c);
-  const th = (FLIP * u) / A.R, r = A.R - v;
-  return [A.cx + r * Math.sin(th), A.cy - r * Math.cos(th)];
+  return RAW ? Q(u, v) : Q(USHIFT + FLIP * u * G, RING + (v - RING0) * G);
 };
+const WS = () => T.s * (RAW ? 1 : G);   // px per local unit, for widths
 
 function polyPath(pts) {
   const p = new Path2D(); p.moveTo(pts[0][0], pts[0][1]);
@@ -44,7 +50,7 @@ function discPath(x, y, r) { const p = new Path2D(); p.arc(x, y, r, 0, L.TAU); r
 function ell(x, y, rx, ry, rot = 0, n = 44) {
   const pts = [], c = Math.cos(rot), s = Math.sin(rot);
   for (let i = 0; i < n; i++) { const a = (i / n) * L.TAU, ex = rx * Math.cos(a), ey = ry * Math.sin(a); pts.push(P(x + ex * c - ey * s, y + ex * s + ey * c)); }
-  return { paths: [polyPath(pts)], base: P(x, y + ry), tip: P(x, y - ry), c: P(x, y), r: Math.max(rx, ry) * T.s };
+  return { paths: [polyPath(pts)], base: P(x, y + ry), tip: P(x, y - ry), c: P(x, y), r: Math.max(rx, ry) * WS() };
 }
 
 /** a cast bar of varying width through control points (local units) */
@@ -59,7 +65,7 @@ function ribbon(ctrl, w0, w1, o = {}) {
     const a = xy[Math.max(0, i - 1)], b = xy[Math.min(n - 1, i + 1)];
     let nx = -(b[1] - a[1]), ny = b[0] - a[0]; const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
     const t = cum[i] / (len || 1);
-    let w = L.lerp(w0, w1, Math.pow(t, pw)) * (1 + swell * Math.sin(Math.PI * t)) * T.s;
+    let w = L.lerp(w0, w1, Math.pow(t, pw)) * (1 + swell * Math.sin(Math.PI * t)) * WS();
     w *= 1 + wob * NZ.n2(cum[i] / 70 + seed * 3.7, seed * 1.3);
     const hw = Math.max(1.5, w / 2);
     if (i === 0) hwA = hw; if (i === n - 1) hwB = hw;
@@ -86,14 +92,18 @@ function blade(bx, by, ang, len, hw, o = {}) {
 
 /** add a shape to the casting: union into the mask, paint its height into the relief map (later shapes lie on top) */
 function put(sh, h0, h1 = h0, o = {}) {
+  const fat = RAW ? 0 : FAT, ws = Math.max(0.7, T.s) * (RAW ? 1 : G);
   for (const p of sh.paths) MG.fill(p);
+  if (fat) { MG.lineWidth = fat * 2; for (const p of sh.paths) MG.stroke(p); }
   // whatever lies underneath gets a groove along this shape's edge
-  RG.lineWidth = (o.ow || 5) * Math.max(0.7, T.s); RG.strokeStyle = 'rgba(0,0,0,0.5)';
+  RG.lineWidth = (o.ow || 5) * ws + fat * 2; RG.strokeStyle = 'rgba(0,0,0,0.5)';
   for (const p of sh.paths) RG.stroke(p);
-  RG.fillStyle = o.fill || (h0 === h1 ? gray(h0) : L.linear(RG, sh.base[0], sh.base[1], sh.tip[0], sh.tip[1], [[0, gray(h0)], [1, gray(h1)]]));
+  const fill = o.fill || (h0 === h1 ? gray(h0) : L.linear(RG, sh.base[0], sh.base[1], sh.tip[0], sh.tip[1], [[0, gray(h0)], [1, gray(h1)]]));
+  RG.fillStyle = fill;
+  if (fat) { RG.strokeStyle = fill; RG.lineWidth = fat * 2; for (const p of sh.paths) RG.stroke(p); }
   for (const p of sh.paths) RG.fill(p);
   if (sh.paths.length === 1 && o.pillow !== 0) {   // the shape's own edge rolls off a little
-    RG.save(); RG.clip(sh.paths[0]); RG.lineWidth = 9 * Math.max(0.7, T.s); RG.strokeStyle = `rgba(0,0,0,${o.pillow || 0.2})`; RG.stroke(sh.paths[0]); RG.restore();
+    RG.save(); RG.clip(sh.paths[0]); RG.lineWidth = 9 * ws; RG.strokeStyle = `rgba(0,0,0,${o.pillow || 0.2})`; RG.stroke(sh.paths[0]); RG.restore();
   }
   return sh;
 }
@@ -102,7 +112,7 @@ const dome = (x, y, r, h0, h1) => { const e = ell(x, y, r, r); return put(e, h0,
 function cut(sh) { MG.save(); MG.globalCompositeOperation = 'destination-out'; for (const p of sh.paths) MG.fill(p); MG.restore(); }
 /** incised line (frame coords) */
 function groove(pts, w, lvl = 0.2, alpha = 0.9) {
-  RG.save(); RG.globalAlpha = alpha; RG.strokeStyle = gray(lvl); RG.lineWidth = Math.max(1.6, w); RG.lineCap = 'round';
+  RG.save(); RG.globalAlpha = alpha; RG.strokeStyle = gray(lvl); RG.lineWidth = Math.max(1.8, w * (RAW ? 1 : G)); RG.lineCap = 'round';
   RG.beginPath(); pts.forEach((q, i) => (i ? RG.lineTo(q[0], q[1]) : RG.moveTo(q[0], q[1]))); RG.stroke(); RG.restore();
 }
 /** incised line running along a blade, f = sideways offset as a fraction of the local half-width */
@@ -241,7 +251,7 @@ function phoenix(ou, ov, s, rot, seed) {
     groove([P(q[0] + nx * hw, q[1] + ny * hw), P(q[0] - fx * 9, q[1] - fy * 9), P(q[0] - nx * hw, q[1] - ny * hw)], 2.4 * T.s, 0.32);
   }
   // the raised wing
-  fan(0, 0, -80 * D, -172 * D, o_lens(ov, s), 20, r, { bend: -0.07, exact: true });
+  fan(0, 0, -80 * D, -172 * D, o_lens(ov, s, rot), 20, r, { bend: -0.07, exact: true });
   dome(2, 4, 25, 0.98, 0.62);
   { const pts = []; for (let q = 0; q <= 26; q++) { const a = 0.6 + q * 0.42, rr = 17 * (1 - q / 34); pts.push(P(2 + rr * Math.cos(a), 4 + rr * Math.sin(a))); } groove(pts, 2.4 * T.s, 0.34); }
   // crest, head, beak
@@ -257,9 +267,9 @@ function phoenix(ou, ov, s, rot, seed) {
   setT();
 }
 /** lengths of the raised wing's feathers: the upright ones are made exactly long enough to fuse with the thin inner line */
-function o_lens(ov, s) {
-  const reach = (ov - RING + 3) / s;
-  return [0.84, 1.0, 1.045, 1.0, 0.9, 0.76, 0.6].map((k, i) => { const a = L.lerp(-80, -172, i / 6) * D; return (i === 1 || i === 2) ? (reach - 8) / -Math.sin(a) : reach * k; });
+function o_lens(ov, s, rot = 0) {
+  const reach = (ov - RING0 + 3) / s;
+  return [0.84, 1.0, 1.045, 1.0, 0.9, 0.76, 0.6].map((k, i) => { const a = L.lerp(-80, -172, i / 6) * D + rot; return (i === 1 || i === 2) ? (reach - 8) / -Math.sin(a) : reach * k; });
 }
 
 /** everything on one side of the central blossom (designed for the left; FLIP = -1 draws the right) */
@@ -273,8 +283,11 @@ function half(sd) {
   // long stem running on under the bird toward the side blossom
   vine(J([[-250, 484], [-345, 512], [-450, 506], [-545, 478], [-640, 488], [-740, 512], [-850, 486], [-955, 436], [-1040, 372]]), 15, 11, { seed: 21 + sd,
     leaves: [[0.14, -1, 84, 23], [0.3, 1, 62, 18], [0.5, -1, 86, 23], [0.66, 1, 72, 20], [0.85, -1, 82, 22]] });
+  // the two birds are not twins: each has its own size and tilt
+  const ps = sd > 0 ? 0.9 : 0.855, prot = sd > 0 ? -0.03 : 0.045, pu = -478 + (sd > 0 ? 3 : -9), pv = 284 + (sd > 0 ? -2 : 5);
+  const bk = [pu + ps * (233 * Math.cos(prot) + 96 * Math.sin(prot)), pv + ps * (233 * Math.sin(prot) - 96 * Math.cos(prot))];   // beak tip
   // sprig held in the beak
-  vine(J([[-182, 262], [-212, 242], [-242, 216], [-268, 198]]), 12, 9, { seed: 31 + sd, leaves: [[0.36, 1, 52, 15, 0.85], [0.62, -1, 46, 14, 0.85]] });
+  vine(J([[-182, 262], [L.lerp(-182, bk[0], 0.36), L.lerp(262, bk[1], 0.3)], [L.lerp(-182, bk[0], 0.72), L.lerp(262, bk[1], 0.7)], [bk[0] + 5, bk[1] - 1]], 3), 12, 9, { seed: 31 + sd, leaves: [[0.36, 1, 52, 15, 0.85], [0.62, -1, 46, 14, 0.85]] });
   // tendril hanging from the inner line between blossom and crest
   vine(J([[-208, 62], [-198, 90], [-212, 114]]), 12, 9, { curl: [-240, 116, 1.05], bud: 9, seed: 41 + sd, leaves: [[0.1, -1, 56, 16, 0.9, 0.2]] });
   // spray behind the wing, above the upper tail plume
@@ -283,48 +296,58 @@ function half(sd) {
   // small leaves hanging from the inner line
   leaf(-96 + j(5), 66, (84 + j(8)) * D, 60, 17, { bend: 0.2 });
   leaf(-152 + j(5), 66, (112 + j(8)) * D, 50, 15, { bend: -0.2 });
-  phoenix(-478 + j(4), 284 + j(3), 0.88 * (1 + j(0.02)), j(0.025), sd);
+  phoenix(pu, pv, ps, prot, sd);
   flower(-1090 + j(8), 208 + j(5), 0.68, 'side' + sd, { rot: j(0.3) });
 }
 
 function drawPattern() {
   const UMAX = A.span(PAD + 80) * A.R, r = L.rng('s24rim');
-  FLIP = 1; setT();
+  FLIP = 1; setT(); RAW = true;
   // rim: its outer edge is the arc itself; the inner edge wanders a hair, as hand-finished castings do
   {
-    const pts = [], n = 180;
-    for (let i = 0; i <= n; i++) pts.push(P(L.lerp(-UMAX, UMAX, i / n), 0));
-    for (let i = n; i >= 0; i--) { const u = L.lerp(-UMAX, UMAX, i / n); pts.push(P(u, RIM + 1.5 * NZ.n2(u / 130, 3.1))); }
+    const pts = [], n = 220;
+    for (let i = 0; i <= n; i++) pts.push(Q(L.lerp(-UMAX, UMAX, i / n), 0));
+    for (let i = n; i >= 0; i--) { const u = L.lerp(-UMAX, UMAX, i / n); pts.push(Q(u, RIM + 2.4 * NZ.n2(u / 150, 3.1) + 1.1 * NZ.n2(u / 37, 6.3))); }
     const path = polyPath(pts);
     MG.fill(path);
-    RG.fillStyle = L.radial(RG, A.cx, A.cy, A.R - RIM - 3, A.R + 1, [[0, gray(0.5)], [0.25, gray(0.8)], [0.55, gray(0.9)], [0.85, gray(0.8)], [1, gray(0.55)]]);
+    // a flat, worn face between two rounded edges
+    RG.fillStyle = L.radial(RG, A.cx, A.cy, A.R - RIM - 3, A.R + 1, [[0, gray(0.5)], [0.14, gray(0.8)], [0.32, gray(0.87)], [0.7, gray(0.88)], [0.88, gray(0.82)], [1, gray(0.56)]]);
     RG.fill(path);
+    // years of handling: shallow swells and hollows along the face
+    RG.save(); RG.clip(path);
+    for (let u = -UMAX; u < UMAX; u += r.range(50, 150)) {
+      const [x, y] = Q(u, r.range(14, RIM - 14)), rr = r.range(40, 110), up = r.chance(0.45), al = r.range(0.05, 0.13);
+      RG.fillStyle = L.radial(RG, x, y, 0, rr, [[0, up ? `rgba(255,255,255,${al})` : `rgba(0,0,0,${al})`], [1, up ? 'rgba(255,255,255,0)' : 'rgba(0,0,0,0)']]);
+      RG.fillRect(x - rr, y - rr, rr * 2, rr * 2);
+    }
+    RG.restore();
   }
   // thin inner line, tied to the rim by short bridges at uneven intervals
-  { const c = []; for (let u = -UMAX; u <= UMAX + 1; u += 60) c.push([u, RING + 0.8 * NZ.n2(u / 150, 8.8)]); put(ribbon(c, THIN, THIN, { wob: 0.16, seed: 5 }), 0.62, 0.62, { pillow: 0 }); }
-  for (let u = -UMAX + r.range(0, 120); u < UMAX; u += r.range(150, 260)) {
-    if (Math.abs(u) < 60) continue;
-    put(ribbon([[u, RIM - 6], [u + r.range(-3, 3), RING]], r.range(14, 19), r.range(12, 16), { wob: 0 }), 0.6);
+  { const c = []; for (let u = -UMAX; u <= UMAX + 1; u += 60) c.push([u, RING + 1.2 * NZ.n2(u / 150, 8.8)]); put(ribbon(c, THIN, THIN, { wob: 0.2, seed: 5 }), 0.66, 0.66, { pillow: 0 }); }
+  for (let u = -UMAX + r.range(0, 120); u < UMAX; u += r.range(170, 330)) {
+    if (Math.abs(u - USHIFT) < 70) continue;
+    put(ribbon([[u, RIM - 8], [u + r.range(-4, 4), RING]], r.range(17, 24), r.range(15, 20), { wob: 0 }), 0.62);
   }
+  RAW = false;
   for (const f of [1, -1]) { FLIP = f; half(f); }
   FLIP = 1; setT();
   leaf(0, 440, 90 * D, 116, 30, { bend: 0.06 });
-  flower(0, RING + 198 - 2, 1, 'main');
+  flower(0, RING0 + 196, 1, 'main');
 }
 
 // ───────────────────────── casting → lit silver ─────────────────────────
 function buildMetal(env) {
   A = env.arc; NZ = L.makeNoise('s24m');
-  const X0 = -PAD, Y0 = Math.floor(A.crestY) - 16, RW = W + PAD * 2, RH = H + PAD - Y0, N = RW * RH;
+  const X0 = -PAD, Y0 = Math.floor(A.crestY) - 90, RW = W + PAD * 2, RH = H + PAD - Y0, N = RW * RH;
   const mask = L.makeCanvas(RW, RH), relief = L.makeCanvas(RW, RH);
   MG = mask.getContext('2d'); RG = relief.getContext('2d');
   MG.translate(-X0, -Y0); RG.translate(-X0, -Y0);
-  MG.fillStyle = '#fff'; RG.lineJoin = 'round';
+  MG.fillStyle = MG.strokeStyle = '#fff'; MG.lineJoin = 'round'; RG.lineJoin = 'round';
   RG.fillStyle = gray(0.4); RG.fillRect(X0, Y0, RW, RH);
   drawPattern();
 
   const grab = (c) => c.getContext('2d').getImageData(0, 0, RW, RH).data;
-  const dA = grab(L.blurred(mask, 2)), dB = grab(L.blurred(mask, 6.5)), dR = grab(L.blurred(relief, 1.4));
+  const dA = grab(L.blurred(mask, 2.4)), dB = grab(L.blurred(mask, 7.6)), dR = grab(L.blurred(relief, 1.5)), dO = grab(L.blurred(relief, 10));
   MG = RG = null;
 
   // coverage with filleted junctions
@@ -352,27 +375,40 @@ function buildMetal(env) {
     const b = dB[k * 4 + 3] / 255; if (b < 0.02) continue;
     const d = L.clamp((b - 0.5) * 2.3), e = 1 - (1 - d) * (1 - d), rl = dR[k * 4] / 255;
     let h = EDGE * e + REL * rl * (0.3 + 0.7 * e);
-    if (cov[k] > 0) { const fx = x + X0, fy = y + Y0; h += (0.3 * NZ.n2(fx / 3.3, fy / 3.3) + 0.5 * NZ.n2(fx / 13 + 40, fy / 13)) * e * (1 - 0.55 * sstep(0.62, 0.9, rl)); }
+    if (cov[k] > 0) {
+      // the casting skin: fine tooth in the hollows, rubbed smooth on the high points; slow swells from hand finishing
+      const fx = x + X0, fy = y + Y0, pol = sstep(0.58, 0.9, rl);
+      h += (0.12 * NZ.n2(fx / 2.7, fy / 2.7) * (1 - 0.85 * pol) + 0.3 * NZ.n2(fx / 15 + 40, fy / 15) * (1 - 0.5 * pol) + 0.75 * NZ.n2(fx / 72 + 9, fy / 72 + 3)) * e;
+    }
     Hh[k] = h; Rl[k] = rl;
   }
-  // casting pits (砂眼)
   {
     const r = L.rng('s24pits');
-    for (let n = 0; n < 900; n++) {
-      const px = r.range(8, RW - 8), py = r.range(8, RH - 8), big = r.chance(0.1), rp = big ? r.range(3.6, 6) : r.range(1.3, 3), depth = rp * r.range(0.35, 0.6);
-      if (cov[Math.round(py) * RW + Math.round(px)] < 0.95) continue;
+    const dent = (px, py, rp, depth, cav) => {
       const e = Math.ceil(rp) + 1;
-      for (let y = Math.floor(py - e); y <= Math.ceil(py + e); y++) for (let x = Math.floor(px - e); x <= Math.ceil(px + e); x++) {
+      for (let y = Math.max(1, Math.floor(py - e)); y <= Math.min(RH - 2, Math.ceil(py + e)); y++) for (let x = Math.max(1, Math.floor(px - e)); x <= Math.min(RW - 2, Math.ceil(px + e)); x++) {
         const d2 = ((x - px) * (x - px) + (y - py) * (y - py)) / (rp * rp); if (d2 >= 1) continue;
         const f = (1 - d2) * (1 - d2), k = y * RW + x;
-        Hh[k] -= depth * f; Cv[k] = Math.max(Cv[k], Math.min(1, f * 1.5));
+        Hh[k] -= depth * f; if (cav) Cv[k] = Math.max(Cv[k], Math.min(1, f * 1.5));
       }
+    };
+    // casting pits (砂眼): they come in loose patches, never evenly peppered
+    for (let n = 0; n < 1100; n++) {
+      const px = r.range(8, RW - 8), py = r.range(8, RH - 8), big = r.chance(0.07), rp = big ? r.range(3.2, 5.2) : r.range(1.1, 2.5), depth = rp * r.range(0.3, 0.55), keep = r.chance(0.1);
+      if (cov[Math.round(py) * RW + Math.round(px)] < 0.95) continue;
+      if (NZ.n2((px + X0) / 210 + 5, (py + Y0) / 210 - 8) < 0.12 && !keep) continue;
+      dent(px, py, rp, depth, true);
+    }
+    // knocks on the rim's edges
+    for (let n = 0; n < 12; n++) {
+      const [qx, qy] = Q(r.range(-1040, 1040), r.chance(0.6) ? r.range(-3, 7) : r.range(RIM - 12, RIM + 2));
+      dent(qx - X0, qy - Y0, r.range(6, 15), r.range(1.3, 2.8), false);
     }
   }
 
-  // response of bright silver to the key light (index = N·L)
+  // response of frosted silver to the key light (index = N·L): the faces stay near white, only the turned-away bevels go grey
   const RESP = new Float32Array(513);
-  { const f = L.makeRamp([[0, '#424242'], [0.5, '#4d4d4d'], [0.62, '#666666'], [0.75, '#9e9e9e'], [0.83, '#dbdbdb'], [0.9, '#f7f7f7'], [0.96, '#ffffff'], [1, '#ffffff']]);
+  { const f = L.makeRamp([[0, '#333333'], [0.4, '#4a4a4a'], [0.55, '#6a6a6a'], [0.66, '#989898'], [0.76, '#d0d0d0'], [0.83, '#eeeeee'], [0.9, '#ffffff'], [1, '#ffffff']]);
     for (let i = 0; i <= 512; i++) RESP[i] = (f(i / 512)[0] / 255) * (i > 470 ? 1 + (i - 470) / 140 : 1); }
   let lx = -0.42, ly = -0.62, lz = 0.66; { const m = Math.hypot(lx, ly, lz); lx /= m; ly /= m; lz /= m; }
   let hx = lx, hy = ly, hz = lz + 1; { const m = Math.hypot(hx, hy, hz); hx /= m; hy /= m; hz /= m; }
@@ -389,27 +425,30 @@ function buildMetal(env) {
       const c2 = cov[yy * RW + xx]; if (c2 > wa) wa = c2; if (c2 > 0.5 && dep === WALL) { dep = q; }
     }
     const al = c + wa * (1 - c); if (al <= 0.003) continue;
-    const fall = 1 - 0.46 * sstep(280, 1350, Math.hypot(x - pcx, (y - pcy) * 1.25));
+    const fall = 1 - 0.25 * sstep(320, 1400, Math.hypot(x - pcx, (y - pcy) * 1.25));
     let tr = 0, tg = 0, tb = 0;
     if (c > 0) {
       const sx = (Hh[k + 1] - Hh[k - 1]) * 0.5, sy = (Hh[k + RW] - Hh[k - RW]) * 0.5, inv = 1 / Math.sqrt(sx * sx + sy * sy + 1);
       const nx = -sx * inv, ny = -sy * inv, nz = inv, rl = Rl[k];
       const ndl = nx * lx + ny * ly + nz * lz;
       let v = RESP[(L.clamp(ndl * 0.5 + 0.5) * 512) | 0];
-      const alb = (0.84 + 0.16 * sstep(0.4, 0.85, rl)) * (0.78 + 0.22 * sstep(0.12, 0.34, rl));
-      const tone = 1 + 0.045 * NZ.n2((x + X0) / 190, (y + Y0) / 150);
-      v *= alb * tone;
-      const sp = Math.pow(Math.max(0, nx * hx + ny * hy + nz * hz), 46);
+      // tarnish stays in whatever lies low (incised lines, the roots of petals and feathers); the high points are rubbed bright
+      const alb = (0.93 + 0.07 * sstep(0.4, 0.85, rl)) * (0.6 + 0.4 * sstep(0.13, 0.36, rl));
+      const occ = 1 - 1.5 * L.clamp((dO[k * 4] - dR[k * 4]) / 255 - 0.03, 0, 0.3);
+      const tone = 1 + 0.05 * NZ.n2((x + X0) / 190, (y + Y0) / 150);
+      v *= alb * occ * tone;
+      const nh = Math.max(0, nx * hx + ny * hy + nz * hz);
+      const sp = 0.45 * Math.pow(nh, 40) + 0.55 * Math.pow(nh, 180) * (0.4 + 0.6 * sstep(0.5, 0.9, rl));
       const fl = Math.max(0, nx * 0.6 + ny * 0.62 - 0.22);
-      v = (v + 0.6 * sp) * fall;
-      const cav = Cv[k]; if (cav > 0) v *= 1 - 0.72 * cav;
-      tr = 238 * v + 14 * fl; tg = 240 * v + 22 * fl; tb = 238 * v + 16 * (1 - Math.min(1, v)) + 34 * fl;
+      v = (v + 0.7 * sp) * fall;
+      const cav = Cv[k]; if (cav > 0) v *= 1 - 0.5 * cav;
+      tr = 238 * v + 14 * fl; tg = 240 * v + 22 * fl; tb = 238 * v + 20 * (1 - Math.min(1, v)) + 34 * fl;
       const g = Math.pow(Math.max(0, nx * gx + ny * gy + nz * gz), 16);
       const ga = c * L.clamp(0.1 + 1.1 * g) * (1 - 0.7 * cav);
       const j = k * 4; go[j] = 232; go[j + 1] = 242; go[j + 2] = 255; go[j + 3] = ga * 255;
     }
     let wr = 0, wg = 0, wb = 0;
-    if (wa > 0) { const ws = L.lerp(0.52, 0.15, (dep - 1) / (WALL - 1)) * fall; wr = 222 * ws; wg = 230 * ws; wb = 240 * ws; }
+    if (wa > 0) { const ws = L.lerp(0.5, 0.14, (dep - 1) / (WALL - 1)) * fall; wr = 222 * ws; wg = 230 * ws; wb = 240 * ws; }
     const j = k * 4, kw = wa * (1 - c);
     o[j] = (tr * c + wr * kw) / al; o[j + 1] = (tg * c + wg * kw) / al; o[j + 2] = (tb * c + wb * kw) / al; o[j + 3] = al * 255;
   }
@@ -427,9 +466,17 @@ function buildMetal(env) {
     const g = dst.getContext('2d');
     g.save(); g.globalCompositeOperation = 'destination-out'; fillMask(g); g.globalCompositeOperation = 'lighter'; g.drawImage(m, 0, 0); g.restore();
   };
-  const b1 = L.blurred(metal, 2.2), b2 = L.blurred(metal, 6);
-  mix(metal, b1, 250, 540);
-  mix(metal, b2, 500, 900);
+  const b1 = L.blurred(metal, 2.4), b2 = L.blurred(metal, 6.5);
+  mix(metal, b1, 240, 500);
+  mix(metal, b2, 400, 760);
+  // halation: white metal on black always blooms a little in the lens
+  {
+    const h1 = L.blurred(metal, 8), h2 = L.blurred(metal, 24), g = metal.getContext('2d');
+    g.save(); g.globalCompositeOperation = 'lighter';
+    g.globalAlpha = 0.17; g.drawImage(h1, 0, 0);
+    g.globalAlpha = 0.07; g.drawImage(h2, 0, 0);
+    g.restore();
+  }
   return { metal, glint, X0, Y0 };
 }
 
@@ -480,6 +527,6 @@ export default {
     blitAt(tg, env, S.glint, S.X0, S.Y0, { rot, zoom, dy });
     tg.globalCompositeOperation = 'destination-in'; band(tg, 1);
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.9; ctx.drawImage(S.tmp, 0, 0); ctx.restore();
-    L.vignette(ctx, { strength: 0.3 });
+    L.vignette(ctx, { strength: 0.2 });
   },
 };

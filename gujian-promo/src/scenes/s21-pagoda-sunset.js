@@ -46,7 +46,7 @@ function buildSky(env) {
       let h1 = dr;
       if (up < 1) {
         const calm = Math.exp(-(((x - a.cx) / 420) ** 2));      // under the tagline the line is at its thinnest and steadiest
-        h1 = dr * (1 + 0.2 * (1 - 0.85 * calm) * nz.n2(x / 230, 3.3) + 0.16 * calm) + 12 * L.smooth((Math.abs(x - sun.x) - 320) / 1100);
+        h1 = dr * (1 + 0.2 * (1 - 0.85 * calm) * nz.n2(x / 230, 3.3) + 0.16 * calm) + 16 * L.smooth((Math.abs(x - sun.x) - 320) / 1100);
         if (raw >= 0 && h1 < 28) {
           const e = 1 - h1 / 28, ei = Math.min(NL - 1, ((h1 + 9) * 4) | 0) * 3;   // a shade redder than the line itself, so it never goes olive on black
           ed[k] = lut[ei]; ed[k + 1] = lut[ei + 1]; ed[k + 2] = lut[ei + 2]; ed[k + 3] = 255 * e * e;
@@ -63,11 +63,11 @@ function buildSky(env) {
     }
   }
   const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
-  // halation: the ember line, blurred, to be screened back over the ridge so its glow bleeds a few px into the silhouette
+  // the ember line on its own (init cuts the hill's silhouette out of it and blurs it: the halation pass)
   const esmall = L.makeCanvas(cw, ch); esmall.getContext('2d').putImageData(eimg, 0, 0);
   const ember = L.makeCanvas(LW, SKY_BOTTOM - EMBER_TOP), eg = ember.getContext('2d');
   eg.imageSmoothingEnabled = true; eg.imageSmoothingQuality = 'high';
-  eg.filter = 'blur(4.5px)'; eg.drawImage(esmall, 0, -(EMBER_TOP + PAD), LW, LH); eg.filter = 'none';
+  eg.drawImage(esmall, 0, -(EMBER_TOP + PAD), LW, LH);
   const sky = L.makeLayer(PAD, (g) => {
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
     g.drawImage(small, -PAD, -PAD, LW, LH);
@@ -296,160 +296,159 @@ function drawPine(g, x, by, hgt, lean, seed) {
 function buildHill(env) {
   const a = env.arc, sun = sunOf(a);
   return L.makeLayer(PAD, (g, layer) => {
-    const s = a.span(PAD + 160);
+    const s = a.span(PAD + 160), U = s * a.R;
+    const FW = layer.width, FH = layer.height;
     // 1) things standing on the ridge (drawn first; the tree line then buries their feet)
     drawPagoda(g, TOWER_X, a.yAt(TOWER_X) + 3, 1);
     drawPavilion(g, PAV_X, a.yAt(PAV_X) + 2, 0.8);
     drawPine(g, PAV_X + 80, a.yAt(PAV_X + 80), 64, 0.2, 's21pineA');
     drawPine(g, PAV_X + 116, a.yAt(PAV_X + 116), 40, -0.16, 's21pineB');
-    drawPine(g, 214, a.yAt(214), 52, -0.2, 's21pineC');
 
-    // 2) the hill mass
-    g.fillStyle = INK; a.pathBelow(g, -2); g.fill();
+    // 2) the hill mass — kept a little under the arc, so the gaps between the crowns bite into the ember line
+    g.fillStyle = INK; a.pathBelow(g, -9); g.fill();
 
-    // 3) tree crowns. The first row is the fuzzy skyline (its tops ride 0–6 px above the arc, in slow swells);
-    //    the rows below overlap like scales down the slope, each catching a fading rim of sky colour on its upper edge.
+    // 3) the canopy: big overlapping crowns, like the lumps on the rim of the reference's mound. The first row is the
+    //    skyline (tops ride −1…+6 px on the arc, with ~5 px scallops between them); the ones further down the slope are
+    //    nearer the camera, overlap the ones behind, and each catches a crescent of sky light on the side toward the sun.
     const r = L.rng('s21canopy');
     const nz = L.makeNoise('s21canopy');
-    const hl = L.makeCanvas(layer.width, layer.height), hg = hl.getContext('2d');   // the lit rims, kept apart so they can bloom
-    hg.translate(PAD, PAD); hg.lineCap = 'round';
-    const blot = (x, y, rr) => {            // a dark disc on the hill; it also hides whatever rim light lay behind it
-      g.beginPath(); g.arc(x, y, rr, 0, L.TAU); g.fill();
-      hg.globalCompositeOperation = 'destination-out'; hg.beginPath(); hg.arc(x, y, rr, 0, L.TAU); hg.fill(); hg.globalCompositeOperation = 'source-over';
-    };
-    const crown = (cx, cy, rad, lobesN, depth, skyline) => {
-      const prox = Math.exp(-Math.abs(cx - sun.x) / 480);
-      // rim light on the upper edge
-      const col = L.mix('#b02a4a', '#ffa040', prox);
-      const al = (0.38 + 0.55 * prox) * Math.exp(-depth / 19) * (r.chance(0.3) ? 0.3 : 1);
-      // body tone: each crown is a dim red-brown dome, in drifting patches of lit and shadowed forest, dying away down the slope
-      const patch = L.clamp(0.5 + 0.95 * nz.fbm(cx / 120, cy / 64, 3));
-      const k = 0.36 * (0.15 + 0.85 * patch) * Math.exp(-depth / 58) * (skyline ? 0.5 : 1) * (0.5 + 0.5 * prox);
+    const STEP = 1.5, FN = Math.ceil((2 * U) / STEP);
+    const envl = new Float32Array(FN + 1).fill(-9);          // the skyline's envelope (dr), for the leaf fringe
+    const crowns = [];
+    const add = (u, top, rad, depth, sky) => { const c = a.pt(u / a.R, top - rad); crowns.push({ x: c.x, y: c.y, rad, depth, sky, top }); };
+    // taller trees gathered at the feet of the buildings: [x, radius, how far the crown tops out above the arc]
+    const big = [
+      [TOWER_X - 182, 17, 9], [TOWER_X - 152, 25, 19], [TOWER_X - 118, 31, 36], [TOWER_X - 86, 22, 29], [TOWER_X - 64, 14, 15],
+      [TOWER_X + 64, 15, 13], [TOWER_X + 92, 26, 27], [TOWER_X + 126, 21, 17], [TOWER_X + 154, 15, 9],
+      [PAV_X - 62, 19, 13], [PAV_X - 40, 12, 8], [PAV_X + 46, 17, 12],
+      // …and here and there along the ridge, so the skyline is not one even hem
+      [70, 20, 9], [104, 26, 12], [138, 16, 7], [1392, 18, 8], [1422, 24, 11], [1812, 22, 10], [1846, 28, 13], [1880, 17, 7],
+    ];
+    for (const [x, rad, lift] of big) add(a.thetaAtX(x) * a.R, lift, rad, 0, true);
+    for (let u = -U + r.range(0, 20); u < U;) {
+      const clump = 0.5 + 0.5 * nz.n2(u / 260, 1.3);                                   // stretches of big / small trees
+      const rad = 6 + 28 * Math.pow(r(), 1.6) * (0.35 + 0.95 * clump);
+      const swell = 1.4 + 3.2 * nz.fbm(u / 170, 7.7, 2);                               // the skyline's slow undulation
+      add(u, L.clamp(swell + r.range(-2.6, 2.6) + (rad - 14) * 0.08, -5, 6.5), rad, 0, true);
+      u += rad * r.range(0.7, 1.4);
+    }
+    const rows = [11, 25, 42, 62, 86, 114, 146, 184, 228];
+    rows.forEach((d, row) => {
+      const gap = (row + 1 < rows.length ? rows[row + 1] : d * 1.25) - d;
+      for (let u = -U + r.range(0, 30); u < U;) {
+        const clump = 0.5 + 0.5 * nz.n2(u / 260, row * 3.7 + 9.3);
+        const rad = (11 + 22 * Math.pow(r(), 1.5) * (0.4 + 0.9 * clump)) * (1 + row * 0.1);
+        const dd = d + r.range(-0.48, 0.48) * gap;                                     // no tidy rows
+        add(u, -dd, rad, dd, false);
+        u += rad * r.range(0.85, 1.5);
+      }
+    });
+    crowns.sort((p, q) => p.depth - q.depth);
+
+    const disc = (x, y, rr) => { g.beginPath(); g.arc(x, y, rr, 0, L.TAU); g.fill(); };
+    for (const { x: cx, y: cy, rad, depth, sky, top } of crowns) {
+      const prox = Math.exp(-Math.abs(cx - sun.x) / 520);
+      // toward the light: up at the sky, and over toward the sun
+      let lx = sun.x - cx, ly = sun.y - cy; const ll = Math.hypot(lx, ly) || 1;
+      lx = (lx / ll) * 0.62; ly = (ly / ll) * 0.62 - 0.72; const l2 = Math.hypot(lx, ly); lx /= l2; ly /= l2;
+      const patch = L.clamp(0.55 + 0.95 * nz.fbm(cx / 150, cy / 80, 3));            // drifting patches of lit and shadowed forest
+      const al = (0.3 + 0.7 * prox) * Math.exp(-depth / 52) * (0.22 + 0.78 * patch) * (r.chance(0.25) ? 0.35 : 1) * (sky ? (top > 8 ? 0.22 : 0.75) : 1);
+      const rim = L.mix(INK, L.mix('#b02a4a', '#ffa040', prox), Math.min(1, al));
+      const kb = 0.32 * (0.2 + 0.8 * patch) * Math.exp(-depth / 72) * (0.45 + 0.55 * prox) * (sky ? 0.7 : 1);
       const lit = L.mix('#3a1030', '#8a2438', prox);
-      const c0 = L.mix(INK, lit, k), c1 = L.mix(INK, lit, k * 0.38), c2 = L.mix(INK, lit, k * 0.2);
+      const body = L.mix(INK, lit, kb * 0.4), mid = L.mix(INK, lit, kb), edge = L.mix(mid, rim, 0.38);
       const lobes = [[0, 0, rad]];
-      for (let i = 0; i < lobesN; i++) {
-        const ang = (i % 2 ? 1 : -1) * r.range(0.45, 1.2), rr = rad * r.range(0.4, 0.62), dd = rad - rr * r.range(0.6, 0.92);
+      const nl = rad > 24 ? 6 : rad > 15 ? 4 : 2;
+      for (let i = 0; i < nl; i++) {
+        const ang = r.range(-1.35, 1.35), rr = rad * r.range(0.34, 0.6), dd = rad - rr * (sky ? r.range(0.84, 1.0) : r.range(0.55, 0.95));
         lobes.push([Math.sin(ang) * dd, -Math.cos(ang) * dd, rr]);
       }
       for (const [ox, oy, rr] of lobes) {
         const x = cx + ox, y = cy + oy;
-        const gr = g.createRadialGradient(x - rr * 0.25, y - rr * 0.5, 0, x - rr * 0.25, y - rr * 0.5, rr * 1.4);
-        gr.addColorStop(0, c0); gr.addColorStop(0.55, c1); gr.addColorStop(1, INK);
-        g.fillStyle = gr;
-        blot(x, y, rr);
-        if (al > 0.02) {
-          hg.strokeStyle = L.rgba(col, al); hg.lineWidth = r.range(0.9, 1.7);
-          hg.setLineDash([r.range(3, 10), r.range(1.5, 4)]);
-          hg.beginPath(); hg.arc(x, y, rr - 1, -Math.PI * r.range(0.78, 0.95), -Math.PI * r.range(0.08, 0.3)); hg.stroke();
-          hg.setLineDash([]);
+        const gx = x - lx * rr * 0.5, gy = y - ly * rr * 0.5;
+        const gr = g.createRadialGradient(gx, gy, rr * 0.35, gx, gy, rr * 1.5);
+        gr.addColorStop(0, body); gr.addColorStop(0.5, mid); gr.addColorStop(0.8, edge); gr.addColorStop(1, rim);
+        g.fillStyle = gr; disc(x, y, rr);
+        if (sky) {
+          const q = a.polar(x, y), uc = q.theta * a.R;
+          const i0 = Math.max(0, Math.ceil((uc - rr + U) / STEP)), i1 = Math.min(FN, Math.floor((uc + rr + U) / STEP));
+          for (let i = i0; i <= i1; i++) { const du = -U + i * STEP - uc, e = q.dr + Math.sqrt(Math.max(0, rr * rr - du * du)); if (e > envl[i]) envl[i] = e; }
         }
-        // sprigs of leaves break up the round outline
-        if (depth > 60) continue;
-        g.fillStyle = c2;
-        const sprigs = 2 + Math.round(rr / 3);
+        // sprigs of leaves break up the round outline (and the crescent)
+        if (depth > 130) continue;
+        g.fillStyle = body;
+        const sprigs = 1 + Math.round(rr / 4.5);
         for (let q = 0; q < sprigs; q++) {
-          const ang = r.range(-1.45, 1.45), lr = r.range(1.1, 2.6);
-          blot(x + Math.sin(ang) * (rr - lr * 0.35), y - Math.cos(ang) * (rr - lr * 0.35), lr);
+          const ang = r.range(-1.7, 1.7), lr = r.range(1.2, 3.4);
+          disc(x + Math.sin(ang) * (rr - lr * 0.3), y - Math.cos(ang) * (rr - lr * 0.3), lr);
         }
       }
-    };
-    // taller trees gathered at the feet of the buildings: [x, radius, how far the crown tops out above the arc]
-    const big = [
-      [TOWER_X - 132, 12, 9], [TOWER_X - 108, 17, 21], [TOWER_X - 80, 19, 31], [TOWER_X - 58, 12, 22],
-      [TOWER_X + 66, 13, 10], [TOWER_X + 90, 18, 17], [TOWER_X + 116, 13, 10], [TOWER_X + 142, 10, 7],
-      [PAV_X - 54, 12, 10], [PAV_X - 38, 9, 7], [PAV_X + 44, 13, 11], [190, 11, 8], [240, 12, 9],
-      // …and here and there along the ridge, so the skyline is not one even hem
-      [88, 13, 10], [112, 9, 7], [706, 11, 8], [730, 15, 11], [754, 9, 6], [1196, 10, 7], [1220, 15, 11], [1246, 9, 6],
-      [1404, 10, 8], [1428, 14, 11], [1796, 12, 9], [1822, 16, 12], [1846, 10, 7],
-    ];
-    for (const [x, rad, lift] of big) crown(x, a.yAt(x) + rad - lift, rad, 4, 0, true);
-    const depths = [0, 6, 13, 21, 30, 40, 52, 66, 82, 100, 120, 143, 168, 196];
-    depths.forEach((depth, row) => {
-      let u = -s * a.R + r.range(0, 12);
-      while (u < s * a.R) {
-        const clump = 0.5 + 0.5 * nz.n2(u / 230, row * 3.7 + 1.3);                       // stretches of big / small trees
-        const rad = (4 + 9.5 * Math.pow(r(), 1.7) * (0.45 + 0.9 * clump)) * (1 + row * 0.07);
-        const swell = 3.1 + 2.3 * nz.fbm(u / 170, 7.7, 2);                                // the skyline's slow undulation
-        const lift = row === 0 ? L.clamp(swell + r.range(-1.3, 1.3), 0.4, 6.4) : r.range(-2.5, 2.5);
-        const c = a.pt(u / a.R, lift - rad - depth);
-        crown(c.x, c.y, rad, rad > 7 ? 3 : 2, depth, row === 0);
-        u += rad * r.range(0.95, 1.7);
-      }
-    });
+    }
 
-    // the very edge: a ragged fringe of twigs and leaf-tips over the round crowns, taller where the growth is rank
+    // the very edge: a ragged fringe of twigs and leaf-tips riding the crowns' outline, taller where the growth is rank
     g.fillStyle = INK; g.beginPath();
-    const FN = Math.ceil((2 * s * a.R) / 1.5);
     for (let i = 0; i <= FN; i++) {
-      const u = -s * a.R + i * 1.5;
+      const u = -U + i * STEP;
       const rank = Math.pow(L.clamp(0.5 + 0.9 * nz.fbm(u / 150 + 40, 2.1, 2)), 2);
-      const hgt = -0.6 + 4.2 * rank + 2.6 * nz.ridged(u / 13, 5.5, 2) * (0.5 + rank) + 1.2 * nz.n2(u / 3.1, 9.9);
-      const q = a.pt(u / a.R, Math.max(-1, hgt));
+      const hgt = envl[i] - 0.5 + 3.0 * nz.ridged(u / 9, 5.5, 2) * (0.3 + rank) + 1.1 * nz.n2(u / 2.6, 9.9);
+      const q = a.pt(u / a.R, hgt);
       if (i) g.lineTo(q.x, q.y); else g.moveTo(q.x, q.y);
     }
-    for (let i = FN; i >= 0; i -= 24) { const q = a.pt((-s * a.R + i * 1.5) / a.R, -6); g.lineTo(q.x, q.y); }
+    for (let i = FN; i >= 0; i -= 3) { const q = a.pt((-U + i * STEP) / a.R, envl[i] - 5); g.lineTo(q.x, q.y); }
     g.closePath(); g.fill();
 
-    // rim light: the crisp threads plus a soft bloom of them, kept inside the silhouette
-    const bloom = L.blurred(hl, 3.2), bg = bloom.getContext('2d');
+    // the crescents bloom a little (kept inside the silhouette)
+    const bloom = L.blurred(layer, 3.4), bg = bloom.getContext('2d');
     bg.globalCompositeOperation = 'destination-in'; bg.drawImage(layer, 0, 0);
-    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter';
-    g.drawImage(bloom, 0, 0); g.drawImage(bloom, 0, 0); g.drawImage(hl, 0, 0);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter'; g.globalAlpha = 0.6;
+    g.drawImage(bloom, 0, 0);
     g.restore();
 
-    // 4) forest sheen: lumps of canopy catching the red of the sky — strongest along the tree line and toward the sun,
-    //    gone a couple of hundred px down the slope (the hill stays near-black)
-    const mottle = L.polarNoiseLayer(env, PAD, { seed: 's21mottle', scale: 30, sx: 1.9, sy: 0.9, octaves: 5, gain: 0.6, contrast: 1.5, res: 0.4,
-      ramp: [[0, 'rgba(96,26,60,0)'], [0.48, 'rgba(96,26,60,0)'], [1, 'rgba(128,34,72,0.15)']] });
-    const sheen = L.makeCanvas(layer.width, layer.height), sg = sheen.getContext('2d');
-    sg.drawImage(mottle, 0, 0);
+    // depth of field: the crowns go soft as the slope comes toward the camera
+    const soft = L.blurred(layer, 3.2), sg = soft.getContext('2d');
     sg.globalCompositeOperation = 'destination-in';
-    sg.drawImage(layer, 0, 0);
-    sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 290, a.R + 10, [[0, 'rgba(0,0,0,0)'], [0.4, 'rgba(0,0,0,0.16)'], [0.8, 'rgba(0,0,0,0.7)'], [1, 'rgba(0,0,0,1)']]);
-    sg.fillRect(0, 0, sheen.width, sheen.height);
-    sg.fillStyle = L.radial(sg, sun.x + PAD, sun.y + PAD, 0, 1500, [[0, 'rgba(0,0,0,1)'], [0.3, 'rgba(0,0,0,0.78)'], [1, 'rgba(0,0,0,0.42)']]);
-    sg.fillRect(0, 0, sheen.width, sheen.height);
-    sg.globalCompositeOperation = 'destination-out';
-    sg.translate(PAD, PAD); a.pathAbove(sg, 7); sg.fill();                       // never on the buildings
-    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'lighter';
-    g.drawImage(sheen, 0, 0);
-    g.restore();
+    sg.fillStyle = L.radial(sg, a.cx + PAD, a.cy + PAD, a.R - 190, a.R - 46, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
+    sg.fillRect(0, 0, FW, FH);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(soft, 0, 0); g.restore();
 
-    // 5) nearer slopes stepping toward the camera, a breath of warm haze caught behind each
-    g.save(); a.clipBelow(g, -14);
-    const ridges = [[196, 34, 1.3, '#070304', 0.036], [336, 46, 1.9, '#050203', 0.04], [492, 60, 2.6, '#030102', 0.036]];
+    // …and so do the two ends of the ridge, away from the pagoda
+    const ends = L.blurred(layer, 2.6), ng = ends.getContext('2d');
+    ng.globalCompositeOperation = 'destination-in';
+    ng.fillStyle = L.linear(ng, PAD - 60, 0, PAD + W + 40, 0, [[0, 'rgba(0,0,0,1)'], [0.16, 'rgba(0,0,0,0)'], [0.88, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    ng.fillRect(0, 0, FW, FH);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(ends, 0, 0); g.restore();
+
+    // 4) nearer slopes stepping toward the camera — far out of focus, a breath of plum haze caught behind each
+    const fore = L.makeCanvas(FW / 2, FH / 2), fg = fore.getContext('2d');
+    fg.scale(0.5, 0.5); fg.translate(PAD, PAD);
+    const ridges = [[214, 38, 1.2, '#070309', 0.05], [404, 56, 1.9, '#040205', 0.05]];
     ridges.forEach(([drop, amp, freq, col, haze], k) => {
       const pts = [];
-      for (let i = 0; i <= 420; i++) {
-        const x = L.lerp(-PAD - 30, W + PAD + 30, i / 420);
-        const y = a.yAt(L.clamp(x, a.cx - a.R * 0.7, a.cx + a.R * 0.7)) + drop + amp * nz.fbm((i / 420) * freq * 3 + k * 7.3, k * 3.1, 4)
-          - 3.2 * Math.abs(nz.n2(i * 0.47, k + 0.5)) - 2 * Math.abs(nz.n2(i * 1.3, k + 4.5)) + (k % 2 ? 1 : -1) * (x - a.cx) * 0.045;
+      for (let i = 0; i <= 200; i++) {
+        const x = L.lerp(-PAD - 30, W + PAD + 30, i / 200);
+        const y = a.yAt(L.clamp(x, a.cx - a.R * 0.7, a.cx + a.R * 0.7)) + drop + amp * nz.fbm((i / 200) * freq * 3 + k * 7.3, k * 3.1, 3)
+          + (k % 2 ? 1 : -1) * (x - a.cx) * 0.045;
         pts.push([x, y]);
       }
-      g.save(); g.globalCompositeOperation = 'screen';
-      for (let i = 0; i < pts.length; i += 11) {
+      for (let i = 0; i < pts.length; i += 6) {
         const p = pts[i], prox = Math.exp(-Math.abs(p[0] - sun.x) / 900);
-        g.fillStyle = L.radial(g, p[0], p[1] - 4, 0, 140, [[0, `rgba(88,36,104,${haze * 1.2 * (0.4 + 0.6 * prox)})`], [1, 'rgba(88,36,104,0)']]);
-        g.fillRect(p[0] - 140, p[1] - 144, 280, 280);
+        fg.fillStyle = L.radial(fg, p[0], p[1] - 6, 0, 170, [[0, `rgba(88,36,104,${haze * (0.4 + 0.6 * prox)})`], [1, 'rgba(88,36,104,0)']]);
+        fg.fillRect(p[0] - 170, p[1] - 176, 340, 340);
       }
-      g.restore();
-      g.fillStyle = col;
-      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
-      for (const p of pts) g.lineTo(p[0], p[1]);
-      g.lineTo(W + PAD + 30, H + PAD * 2); g.lineTo(-PAD - 30, H + PAD * 2); g.closePath(); g.fill();
+      fg.fillStyle = col;
+      fg.beginPath(); fg.moveTo(pts[0][0], pts[0][1]);
+      for (const p of pts) fg.lineTo(p[0], p[1]);
+      fg.lineTo(W + PAD + 30, H + PAD * 2); fg.lineTo(-PAD - 30, H + PAD * 2); fg.closePath(); fg.fill();
     });
-    // a whisper of the same mottling on the near slopes
-    g.globalCompositeOperation = 'screen';
-    g.globalAlpha = 0.16; g.drawImage(mottle, -PAD, -PAD + 9); g.globalAlpha = 1;
+    g.save(); a.clipBelow(g, -30); g.setTransform(1, 0, 0, 1, 0, 0);
+    g.filter = 'blur(9px)'; g.drawImage(fore, 0, 0, FW, FH); g.filter = 'none';
     g.restore();
   });
 }
 
 // ───────────────────────── birds ─────────────────────────
 const BIRDS = [ // x, y, size, flap phase
-  [1392, 262, 1.5, 0.0], [1452, 298, 1.2, 1.7], [1518, 250, 0.7, 3.1], [1588, 320, 1.3, 4.4], [1664, 278, 0.6, 2.3], [1352, 338, 0.58, 5.2], [1738, 356, 0.5, 0.9],
-  [226, 316, 0.6, 2.9], [286, 350, 0.48, 4.0],
+  [1392, 262, 1.5, 0.0], [1452, 298, 1.2, 1.7], [1518, 250, 0.8, 3.1], [1588, 320, 1.3, 4.4], [1664, 278, 0.7, 2.3],
 ];
 function drawBird(ctx, x, y, s, flap) {
   ctx.save(); ctx.translate(x, y); ctx.rotate(-0.06); ctx.scale(s, s);
@@ -476,7 +475,10 @@ export default {
     occ.getContext('2d').drawImage(hill, cx0 + PAD, cy0 + PAD, CW, CH, 0, 0, CW, CH);
     const BN = BLOOM_R / 2;                              // bloom buffers at quarter size
     const sk = buildSky(env);
-    S = { sky: sk.sky, ember: sk.ember, lit: clouds.lit, dark: clouds.dark, hill, sunLight: buildSunLight(env), occ, occX: cx0, occY: cy0,
+    // halation: only the part of the ember line that is actually seen past the trees glows, and it bleeds a few px into them
+    const eg = sk.ember.getContext('2d');
+    eg.globalCompositeOperation = 'destination-out'; eg.drawImage(hill, 0, -(EMBER_TOP + PAD));
+    S = { sky: sk.sky, ember: L.blurred(sk.ember, 4.5), lit: clouds.lit, dark: clouds.dark, hill, sunLight: buildSunLight(env), occ, occX: cx0, occY: cy0,
       b0: L.makeCanvas(BN, BN), b1: L.makeCanvas(BN, BN) };
   },
   draw(ctx, env, p) {
@@ -493,8 +495,8 @@ export default {
     ctx.restore();
     // hill, trees, pagoda: slide along the ridge
     L.blit(ctx, env, S.hill, { rot, zoom });
-    // halation: the ember line bleeds a few px over the edge of the ridge
-    L.cam(ctx, env, { rot: skyRot, zoom: skyZoom }, () => {
+    // halation: the ember line bleeds a few px over the edge of the ridge (cut to the tree line, so it rides with the hill)
+    L.cam(ctx, env, { rot, zoom }, () => {
       ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.5;
       ctx.drawImage(S.ember, -PAD, EMBER_TOP);
     });
