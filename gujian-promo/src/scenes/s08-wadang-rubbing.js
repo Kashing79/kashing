@@ -211,7 +211,8 @@ function buildInk(env, relief, voidL) {
         // paper just outside the rim: faint smudges where the pad overshot the edge
         const th = Math.atan2(dx, -dy);
         const s = sstep(0.02, 0.5, nS.fbm(th * 10, 3.3, 2));
-        D = s * (Math.exp(d / 10) * 0.26 * (0.5 + 0.5 * v3) + Math.exp(d / 22) * 0.45 * sstep(1.3, 2.1, z));
+        // (kept faint and within ~15 px of the edge, and nearly absent over the crest: on white paper a wider smudge reads as dirt)
+        D = s * (0.4 + 0.6 * sstep(0.2, 0.26, Math.abs(th))) * (Math.exp(d / 10) * 0.12 * (0.5 + 0.5 * v3) + Math.exp(d / 12) * 0.20 * sstep(1.3, 2.1, z));
         const m = mS[k] / 255;
         const I0 = sstep(0.9, 1.9, (m - 0.5) * 5 + 0.95 * z);
         if (I0 > D) D = I0;
@@ -240,7 +241,7 @@ function buildInk(env, relief, voidL) {
       }
       D *= vd[k] / 255;
       if (D <= 0.004) continue;
-      o[k] = 17 + 21 * tone; o[k + 1] = 15 + 20 * tone; o[k + 2] = 13 + 18 * tone; o[k + 3] = D > 1 ? 255 : D * 255;
+      o[k] = 5 + 13 * tone; o[k + 1] = 5 + 14 * tone; o[k + 2] = 6 + 18 * tone; o[k + 3] = D > 1 ? 255 : D * 255; // 乌金黑 #050506 → 松烟青黑 #121318
     }
   }
   const ink = L.makeCanvas(LW, LH);
@@ -249,13 +250,15 @@ function buildInk(env, relief, voidL) {
   return ink;
 }
 
-/** a small red seal impression (白文): square-spiral 回纹 ornament only — deliberately NOT legible characters */
-function buildSeal() {
-  const n = 96; const c = L.makeCanvas(n, n); const g = c.getContext('2d');
-  g.fillStyle = '#b3261e';
+/** a red seal impression (白文): square-spiral 回纹 ornament only — deliberately NOT legible characters.
+ *  Cinnabar 朱砂: the single note of colour in a black-and-white shot. Drawn on a 96-unit grid, rasterised at `px`. */
+function buildSeal(px) {
+  const n = 96; const c = L.makeCanvas(px, px); const g = c.getContext('2d');
+  g.scale(px / n, px / n);
+  g.fillStyle = '#d9321f';
   L.roughPoly(g, [[9, 9], [n - 9, 9], [n - 9, n - 9], [9, n - 9]], { rough: 1.5, seed: 8, step: 5 }); g.fill();
-  g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.5;
-  g.drawImage(L.noiseTex(n, n, { seed: 's08sealtone', scale: 16, octaves: 3, res: 1, contrast: 1.6, ramp: [[0, '#7c1410'], [0.5, 'rgba(179,38,30,0)'], [1, '#d4503c']] }), 0, 0);
+  g.globalCompositeOperation = 'source-atop'; g.globalAlpha = 0.35;
+  g.drawImage(L.noiseTex(n, n, { seed: 's08sealtone', scale: 16, octaves: 3, res: 1, contrast: 1.6, ramp: [[0, '#a81b12'], [0.5, 'rgba(217,50,31,0)'], [1, '#ee5a38']] }), 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'destination-out';
   g.strokeStyle = '#000'; g.lineWidth = 3.3; g.lineCap = 'square'; g.lineJoin = 'miter';
   const spiral = (cx, cy, flipX, flipY) => {
@@ -267,7 +270,7 @@ function buildSeal() {
   };
   spiral(31, 31, 1, 1); spiral(65, 31, -1, 1); spiral(31, 65, 1, -1); spiral(65, 65, -1, -1);
   // worn impression
-  L.speckle(g, { seed: 's08sealwear', count: 260, x: 0, y: 0, w: n, h: n, rMin: 0.4, rMax: 2.4, colors: ['#000'], alpha: [0.3, 1] });
+  L.speckle(g, { seed: 's08sealwear', count: 110, x: 0, y: 0, w: n, h: n, rMin: 0.4, rMax: 1.7, colors: ['#000'], alpha: [0.3, 1] });
   return c;
 }
 
@@ -275,21 +278,22 @@ function buildSheet(env) {
   const a = env.arc;
   const relief = buildRelief(env);
   const ink = buildInk(env, relief, buildVoid(env));
-  const paper = L.paperTex(LW, LH, { base: '#ece4d2', seed: 's08paper', tone: '#9a7b4a', fiber: 0.75, stain: 0.4, grain: 0.2 });
+  // 本白宣纸: neutral white; whatever shading the sheet has is cool grey, never tea-yellow (ageing = texture only)
+  const paper = L.paperTex(LW, LH, { base: '#f2f3f1', seed: 's08paper', tone: '#8c939a', fiber: 0.75, stain: 0.15, grain: 0.2 });
   return L.makeLayer(PAD, (g) => {
     g.drawImage(paper, -PAD, -PAD);
     // 帘纹: the faint laid lines of hand-made xuan paper
-    g.fillStyle = 'rgba(120,96,52,0.05)';
+    g.fillStyle = 'rgba(70,80,92,0.045)';
     for (let y = -PAD; y < H + PAD; y += 9) g.fillRect(-PAD, y, LW, 1.2);
     g.fillStyle = 'rgba(255,252,240,0.05)';
     for (let x = -PAD + 60; x < W + PAD; x += 168) g.fillRect(x, -PAD, 2, LH);
-    // long fibres of the hand-made sheet (visible at this magnification), pale and tan, plus a few pulp clumps
+    // long fibres of the hand-made sheet (visible at this magnification), white and cool grey, plus a few pulp clumps
     const rf = L.rng('s08xuan');
     g.save(); g.lineCap = 'round';
     for (let i = 0; i < 420; i++) {
       const x = rf.range(-PAD, W + PAD), y = rf.range(-PAD, H + PAD), len = rf.range(26, 150), ang = rf.range(0, Math.PI);
       const cs = Math.cos(ang), sn = Math.sin(ang), b1 = rf.range(-18, 18), b2 = rf.range(-18, 18);
-      g.strokeStyle = rf.chance(0.55) ? `rgba(255,253,244,${rf.range(0.1, 0.32).toFixed(3)})` : `rgba(138,110,64,${rf.range(0.07, 0.2).toFixed(3)})`;
+      g.strokeStyle = rf.chance(0.55) ? `rgba(255,253,244,${rf.range(0.1, 0.32).toFixed(3)})` : `rgba(105,112,122,${rf.range(0.05, 0.13).toFixed(3)})`;
       g.lineWidth = rf.range(0.6, 1.7) * (rf.chance(0.06) ? 2.2 : 1);
       g.beginPath(); g.moveTo(x, y);
       g.bezierCurveTo(x + cs * len * 0.33 - sn * b1, y + sn * len * 0.33 + cs * b1, x + cs * len * 0.66 - sn * b2, y + sn * len * 0.66 + cs * b2, x + cs * len, y + sn * len);
@@ -300,10 +304,9 @@ function buildSheet(env) {
     g.save(); g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.3;
     g.drawImage(L.noiseTex(LW, LH, { seed: 's08cockle', scale: 420, sx: 1.7, octaves: 3, res: 0.12, contrast: 1.5 }), -PAD, -PAD);
     g.restore();
-    // foxing + a few stray ink flecks on the bare paper
-    L.speckle(g, { seed: 's08fox', count: 90, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 5, colors: ['#b0915a', '#a58450'], alpha: [0.05, 0.22] });
-    L.speckle(g, { seed: 's08fleck', count: 46, x: 190, y: 300, w: 420, h: 260, rMin: 0.6, rMax: 3.2, colors: ['#1b1814'], alpha: [0.1, 0.5], test: (x, y) => a.drAt(x, y) > 12 });
-    g.fillStyle = L.radial(g, 330, 470, 0, 150, [[0, 'rgba(30,27,24,0.07)'], [1, 'rgba(30,27,24,0)']]); g.fillRect(180, 320, 300, 300);
+    // a handful of pale pulp specks (no brown foxing) + a few stray ink flecks on the bare paper
+    L.speckle(g, { seed: 's08fox', count: 15, x: -PAD, y: -PAD, w: LW, h: LH, rMin: 1, rMax: 5, colors: ['#b8bdc2'], alpha: [0.04, 0.1] });
+    L.speckle(g, { seed: 's08fleck', count: 20, x: 190, y: 300, w: 420, h: 260, rMin: 0.6, rMax: 2.2, colors: ['#0b0b0c'], alpha: [0.1, 0.5], test: (x, y) => a.drAt(x, y) > 12 });
     // puckers in the paper where it was pressed down over the edge of the tile: short radial creases outside the rim
     const rc = L.rng('s08crease');
     g.save(); g.lineCap = 'round';
@@ -312,7 +315,7 @@ function buildSheet(env) {
       const lean = rc.range(-0.35, 0.35), bend = rc.range(-10, 10), al = rc.range(0.3, 0.75) * (Math.abs(th) < 0.13 ? 0.35 : 1);
       a.at(g, th, d0, () => {
         const ex = Math.sin(lean) * len, ey = -Math.cos(lean) * len;
-        for (const [ox, col, w] of [[0.9, `rgba(96,76,44,${(0.15 * al).toFixed(3)})`, 1.8], [-0.9, `rgba(255,253,244,${(0.26 * al).toFixed(3)})`, 1.6]]) {
+        for (const [ox, col, w] of [[0.9, `rgba(60,68,80,${(0.15 * al).toFixed(3)})`, 1.8], [-0.9, `rgba(255,253,244,${(0.26 * al).toFixed(3)})`, 1.6]]) {
           g.strokeStyle = col; g.lineWidth = w;
           g.beginPath(); g.moveTo(ox, 0); g.quadraticCurveTo(ex * 0.5 + bend + ox, ey * 0.5, ex + ox, ey); g.stroke();
         }
@@ -329,11 +332,11 @@ function buildSheet(env) {
     // 题签 + 钤印 at the upper right
     const tx = 1692; let ty = 118; const size = 58, step = 66;
     g.save(); g.globalCompositeOperation = 'multiply';
-    L.text(g, '汉', tx, ty, { font: 'brush', size, weight: 400, color: '#1c1915', alpha: 0.93 });
+    L.text(g, '汉', tx, ty, { font: 'brush', size, weight: 400, color: '#0b0b0c', alpha: 0.93 });
     ty += step + 26;
-    for (const ch of '云纹瓦当') { L.text(g, ch, tx, ty, { font: 'brush', size, weight: 400, color: '#1c1915', alpha: 0.93 }); ty += step; }
-    g.translate(tx + 1, ty + 26); g.rotate(0.022);
-    g.globalAlpha = 0.94; g.drawImage(buildSeal(), -41, -41, 82, 82);
+    for (const ch of '云纹瓦当') { L.text(g, ch, tx, ty, { font: 'brush', size, weight: 400, color: '#0b0b0c', alpha: 0.93 }); ty += step; }
+    g.translate(tx + 1, ty + 40); g.rotate(0.022);
+    g.globalAlpha = 0.94; g.drawImage(buildSeal(108), -54, -54, 108, 108);
     g.restore();
   });
 }
@@ -346,18 +349,22 @@ export default {
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    // the whole sheet drifts along the arc and the camera creeps in; zoom passes through 1 at mid-shot so the rim sits on the arc
-    const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(0.988, 1.016, p);
-    ctx.fillStyle = '#ece4d2'; ctx.fillRect(0, 0, W, H);
+    // the whole sheet drifts along the arc and the camera creeps in; the zoom stays within ±1 % so the rim never leaves
+    // the arc by more than a few px even at the frame edges — the drift along the arc (rot) carries the motion instead
+    const rot = L.lerp(-0.008, 0.008, p), zoom = L.lerp(0.993, 1.009, p);
+    ctx.fillStyle = '#f2f3f1'; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.sheet, { rot, zoom });
-    // fixed copy-stand light: warm from the upper left, falling off to the lower right
+    // fixed copy-stand light: neutral, a touch brighter at the upper left than the lower right (no warm wash on the white sheet)
     ctx.save(); ctx.globalCompositeOperation = 'soft-light';
-    ctx.fillStyle = L.linear(ctx, 0, 0, W, H, [[0, 'rgba(255,246,224,0.34)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,0,0.28)']]);
+    ctx.fillStyle = L.linear(ctx, 0, 0, W, H, [[0, 'rgba(255,255,255,0.16)'], [0.5, 'rgba(128,128,128,0)'], [1, 'rgba(0,0,0,0.10)']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    // a breath of sheen sliding over the dense ink of the rim
+    // a breath of light sliding along the rim: soft-light, so it opens the grey ground a little but never lifts the black
     const gl = a.pt(L.lerp(-0.2, 0.06, p), -62);
-    L.glow(ctx, gl.x, gl.y, 420, '#fff6e4', 0.07);
-    L.vignette(ctx, { strength: 0.2 });
+    L.glow(ctx, gl.x, gl.y, 420, '#ffffff', 0.18, 'soft-light');
+    // the rubbing sinks a little toward the lower corners — only BELOW the arc; the bare white paper gets no vignette
+    ctx.save(); a.clipBelow(ctx, -8);
+    L.vignette(ctx, { strength: 0.16 });
+    ctx.restore();
   },
 };

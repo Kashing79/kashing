@@ -1,4 +1,5 @@
-// s12 — 抱鼓石 (the drum of a drum-shaped door stone), macro on black, warm raking light from the upper left.
+// s12 — 抱鼓石 (the drum of a drum-shaped door stone), macro, warm-white raking light from the upper left.
+// Behind it, far out of focus, the green-lacquered leaf of the house door (绿油屏门) it stands in front of.
 // The arc is the upper silhouette of the stone drum. Going inward from it:
 //   鼓帮 (the thick tooled edge, with chips) → a half-round bead → a ring of 鼓钉 (domed bosses) →
 //   a band of 回纹 in sunk-ground relief → the drum face with scrolling lotus (缠枝莲) in low relief.
@@ -10,7 +11,7 @@ const { W, H } = L;
 const PX = 100;   // side margin of the baked stone layer (px)
 const PT = 44;    // rows kept above the crest (room for the bloom)
 const PB = 64;    // rows kept below the frame
-const PAD = 80;   // margin of the dust layer
+const PAD = 110;  // margin of the out-of-focus door layer (18 px blur + its small parallax move)
 let S = null;
 
 // radial layout, d = px inward from the arc
@@ -24,6 +25,7 @@ const D = {
 };
 const HRIM = 47;           // how far the edge falls away behind the face plane (px of height)
 const H_NAIL = 24, H_FRET = 10, H_SCROLL = 13;
+const DOOR_BAND = 0.55; // strength of the soft band of light on the door
 
 const ss = (a, b, x) => { const t = x <= a ? 0 : x >= b ? 1 : (x - a) / (b - a); return t * t * (3 - 2 * t); };
 
@@ -226,20 +228,20 @@ function drawDamage(g, a, Y0, GH, chips) {
   crack(-0.292, 190, -3.0, 's12crackB');
 }
 
-/** unlit stone colour: grey-white limestone with warm/cool blotches, rain streaks and mineral specks */
+/** unlit stone colour: cool blue-white 青白石 with faint cool/warm blotches, rain streaks and mineral specks */
 function buildAlbedo(GW, GH) {
   const c = L.makeCanvas(GW, GH), g = c.getContext('2d', { willReadFrequently: true });
-  g.fillStyle = '#e4e2dc'; g.fillRect(0, 0, GW, GH);
+  g.fillStyle = '#e9ece8'; g.fillRect(0, 0, GW, GH);
   g.globalCompositeOperation = 'multiply';
-  g.drawImage(L.noiseTex(GW, GH, { seed: 's12a', scale: 300, octaves: 4, warp: 0.6, res: 0.2, ramp: [[0, '#b9b6ae'], [0.5, '#ecebe6'], [1, '#ffffff']] }), 0, 0);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
-  g.drawImage(L.noiseTex(GW, GH, { seed: 's12b', scale: 170, octaves: 3, res: 0.2, ramp: [[0, '#66767f'], [0.5, '#808080'], [1, '#a88c58']] }), 0, 0);
+  g.drawImage(L.noiseTex(GW, GH, { seed: 's12a', scale: 300, octaves: 4, warp: 0.6, res: 0.2, ramp: [[0, '#aab4b3'], [0.5, '#e6eae7'], [1, '#ffffff']] }), 0, 0);
+  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.32;
+  g.drawImage(L.noiseTex(GW, GH, { seed: 's12b', scale: 170, octaves: 3, res: 0.2, ramp: [[0, '#5e7a86'], [0.5, '#808080'], [1, '#a39672']] }), 0, 0);
   g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.6;
-  g.drawImage(L.noiseTex(GW, GH, { seed: 's12c', scale: 24, octaves: 3, res: 0.5, contrast: 1.5, ramp: [[0, '#99968d'], [0.55, '#ffffff'], [1, '#ffffff']] }), 0, 0);
+  g.drawImage(L.noiseTex(GW, GH, { seed: 's12c', scale: 24, octaves: 3, res: 0.5, contrast: 1.5, ramp: [[0, '#8d9694'], [0.55, '#ffffff'], [1, '#ffffff']] }), 0, 0);
   g.globalAlpha = 0.22;
-  g.drawImage(L.noiseTex(GW, GH, { seed: 's12d', scale: 90, sx: 0.4, sy: 5, octaves: 3, res: 0.33, contrast: 1.7, warp: 0.4, ramp: [[0, '#6a6356'], [0.45, '#ffffff'], [1, '#ffffff']] }), 0, 0);
+  g.drawImage(L.noiseTex(GW, GH, { seed: 's12d', scale: 90, sx: 0.4, sy: 5, octaves: 3, res: 0.33, contrast: 1.7, warp: 0.4, ramp: [[0, '#4f5f5d'], [0.45, '#ffffff'], [1, '#ffffff']] }), 0, 0);
   g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
-  L.speckle(g, { seed: 's12sp', count: 5200, x: 0, y: 0, w: GW, h: GH, rMin: 0.4, rMax: 1.7, colors: ['#4b4740', '#2e2b27', '#ebe6da', '#77705f'], alpha: [0.15, 0.6] });
+  L.speckle(g, { seed: 's12sp', count: 5200, x: 0, y: 0, w: GW, h: GH, rMin: 0.4, rMax: 1.7, colors: ['#3f4947', '#232b2a', '#eef0ea', '#6c7773'], alpha: [0.15, 0.6] });
   return g.getImageData(0, 0, GW, GH).data;
 }
 
@@ -326,7 +328,7 @@ function buildStone(env) {
   }
 
   // ── height field ──
-  const Hh = new Float32Array(N), Rz = new Float32Array(N), Al = new Float32Array(N), Cr = new Float32Array(N);
+  const Hh = new Float32Array(N), Rz = new Float32Array(N), Al = new Float32Array(N), Cr = new Float32Array(N), Kk = new Float32Array(N);
   const LUT0 = -64, LUTS = 4, LUTN = (760 - LUT0) * LUTS + 2;
   const pl = new Float32Array(LUTN), rl = new Float32Array(LUTN);
   for (let i = 0; i < LUTN; i++) { const d = LUT0 + i / LUTS; pl[i] = profile(d); rl[i] = raisedProfile(d); }
@@ -352,6 +354,8 @@ function buildStone(env) {
           const e = E[Math.max(0, Math.min(NE, Math.round((theta + span) * 2 * R)))];
           const al = d - e + 0.5;
           Al[i] = al <= 0 ? 0 : al >= 1 ? 1 : al;
+          // the shadow-side half of the arris catches a thin cool kicker off the door; it follows the bites
+          Kk[i] = ss(0.02, 0.22, theta) * (1 - ss(2, 7, d - e));
         } else {
           Al[i] = 1;
           const kf = Math.round(theta / NP), ki = kf + NK;
@@ -372,8 +376,9 @@ function buildStone(env) {
       h += ((undD[i4] - 128) / 128) * 1.8 + noise;
       h -= (dmgD[i4] / 255) * (d < D.rim ? 2.3 : 1.7 * (1 - 0.8 * rz)) + (dmgD[i4 + 1] / 255) * 5;
       Hh[i] = h; Rz[i] = rz;
-      // rain-darkened crust on the tooled edge, heaviest right at the top
-      Cr[i] = d < D.rim + 4 ? 0.9 - 0.12 * (1 - ss(0, 16, d)) + 0.1 * ss(D.rim - 6, D.rim + 4, d) : 1;
+      // rain-darkened crust on the tooled edge, heaviest right at the top — on the lit (left) half only, so the
+      // shadow-side silhouette is not dimmed against the dark door
+      Cr[i] = d < D.rim + 4 ? 0.9 - 0.12 * (1 - ss(0, 16, d)) * (1 - ss(-140, 40, dxc)) + 0.1 * ss(D.rim - 6, D.rim + 4, d) : 1;
     }
   }
 
@@ -388,7 +393,7 @@ function buildStone(env) {
   const sRise = STEPS.map((t) => t * tanE + 0.35);
   const sSoft = STEPS.map((t) => 1 / (0.5 + 0.08 * t));
   const NS = STEPS.length;
-  const KA = 0.23, KD = 1.3;
+  const KA = 0.30, KD = 1.5;
   const tone = (x) => (x < 0.72 ? x : 0.72 + 0.28 * (1 - Math.exp(-(x - 0.72) / 0.28)));
   const img = new ImageData(GW, GH), o = img.data;
   for (let iy = 1; iy < GH - 1; iy++) {
@@ -413,17 +418,21 @@ function buildStone(env) {
       let ao = 1 + conv * 0.075; ao = ao < 0.3 ? 0.3 : ao > 1 ? 1 : ao;
       let edge = conv * 0.1; edge = edge < 0 ? 0 : edge > 1 ? 1 : edge;
       const dif = KD * ndl * sh;
-      const amb = KA * (0.4 + 0.6 * ao) + 0.05 * Math.max(0, nx * 0.6 + ny * 0.3 + nzz * 0.5);
+      const amb = KA * (0.4 + 0.6 * ao);
+      // green bounce off the lacquered door, reaching the faces turned away from the lamp
+      const fill = 0.13 * Math.max(0, nx * 0.6 + ny * 0.3 + nzz * 0.5);
+      const rim = Kk[p] * 0.22;
       const ndh = nx * hx + ny * hy + nzz * hz;
       const sp1 = ndh > 0 ? Math.pow(ndh, 38) : 0;
       const spec = sh * (sp1 * (0.05 + 0.42 * rz + 0.2 * edge) + sp1 * sp1 * sp1 * 0.5 * rz);
       const fresh = dmgD[p * 4 + 1] / 255;
       const k = (1 - 0.25 * (1 - rz)) * (1 + 0.1 * edge) * (0.8 + 0.2 * ao) * (1 + 0.14 * fresh) * Cr[p];
       const p4 = p * 4;
-      const ar = (alb[p4] / 255) * k * (1 + 0.02 * rz), ag = (alb[p4 + 1] / 255) * k, ab = (alb[p4 + 2] / 255) * k * (1 - 0.05 * rz);
-      o[p4] = 255 * tone(ar * (amb * 0.92 + dif) + spec);
-      o[p4 + 1] = 255 * tone(ag * (amb * 0.96 + dif * 0.968) + spec * 0.86);
-      o[p4 + 2] = 255 * tone(ab * (amb * 1.05 + dif * 0.915) + spec * 0.6);
+      // handled, raised carving has gone ivory; the sunk grounds stay cool
+      const ar = (alb[p4] / 255) * k * (1 + 0.04 * rz), ag = (alb[p4 + 1] / 255) * k, ab = (alb[p4 + 2] / 255) * k * (1 - 0.09 * rz);
+      o[p4] = 255 * tone(ar * (amb * 0.70 + dif + fill * 0.35) + spec + rim * 0.78);
+      o[p4 + 1] = 255 * tone(ag * (amb * 1.00 + dif * 0.975 + fill) + spec * 0.86 + rim);
+      o[p4 + 2] = 255 * tone(ab * (amb * 0.96 + dif * 0.925 + fill * 0.62) + spec * 0.6 + rim * 0.90);
       o[p4 + 3] = 255 * al;
     }
   }
@@ -432,42 +441,92 @@ function buildStone(env) {
   return { stone, bloom: L.blurred(stone, 11), Y0 };
 }
 
-/** a few out-of-focus motes drifting in the lamp beam (kept sparse and soft so the black never reads as a starry sky) */
-function buildDust(env) {
+/**
+ * The backdrop, far out of focus: one leaf of the green-lacquered screen door (绿油屏门) behind the door stone, in the
+ * spill of the same lamp. Only colour, a slanting band of soft light, two plank joints and the craze of old lacquer —
+ * no studs, knockers or lettering (studs belong to palace gates).
+ */
+function buildDoor(env) {
   const a = env.arc;
-  return L.makeLayer(PAD, (g) => {
-    const r = L.rng('s12dust');
-    for (let i = 0; i < 16; i++) {
-      const x = r.range(-PAD, W * 0.62), y = r.range(-PAD, a.crestY + 40);
-      const rad = r.range(7, 24), al = r.range(0.02, 0.06);
-      g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba('#ffd9a0', al)], [0.7, L.rgba('#ffcf8a', al * 0.8)], [1, 'rgba(255,207,138,0)']]);
-      g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
-    }
+  const X0 = -PAD, Y0 = -PAD, FW = W + PAD * 2, FH = H + PAD * 2;
+  const base = L.makeLayer(PAD, (g) => {
+    g.fillStyle = '#1d6b45'; g.fillRect(X0, Y0, FW, FH);
+    // the lamp's pool falls off to the right
+    g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#1d6b45'], [500 / W, '#23875a'], [1100 / W, '#145a3a'], [1700 / W, '#06231a'], [1, '#06231a']]);
+    g.fillRect(X0, Y0, FW, FH);
+    // slanting band of soft light: centre x = 560 at y = 0, drifting right 0.25 px per px down, half-width 400
+    g.save(); g.globalCompositeOperation = 'screen';
+    g.transform(1, 0, 0.25, 1, 0, 0);
+    const bell = [[0, 0], [0.14, 0.07], [0.3, 0.42], [0.42, 0.86], [0.5, 1], [0.58, 0.86], [0.7, 0.42], [0.86, 0.07], [1, 0]];
+    g.fillStyle = L.linear(g, 160, 0, 960, 0, bell.map(([t, v]) => [t, L.rgba('#2f9a62', DOOR_BAND * v)]));
+    g.fillRect(160, Y0, 800, FH);
+    g.restore();
+    // two plank joints, deliberately uneven (evenly spaced crisp lines read as a roller shutter)
+    g.fillStyle = '#04170f';
+    g.fillRect(310 - 5, Y0, 10, FH); g.fillRect(1480 - 5, Y0, 10, FH);
   });
+  const door = L.blurred(base, 18);
+  const g = door.getContext('2d');
+  g.translate(PAD, PAD);
+  // a streak of sheen on the lacquer
+  const sheen = L.blurred(L.makeLayer(PAD, (c) => {
+    c.fillStyle = L.linear(c, 0, Y0, 0, a.crestY + 260, [[0, 'rgba(191,232,207,0.55)'], [0.35, '#bfe8cf'], [1, 'rgba(191,232,207,0.7)']]);
+    c.fillRect(640 - 40, Y0, 80, FH);
+  }), 30);
+  g.save(); g.globalAlpha = 0.10; g.drawImage(sheen, -PAD, -PAD); g.restore();
+  // craze of old lacquer: long cracks down the grain with short cross-checks, kept soft — texture on a defocused
+  // plane, not drawn lines
+  const craze = L.blurred(L.makeLayer(PAD, (c) => {
+    const r = L.rng('s12craze');
+    c.strokeStyle = '#082a1c'; c.lineCap = 'round'; c.lineJoin = 'round';
+    for (let i = 0; i < 64; i++) {
+      let x = r.range(X0, X0 + FW), y = r.range(Y0 - 200, a.crestY + 200);
+      const len = r.range(160, 640);
+      c.lineWidth = r.range(1, 1.5);
+      c.beginPath(); c.moveTo(x, y);
+      const ticks = [];
+      for (let t = 0; t < len;) {
+        const st = r.range(16, 44); t += st; y += st; x += r.range(-2.4, 2.4); c.lineTo(x, y);
+        if (r.chance(0.22)) ticks.push([x, y, r.sign() * r.range(10, 46), r.range(-3, 3)]);
+      }
+      c.stroke();
+      c.lineWidth = 1;
+      for (const [tx, ty, dx, dy] of ticks) { c.beginPath(); c.moveTo(tx, ty); c.lineTo(tx + dx * 0.5, ty + dy * 0.3 + r.range(-1.5, 1.5)); c.lineTo(tx + dx, ty + dy); c.stroke(); }
+    }
+  }), 5);
+  g.save(); g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.3; g.drawImage(craze, -PAD, -PAD); g.restore();
+  // contact shade where the door meets the stone's silhouette, so the edge keeps its bite on the dark side too
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 70, [[0, 'rgba(0,0,0,0.30)'], [0.45, 'rgba(0,0,0,0.12)'], [1, 'rgba(0,0,0,0)']]);
+  g.fillRect(X0, Y0, FW, FH);
+  return door;
 }
 
 export default {
   name: '抱鼓石',
   tone: 'light',
   init(env) {
-    const st = buildStone(env);
-    S = { ...st, dust: buildDust(env) };
+    S = { ...buildStone(env), door: buildDoor(env) };
   },
   draw(ctx, env, p) {
     const a = env.arc;
     const rot = L.lerp(-0.011, 0.011, p), zoom = L.lerp(1.0, 1.022, p);
-    ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, W, H);
+    // far plane: the green door, moving a third as much as the stone
+    ctx.fillStyle = '#0c3d29'; ctx.fillRect(0, 0, W, H);
+    L.blit(ctx, env, S.door, { rot: rot * 0.3, zoom: 1 + (zoom - 1) * 0.3 });
     // the carved stone slides slowly under a lamp that does not move
     L.cam(ctx, env, { rot, zoom }, (c) => c.drawImage(S.stone, -PX, S.Y0));
-    ctx.save(); ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = L.radial(ctx, a.cx - 430, a.crestY - 140, 260, 1750, [[0, '#fffdf8'], [0.42, '#d8d4cc'], [0.76, '#7d7871'], [1, '#3b3936']]);
+    // lamp falloff and the warm key belong to the stone only (clipped to its silhouette, which zooms with it)
+    ctx.save();
+    L.cam(ctx, env, { zoom }, (c) => a.pathBelow(c, 1));
+    ctx.clip();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = L.radial(ctx, a.cx - 430, a.crestY - 140, 260, 1750, [[0, '#ffffff'], [0.42, '#d6dcd9'], [0.76, '#7f8c8a'], [1, '#3a4a48']]);
     ctx.fillRect(0, 0, W, H);
+    L.glow(ctx, a.cx - 330, a.crestY + 70, 780, '#ffe6c2', 0.20, 'overlay');
     ctx.restore();
-    L.glow(ctx, a.cx - 330, a.crestY + 70, 780, '#ffd6a0', 0.42, 'overlay');
-    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.26;
+    // bloom: a little of it spills over the silhouette onto the door
+    ctx.save(); ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.14;
     L.cam(ctx, env, { rot, zoom }, (c) => c.drawImage(S.bloom, -PX, S.Y0));
     ctx.restore();
-    L.glow(ctx, a.cx - 560, a.crestY - 330, 900, '#ffcf8a', 0.045);
-    L.blit(ctx, env, S.dust, { rot: rot * 0.35, zoom: 1 + (zoom - 1) * 1.6, dx: 6 * p, dy: -5 * p, blend: 'screen' });
   },
 };

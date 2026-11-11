@@ -36,7 +36,7 @@ const sOf = (d) => (d <= 0 ? 0 : d < ROLL ? ROLL * Math.acos(1 - d / ROLL) : S_F
 const dOf = (s) => (s <= 0 ? 0 : s < S_FLAT ? ROLL * (1 - Math.cos(s / ROLL)) : ROLL + (s - S_FLAT));
 
 // layout on the bronze (surface px from the silhouette inward)
-const CW = 28, CH = 25;                         // one inscription cell
+const CW = 34, CH = 30;                         // one inscription cell
 const BAND_A = [372, 424], BAND_B = [706, 756]; // the two raised string-course bands (弦纹)
 const ZONES = [[64, BAND_A[0] - 9], [BAND_A[1] + 9, BAND_B[0] - 9], [BAND_B[1] + 9, 1420]];
 const RIDGES = [];                              // each band = thin / thick / thin half-round ridges: [centre s, width s]
@@ -174,23 +174,31 @@ function buildSurface(env) {
       const fine = n1.n2(u / 7, s / 7);
       const t = L.clamp(0.42 + 0.6 * mot + 0.32 * str + 0.12 * fine);
       let R0, G0, B0;
-      if (t < 0.5) { const k = t / 0.5; R0 = 26 + (88 - 26) * k; G0 = 16 + (59 - 16) * k; B0 = 9 + (35 - 9) * k; }
-      else { const k = (t - 0.5) / 0.5; R0 = 88 + (150 - 88) * k; G0 = 59 + (103 - 59) * k; B0 = 35 + (60 - 35) * k; }
-      // cuprite: dull red-brown oxide blooming here and there under the green
-      const cup = sstep(0.18, 0.5, n3.fbm(u / 210 - 8, s / 210 + 5, 2) + 0.2 * fine) * 0.5;
-      R0 += (116 - R0) * cup; G0 += (50 - G0) * cup; B0 += (28 - B0) * cup;
-      // verdigris field: clusters of spots, more where damp sits against the raised bands
+      // (black-lacquer patina → old bronze: #120e0a / #3e3022 / #8c7350 — sober, never gold)
+      if (t < 0.5) { const k = t / 0.5; R0 = 18 + (62 - 18) * k; G0 = 14 + (48 - 14) * k; B0 = 10 + (34 - 10) * k; }
+      else { const k = (t - 0.5) / 0.5; R0 = 62 + (140 - 62) * k; G0 = 48 + (115 - 48) * k; B0 = 34 + (80 - 34) * k; }
+      // cuprite: a little dull date-red oxide showing here and there under the green
+      const cup = sstep(0.18, 0.5, n3.fbm(u / 210 - 8, s / 210 + 5, 2) + 0.2 * fine) * 0.2;
+      R0 += (110 - R0) * cup; G0 += (44 - G0) * cup; B0 += (28 - B0) * cup;
+      // verdigris field. It grows the way it does on a casting, not in round blotches: drawn out down the
+      // bell where rain runs, heaviest on the shoulder where damp sits, banked against the raised bands and
+      // trailing off their lower edges in drips.
       const wx = n2.n2(u / 430 + 9.1, s / 430 - 3.3), wy = n2.n2(u / 430 - 5.2, s / 430 + 7.7);
-      const blob = n2.fbm(u / 170 + wx * 0.45, s / 170 + wy * 0.45, 3);
+      const blob = n2.fbm(u / 95 + wx * 0.3, s / 380 + wy * 0.3, 3);
       const region = n2.n2(u / 900 + 1.7, s / 600 - 2.2);
       const hf = n2.fbm(u / 10 + 77, s / 10, 2);
       const spots = n2.fbm(u / 24 - 31, s / 24 + 13, 2);
       let near = 0;
       for (let i = 0; i < 4; i++) { const e = Math.abs(s - bandEdges[i]); if (e < 26) near = Math.max(near, 1 - e / 26); }
-      const pf = 0.58 * blob + 0.34 * region + 0.22 * near + 0.22 * hf + 0.36 * spots - 0.2 * str;
+      let pf = 0.5 * blob + 0.26 * region + 0.3 * near + 0.22 * hf + 0.36 * spots - 0.2 * str;
+      pf += 0.3 * (1 - sstep(60, 520, s));
+      for (let i = 1; i < 4; i += 2) {
+        const e = bandEdges[i];
+        if (s > e && s < e + 240) pf += 0.35 * (1 - (s - e) / 240) * sstep(0, 0.55, n2.n2(u / 26 + 50, e * 0.01));
+      }
       // a thin dull wash of it stains the ground around the heavier growth
-      const wash = sstep(0.02, 0.3, pf) * 0.24;
-      R0 += (22 - R0) * wash; G0 += (44 - G0) * wash; B0 += (40 - B0) * wash;
+      const wash = sstep(-0.2, 0.1, pf) * 0.4;
+      R0 += (14 - R0) * wash; G0 += (46 - G0) * wash; B0 += (42 - B0) * wash;
       const i = y * cw + x;
       b[i * 4] = R0; b[i * 4 + 1] = G0; b[i * 4 + 2] = B0; b[i * 4 + 3] = 255;
       pfA[i] = pf; pcA[i] = 0.5 + 0.5 * n2.n2(u / 40 + 20, s / 40);
@@ -214,18 +222,22 @@ function buildSurface(env) {
       const p00 = pfA[i0], p10 = pfA[i0 + 1], p01 = pfA[i0 + cw], p11 = pfA[i0 + cw + 1];
       if (p00 < -5 || p10 < -5 || p01 < -5 || p11 < -5) continue;
       const pf = (p00 * (1 - fx) + p10 * fx) * (1 - fy) + (p01 * (1 - fx) + p11 * fx) * fy;
-      if (pf < 0.14) continue;
+      if (pf < -0.1) continue;
       const g1 = hash2(X, Y), g2 = hash2(X >> 1, (Y >> 1) + 7919), g3 = hash2((X + 1) >> 2, (Y >> 2) + 104729);
       const v = pf + 0.2 * (0.4 * g1 + 0.35 * g2 + 0.25 * g3 - 0.5);
-      const aG = sstep(0.25, 0.285, v);
+      const aG = sstep(0.05, 0.085, v);
       if (aG <= 0) continue;
       const pc = pcA[i0];
-      const chalk = sstep(0.4, 0.66, v) * (0.35 + 0.65 * pc);
+      const chalk = sstep(0.2, 0.6, v) * (0.35 + 0.65 * pc);
       const lum = 0.84 + 0.32 * g2;
-      const PR = (22 + (52 - 22) * pc + (84 - 52) * chalk) * lum, PG = (62 + (118 - 62) * pc + (146 - 118) * chalk) * lum, PB = (57 + (108 - 57) * pc + (131 - 108) * chalk) * lum;
+      // deep #0f4a44 → malachite green #2f9c88 → chalky crust #78d6c0 …
+      let PR = 15 + (47 - 15) * pc + (120 - 47) * chalk, PG = 74 + (156 - 74) * pc + (214 - 156) * chalk, PB = 68 + (136 - 68) * pc + (192 - 136) * chalk;
+      // … with the odd bloom of azurite (石青 #2a80be) in the heavier growth
+      if (pc > 0.72 && v > 0.3) { const az = 0.6 * sstep(0.72, 0.8, pc) * sstep(0.3, 0.36, v); PR += (42 - PR) * az; PG += (128 - PG) * az; PB += (190 - PB) * az; }
+      PR *= lum; PG *= lum; PB *= lum;
       const i = (Y * LW + X) * 4;
       gd[i] = PR; gd[i + 1] = PG; gd[i + 2] = PB; gd[i + 3] = 255 * aG * 0.94;
-      const aC = sstep(0.39, 0.425, v);
+      const aC = sstep(0.40, 0.435, v);
       if (aC > 0) { cd[i] = PR; cd[i + 1] = PG; cd[i + 2] = PB; cd[i + 3] = 255 * aC * 0.95; }
     }
   }
@@ -239,7 +251,7 @@ function ridge(g, a, sc, sw) {
   g.lineCap = 'butt';
   g.strokeStyle = 'rgba(4,2,1,0.6)'; g.lineWidth = wp * 0.8 + 3; a.stroke(g, -(dB + wp * 0.25 + 1.5));   // cast shadow below
   // half-round moulding lit from above: shade across its width
-  g.strokeStyle = L.radial(g, a.cx, a.cy, a.R - dB - 0.5, a.R - dT + 0.5, [[0, '#140b05'], [0.2, '#38250f'], [0.5, '#6d4a2b'], [0.72, '#9a7045'], [0.88, '#7d5936'], [1, '#462f1a']]);
+  g.strokeStyle = L.radial(g, a.cx, a.cy, a.R - dB - 0.5, a.R - dT + 0.5, [[0, '#17120a'], [0.2, '#3a2f18'], [0.5, '#7a6236'], [0.72, '#c9a868'], [0.88, '#8f7644'], [1, '#4a3b20']]);
   g.lineWidth = wp + 1; a.stroke(g, -dm);
 }
 /** where hands and ropes have rubbed the ridges bright: a broken line of polish along each crest */
@@ -248,15 +260,15 @@ function ridgeSheen(env) {
   const lay = low((g) => {
     for (const [sc, sw] of RIDGES) {
       const dT = dOf(sc - sw / 2), dB = dOf(sc + sw / 2), wp = dB - dT;
-      g.strokeStyle = 'rgba(232,186,128,0.5)'; g.lineWidth = Math.max(1.2, wp * 0.34); a.stroke(g, -(dT + wp * 0.3));
-      g.strokeStyle = 'rgba(255,232,190,0.95)'; g.lineWidth = Math.max(0.9, wp * 0.12); a.stroke(g, -(dT + wp * 0.25));
+      g.strokeStyle = 'rgba(236,214,150,0.55)'; g.lineWidth = Math.max(1.2, wp * 0.34); a.stroke(g, -(dT + wp * 0.3));
+      g.strokeStyle = 'rgba(255,244,205,0.95)'; g.lineWidth = Math.max(0.9, wp * 0.12); a.stroke(g, -(dT + wp * 0.25));
     }
   });
   const g = lay.getContext('2d');
   g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalCompositeOperation = 'destination-in';
   g.drawImage(lowNoise(env, { seed: 's15rub', scale: 50, sx: 5, sy: 1, octaves: 3, res: 0.25, contrast: 1.8,
-    ramp: [[0, 'rgba(0,0,0,0.05)'], [0.36, 'rgba(0,0,0,0.16)'], [0.62, 'rgba(0,0,0,0.85)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
+    ramp: [[0, 'rgba(0,0,0,0.4)'], [0.36, 'rgba(0,0,0,0.55)'], [0.62, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']] }), 0, 0);
   return L.blurred(lay, 0.6);
 }
 /** verdigris packed into the grooves of the bands, broken up along the arc */
@@ -265,7 +277,7 @@ function bandDeposits(env) {
   const lay = low((g) => {
     for (const [s0, s1] of [BAND_A, BAND_B]) {
       const w = s1 - s0;
-      for (const [sc, sw, col] of [[s0 + w * 0.215, w * 0.1, '#4f9a8c'], [s0 + w * 0.785, w * 0.1, '#43897d'], [s1 + 5, 9, '#3f8f84'], [s0 - 5, 8, '#357a70']]) {
+      for (const [sc, sw, col] of [[s0 + w * 0.215, w * 0.1, '#57c3b0'], [s0 + w * 0.785, w * 0.1, '#2f9c88'], [s1 + 5, 9, '#3aa893'], [s0 - 5, 8, '#237a6c']]) {
         g.strokeStyle = col; g.lineWidth = Math.max(1.4, dOf(sc + sw / 2) - dOf(sc - sw / 2));
         a.stroke(g, -dOf(sc));
       }
@@ -293,14 +305,14 @@ function buildBell(env) {
   }
   const occl = L.blurred(tint(mask, '#060402'), 3);
   const shadow = tint(mask, '#050301');
-  const hi = tint(mask, '#efbb86');
-  // stroke faces: rubbed bronze, a little uneven from stroke to stroke
-  const face = tint(mask, '#8a5d35');
+  const hi = tint(mask, '#f4dca0');
+  // stroke faces: rubbed, seasoned copper (never gold), a little uneven from stroke to stroke
+  const face = tint(mask, '#a88a52');
   {
     const g = face.getContext('2d');
     g.globalCompositeOperation = 'source-atop';
     g.globalAlpha = 0.8;
-    g.drawImage(lowNoise(env, { seed: 's15face', scale: 70, octaves: 3, res: 0.25, contrast: 1.6, ramp: [[0, 'rgba(52,31,16,0.8)'], [0.5, 'rgba(110,76,44,0.1)'], [1, 'rgba(196,148,96,0.5)']] }), 0, 0);
+    g.drawImage(lowNoise(env, { seed: 's15face', scale: 70, octaves: 3, res: 0.25, contrast: 1.6, ramp: [[0, 'rgba(40,30,16,0.8)'], [0.5, 'rgba(120,98,54,0.1)'], [1, 'rgba(222,190,120,0.5)']] }), 0, 0);
   }
   const deposits = bandDeposits(env);
   const sheen = ridgeSheen(env);
@@ -311,7 +323,7 @@ function buildBell(env) {
     // inscription in relief: soft occlusion, hard shadow down-right, sharp light up-left, then the face
     g.globalAlpha = 0.85; at(g, occl, 1, 1.6);
     g.globalAlpha = 0.9; at(g, shadow, 1.5, 2.1);
-    g.globalAlpha = 0.55; at(g, hi, -1, -1.3);
+    g.globalAlpha = 0.7; at(g, hi, -1, -1.3);
     g.globalAlpha = 1; at(g, face);
     // string-course bands: sunk plain ground, three half-round ridges, rubbed crests, verdigris in the grooves
     for (const [s0, s1] of [BAND_A, BAND_B]) { g.strokeStyle = 'rgba(12,7,3,0.5)'; g.lineWidth = dOf(s1 + 4) - dOf(s0 - 4); a.stroke(g, -(dOf(s0 - 4) + dOf(s1 + 4)) / 2); }
@@ -320,6 +332,14 @@ function buildBell(env) {
     g.globalAlpha = 0.9; at(g, deposits);
     // the thickest verdigris buries the strokes too
     g.globalAlpha = 1; at(g, crust);
+    // … but the mouldings still read through it: a pale catch of light along each crest, a dark line under each ridge
+    for (const [sc, sw] of RIDGES) {
+      const dT = dOf(sc - sw / 2), dB = dOf(sc + sw / 2), wp = dB - dT;
+      g.globalAlpha = 0.3; g.strokeStyle = '#b8f0df'; g.lineWidth = Math.max(0.8, wp * 0.12); a.stroke(g, -(dT + wp * 0.25));
+      g.globalAlpha = 1; g.globalCompositeOperation = 'multiply';
+      g.strokeStyle = 'rgba(4,20,18,0.45)'; g.lineWidth = wp * 0.5; a.stroke(g, -(dB + 1));
+      g.globalCompositeOperation = 'source-over';
+    }
     // cast-surface blotching, pits and flecks
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.55;
     at(g, lowNoise(env, { seed: 's15blot', scale: 230, octaves: 4, warp: 0.6, res: 0.25, contrast: 1.4, ramp: [[0, '#4a3a2c'], [0.55, '#ffffff'], [1, '#ffffff']] }));
@@ -334,7 +354,7 @@ function buildBell(env) {
     g.globalCompositeOperation = 'destination-in'; g.globalAlpha = 1; g.fillStyle = '#000';
     a.pathBelow(g, 0); g.fill();
   });
-  return L.filtered(bell, 'brightness(1.14) contrast(1.06) saturate(1.04)');
+  return L.filtered(bell, 'brightness(1.14) contrast(1.06) saturate(1.12)');
 }
 
 // ───────────────────────── light (fixed to the frame; the bronze slides underneath) ─────────────────────────
@@ -354,12 +374,12 @@ function buildShade(env) {
     g.fillStyle = '#fff'; g.fillRect(0, TOP, W, H - TOP);
     a.clipBelow(g, 0);
     const DEEP = 900, COLD = [0.8, 0.88, 1.3];
-    const stops = [[0, 0.16, COLD], [8, 0.22, COLD], [30, 0.4, [0.93, 0.96, 1.1]], [80, 0.72], [170, 0.97], [260, 1], [400, 0.9], [520, 0.74], [900, 0.42]];
+    const stops = [[0, 0.36, COLD], [8, 0.42, COLD], [30, 0.58, [0.93, 0.96, 1.1]], [80, 0.82], [170, 0.97], [260, 1], [400, 0.9], [520, 0.86], [900, 0.62]];
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R - DEEP, a.R, stops.map(([d, v, t]) => [1 - d / DEEP, grey(v, t)]));
     g.fillRect(0, TOP, W, H - TOP);
     g.globalCompositeOperation = 'multiply';
     g.translate(820, a.crestY + 250); g.scale(1, 0.62);
-    g.fillStyle = L.radial(g, 0, 0, 120, 1380, [[0, grey(1)], [0.25, grey(0.96)], [0.5, grey(0.7)], [0.75, grey(0.42)], [1, grey(0.24)]]);
+    g.fillStyle = L.radial(g, 0, 0, 120, 1380, [[0, grey(1)], [0.25, grey(0.96)], [0.5, grey(0.84)], [0.75, grey(0.62)], [1, grey(0.42)]]);
     g.fillRect(-3000, -3000, 6000, 6000);
   });
 }
@@ -385,15 +405,15 @@ function buildSpec(env) {
       g.globalCompositeOperation = 'lighter';
       g.drawImage(t, 0, TOP);
     };
-    band(236, 66, 0.62, '#fff0de', 800, 1500);     // key: a long soft box, bent into a band by the curve of the bronze
-    band(320, 210, 0.24, '#ffeedd', 840, 1500);    // and the broad glow around it
+    band(236, 84, 0.8, '#f2fff6', 860, 1700);     // key: a long soft box, bent into a band by the curve of the bronze
+    band(320, 210, 0.3, '#eafff2', 840, 1500);    // and the broad glow around it
     band(154, 17, 0.42, '#fff0de', 760, 1300);     // its thinner echo higher up the shoulder
     band(112, 11, 0.3, '#c4c6ff', 980, 1500);      // the rim light catching the first raised band
     band(50, 13, 0.46, '#c4c6ff', 900, 1500);      // cold strip just inside the limb
     band(455, 95, 0.3, '#bfe2ee', 1400, 1000);     // cool fill low on the right, answering the cyan end of the rim light
     g.globalCompositeOperation = 'multiply';
     g.drawImage(L.noiseTex(W, H - TOP, { seed: 's15sheen', scale: 20, sx: 46, sy: 1, octaves: 3, res: 0.3, contrast: 1.5,
-      polar: { cx: a.cx, cy: a.cy - TOP, R: a.R }, ramp: [[0, '#8a8a8a'], [0.5, '#c8c8c8'], [1, '#ffffff']] }), 0, TOP);
+      polar: { cx: a.cx, cy: a.cy - TOP, R: a.R }, ramp: [[0, '#b0b0b0'], [0.5, '#c8c8c8'], [1, '#ffffff']] }), 0, TOP);
   });
 }
 
@@ -404,21 +424,21 @@ function buildRim(env) {
   const y0 = Math.floor(a.crestY - OUT - 4), y1 = Math.ceil(a.yAt(0) + IN + 4);
   const c = L.makeCanvas(W, y1 - y0); const g = c.getContext('2d');
   g.translate(0, -y0);
-  // colour runs violet → cyan along the silhouette
-  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#5548d8'], [0.28, '#7a6cff'], [0.5, '#8d84ff'], [0.68, '#6f9df0'], [0.85, '#58c8d8'], [1, '#48b2c4']]);
+  // colour runs violet → cyan along the silhouette; violet holds most of it, so the cyan end stays clear of the verdigris
+  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, '#5a45e6'], [0.3, '#7a6cff'], [0.55, '#9a8cff'], [0.72, '#7f8cf8'], [0.88, '#58c8d8'], [1, '#58c8d8']]);
   g.fillRect(0, y0, W, y1 - y0);
   // radial falloff: light wraps a little way onto the bronze, blooms a little way into the dark
   g.globalCompositeOperation = 'destination-in';
-  const al = [[-IN, 0], [-34, 0.07], [-14, 0.28], [-5, 0.6], [-1.5, 0.95], [0.5, 0.9], [3.5, 0.34], [10, 0.1], [26, 0.025], [OUT, 0]];
+  const al = [[-IN, 0], [-34, 0.14], [-14, 0.42], [-5, 0.6], [-1.5, 0.95], [0.5, 0.9], [3.5, 0.34], [10, 0.1], [26, 0.025], [OUT, 0]];
   g.fillStyle = L.radial(g, a.cx, a.cy, a.R - IN, a.R + OUT, al.map(([dr, v]) => [(dr + IN) / T, `rgba(0,0,0,${v})`]));
   g.fillRect(0, y0, W, y1 - y0);
   // not perfectly even along its length
-  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(0,0,0,0.5)'], [0.18, 'rgba(0,0,0,0.85)'], [0.4, 'rgba(0,0,0,1)'], [0.58, 'rgba(0,0,0,0.78)'], [0.78, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0.6)']]);
+  g.fillStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(0,0,0,0.8)'], [0.18, 'rgba(0,0,0,0.9)'], [0.4, 'rgba(0,0,0,1)'], [0.58, 'rgba(0,0,0,0.8)'], [0.78, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0.85)']]);
   g.fillRect(0, y0, W, y1 - y0);
   // the crisp line itself
   g.globalCompositeOperation = 'lighter';
-  g.strokeStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(140,128,255,0.55)'], [0.45, 'rgba(206,200,255,0.9)'], [0.75, 'rgba(160,214,250,0.85)'], [1, 'rgba(110,214,230,0.55)']]);
-  g.lineWidth = 2; a.stroke(g, -1);
+  g.strokeStyle = L.linear(g, 0, 0, W, 0, [[0, 'rgba(140,128,255,0.75)'], [0.45, 'rgba(206,200,255,0.9)'], [0.72, 'rgba(188,190,255,0.9)'], [0.88, 'rgba(160,214,250,0.85)'], [1, 'rgba(110,214,230,0.75)']]);
+  g.lineWidth = 3; a.stroke(g, -1);
   c._y0 = y0;
   return c;
 }
@@ -439,6 +459,9 @@ export default {
     ctx.save();
     ctx.globalCompositeOperation = 'multiply'; ctx.drawImage(S.shade, 0, TOP);
     ctx.globalCompositeOperation = 'color-dodge'; ctx.drawImage(S.spec, 0, TOP);
+    // dodge alone breaks up over the dark verdigris; a little screen carries the band right across the bell
+    ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = 0.22; ctx.drawImage(S.spec, 0, TOP);
+    ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'screen'; ctx.drawImage(S.rim, 0, S.rim._y0);
     // a glint running along the silhouette
     a.at(ctx, L.lerp(-0.1, 0.04, p), -1, () => {

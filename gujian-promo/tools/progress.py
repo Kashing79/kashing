@@ -6,7 +6,7 @@
 Reads the storyboards (docs/storyboard*.json), counts scene files / previews / finished videos / research files,
 and, if the multi-agent workflow journals are available, summarises how far each shot is through the quality gates.
 """
-import glob, json, os, re, subprocess, sys, datetime
+import glob, json, os, re, subprocess, sys, datetime, time
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 argv = sys.argv[1:]
@@ -35,16 +35,21 @@ if JDIR and os.path.isdir(JDIR):
             if j.get('type') == 'started': started[j['agentId']] = j.get('label') or ''
             if j.get('type') == 'result': done[j['agentId']] = j.get('result')
         for aid, label in started.items():
-            m = re.match(r'(scene|critique|polish|verify):(?:(\w+):)?(s\d\d)$', label)
+            m = re.match(r'(scene|critique|polish|verify)(\d)?:(?:(\w+):)?(s\d\d)$', label)
             if not m: continue
-            stage, film, sid = m.group(1), m.group(2) or 'arch', m.group(3)
+            stage, cyc, film, sid = m.group(1), int(m.group(2) or 0), m.group(3) or 'arch', m.group(4)
             g = gate.setdefault((film, sid), {})
             if aid in done:
                 r = done[aid] or {}
                 if stage == 'scene' and r.get('status') == 'failed' and not r.get('previewClean'): continue   # duplicate author that stood down
-                g[stage] = r
+                if cyc >= g.get('_cyc_' + stage, -1):
+                    g[stage] = r; g['_cyc_' + stage] = cyc
+                if cyc: g['refined'] = True      # went through the reference-driven pipeline (refine.js)
             else:
-                running[(film, sid)] = stage
+                # only count it as running if its transcript was touched recently (agents cut off by a usage limit leave no result)
+                t = os.path.join(os.path.dirname(jf), f'agent-{aid}.jsonl')
+                if os.path.exists(t) and time.time() - os.path.getmtime(t) < 240:
+                    running[(film, sid)] = stage
 
 def count(pattern):
     return len(glob.glob(os.path.join(ROOT, pattern)))
@@ -72,7 +77,7 @@ A('')
 # ── 1. progress ──
 A('## 一、进度')
 A('')
-A('| 影片 | 标语 | 印文 · 号召语 | 分镜 | 镜头文件 | 已过作者自审 | 审片 / 打磨 / 复核 | 成片 |')
+A('| 影片 | 标语 | 印文 · 号召语 | 分镜 | 镜头文件 | 已过作者自审 | 对照参考片：打磨 / 复核 | 成片 |')
 A('|---|---|---|---|---|---|---|---|')
 detail = {}
 for film, title, sbp, sdir, pdir, outp in FILMS:
@@ -80,23 +85,22 @@ for film, title, sbp, sdir, pdir, outp in FILMS:
     files = {os.path.basename(f)[:3] for f in glob.glob(os.path.join(ROOT, sdir, 's[0-9][0-9]-*.js'))}
     authored = sum(1 for s in ids if (film, s) in gate and 'scene' in gate[(film, s)]) if gate else None
     if film == 'arch': authored = 37   # film one was authored and delivered in the previous round
-    crit = sum(1 for s in ids if 'critique' in gate.get((film, s), {}))
-    pol = sum(1 for s in ids if 'polish' in gate.get((film, s), {}))
-    ver = sum(1 for s in ids if 'verify' in gate.get((film, s), {}))
+    pol = sum(1 for s in ids if gate.get((film, s), {}).get('refined') and 'polish' in gate[(film, s)])
+    ver = sum(1 for s in ids if gate.get((film, s), {}).get('refined') and 'verify' in gate[(film, s)])
     video = probe(outp)
     detail[film] = (files, video)
     A(f"| {title}（`{film}`） | {TAG[film][0]} | 「{TAG[film][1]}」· {TAG[film][2]} | {'37 条已定稿' if sb_ok else '未完成'} | {len(files)}/37 | "
-      f"{'—' if authored is None else f'{authored}/37'} | {crit} / {pol} / {ver} | {video or '尚未渲染'} |")
+      f"{'—' if authored is None else f'{authored}/37'} | {pol} / {ver} | {video or '尚未渲染'} |")
 A('')
 A('说明：')
 A('- 「镜头文件」是磁盘上已存在的场景文件数（作者可能还在迭代）；「已过作者自审」是作者正式交稿的数量。')
-A('- 「审片 / 打磨 / 复核」是已完成该关卡的镜头数。复核的裁决见下表；复核认为没有变好或损坏的，会自动还原为打磨前的版本。')
-A('- 古建筑片已有一版成片（上一轮交付的未打磨版）；本轮打磨完成后会重新渲染替换。')
+A('- 「对照参考片：打磨 / 复核」是走完新流程对应关卡的镜头数（新流程：每一轮都和参考片并排比；复核时参考片、改前、改后三联对比）。复核认为没有变好或损坏的，会自动还原。')
+A('- 古建筑片已有一版成片（第一轮交付的未打磨版）；本轮打磨完成后会重新渲染替换。上一轮的 33 份审片意见保存在 `docs/notes/critique-arch-round1.json`，打磨时继续使用。')
 A('')
 if gate:
     A('### 各镜头所处关卡')
     A('')
-    A('图例：✍ 作者在画 · ① 作者已交稿 · ② 审片完成 · ③ 打磨完成 · ④ 复核通过（保留打磨）· ↩ 复核还原 · — 排队中（同组前面的镜头做完就开始）· 带「…」表示下一关正在进行')
+    A('图例：— 未开画 · ✎ 有草稿（作者被用量上限打断，未正式交稿）· ✍ 作者在画 · ① 作者已交稿 · ③ 对照参考片打磨完成 · ④ 复核通过 · ↩ 复核还原 · 带「…」表示有代理正在处理')
     A('')
     A('| 影片 | ' + ' | '.join(s[1:] for s in ids) + ' |')
     A('|---|' + '---|' * 37)
@@ -105,21 +109,22 @@ if gate:
         for s in ids:
             g = gate.get((film, s), {})
             r = running.get((film, s))
-            if 'verify' in g:
+            has_file = s in detail[film][0]
+            if g.get('refined') and 'verify' in g:
                 v = (g['verify'] or {}).get('verdict', '')
                 c = '↩' if 'reverted' in v else '④'
-            elif 'polish' in g: c = '③'
-            elif 'critique' in g: c = '②'
+            elif g.get('refined') and 'polish' in g: c = '③'
             elif 'scene' in g or film == 'arch': c = '①'
             elif r == 'scene': c = '✍'
+            elif has_file: c = '✎'
             else: c = '—'
-            if r and r != 'scene' and c in '①②③': c += '…'
+            if r and c != '✍': c += '…'
             cells.append(c)
         A(f'| {title} | ' + ' | '.join(cells) + ' |')
     A('')
-    scores = [(f, s, (g.get('verify') or {}).get('finalScore')) for (f, s), g in gate.items() if g.get('verify')]
+    scores = [(f, s, (g.get('verify') or {}).get('parity'), (g.get('verify') or {}).get('finalScore')) for (f, s), g in gate.items() if g.get('refined') and g.get('verify')]
     if scores:
-        A('已复核镜头的最终评分（复核员给留在磁盘上的版本打的 1–10 分）：' + '、'.join(f'{f}:{s}={v}' for f, s, v in sorted(scores) if v is not None))
+        A('已复核镜头的评分（复核员给留在磁盘上的版本打分，格式为「与参考片并排的手艺分 / 总分」，各 1–10）：' + '、'.join(f'{f}:{s}={a}/{b}' for f, s, a, b in sorted(scores)))
         A('')
 
 A('### 事实核实')
@@ -146,6 +151,7 @@ A('''## 二、质检标准
 
 ### 单镜头验收标准（每个镜头都必须满足）
 
+0. **与参考片并排不掉价**（客户要求「多去参考、多去对比，审美和画图要最好」）：每次预览都会生成「参考片 | 我们」的并排图，逐项比七条——景别够近（参考片几乎全是微距特写）、构图简洁（两三个大形）、单元不规整（不像复制粘贴的电脑图）、有主光和景深、明暗是两大块、颜色干净、手绘类线条粗而有力。细则在 `docs/AUTHORING.md`「对照参考片」一节。
 1. **弧线**：画面里最显著的边缘精确落在共用弧线上（误差 ≤ 6 px），横贯全宽，弧顶在画面正中。`tools/arccheck.py` 的客观指标：最强边缘在弧线 ±8 px 以内。
 2. **一眼可读**：镜头只停留 0.2–1.2 秒，必须一眼认出是什么；主体大、轮廓肯定、对比强。
 3. **质感与光**：满画面的材质肌理、明暗、高光、投影，不能是扁平的矢量图。
@@ -156,16 +162,17 @@ A('''## 二、质检标准
 8. **技术**：预览无报错；初始化 ≤ 4 秒、单帧绘制 ≤ 120 毫秒（空闲时读数）；不使用随机数、系统时间、网络或外部图片，保证每次渲染结果一致。
 9. **内容红线**：古玩片不出现象牙、犀角、玳瑁；中医片不出现任何功效、主治、用法用量，人物只取手部局部；古建筑片最后一个镜头的椽头不画「卍」。
 
-### 六道质检关卡
+### 质检关卡（每个镜头至少过五关，未达标的再多过两关）
 
 | 关卡 | 谁来做 | 做什么 | 不过关怎么办 |
 |---|---|---|---|
-| 1 作者自审 | 镜头作者 | 渲染预览、亲眼看图、对照任务单修改，至少 3 轮（上限 6 轮） | 继续迭代 |
-| 2 美术指导审片 | 独立的审片代理 | 对弧线、一眼可读、材质、光、色调、细节收尾、准确、文字 8 项各打 1–10 分；列出最多 6 条具体到位置和色值的修改 | 进入打磨 |
-| 3 打磨 | 打磨代理 | 先备份原文件，再按清单修改；至少 2 轮渲染并与「打磨前」对比 | 试过反而更差的修改逐条撤回 |
-| 4 独立复核 | 没参与前面工作的复核代理 | 默认怀疑；并排比较打磨前后，再跑一次弧线客观检查 | 变差或损坏就还原备份 |
-| 5 导演审看 | 主会话 | 看全片总览图和弧线检查表，逐镜头列问题 | 点名返工 |
-| 6 成片质检 | 主会话 + 质检代理 | 见下 | 修复后重渲 |
+| 1 作者自审 | 镜头作者 | 每轮渲染后看「参考片 / 我们」并排图，对照七条修改；至少 4 轮（上限 7 轮） | 继续迭代 |
+| 2 导演对照审看 | 主会话 | 把全片每个镜头和参考片同一镜头并排成总览图，逐镜头写意见（`docs/notes/director-<影片>.json`） | 意见随镜头下发给打磨 |
+| 3 对照参考片打磨 | 打磨代理 | 先备份；按导演意见和上一轮审片意见修改，允许重画构图；至少 3 轮（上限 6 轮），每轮都看并排图 | 试过更差的改动撤回 |
+| 4 独立复核 | 没参与前面工作的复核代理 | 默认怀疑；看「参考片 / 改前 / 改后」三联图，跑弧线客观检查；给「与参考片并排的手艺分」和总分 | 变差或损坏就还原备份 |
+| 5 第二轮打磨 + 复核 | 另一组代理 | 手艺分 < 7 或总分 < 8 的镜头，按复核留下的问题清单再打磨一轮，再复核 | 不如上一轮就还原到上一轮 |
+| 6 导演终审 | 主会话 | 重新生成全片并排总览图和弧线检查表，逐镜头看 | 点名返工 |
+| 7 成片质检 | 主会话 | 见下 | 修复后重渲 |
 
 ### 成片质检清单（每支片子出片前逐项核对）
 
@@ -188,18 +195,19 @@ A('''## 二、质检标准
 # ── 3. plan ──
 A('''## 三、下一步计划
 
-1. **三支新片交稿后**：渲染全片总览，我逐镜头审看，列返工清单；缺失或报错的镜头单独补派。
-2. **三支新片的调色与打磨**：每支先定全片的色彩走向（相邻镜头反差、最后 13 个镜头每一下颜色不同），再让每个镜头过审片 → 打磨 → 复核三关。
-3. **古建筑片**：本轮三关打磨完成后，我审看总览 → 重渲 500 帧 → 按成片质检清单核对 → 替换上一版成片。
-4. **三支新片出片**：配乐（各自的音色预设已备好）→ 渲染 → 成片质检 → 交付。
+1. **古建筑片（差距最大，优先）**：37 个镜头全部按导演意见对照参考片重新打磨（多个镜头要把景别推近、删掉细碎内容）→ 导演终审 → 重渲 500 帧 → 成片质检 → 替换第一版成片。
+2. **三支新片补画**：还没开画的镜头由作者按新规范（每轮对照参考片）画完。
+3. **三支新片打磨**：已有草稿和新交稿的镜头都过「对照参考片打磨 → 复核 →（未达标）第二轮」。
+4. **三支新片出片**：配乐已合成，出片时把响度统一调到约 −16 LUFS → 渲染 → 成片质检 → 交付。
 5. **收尾**：四支成片、来源与核查说明、更新 README 和拉取请求。
 
 ### 风险
 
-- **用量上限**：上一轮曾触发账户的七日用量上限。如果再次触发，进行中的代理会中断；已经落盘的镜头文件不会丢，可以从中断处续跑。
-- **事实核实的局限**：只依据搜索结果摘要，无法通读原页面；检索次数有限，部分细节会停留在「单一来源」或「未核实」。
+- **用量上限**：账户的 Fable 七日用量上限已触发两次。第二次触发时有数十个代理中途被打断（已落盘的草稿都保留）。之后新派的代理改用 Opus 5.5 模型继续；导演审看仍由主会话负责。如果其他上限也被触发，进行中的代理会再次中断，可以从磁盘上的文件续跑。
+- **事实核实的局限**：只依据搜索结果摘要，无法通读原页面；检索次数有限，三支新片的资料里「单一来源」和「未核实」的条目占多数，这些内容不会写进画面文字。
 - **配乐**：只按响度曲线和频谱核对过，没有人耳试听。
 - **画面性质**：是示意性的插画，不是对具体文物的精确复原。
+- **参考片素材**：参考片的截帧只放在不进版本库的 `build/ref/` 里，用于内部对比，不会出现在成片或仓库中。
 
 ### 等你确认的事项
 

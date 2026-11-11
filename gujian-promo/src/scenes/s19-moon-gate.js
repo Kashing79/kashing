@@ -18,10 +18,11 @@ const PITCH = 0.305;  // angular length of one brick piece of the frame (a joint
 let S = null;
 
 // rim colours across the reveal, from its back edge (t = 0) to the front arris on the arc (t = 1)
-const WARM = [[0, '#0a1a3c'], [0.1, '#1b3f96'], [0.2, '#3a7bff'], [0.3, '#6a58ff'], [0.42, '#b04cff'], [0.5, '#cf7cf2'], [0.6, '#f7a8d0'],
-  [0.7, '#ffb693'], [0.8, '#ff9a56'], [0.92, '#ff8a3a'], [0.962, '#ff9a48'], [0.98, '#ffd9a8'], [1, '#ffe6c0']];
-const COOL = [[0, '#0a1c44'], [0.15, '#1c45a8'], [0.32, '#3a7bff'], [0.48, '#5f63ff'], [0.62, '#a052ff'], [0.74, '#d478f0'],
-  [0.84, '#f58ab8'], [0.92, '#ff7a44'], [0.962, '#ff9a50'], [0.98, '#ffd0a0'], [1, '#ffe0c0']];
+// (wick-white arris → saturated cinnabar → a narrow hot core → magenta → violet → sapphire → sinking into night)
+const WARM = [[0, '#040a24'], [0.10, '#0c2180'], [0.24, '#2b50ff'], [0.38, '#6f3df2'], [0.50, '#b63ae0'], [0.60, '#ee4f9a'], [0.68, '#ffd2b0'],
+  [0.76, '#ffa040'], [0.86, '#ff5a1f'], [0.95, '#e8361a'], [0.982, '#ffb060'], [1, '#ffe9c4']];
+const COOL = [[0, '#030820'], [0.14, '#0a1c78'], [0.32, '#2444ee'], [0.48, '#5a38e8'], [0.62, '#9a30d8'], [0.74, '#d83a8a'], [0.82, '#ff8a6a'],
+  [0.90, '#ff4a24'], [0.96, '#d42a1c'], [0.985, '#ff9a50'], [1, '#ffdcb0']];
 
 const jointAngles = () => { const out = []; for (let k = -4; k <= 3; k++) out.push((k + 0.5) * PITCH); return out; };
 
@@ -47,6 +48,16 @@ function bloom(src, px, down = 4) {
   return out;
 }
 
+/** L.filtered over just the frame-space rectangle that holds content (filter cost scales with area; the rest stays transparent) */
+function filteredRect(src, filter, x0, y0, x1, y1) {
+  const c = L.makeCanvas(src.width, src.height); const g = c.getContext('2d');
+  const sx = Math.max(0, Math.round(x0 + PAD)), sy = Math.max(0, Math.round(y0 + PAD));
+  const sw = Math.min(src.width, Math.round(x1 + PAD)) - sx, sh = Math.min(src.height, Math.round(y1 + PAD)) - sy;
+  g.filter = filter; g.drawImage(src, sx, sy, sw, sh, sx, sy, sw, sh); g.filter = 'none';
+  c._pad = src._pad;
+  return c;
+}
+
 /** two bloom passes added into one layer (so the frame needs a single screen blit) */
 function mergeGlow(c0, w0, c1, w1) {
   const c = L.makeCanvas(c0.width, c0.height); const g = c.getContext('2d');
@@ -54,6 +65,26 @@ function mergeGlow(c0, w0, c1, w1) {
   g.globalAlpha = w0; g.drawImage(c0, 0, 0);
   g.globalAlpha = w1; g.drawImage(c1, 0, 0);
   c._pad = c0._pad;
+  return c;
+}
+
+/** the lantern's bloom: two blur passes of the lit reveal, knocked back over the reveal itself so it spills outward instead of bleaching the brick */
+function buildGlow(env, band) {
+  const a = env.arc, s = a.span(PAD + 160);
+  const c = mergeGlow(bloom(band, 9, 2), 0.3, bloom(band, 44, 6), 0.55);
+  const g = c.getContext('2d');
+  g.setTransform(1, 0, 0, 1, PAD, PAD);
+  g.globalCompositeOperation = 'destination-out'; g.globalAlpha = 0.6; g.fillStyle = '#000';
+  a.pathBand(g, 0, -BW, -s, s); g.fill();
+  // on the frame's face the halo dies within 30 px (the tagline's feet sit just above) …
+  g.globalAlpha = 1;
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 30, [[0, 'rgba(0,0,0,0)'], [0.3, 'rgba(0,0,0,0.5)'], [0.7, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,1)']]);
+  a.pathBand(g, 700, 0, -s, s); g.fill();
+  // … and takes the colour of the arris it spills from, not the average of the whole rim
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = L.linear(g, 200, 0, 1720, 0, [[0, 'rgba(255,104,36,0.7)'], [0.5, 'rgba(244,72,30,0.7)'], [1, 'rgba(216,50,70,0.7)']]);
+  a.pathBand(g, 40, 0, -s, s); g.fill();
+  g.globalCompositeOperation = 'source-over';
   return c;
 }
 
@@ -174,7 +205,8 @@ function buildFar(env) {
     }
     g.restore();
   });
-  return L.filtered(layer, 'blur(2.4px) brightness(1.1) contrast(1.04)');
+  // moonlit 青碧: the whole far garden swings from steel blue to azurite (only the part below the gate is ever seen)
+  return filteredRect(layer, 'blur(2.4px) hue-rotate(-20deg) saturate(1.6) brightness(1.1) contrast(1.08)', X0, 600, W + PAD, H + PAD);
 }
 
 /** drifting mist over the pond (screened on top of the far layer) */
@@ -182,7 +214,7 @@ function buildMist() {
   return L.makeLayer(PAD, (g) => {
     const band = (y0, hgt, seed, alpha, scale) => {
       const t = L.noiseTex(FULLW, hgt, { seed, scale, sx: 7, sy: 1, octaves: 4, warp: 0.6, contrast: 1.7, res: 0.33,
-        ramp: [[0, 'rgba(150,180,220,0)'], [0.4, 'rgba(150,180,220,0)'], [1, `rgba(176,204,238,${alpha})`]] });
+        ramp: [[0, 'rgba(140,206,222,0)'], [0.4, 'rgba(140,206,222,0)'], [1, `rgba(170,228,238,${alpha})`]] });
       const tg = t.getContext('2d');
       tg.globalCompositeOperation = 'destination-in';
       tg.fillStyle = L.linear(tg, 0, 0, 0, hgt, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
@@ -200,7 +232,7 @@ function buildVeil() {
   return L.makeLayer(PAD, (g) => {
     const hgt = 150;
     const t = L.noiseTex(FULLW, hgt, { seed: 's19veil', scale: 90, sx: 7, sy: 1, octaves: 4, warp: 0.6, contrast: 1.6, res: 0.33,
-      ramp: [[0, 'rgba(150,180,220,0)'], [0.36, 'rgba(150,180,220,0)'], [1, 'rgba(176,204,238,0.5)']] });
+      ramp: [[0, 'rgba(140,206,222,0)'], [0.36, 'rgba(140,206,222,0)'], [1, 'rgba(170,228,238,0.5)']] });
     const tg = t.getContext('2d');
     tg.globalCompositeOperation = 'destination-in';
     tg.fillStyle = L.linear(tg, 0, 0, 0, hgt, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]);
@@ -346,18 +378,46 @@ function buildMid() {
     for (let i = 0; i < 9; i++) {
       const q = edge(0.46 + i * 0.06), rx = 15 + 12 * (0.5 + 0.5 * nz.n2(i * 3.3, 1)), ry = rx * 0.55;
       g.fillStyle = '#060d19'; g.beginPath(); g.ellipse(q[0] + 4, q[1], rx, ry, -0.5, 0, TAU); g.fill();
-      g.strokeStyle = 'rgba(120,152,196,0.34)'; g.lineWidth = 1.6; g.beginPath(); g.ellipse(q[0] + 4, q[1], rx, ry, -0.5, Math.PI * 1.05, Math.PI * 1.75); g.stroke();
+      g.strokeStyle = 'rgba(120,152,196,0.6)'; g.lineWidth = 1.6; g.beginPath(); g.ellipse(q[0] + 4, q[1], rx, ry, -0.5, Math.PI * 1.05, Math.PI * 1.75); g.stroke();
     }
     // moonlit lip of the embankment stones
-    g.strokeStyle = 'rgba(120,152,196,0.4)'; g.lineWidth = 2;
+    g.strokeStyle = 'rgba(120,152,196,0.6)'; g.lineWidth = 2;
     g.beginPath(); for (let x = 1154; x <= 1590; x += 8) { if (x === 1154) g.moveTo(x, top(x)); else g.lineTo(x, top(x)); } g.stroke();
+    {
+      const rs = L.rng('s19bankR');
+      [[1668, 1012], [1752, 1046], [1838, 1004], [1902, 1058], [1700, 1082], [1806, 1090], [1960, 1020]].forEach(([sx, sy]) => {
+        const rx = rs.range(20, 38), ry = rx * rs.range(0.44, 0.56), rot = rs.range(-0.2, 0.2);
+        g.fillStyle = L.linear(g, sx - rx * 0.4, sy - ry, sx + rx * 0.3, sy + ry, [[0, '#142a44'], [0.4, '#081220'], [1, '#050b15']]);
+        g.beginPath(); g.ellipse(sx, sy, rx, ry, rot, 0, TAU); g.fill();
+        g.strokeStyle = 'rgba(120,152,196,0.5)'; g.lineWidth = 1.6; g.lineCap = 'round';
+        g.beginPath(); g.ellipse(sx, sy, rx, ry, rot, Math.PI * 1.08, Math.PI * 1.72); g.stroke();
+      });
+    }
     pavilion(g, cx, eaveY, baseY);
     // low rocks and shrubs at the foot of the pavilion
     const r = L.rng('s19rocks');
     g.fillStyle = '#060d19';
     for (let i = 0; i < 12; i++) { const x = r.range(1150, 1610), rad = r.range(7, 16); g.beginPath(); g.ellipse(x, 984 + r.range(-4, 6), rad * 1.4, rad * 0.8, 0, 0, TAU); g.fill(); }
   });
-  return L.blurred(layer, 1.7);
+  const out = filteredRect(layer, 'blur(1.7px) hue-rotate(-20deg) saturate(1.5)', 980, 620, W + PAD, H + PAD);
+  // one lantern under the pavilion's eave: the only warm point in the cold garden, answering the gate
+  const g = out.getContext('2d'); g.translate(PAD, PAD);
+  const lx = 1362, ly = 904;
+  g.strokeStyle = 'rgba(3,10,16,0.9)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(lx, ly - 16); g.lineTo(lx, ly - 6); g.stroke();
+  g.fillStyle = L.radial(g, lx, ly, 0, 46, [[0, 'rgba(255,138,58,0.55)'], [0.3, 'rgba(255,124,48,0.24)'], [0.65, 'rgba(255,110,40,0.07)'], [1, 'rgba(255,110,40,0)']]);
+  g.fillRect(lx - 46, ly - 46, 92, 92);
+  g.fillStyle = L.radial(g, lx, ly, 0, 7.5, [[0, '#fff2cc'], [0.55, '#ffe2a8'], [0.8, 'rgba(255,176,90,0.8)'], [1, 'rgba(255,138,58,0)']]);
+  g.beginPath(); g.ellipse(lx, ly, 6, 7.5, 0, 0, TAU); g.fill();
+  // its broken reflection on the dark water at the foot of the bank
+  const nzl = L.makeNoise('s19lamp');
+  g.fillStyle = '#ff9a4a';
+  for (let y = 998, i = 0; y < 1070; y += 5.5, i++) {
+    const k = (y - 996) / 74;
+    g.globalAlpha = 0.4 * (1 - k) * (0.6 + 0.4 * nzl.n2(i * 1.7, 2.2));
+    g.beginPath(); g.ellipse(lx + 2.2 * nzl.n2(i * 0.9, 7.1), y, 3 + 1.6 * k + 1.2 * nzl.n2(i * 1.3, 4.4), 1.3 + 0.5 * k, 0, 0, TAU); g.fill();
+  }
+  g.globalAlpha = 1;
+  return out;
 }
 
 // ───────────────────────── near: bamboo, Taihu rock, left bank ─────────────────────────
@@ -389,17 +449,17 @@ function buildRock(w, h, seed) {
     .forEach(([bx, by, rx, ry, k, rot]) => { blob(bx, by, rx, ry, k + 20, 0.2, rot); g.fill(); });
   // limestone under the moon: a pale shoulder on the upper left, water-worn furrows (皱) running down it
   g.globalCompositeOperation = 'source-atop';
-  g.fillStyle = L.linear(g, 0, h * 0.05, w * 0.8, h * 0.45, [[0, 'rgba(120,156,204,0.5)'], [0.4, 'rgba(70,104,150,0.2)'], [0.75, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.3)']]);
+  g.fillStyle = L.linear(g, 0, h * 0.05, w * 0.8, h * 0.45, [[0, 'rgba(110,200,214,0.5)'], [0.4, 'rgba(50,120,146,0.2)'], [0.75, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.3)']]);
   g.fillRect(0, 0, w, h);
   g.drawImage(L.noiseTex(w, h, { seed: seed + 'fur', scale: 50, sx: 0.8, sy: 1.8, octaves: 3, ridged: true, warp: 0.8, contrast: 1.4, res: 0.5,
-    ramp: [[0, 'rgba(2,6,12,0.7)'], [0.4, 'rgba(2,6,12,0.2)'], [0.62, 'rgba(2,6,12,0)'], [0.82, 'rgba(160,190,230,0)'], [1, 'rgba(176,204,240,0.3)']] }), 0, 0);
+    ramp: [[0, 'rgba(2,6,12,0.7)'], [0.4, 'rgba(2,6,12,0.2)'], [0.62, 'rgba(2,6,12,0)'], [0.82, 'rgba(150,214,226,0)'], [1, 'rgba(166,224,234,0.3)']] }), 0, 0);
   // its foot sinks into the shadow of the bank
   g.fillStyle = L.linear(g, 0, h * 0.5, 0, h * 0.78, [[0, 'rgba(3,7,14,0)'], [1, 'rgba(3,7,14,0.85)']]);
   g.fillRect(0, 0, w, h);
   // moon rim on the outer shoulders only (the holes stay clean cut-outs)
   const rim = L.makeCanvas(w, h); const rg = rim.getContext('2d');
   rg.drawImage(solid, 0, 0);
-  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#a8c6ec'; rg.fillRect(0, 0, w, h);
+  rg.globalCompositeOperation = 'source-in'; rg.fillStyle = '#a6e0ea'; rg.fillRect(0, 0, w, h);
   rg.globalCompositeOperation = 'destination-out'; rg.drawImage(solid, 2.6, 3.2);
   rg.globalCompositeOperation = 'destination-in'; rg.drawImage(c, 0, 0);
   rg.fillStyle = L.linear(rg, 0, h * 0.45, 0, h * 0.75, [[0, 'rgba(0,0,0,1)'], [1, 'rgba(0,0,0,0)']]); rg.fillRect(0, 0, w, h);
@@ -423,15 +483,29 @@ function buildNear(env) {
     g.drawImage(buildRock(236, 450, 's19rock'), 700, 784);
     // near bank
     const top = (x) => 938 + 0.09 * x + 0.00013 * x * x + 6 * nz.n2(x * 0.016, 1.1) + 3 * nz.n2(x * 0.08, 4.2);
-    g.fillStyle = L.linear(g, 0, 930, 0, 1090, [[0, '#0a1626'], [0.3, '#050b15'], [1, '#03070e']]);
+    g.fillStyle = L.linear(g, 0, 930, 0, 1090, [[0, '#0a3040'], [0.22, '#06202f'], [0.5, '#04141e'], [1, '#030c14']]);
     g.beginPath(); g.moveTo(X0, top(X0));
     for (let x = X0; x <= 800; x += 8) g.lineTo(x, top(x));
     g.quadraticCurveTo(860, 1120, 700, H + PAD); g.lineTo(X0, H + PAD); g.closePath(); g.fill();
+    // the moon finds the lip of the bank …
+    g.strokeStyle = 'rgba(120,200,214,0.45)'; g.lineWidth = 2; g.lineJoin = 'round';
+    g.beginPath(); for (let x = X0; x <= 800; x += 8) { if (x === X0) g.moveTo(x, top(x)); else g.lineTo(x, top(x)); } g.stroke();
+    // … and the tops of the embankment stones (驳岸石) set into its face
+    const rs = L.rng('s19bankstones');
+    [[-40, 30], [70, 76], [176, 38], [262, 92], [352, 56], [452, 104], [548, 70], [648, 118]].forEach(([sx, off]) => {
+      const rx = rs.range(20, 40), ry = rx * rs.range(0.44, 0.56), rot = rs.range(-0.18, 0.18);
+      const sy = top(sx) + off;
+      g.fillStyle = 'rgba(2,7,12,0.6)'; g.beginPath(); g.ellipse(sx + 3, sy + ry * 0.5, rx * 1.08, ry * 0.8, rot, 0, TAU); g.fill();   // contact shadow
+      g.fillStyle = L.linear(g, sx - rx * 0.4, sy - ry, sx + rx * 0.3, sy + ry, [[0, '#0e3a4a'], [0.4, '#06141e'], [1, '#040e16']]);
+      g.beginPath(); g.ellipse(sx, sy, rx, ry, rot, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(140,214,226,0.5)'; g.lineWidth = 1.6; g.lineCap = 'round';
+      g.beginPath(); g.ellipse(sx, sy, rx, ry, rot, Math.PI * 1.08, Math.PI * 1.72); g.stroke();
+    });
     // grass blades along its edge
     g.lineCap = 'round';
     for (let i = 0; i < 150; i++) {
       const x = r.range(X0, 800), y = top(x) + 3, len = r.range(10, 34), lean = r.range(-0.6, 0.6);
-      g.strokeStyle = r.chance(0.3) ? 'rgba(96,128,172,0.55)' : '#050b15'; g.lineWidth = r.range(1, 2.4);
+      g.strokeStyle = r.chance(0.5) ? 'rgba(110,196,206,0.6)' : '#04101a'; g.lineWidth = r.range(1, 2.4);
       g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + lean * len * 0.4, y - len * 0.6, x + lean * len, y - len); g.stroke();
     }
 
@@ -456,13 +530,33 @@ function buildNear(env) {
     culm(290, 1210, 560, 600, 9);
 
     // leafy sprays arching into the opening
-    const leaf = (x, y, ang, len, wid, col, rimCol, lit) => {
+    const leaf = (x, y, ang, len, wid, col, rimCol, lit, warm = 0) => {
       g.save(); g.translate(x, y); g.rotate(ang);
       const bend = r.range(-0.1, 0.16) * len;
-      g.fillStyle = lit ? L.linear(g, 0, -wid, 0, wid, [[0, '#213c5c'], [0.5, col], [1, '#0a1626']]) : col;
+      const up = Math.cos(ang) >= 0 ? -1 : 1;   // which side of the blade faces up on screen
+      g.fillStyle = lit ? L.linear(g, 0, up * wid, 0, -up * wid, [[0, '#2a7a70'], [0.5, col], [1, '#04101a']]) : col;   // 竹青 where the moon reaches
       leafPath(g, len, wid, bend); g.fill();
       if (lit) { g.strokeStyle = 'rgba(4,10,19,0.6)'; g.lineWidth = 1; g.beginPath(); g.moveTo(3, 0); g.quadraticCurveTo(len * 0.5, bend * 0.3, len - 4, bend); g.stroke(); }
-      if (rimCol) { g.strokeStyle = rimCol; g.lineWidth = 1.5; g.beginPath(); g.moveTo(2, -1); g.bezierCurveTo(len * 0.22, -wid, len * 0.62, -wid * 0.85 + bend * 0.5, len, bend); g.stroke(); }
+      if (rimCol) {
+        // rim light on the blade's upper edge only: a sliver that swells and tapers with the blade, not an outline
+        const edge = (k, back) => {
+          const c1 = up < 0 ? [len * 0.22, -wid * k] : [len * 0.24, wid * 0.72 * k];
+          const c2 = up < 0 ? [len * 0.62, -wid * 0.85 * k + bend * 0.5] : [len * 0.62, wid * 0.5 * k + bend * 0.6];
+          if (back) g.bezierCurveTo(c2[0], c2[1], c1[0], c1[1], 0, 0); else g.bezierCurveTo(c1[0], c1[1], c2[0], c2[1], len, bend);
+        };
+        const thick = warm > 0 ? 3.4 : 2;
+        const k = L.clamp(1 - thick / ((up < 0 ? 0.72 : 0.5) * wid), 0.3, 0.9);
+        if (warm > 0) {   // a little bloom first
+          g.strokeStyle = `rgba(255,110,36,${(0.2 * warm).toFixed(3)})`; g.lineWidth = 7; g.lineCap = 'round';
+          g.beginPath(); g.moveTo(0, 0); edge(1, false); g.stroke();
+        }
+        g.fillStyle = rimCol;
+        g.beginPath(); g.moveTo(0, 0); edge(1, false); edge(k, true); g.closePath(); g.fill();
+        if (warm > 0.45) {   // hot core where the lantern is closest
+          g.strokeStyle = `rgba(255,206,140,${(0.75 * warm).toFixed(3)})`; g.lineWidth = 1; g.lineCap = 'round';
+          g.beginPath(); g.moveTo(0, 0); edge(0.94, false); g.stroke();
+        }
+      }
       g.restore();
     };
     const sprays = [
@@ -483,15 +577,15 @@ function buildNear(env) {
           const ang = L.lerp(tan, Math.PI * 0.42, 0.62) + fan + r.range(-0.12, 0.12);   // leaves hang, splayed like the character 个
           const len = r.range(64, 122) * (0.8 + 0.3 * t), wid = len * r.range(0.11, 0.15);
           const lit = r.chance(0.34);
-          // leaves closest to the gate pick up a little of the lantern
-          const warm = L.clamp(1 - (-a.drAt(x, y) - BW) / 150) * (r.chance(0.5) ? 1 : 0);
-          const rimCol = warm > 0.2 ? `rgba(255,150,84,${(0.5 * warm).toFixed(3)})` : lit ? 'rgba(150,184,228,0.6)' : null;
-          leaf(x, y, ang, len, wid, lit ? '#152a44' : '#040a13', rimCol, lit);
+          // leaves closest to the gate catch the lantern as a hot rim; the rest take the moon
+          const warm = L.clamp(1 - (-a.drAt(x, y) - BW) / 90) * (r.chance(0.5) ? 1 : 0);
+          const rimCol = warm > 0.2 ? `rgba(255,122,42,${(0.9 * warm).toFixed(3)})` : lit ? 'rgba(150,226,214,0.7)' : null;
+          leaf(x, y, ang, len, wid, lit ? '#123c40' : '#040a13', rimCol, lit, warm > 0.2 ? warm : 0);
         }
       }
     });
   });
-  return L.blurred(layer, 1.1);
+  return filteredRect(layer, 'blur(1.1px)', X0, 540, 1010, H + PAD);
 }
 
 // ───────────────────────── the gate ─────────────────────────
@@ -506,7 +600,7 @@ function buildBand(env) {
   { // the lantern hangs to the left: warm there, sliding to violet-blue toward the right
     const g = cool.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalCompositeOperation = 'destination-in';
-    g.fillStyle = L.linear(g, PAD + 480, 0, PAD + 1900, 0, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    g.fillStyle = L.linear(g, PAD + 480, 0, PAD + 1900, 0, [[0, 'rgba(0,0,0,0)'], [0.34, 'rgba(0,0,0,0.12)'], [0.7, 'rgba(0,0,0,0.62)'], [1, 'rgba(0,0,0,1)']]);
     g.fillRect(0, 0, cool.width, cool.height);
   }
   const speck = L.polarNoiseLayer(env, PAD, { seed: 's19brick', scale: 7, sx: 3.2, sy: 1, octaves: 3, contrast: 1.5, res: 0.5, ramp: [[0, '#9c9c9c'], [0.5, '#e2e2e2'], [1, '#ffffff']] });
@@ -520,10 +614,10 @@ function buildBand(env) {
     g.globalAlpha = 0.4; g.drawImage(streak, X0, Y0);
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
     // each brick piece takes the light a little differently
-    const r = L.rng('s19pieces'); const th = jointAngles();
+    const th = jointAngles(); const tone = [0.4, -0.5, 0.7, 0.12, -0.8, 0.45, -0.4];   // the crest piece stays close to the true colours
     for (let i = 0; i < th.length - 1; i++) {
-      const v = r.range(-1, 1);
-      g.fillStyle = v < 0 ? `rgba(8,4,24,${(-v * 0.16).toFixed(3)})` : `rgba(255,240,230,${(v * 0.09).toFixed(3)})`;
+      const v = tone[i];
+      g.fillStyle = v < 0 ? `rgba(8,4,24,${(-v * 0.30).toFixed(3)})` : `rgba(255,240,230,${(v * 0.16).toFixed(3)})`;
       a.pathBand(g, 0, -BW, th[i], th[i + 1]); g.fill();
     }
     // the lantern is nearest the upper left of the opening; light thins out toward the right
@@ -533,7 +627,7 @@ function buildBand(env) {
     g.save(); g.globalCompositeOperation = 'screen';
     const hp = a.pt(-0.2, -26);
     g.translate(hp.x, hp.y); g.rotate(-0.2); g.scale(1, 0.16);
-    g.fillStyle = L.radial(g, 0, 0, 0, 520, [[0, 'rgba(255,226,180,0.42)'], [0.5, 'rgba(255,190,130,0.16)'], [1, 'rgba(255,170,110,0)']]);
+    g.fillStyle = L.radial(g, 0, 0, 0, 520, [[0, 'rgba(255,190,120,0.26)'], [0.5, 'rgba(255,160,90,0.1)'], [1, 'rgba(255,140,80,0)']]);
     g.fillRect(-540, -540, 1080, 1080);
     g.restore();
     // hairline joints between the pieces (磨砖对缝)
@@ -546,45 +640,47 @@ function buildBand(env) {
     // a shallow bead moulding (线脚) behind the front arris
     g.strokeStyle = 'rgba(70,16,10,0.42)'; g.lineWidth = 2; a.stroke(g, -15, -s, s);
     g.strokeStyle = 'rgba(255,236,206,0.4)'; g.lineWidth = 1.4; a.stroke(g, -17.2, -s, s);
+    // front arris: the wick-bright line that sits exactly on the arc
+    g.strokeStyle = L.linear(g, 0, 0, W, 0, [[0, '#ffe9c4'], [0.55, '#ffe6c0'], [1, '#ffd6a8']]); g.lineWidth = 2.6; a.stroke(g, -1.3, -s, s);
     g.restore();
   });
-  return L.filtered(layer, 'saturate(1.18) contrast(1.05)');
+  return filteredRect(layer, 'saturate(1.3) contrast(1.08) brightness(1.1)', X0, a.crestY - 20, W + PAD, H + PAD);
 }
 
 function buildWall(env, band) {
   const a = env.arc, s = a.span(PAD + 160);
   // warm light catching the rounded front edge of the frame and dying out on its face
   const spill = L.makeLayer(PAD, (t) => {
-    t.fillStyle = L.radial(t, a.cx, a.cy, a.R - 2, a.R + 70, [[0, 'rgba(255,255,255,0.62)'], [0.05, 'rgba(255,255,255,0.4)'], [0.12, 'rgba(255,255,255,0.2)'],
-      [0.24, 'rgba(255,255,255,0.08)'], [0.5, 'rgba(255,255,255,0.03)'], [1, 'rgba(255,255,255,0)']]);
-    a.pathBand(t, 70, -2, -s, s); t.fill();
+    t.fillStyle = L.radial(t, a.cx, a.cy, a.R - 2, a.R + 32, [[0, 'rgba(255,255,255,0.5)'], [0.1, 'rgba(255,255,255,0.3)'], [0.25, 'rgba(255,255,255,0.15)'],
+      [0.5, 'rgba(255,255,255,0.06)'], [0.8, 'rgba(255,255,255,0.015)'], [1, 'rgba(255,255,255,0)']]);
+    a.pathBand(t, 32, -2, -s, s); t.fill();
     t.globalCompositeOperation = 'source-in';
-    t.fillStyle = L.linear(t, 200, 0, 1720, 0, [[0, '#ff8a3a'], [0.5, '#ff7a44'], [1, '#d85cb8']]);
+    t.fillStyle = L.linear(t, 200, 0, 1720, 0, [[0, '#ff6a26'], [0.5, '#f2481e'], [1, '#d8324a']]);
     t.fillRect(X0, Y0, FULLW, FULLH);
   });
   return L.makeLayer(PAD, (g) => {
     // ── whitewashed wall (粉墙) in deep shadow ──
     g.save(); a.clipAbove(g, -1.5);
     g.drawImage(L.noiseTex(FULLW, FULLH, { seed: 's19plaster', scale: 340, octaves: 5, warp: 0.7, res: 0.25, contrast: 1.3,
-      ramp: [[0, '#07090e'], [0.5, '#0b0d14'], [1, '#11141e']] }), X0, Y0);
+      ramp: [[0, '#05081a'], [0.5, '#0a1028'], [1, '#111a3c']] }), X0, Y0);
     // lime-wash blotches, fine tooth, and the faint downward weathering every garden wall carries
     g.drawImage(L.noiseTex(FULLW, FULLH, { seed: 's19blotch', scale: 64, octaves: 4, warp: 0.3, res: 0.33, contrast: 1.5,
-      ramp: [[0, 'rgba(0,0,0,0.34)'], [0.46, 'rgba(0,0,0,0)'], [0.56, 'rgba(150,170,215,0)'], [1, 'rgba(150,170,215,0.06)']] }), X0, Y0);
+      ramp: [[0, 'rgba(0,0,0,0.18)'], [0.46, 'rgba(0,0,0,0)'], [0.56, 'rgba(150,170,215,0)'], [1, 'rgba(150,170,215,0.06)']] }), X0, Y0);
     g.drawImage(L.noiseTex(FULLW, FULLH, { seed: 's19tooth', scale: 5, octaves: 2, res: 0.5, contrast: 1.8,
-      ramp: [[0, 'rgba(0,0,0,0.3)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(160,180,220,0.05)']] }), X0, Y0);
+      ramp: [[0, 'rgba(0,0,0,0.15)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(160,180,220,0.05)']] }), X0, Y0);
     g.drawImage(L.noiseTex(FULLW, FULLH, { seed: 's19stain', scale: 90, sx: 0.32, sy: 7, octaves: 3, res: 0.25, contrast: 1.5,
-      ramp: [[0, 'rgba(0,0,0,0.26)'], [0.4, 'rgba(0,0,0,0)'], [0.7, 'rgba(130,150,200,0)'], [1, 'rgba(130,150,200,0.035)']] }), X0, Y0);
-    L.speckle(g, { seed: 's19pits', count: 2600, x: X0, y: Y0, w: FULLW, h: FULLH, rMin: 0.5, rMax: 1.7, colors: ['#000000', '#1c2233', '#05060a'], alpha: [0.2, 0.6] });
+      ramp: [[0, 'rgba(0,0,0,0.14)'], [0.4, 'rgba(0,0,0,0)'], [0.7, 'rgba(130,150,200,0)'], [1, 'rgba(130,150,200,0.035)']] }), X0, Y0);
+    L.speckle(g, { seed: 's19pits', count: 1200, x: X0, y: Y0, w: FULLW, h: FULLH, rMin: 0.5, rMax: 1.7, colors: ['#000000', '#1c2233', '#05060a'], alpha: [0.2, 0.6] });
     // a breath of sky-light on the upper corners
     g.globalCompositeOperation = 'screen';
-    g.fillStyle = L.radial(g, -120, -260, 100, 1000, [[0, 'rgba(44,60,98,0.2)'], [1, 'rgba(44,60,98,0)']]); g.fillRect(X0, Y0, FULLW, FULLH);
-    g.fillStyle = L.radial(g, W + 120, -260, 100, 1000, [[0, 'rgba(40,54,92,0.16)'], [1, 'rgba(40,54,92,0)']]); g.fillRect(X0, Y0, FULLW, FULLH);
+    g.fillStyle = L.radial(g, -120, -260, 100, 1000, [[0, 'rgba(40,70,150,0.4)'], [1, 'rgba(40,70,150,0)']]); g.fillRect(X0, Y0, FULLW, FULLH);
+    g.fillStyle = L.radial(g, W + 120, -260, 100, 1000, [[0, 'rgba(40,70,150,0.36)'], [1, 'rgba(40,70,150,0)']]); g.fillRect(X0, Y0, FULLW, FULLH);
     g.restore();
 
     // ── 砖细门套: the honed grey-brick frame, smoother and a shade darker than the plaster ──
     const th = jointAngles(); const r = L.rng('s19face');
     g.save(); a.clipBand(g, FW, -1.5, -s, s);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + FW, [[0, '#0c0e16'], [0.25, '#07090f'], [1, '#080a11']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + FW, [[0, '#080a1c'], [0.25, '#04050e'], [1, '#05060f']]);
     g.fillRect(X0, Y0, FULLW, FULLH);
     for (let i = 0; i < th.length - 1; i++) {
       const v = r.range(-1, 1);
@@ -619,7 +715,7 @@ function buildWall(env, band) {
 
 function glintSprite() {
   const c = L.makeCanvas(96, 96); const g = c.getContext('2d');
-  g.fillStyle = L.radial(g, 48, 48, 0, 48, [[0, 'rgba(240,247,255,1)'], [0.45, 'rgba(216,230,246,0.92)'], [0.7, 'rgba(180,205,235,0.3)'], [1, 'rgba(160,190,230,0)']]);
+  g.fillStyle = L.radial(g, 48, 48, 0, 48, [[0, 'rgba(242,252,255,1)'], [0.45, 'rgba(214,236,240,0.92)'], [0.7, 'rgba(150,214,230,0.3)'], [1, 'rgba(120,196,220,0)']]);
   g.fillRect(0, 0, 96, 96);
   return c;
 }
@@ -646,7 +742,7 @@ export default {
     const band = buildBand(env);
     S = {
       far: buildFar(env), mist: buildMist(), veil: buildVeil(), mid: buildMid(), near: buildNear(env),
-      wall: buildWall(env, band), glow: mergeGlow(bloom(band, 9, 2), 0.7, bloom(band, 44, 6), 0.5), glints: makeGlints(), sprite: glintSprite(),
+      wall: buildWall(env, band), glow: buildGlow(env, band), glints: makeGlints(), sprite: glintSprite(),
     };
   },
   draw(ctx, env, p) {
@@ -666,7 +762,7 @@ export default {
     ctx.restore();
     L.blit(ctx, env, S.wall, { zoom: zW });
     // lantern light breathing on the brick
-    const fl = 0.93 + 0.07 * Math.sin(env.frame * 2.1 + 0.6);
+    const fl = 0.94 + 0.06 * Math.sin(p * Math.PI);   // one swell across the shot (brightest at the middle frame)
     L.blit(ctx, env, S.glow, { zoom: zW, blend: 'screen', alpha: fl });
   },
 };

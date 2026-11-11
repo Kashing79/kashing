@@ -8,7 +8,8 @@ const PROJECT = '/home/user/kashing/gujian-promo'
 const SCRATCH = '/tmp/claude-0/-home-user-kashing/82b55bb9-0385-5108-b6bb-ac0899659655/scratchpad'
 const film = args.film                 // 'coins' | 'antiques'
 const ids = args.ids
-const topic = { arch: '中国古建筑', coins: '中国古钱币', antiques: '中国古玩', tcm: '中医' }[film]
+const MODEL = args.model || undefined        // model override for every agent (omit to inherit the session model)
+const topic = { arch: '中国古建筑', coins: '中国古钱币', antiques: '中国古玩', tcm: '中国中医药' }[film]
 const scenesDir = `${PROJECT}/src/films/${film}/scenes`
 const previewDir = `${PROJECT}/build/${film}/preview`
 const storyboard = `${PROJECT}/docs/storyboard-${film}.json`
@@ -52,18 +53,18 @@ function prompt(id) {
 项目目录：${PROJECT}
 
 请按顺序做：
-1. 读 ${PROJECT}/docs/AUTHORING.md（完整阅读，这是硬性规范：弧线规则、文字安全区、质感要求、工作流程）。注意它是为系列第一支片子写的，本片有三处不同：
-   - 忽略开头的"调度说明"（那是另一支片子的事，与你无关，你照常完成全部工作）；
+1. 读 ${PROJECT}/docs/AUTHORING.md（完整阅读，这是硬性规范：弧线规则、文字安全区、质感要求、**「对照参考片」一节的七条**、工作流程）。注意它最初是为系列第一支片子写的，本片有两处不同：
    - 你的场景文件在 **${scenesDir}/<任务单里的 file>**，所以 import 写 \`import * as L from '../../../lib/core.js';\`；
-   - 预览命令要加影片参数：\`cd ${PROJECT} && node tools/preview.js ${id} --film ${film}\`，输出在 ${previewDir}/${id}_sheet.jpg 和 ${previewDir}/${id}_mid.jpg。
+   - 预览命令要加影片参数：\`cd ${PROJECT} && node tools/preview.js ${id} --film ${film}\`，输出在 ${previewDir}/：${id}_sheet.jpg、${id}_mid.jpg 和 **${id}_compare.jpg（左半是参考片的同一镜头，右半是你的画面）**。
 2. 读 ${storyboard}，找到 id 为 "${id}" 的任务单（file / name / frames / beat / tone / refDesc / brief / palette / motion / accuracy）；顺便读一下文件开头的 tagline、colourJourney，了解全片气质。
-3. 用 Read 工具看参考画面：${SCRATCH}/ref/analog/ref_${id}.jpg —— 这是参考广告片里同一位置的镜头。体会它的构图、质感密度、明暗关系（画面角落的"抖音"水印和白色英文字与你无关）。你要画的是它在本题材里的"对应物"，内容以任务单为准，不要照抄参考画面的内容。
-4. 看看 ${researchGlob} 是否存在（用 ls；可能有一两个文件，也可能还没生成）：存在就用 grep 找出与你这个镜头题材相关的条目来读（depiction / pitfalls / captionFacts），形制以它为准；不存在就按任务单里的 accuracy 画，不要等。
+3. 用 Read 工具看参考片里同一位置的镜头（首/中/末三帧）：${PROJECT}/build/ref/trio/ref_${id}_a.jpg、ref_${id}_b.jpg、ref_${id}_c.jpg。体会它的景别（几乎都是微距特写）、构图（两三个大形）、质感密度、明暗关系和运动幅度（画面角落的"抖音"水印和白色英文字与你无关）。你要画的是它在本题材里的"对应物"：内容以任务单为准，**手艺水准以参考片为准**。客户的原话是：「多去参考、多去对比，审美和画图要最好」。
+4. 资料核实文件 ${researchGlob}：用 grep 找出与你这个镜头题材相关的条目来读（depiction / pitfalls / captionFacts），形制以它为准；找不到相关条目就按任务单里的 accuracy 画。
 5. 读工具库 ${PROJECT}/src/lib/core.js，以及两个范例：${PROJECT}/src/scenes/s02-liuli-wadang.js（分层预渲染 + blit 运动 + 沿弧排布）和 ${PROJECT}/src/scenes/s03-door-stud.js（微距质感：高度图浮雕光影、景深虚化背景）。
 6. 写你的场景文件。**只允许创建/修改这一个文件**（很多作者在并行写别的场景；不要动 core.js、timeline.js、player.js、tools/、docs/、别人的场景）。${id === 's01' ? OPENING : ''}
-7. 跑预览，然后用 Read 工具**亲眼查看** sheet 和 mid，对照参考画面和任务单挑毛病，修改，再渲染。至少迭代 3 轮，上限 6 轮（每轮只看 sheet 和 mid 两张图，别反复裁切放大）。每一轮都要真的看图。
+7. 跑预览，然后用 Read 工具**亲眼查看** ${id}_compare.jpg 和 ${id}_sheet.jpg（必要时再看全尺寸的 ${id}_mid.jpg），对照「对照参考片」的七条和任务单挑毛病，修改，再渲染。**至少迭代 4 轮，上限 7 轮**；每一轮都要真的看图，并回答三个问题：缩到邮票大小时和参考片一样抓眼吗？主体有参考片那么大、那么简单吗？遮住内容只看质感，像照片/实物还是像矢量图/CG？
 
 验收标准（自己逐条核对）：
+- **与参考片并排不掉价**（看 compare 图）：景别够近、构图简洁、单元不规整、有主光和景深、明暗是两大块、颜色干净。
 - 画面最显著的边缘精确落在 env.arc 上（看 sheet 第 4 格的洋红参考线），横贯全宽，弧顶在正中。
 - 满画面的真实质感与光影，不是扁平矢量图；主体大、对比强，0.2—1 秒内一眼能认出是什么。
 - **色调要有趣**：这是客户特别强调的。忠实使用任务单给的配色，颜色要大胆、明确、干净、有记忆点，不要画成发灰发闷的"安全色"。
@@ -82,7 +83,7 @@ function prompt(id) {
 
 phase('Author')
 const results = await parallel(ids.map(id => () =>
-  agent(prompt(id), { label: `scene:${film}:${id}`, phase: 'Author', schema: SCHEMA, agentType: 'general-purpose' })
+  agent(prompt(id), { label: `scene:${film}:${id}`, phase: 'Author', schema: SCHEMA, agentType: 'general-purpose', ...(MODEL ? { model: MODEL } : {}) })
 ))
 const done = results.filter(Boolean)
 log(`scenes returned: ${done.length}/${ids.length}`)

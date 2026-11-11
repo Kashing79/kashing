@@ -104,7 +104,7 @@ function drawRidge(g, FW, yc, seed) {
   // shadow thrown onto the far (shaded) slope
   g.fillStyle = L.linear(g, 0, yc - 14, 0, yc - 5, [[0, 'rgba(8,6,5,0)'], [1, 'rgba(8,6,5,0.66)']]); g.fillRect(0, yc - 14, FW, 9);
   // ridge of tiles stacked on edge, bedded in lime
-  g.fillStyle = L.linear(g, 0, yc - 6, 0, yc + 6, [[0, '#4b423b'], [0.25, '#8f8373'], [0.5, '#cbbfab'], [0.78, '#978a79'], [1, '#3a312b']]);
+  g.fillStyle = L.linear(g, 0, yc - 6, 0, yc + 6, [[0, '#4b423b'], [0.25, '#86867f'], [0.5, '#c9cdca'], [0.78, '#8c8c85'], [1, '#3a312b']]);
   g.fillRect(0, yc - 6, FW, 12);
   for (let x = 0; x < FW; x += r.range(2.6, 4.4)) { g.fillStyle = `rgba(22,16,12,${r.range(0.12, 0.5)})`; g.fillRect(x, yc - 6, 1, 12); }
   for (let i = 0; i < FW / 26; i++) {
@@ -180,12 +180,12 @@ function drawStorey(g, FW, d0, hS, lvl, seed) {
         for (let px = x + r.range(5, 9); px < x + BAY; px += r.range(6, 10)) { g.fillStyle = 'rgba(30,15,6,0.5)'; g.fillRect(px, railT + 2, 1, railB - railT - 2); }
       } else {
         for (let px = x + 4.5; px < x + BAY - 3; px += 5) {
-          g.fillStyle = L.shade('#ad6f40', r.range(-0.2, 0.12)); g.fillRect(px, railT + 2, 2.7, railB - railT - 3);
+          g.fillStyle = L.shade('#c07a3c', r.range(-0.2, 0.12)); g.fillRect(px, railT + 2, 2.7, railB - railT - 3);
           g.fillStyle = 'rgba(255,214,160,0.4)'; g.fillRect(px, railT + 2, 0.9, railB - railT - 3);
         }
       }
     }
-    g.fillStyle = '#d9a873'; g.fillRect(0, railT, FW, 2.3);
+    g.fillStyle = '#eab877'; g.fillRect(0, railT, FW, 2.3);
     g.fillStyle = '#5e381f'; g.fillRect(0, railT + 2.3, FW, 1.2);
     g.fillStyle = '#94603a'; g.fillRect(0, railB - 2.6, FW, 2.6);
     // floor-edge beam
@@ -194,7 +194,7 @@ function drawStorey(g, FW, d0, hS, lvl, seed) {
   // ── posts (+ small bracket block under the beam, stone plinth on the ground floor)
   for (let b = -1; b < nB; b++) {
     const x = b * BAY, tone = r.range(-0.1, 0.08), hw = lvl > 1 ? 3.8 : 4.4;
-    g.fillStyle = L.linear(g, x - hw, 0, x + hw, 0, [[0, L.shade('#e0a873', tone)], [0.3, L.shade('#b06f3f', tone)], [1, L.shade('#43230e', tone)]]);
+    g.fillStyle = L.linear(g, x - hw, 0, x + hw, 0, [[0, L.shade('#f0b06a', tone)], [0.3, L.shade('#c7722f', tone)], [1, L.shade('#4a240c', tone)]]);
     g.fillRect(x - hw, d0, hw * 2, (lvl > 1 ? railB : dB - 6) - d0);
     g.fillStyle = L.shade('#8a5631', tone); g.fillRect(x - 8, d0, 16, 3);
     g.fillStyle = 'rgba(10,6,3,0.55)'; g.fillRect(x - 8, d0 + 3, 16, 1.2);
@@ -203,17 +203,24 @@ function drawStorey(g, FW, d0, hS, lvl, seed) {
       g.fillStyle = 'rgba(30,22,14,0.5)'; g.fillRect(x - 5, dB - 3, 26, 2.4);
     }
   }
-  // ── red lanterns, one to a bay, hanging from the beam above
-  if (lvl > 1) {
-    for (let b = -1; b < nB; b++) {
-      const x = b * BAY + BAY / 2 + r.range(-1.5, 1.5), y = d0 + 11.5 + r.range(-0.8, 0.8), rx = 5, ry = 5.9;
-      g.fillStyle = 'rgba(20,10,6,0.8)'; g.fillRect(x - 0.5, d0 + 2, 1, 5);
-      g.fillStyle = L.radial(g, x, y, 0, 15, [[0, 'rgba(255,70,40,0.36)'], [1, 'rgba(255,70,40,0)']]); g.fillRect(x - 15, y - 15, 30, 30);
-      g.fillStyle = L.radial(g, x - 1.6, y - 1.8, 0.4, 7.4, [[0, '#ff9a66'], [0.3, '#ee3a24'], [0.75, '#c71f14'], [1, '#7a0f0a']]);
-      g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, L.TAU); g.fill();
-      g.fillStyle = '#d6a43c'; g.fillRect(x - 2.4, y - ry - 1, 4.8, 1.6); g.fillRect(x - 2.2, y + ry - 0.6, 4.4, 1.5);
-      g.fillStyle = '#e0b13f'; g.fillRect(x - 0.6, y + ry + 0.8, 1.2, 4.6);
-    }
+}
+
+/**
+ * red lanterns, one to a bay, hanging from the beam above. Painted LAST (over the eave shadow and the long morning
+ * shadow) so the three rings of 朱砂 dots stay lit all the way round. `k` dims a whole row (the one tucked under the eave).
+ */
+function drawLanterns(g, FW, d0, seed, k) {
+  const r = L.rng(seed);
+  const nB = Math.ceil(FW / BAY) + 1;
+  const dim = (c) => (k < 1 ? L.mix(c, '#000000', 1 - k) : c);
+  for (let b = -1; b < nB; b++) {
+    const x = b * BAY + BAY / 2 + r.range(-1.5, 1.5), y = d0 + 13 + r.range(-0.8, 0.8), rx = 6.5, ry = 7.6;
+    g.fillStyle = 'rgba(20,10,6,0.8)'; g.fillRect(x - 0.5, d0 + 2, 1, 4);
+    g.fillStyle = L.radial(g, x, y, 0, 22, [[0, `rgba(255,70,31,${0.5 * k})`], [0.45, `rgba(255,70,31,${0.16 * k})`], [1, 'rgba(255,70,31,0)']]); g.fillRect(x - 22, y - 22, 44, 44);
+    g.fillStyle = L.radial(g, x - 2, y - 2.3, 0.5, 9.6, [[0, dim('#ffb07a')], [0.3, dim('#ff461f')], [0.75, dim('#d8261a')], [1, dim('#8a120c')]]);
+    g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, L.TAU); g.fill();
+    g.fillStyle = dim('#d6a43c'); g.fillRect(x - 3, y - ry - 1, 6, 1.7); g.fillRect(x - 2.8, y + ry - 0.7, 5.6, 1.6);
+    g.fillStyle = dim('#e0b13f'); g.fillRect(x - 0.6, y + ry + 0.9, 1.2, 4.2);
   }
 }
 
@@ -228,8 +235,8 @@ function buildStrip(env) {
     const s = L.smooth(L.remap(x / FW, 0.14, 0.84, 0, 1));
     sunRoof[x] = L.lerp(0.74, 1.1, s); sunShade[x] = L.lerp(0.92, 1.04, s); sunWall[x] = L.lerp(0.8, 1.06, s);
   }
-  const litLut = lutOf([[0, '#110c09'], [0.22, '#2f251e'], [0.45, '#594b40'], [0.62, '#786959'], [0.8, '#9d8d7a'], [1, '#c8b9a2']]);
-  const shdLut = lutOf([[0, '#0d0a09'], [0.3, '#2a2420'], [0.55, '#443a34'], [0.8, '#5e544d'], [1, '#7a7068']]);
+  const litLut = lutOf([[0, '#0f0d0c'], [0.22, '#2c2622'], [0.45, '#4f4640'], [0.62, '#6a655f'], [0.8, '#8e8f8c'], [1, '#c2c8c8']]);
+  const shdLut = lutOf([[0, '#0b0b0c'], [0.3, '#25262a'], [0.55, '#3a3d43'], [0.8, '#51565d'], [1, '#6b727a']]);
   const cobLut = lutOf([[0, '#4a3b28'], [0.3, '#8b7654'], [0.55, '#c2a678'], [0.8, '#dcc08d'], [1, '#f1dfb8']]);
   const yR = TOPM + D.ridge, yR2 = TOPM + D.ridge2;
 
@@ -238,12 +245,12 @@ function buildStrip(env) {
   const img = new ImageData(FW, FH);
   paintRoof(img.data, FW, 0, yR, { ridgeY: yR, dir: -1, lit: false, pitch: ROW, lap: LAP * 0.7, seed: 1, lut: shdLut, gain: 0.88, xg: sunShade });
   paintRoof(img.data, FW, yR, TOPM + D.eave + 8, { ridgeY: yR, dir: 1, lit: true, pitch: ROW, lap: LAP, seed: 2, lut: litLut, gain: 1.0, xg: sunRoof });
-  paintRoof(img.data, FW, TOPM + D.ring - 8, yR2, { ridgeY: yR2, dir: -1, lit: false, pitch: ROW2, lap: LAP * 0.7, seed: 3, lut: shdLut, gain: 0.78, xg: sunShade });
+  paintRoof(img.data, FW, TOPM + D.ring - 8, yR2, { ridgeY: yR2, dir: -1, lit: false, pitch: ROW2, lap: LAP * 0.7, seed: 3, lut: shdLut, gain: 0.9, xg: sunShade });
   paintRoof(img.data, FW, yR2, FH, { ridgeY: yR2, dir: 1, lit: true, pitch: ROW2, lap: LAP, seed: 4, lut: litLut, gain: 0.96, xg: sunRoof });
   bg.putImageData(img, 0, 0);
   // weathering: big damp blotches, rain streaks down the slope, sagging between purlins, lichen specks, moss by the eaves, repairs
-  bg.globalCompositeOperation = 'soft-light'; bg.globalAlpha = 0.45;
-  bg.drawImage(L.noiseTex(FW, FH, { seed: 's04w1', scale: 150, sx: 1.6, octaves: 4, res: 0.2, contrast: 1.8, ramp: [[0, '#1c140f'], [0.5, '#80786f'], [1, '#d6cab8']] }), 0, 0);
+  bg.globalCompositeOperation = 'soft-light'; bg.globalAlpha = 0.3;
+  bg.drawImage(L.noiseTex(FW, FH, { seed: 's04w1', scale: 150, sx: 1.6, octaves: 4, res: 0.2, contrast: 1.8, ramp: [[0, '#1c140f'], [0.5, '#80786f'], [1, '#cfd2cf']] }), 0, 0);
   bg.globalAlpha = 0.3;
   bg.drawImage(L.noiseTex(FW, FH, { seed: 's04w2', scale: 20, sx: 0.5, sy: 8, octaves: 3, res: 0.4, contrast: 1.6 }), 0, 0);
   bg.globalAlpha = 0.34;
@@ -272,19 +279,19 @@ function buildStrip(env) {
   }
   // the slopes as forms: the sunlit pitch is brightest below the ridge and dulls toward the damp eave; the far pitch falls away dark
   bg.globalCompositeOperation = 'soft-light'; bg.globalAlpha = 1;
-  bg.fillStyle = L.linear(bg, 0, yR, 0, TOPM + D.eave, [[0, 'rgba(255,238,210,0.3)'], [0.3, 'rgba(255,238,210,0.12)'], [0.7, 'rgba(20,14,10,0.05)'], [1, 'rgba(20,14,10,0.36)']]);
+  bg.fillStyle = L.linear(bg, 0, yR, 0, TOPM + D.eave, [[0, 'rgba(236,242,246,0.3)'], [0.3, 'rgba(236,242,246,0.12)'], [0.7, 'rgba(20,14,10,0.05)'], [1, 'rgba(20,14,10,0.36)']]);
   bg.fillRect(0, yR, FW, D.eave - D.ridge);
   bg.fillStyle = L.linear(bg, 0, 0, 0, yR, [[0, 'rgba(10,8,8,0.46)'], [0.4, 'rgba(10,8,8,0.16)'], [1, 'rgba(10,8,8,0.06)']]);
   bg.fillRect(0, 0, FW, yR);
   bg.fillStyle = L.linear(bg, 0, TOPM + D.ring, 0, yR2, [[0, 'rgba(10,8,8,0.45)'], [1, 'rgba(10,8,8,0.1)']]);
   bg.fillRect(0, TOPM + D.ring - 8, FW, D.ridge2 - D.ring + 8);
-  bg.fillStyle = L.linear(bg, 0, yR2, 0, yR2 + 60, [[0, 'rgba(255,238,210,0.3)'], [1, 'rgba(255,238,210,0.05)']]);
+  bg.fillStyle = L.linear(bg, 0, yR2, 0, yR2 + 60, [[0, 'rgba(236,242,246,0.3)'], [1, 'rgba(236,242,246,0.05)']]);
   bg.fillRect(0, yR2, FW, FH - yR2);
   bg.globalCompositeOperation = 'source-over';
   drawRidge(bg, FW, yR, 's04ridge1');
   drawRidge(bg, FW, yR2, 's04ridge2');
   // the sunlit lip of the inner eave, the dark lip of the inner ring's eave
-  bg.fillStyle = 'rgba(232,218,196,0.26)'; bg.fillRect(0, TOPM + D.eave - 3.5, FW, 7);
+  bg.fillStyle = 'rgba(226,232,234,0.26)'; bg.fillRect(0, TOPM + D.eave - 3.5, FW, 7);
   bg.fillStyle = 'rgba(8,6,4,0.4)'; bg.fillRect(0, TOPM + D.ring - 4, FW, 7);
   // cut the roofs back to their scalloped eave lines (trough tiles poke out a little beyond the cover tiles)
   bg.globalCompositeOperation = 'destination-out'; bg.globalAlpha = 1; bg.fillStyle = '#000';
@@ -364,9 +371,9 @@ function buildStrip(env) {
     g.restore();
   }
   // cast shadows: the deep eave over the top gallery, and the inner ring over the yard
-  g.fillStyle = L.linear(g, 0, D.eave, 0, D.eave + 32, [[0, 'rgba(8,5,3,0.9)'], [0.78, 'rgba(8,5,3,0.74)'], [0.9, 'rgba(8,5,3,0.4)'], [1, 'rgba(8,5,3,0)']]);
-  g.fillRect(0, D.eave, FW, 32);
-  g.fillStyle = L.linear(g, 0, D.ring - 30, 0, D.ring + 4, [[0, 'rgba(20,14,10,0)'], [0.16, 'rgba(20,14,10,0.55)'], [1, 'rgba(14,10,7,0.72)']]);
+  g.fillStyle = L.linear(g, 0, D.eave, 0, D.eave + 24, [[0, 'rgba(8,5,3,0.8)'], [0.78, 'rgba(8,5,3,0.55)'], [0.9, 'rgba(8,5,3,0.3)'], [1, 'rgba(8,5,3,0)']]);
+  g.fillRect(0, D.eave, FW, 24);
+  g.fillStyle = L.linear(g, 0, D.ring - 30, 0, D.ring + 4, [[0, 'rgba(20,14,10,0)'], [0.16, 'rgba(20,14,10,0.55)'], [1, 'rgba(14,10,7,0.55)']]);
   g.fillRect(0, D.ring - 30, FW, 34);
   // roofs on top
   g.drawImage(B, 0, -TOPM);
@@ -374,13 +381,20 @@ function buildStrip(env) {
   // galleries toward the left, where the ring turns away from the sun. Cool skylight fills it.
   g.save();
   g.beginPath(); g.rect(0, D.eave + 4, FW, FH); g.clip();
-  g.globalCompositeOperation = 'multiply'; g.filter = 'blur(6px)'; g.fillStyle = '#737b90';
+  g.globalCompositeOperation = 'multiply'; g.filter = 'blur(6px)'; g.fillStyle = '#8b96b8';
   g.beginPath();
   for (let x = -60; x <= FW + 60; x += 20) {
     const y = 216 + 520 * Math.pow(L.smooth((x / FW - 0.02) / 0.75), 1.25);
     if (x === -60) g.moveTo(x, y); else g.lineTo(x, y);
   }
   g.lineTo(FW + 60, FH + 60); g.lineTo(-60, FH + 60); g.closePath(); g.fill();
+  g.restore();
+  // lanterns last of all: nothing dims them
+  g.save();
+  g.beginPath(); g.rect(0, D.eave + 4, FW, D.kerb - D.eave); g.clip();
+  drawLanterns(g, FW, D.eave, 's04lan4', 0.8);
+  drawLanterns(g, FW, D.f3, 's04lan3', 1);
+  drawLanterns(g, FW, D.f2, 's04lan2', 1);
   g.restore();
   return { strip: A, FW, FH };
 }
@@ -431,9 +445,9 @@ function wrapStrip(env, strip, FW, FH) {
   // finishing, only where the building is
   g.globalCompositeOperation = 'source-atop';
   // a breath of haze on the far rim, weight toward the bottom of frame
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 70, R + 4, [[0, 'rgba(214,222,220,0)'], [1, 'rgba(214,222,220,0.16)']]);
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 70, R + 4, [[0, 'rgba(226,236,242,0)'], [1, 'rgba(226,236,242,0.16)']]);
   g.fillRect(-PAD, -PAD, LW, LH);
-  g.fillStyle = L.radial(g, a.cx, a.cy, R - 640, R - 380, [[0, 'rgba(10,7,5,0.45)'], [1, 'rgba(10,7,5,0)']]);
+  g.fillStyle = L.radial(g, a.cx, a.cy, R - 640, R - 380, [[0, 'rgba(10,7,5,0.18)'], [1, 'rgba(10,7,5,0)']]);
   g.fillRect(-PAD, -PAD, LW, LH);
   g.globalCompositeOperation = 'source-over';
   return c;
@@ -457,28 +471,28 @@ function buildBack(env) {
       q.fill();
       q.globalCompositeOperation = 'source-atop'; q.globalAlpha = o.tex;
       q.drawImage(L.noiseLayer(PAD, { seed: o.seed + 't', scale: 70, sx: 1.4, sy: 2.4, octaves: 4, res: 0.2, contrast: 1.7,
-        ramp: [[0, L.rgba(L.shade(o.color, -0.28), 0.9)], [0.5, L.rgba(o.color, 0)], [1, 'rgba(240,243,238,0.75)']] }), X, Y);
+        ramp: [[0, L.rgba(L.shade(o.color, -0.28), 0.9)], [0.5, L.rgba(o.color, 0)], [1, 'rgba(246,250,252,0.75)']] }), X, Y);
     });
     g.drawImage(c, X, Y);
   };
   return L.makeLayer(PAD, (g) => {
-    g.fillStyle = L.linear(g, 0, -PAD, 0, 900, [[0, '#cbd5d5'], [0.3, '#d8e0dd'], [0.62, '#e4e8e3'], [1, '#edf0ea']]);
+    g.fillStyle = L.linear(g, 0, -PAD, 0, 900, [[0, '#c9dcea'], [0.3, '#d9e8f0'], [0.62, '#eaf2f6'], [1, '#f6fafb']]);
     g.fillRect(X, Y, WW, HH);
     g.drawImage(L.noiseLayer(PAD, { seed: 's04sky', scale: 460, sx: 3, sy: 1, octaves: 4, res: 0.15, contrast: 1.4,
-      ramp: [[0, 'rgba(180,196,197,0.38)'], [0.5, 'rgba(220,228,225,0)'], [1, 'rgba(252,252,247,0.6)']] }), X, Y);
+      ramp: [[0, 'rgba(150,178,200,0.30)'], [0.5, 'rgba(214,228,238,0)'], [1, 'rgba(255,255,255,0.7)']] }), X, Y);
     const dc = (x) => Math.abs(x - a.cx);
-    hill(g, { seed: 's04h1', color: '#c0cbc8', alpha: 0.9, fade: 250, amp: 36, freq: 2.2, tex: 0.3, fuzz: 0.35,
+    hill(g, { seed: 's04h1', color: '#a9bfd0', alpha: 0.9, fade: 250, amp: 36, freq: 2.2, tex: 0.3, fuzz: 0.35,
       y: (x) => 262 - 46 * Math.exp(-(((x - 1380) / 540) ** 2)) - 26 * Math.exp(-(((x - 200) / 380) ** 2)) });
-    hill(g, { seed: 's04h2', color: '#b3c0bd', alpha: 0.92, fade: 250, amp: 42, freq: 3.0, tex: 0.4, fuzz: 0.6,
+    hill(g, { seed: 's04h2', color: '#8fabc0', alpha: 0.92, fade: 250, amp: 42, freq: 3.0, tex: 0.4, fuzz: 0.6,
       y: (x) => 348 - 62 * Math.exp(-(((x - 420) / 460) ** 2)) - 38 * Math.exp(-(((x - 1820) / 360) ** 2)) });
     // mist lying in the valley
     g.drawImage(L.noiseLayer(PAD, { seed: 's04v1', scale: 150, sx: 5, sy: 1, octaves: 4, res: 0.2, contrast: 1.5,
-      ramp: [[0, 'rgba(236,240,235,0)'], [0.45, 'rgba(236,240,235,0.15)'], [1, 'rgba(240,243,238,0.85)']] }), X, Y);
+      ramp: [[0, 'rgba(246,250,251,0)'], [0.45, 'rgba(246,250,251,0.15)'], [1, 'rgba(246,250,251,0.85)']] }), X, Y);
     // nearer wooded spurs coming in from both sides
-    hill(g, { seed: 's04h3', color: '#9fb0ad', alpha: 0.9, fade: 280, amp: 34, freq: 3.6, tex: 0.5, fuzz: 1,
+    hill(g, { seed: 's04h3', color: '#6f8ea6', alpha: 0.9, fade: 280, amp: 34, freq: 3.6, tex: 0.5, fuzz: 1,
       y: (x) => (x < a.cx ? 650 - 250 * L.smooth((dc(x) - 180) / 720) : 650 - 170 * L.smooth((dc(x) - 380) / 640)) });
     // the bright fog bank the building rises out of
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 20, a.R + 330, [[0, 'rgba(240,243,238,0.98)'], [0.3, 'rgba(238,241,236,0.8)'], [0.65, 'rgba(236,240,235,0.3)'], [1, 'rgba(236,240,235,0)']]);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 20, a.R + 330, [[0, 'rgba(246,250,251,0.98)'], [0.3, 'rgba(246,250,251,0.8)'], [0.65, 'rgba(246,250,251,0.3)'], [1, 'rgba(246,250,251,0)']]);
     g.fillRect(X, Y, WW, HH);
   });
 }
@@ -487,12 +501,12 @@ function buildBack(env) {
 function buildMist(env) {
   const a = env.arc;
   const c = L.polarNoiseLayer(env, PAD, { seed: 's04mist', scale: 130, sx: 4.5, sy: 1, octaves: 4, res: 0.2, contrast: 1.6,
-    ramp: [[0, 'rgba(238,241,236,0)'], [0.42, 'rgba(238,241,236,0)'], [1, 'rgba(240,243,238,0.9)']] });
+    ramp: [[0, 'rgba(246,250,251,0)'], [0.42, 'rgba(246,250,251,0)'], [1, 'rgba(246,250,251,0.9)']] });
   const g = c.getContext('2d');
   g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R - 120, a.R + 230, [[0, 'rgba(0,0,0,0)'], [0.26, 'rgba(0,0,0,0.5)'], [0.42, 'rgba(0,0,0,1)'], [0.6, 'rgba(0,0,0,0.8)'], [1, 'rgba(0,0,0,0)']]);
+  g.fillStyle = L.radial(g, a.cx + PAD, a.cy + PAD, a.R - 120, a.R + 230, [[0, 'rgba(0,0,0,0)'], [0.31, 'rgba(0,0,0,0)'], [0.42, 'rgba(0,0,0,0.35)'], [0.6, 'rgba(0,0,0,0.9)'], [1, 'rgba(0,0,0,0)']]);
   g.fillRect(0, 0, c.width, c.height);
-  g.fillStyle = L.linear(g, 0, 0, c.width, 0, [[0, 'rgba(0,0,0,0.75)'], [0.16, 'rgba(0,0,0,0.6)'], [0.36, 'rgba(0,0,0,0)'], [0.68, 'rgba(0,0,0,0)'], [0.86, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0.5)']]);
+  g.fillStyle = L.linear(g, 0, 0, c.width, 0, [[0, 'rgba(0,0,0,0.55)'], [0.16, 'rgba(0,0,0,0.45)'], [0.36, 'rgba(0,0,0,0)'], [0.68, 'rgba(0,0,0,0)'], [0.86, 'rgba(0,0,0,0.3)'], [1, 'rgba(0,0,0,0.4)']]);
   g.fillRect(0, 0, c.width, c.height);
   return c;
 }
@@ -506,19 +520,19 @@ export default {
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.01, 0.01, p), zoom = L.lerp(1.0, 1.035, p);
+    const rot = L.lerp(-0.013, 0.013, p), zoom = L.lerp(0.992, 1.012, p);
     L.blit(ctx, env, S.back, { rot: rot * 0.22, zoom: 1 + (zoom - 1) * 0.3 });
     L.blit(ctx, env, S.house, { rot, zoom });
     L.cam(ctx, env, { rot, zoom }, () => {
-      // damp tiles catching the low sun: a soft sheen that stays put while the roof slides beneath it
+      // damp tiles mirroring the cold sky: a soft sheen that stays put while the roof slides beneath it
       ctx.save(); a.clipBand(ctx, -D.ridge - 7, -D.eave + 2);
       const q = a.pt(0.13 - rot, -128);
-      L.glow(ctx, q.x, q.y, 600, '#ffe2b8', 0.42, 'overlay');
+      L.glow(ctx, q.x, q.y, 600, '#eaf3f7', 0.3, 'overlay');
       ctx.restore();
       // the sun pooling in the right-hand galleries and on the yard
       ctx.save(); a.clipBand(ctx, -D.eave - 30, -D.ring + 2);
       const s = a.pt(0.2 - rot, -320);
-      L.glow(ctx, s.x, s.y, 560, '#ffc27a', 0.32, 'overlay');
+      L.glow(ctx, s.x, s.y, 560, '#ffb45e', 0.4, 'overlay');
       ctx.restore();
     });
     L.blit(ctx, env, S.mist, { rot: rot * 0.4, zoom: 1 + (zoom - 1) * 0.6, dx: L.lerp(-8, 12, p) });

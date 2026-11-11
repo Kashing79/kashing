@@ -148,13 +148,13 @@ function buildDrum(env) {
         const bk = bil(cBuck, i, j);
         Hh[k] = 2.6 + cr * (0.35 + 1.3 * Math.abs(bk)) + pore + bk * 1.2 + 1.5 * sstep(0, 3.2, de - d);   // the skin stands proud of the lacquer by its own thickness
         const m = bil(cMot, i, j) * 1.4;
-        let r = 236, g = 211, b = 158;
-        if (m > 0) { const t = m > 1 ? 1 : m; r += (244 - r) * t * 0.8; g += (229 - g) * t * 0.8; b += (194 - b) * t * 0.8; }   // thin, milky patches
-        else { const t = m < -1 ? 1 : -m; r += (204 - r) * t; g += (160 - g) * t; b += (98 - b) * t; }                        // thick, honey-coloured ones
+        let r = 244, g = 228, b = 188;
+        if (m > 0) { const t = m > 1 ? 1 : m; r += (250 - r) * t * 0.8; g += (240 - g) * t * 0.8; b += (214 - b) * t * 0.8; }   // thin, milky patches
+        else { const t = (m < -1 ? 1 : -m) * 0.75; r += (226 - r) * t; g += (182 - g) * t; b += (112 - b) * t; }                        // thick, honey-coloured ones
         const fol = nB.n2(x / 1.7 + 50, y / 1.7);                               // hair follicles
         const dirt = 1 - 0.14 * Math.max(0, -cr) + pore * 0.2 - (fol > 0.5 ? (fol - 0.5) * 0.14 : 0);
         const eg = 1 - sstep(0, 18, de - d);                                  // grime gathered along the cut edge
-        r = (r + (128 - r) * eg * 0.42) * dirt; g = (g + (92 - g) * eg * 0.42) * dirt; b = (b + (56 - b) * eg * 0.42) * dirt;
+        r = (r + (128 - r) * eg * 0.32) * dirt; g = (g + (92 - g) * eg * 0.32) * dirt; b = (b + (56 - b) * eg * 0.32) * dirt;
         px[o] = r; px[o + 1] = g; px[o + 2] = b;
       } else {
         // ── vermilion lacquer ──
@@ -193,10 +193,10 @@ function buildDrum(env) {
         }
         Hh[k] = h;
         const tn = bil(cTone, i, j), tone = 1 + 0.16 * tn + 0.035 * tT * cm + 0.03 * fine;
-        let r = 188 * tone, g = (30 + 14 * tn) * tone, b = (22 - 4 * tn) * tone;
+        let r = 228 * tone, g = (50 + 16 * tn) * tone, b = (24 - 4 * tn) * tone;   // 朱砂: an orange-leaning vermilion, not ox-blood
         if (wear > 0) { const w = wear * 0.78; r += (70 - r) * w; g += (22 - g) * w; b += (14 - b) * w; }
         if (chip > 0) { const cv = 0.78 + 0.3 * fine + 0.2 * nB.n2(U / 9, d / 60); r += (128 * cv - r) * chip; g += (104 * cv - g) * chip; b += (80 * cv - b) * chip; }
-        if (mg > 0) { const w = mg * (0.82 + 0.18 * fine), gv = 0.82 + 0.3 * tU * cm + 0.12 * tn; r += (204 * gv - r) * w; g += (146 * gv - g) * w; b += (52 * gv - b) * w; }
+        if (mg > 0) { const w = mg * (0.82 + 0.18 * fine), gv = 0.82 + 0.3 * tU * cm + 0.12 * tn; r += (236 * gv - r) * w; g += (186 * gv - g) * w; b += (74 * gv - b) * w; }
         px[o] = r; px[o + 1] = g; px[o + 2] = b;
         Ck[k] = 255 * Math.min(1, 0.8 * line + 0.62 * seam);
         Gl[k] = 255 * (1 - 0.8 * wear) * (1 - 0.95 * chip) * sstep(1, 4, q);
@@ -244,7 +244,7 @@ function buildDrum(env) {
       const ku = j > 0 && Mat[k - RW] ? Hh[k - RW] : h0, kd = j < RH - 1 && Mat[k + RW] ? Hh[k + RW] : h0;
       const hx = (kr - kl) * 0.5, hy = (kd - ku) * 0.5;
       const ddx = X0 + i - cx, rr = R - d, sn = ddx / rr, cs = ddy / rr;
-      const th = Ua[k] / R, sf = sstep(0.08, 0.52, Math.abs(th - KEY_T)), side = 1 - (mat === 1 ? 0.3 : 0.6) * sf;
+      const th = Ua[k] / R, sf = sstep(0.08, 0.52, Math.abs(th - KEY_T)), side = 1 - (mat === 1 ? 0.12 : 0.3) * sf;
       let rel = -(hx * lx + hy * ly);
       let r = px[o], g = px[o + 1], b = px[o + 2];
       if (mat === 1) {
@@ -260,11 +260,12 @@ function buildDrum(env) {
         let hv = -hx * sn + hy * cs; hv = hv < -0.4 ? -0.4 : hv > 0.4 ? 0.4 : hv;
         E[k] = d - KS * hv;
         const q = Qe[k];
-        const lit = (1.14 - 0.8 * sstep(165, 660, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
+        const lit = (1.1 - 0.38 * sstep(220, 760, d)) * side * (1 - 0.66 * Math.exp(-q / 6) - 0.2 * Math.exp(-q / 36)) * (1 + rel);
         // deep lacquer never goes fully flat: a broad soft sheen sits under the moving highlight
         const sh = 24 * Math.exp(-((d - 242) * (d - 242)) / 16000) * side * (Gl[k] / 255);
-        r = r * lit + sh; g = g * lit + sh * 0.45; b = b * lit + sh * 0.32;
-        if (rel > 0.3) { const sp = (rel - 0.3) * 150 * side; r += sp; g += sp * 0.7; b += sp * 0.5; }
+        r = r * lit + sh; g = g * lit + sh * 0.36; b = b * lit + sh * 0.16;
+        { const sd = 1 - (lit < 1 ? lit : 1); b += sd * 26; g -= sd * 6; }   // shadows turn toward a cool crimson (殷红) instead of sinking into brown-black
+        if (rel > 0.3) { const sp = (rel - 0.3) * 150 * side; r += sp; g += sp * 0.78; b += sp * 0.45; }
       }
       px[o] = r; px[o + 1] = g; px[o + 2] = b;
       const al = d + 0.5; px[o + 3] = al >= 1 ? 255 : al <= 0 ? 0 : al * 255;
@@ -289,18 +290,18 @@ function buildDrum(env) {
     eachPx(nl, 1.1, (k, ox, oy) => {
       const dist = Math.sqrt(ox * ox + oy * oy), cov = nl.rad - dist + 0.5;
       if (cov <= 0 || !Mat[k]) return;
-      const dent = 0.075;
+      const dent = 0.04;
       let nx = ox / Rs + dent * nB.n2(ox / 9 + nl.id * 5.3, oy / 9 + 2.1), ny = oy / Rs + dent * nB.n2(ox / 9 - 7.7, oy / 9 + nl.id * 3.9);
       nx += 0.03 * nC.n2(ox / 2.2 + nl.id * 11, oy / 2.2); ny += 0.03 * nC.n2(ox / 2.2, oy / 2.2 + nl.id * 13);
       const nz = Math.sqrt(Math.max(0.03, 1 - nx * nx - ny * ny));
       const ndh = nx * Hx + ny * Hy + nz * Hz, ndl = Math.max(0, nx * Lx + ny * Ly + nz * Lz);
       const s1 = sstep(0.968, 0.99, ndh) + 0.3 * sstep(0.986, 0.996, nx * 0.36 - ny * 0.16 + nz * 0.919), s2 = Math.pow(Math.max(0, ndh), 9);
       // gilding survives on the crown; dark tarnish creeps up from the skirt in soft clouds
-      const gm = sstep(0, 0.5, (nz - 0.56) * 1.3 + 0.42 * nA.fbm(ox / 17 + nl.id * 9.1, oy / 17 - nl.id * 4.7, 2) + gAmt);
-      const di = 0.25 + 0.9 * ndl, dg = 0.1 + 0.95 * Math.pow(ndl, 1.35);
-      let r = 50 * di + (204 * dg + 200 * s2 - 50 * di) * gm + 80 * s2 * (1 - gm);
-      let g = 36 * di + (148 * dg + 165 * s2 - 36 * di) * gm + 60 * s2 * (1 - gm);
-      let b = 26 * di + (52 * dg + 96 * s2 - 26 * di) * gm + 38 * s2 * (1 - gm);
+      const gm = sstep(0, 0.5, (nz - 0.36) * 1.7 + 0.2 * nA.fbm(ox / 17 + nl.id * 9.1, oy / 17 - nl.id * 4.7, 2) + gAmt);
+      const di = 0.25 + 0.9 * ndl, dg = 0.24 + 0.9 * Math.pow(ndl, 1.2), amb = (1 - ndl) * gm;   // amb: warm fill on the gold's lee side, so it shades to brown-gold, not olive
+      let r = 50 * di + (242 * dg + 200 * s2 - 50 * di) * gm + 80 * s2 * (1 - gm) + 70 * amb;
+      let g = 36 * di + (190 * dg + 165 * s2 - 36 * di) * gm + 60 * s2 * (1 - gm) + 26 * amb;
+      let b = 26 * di + (69 * dg + 96 * s2 - 26 * di) * gm + 38 * s2 * (1 - gm) + 6 * amb;
       // the skirt of the dome mirrors the pale hide around it (lit side) and the red barrel below
       const skirt = sstep(0.76, 0.56, nz), lee = 0.5 - 0.5 * (nx * 0.58 + ny * 0.81) / Math.sqrt(1.001 - nz * nz);
       const up = skirt * (0.14 + 0.5 * lee) * (0.55 + 0.45 * gm);
@@ -349,7 +350,7 @@ function buildDrum(env) {
   const BL = new Float32Array(1024);   // band profile vs (E − E0), 0.5 px steps, centre at 512
   for (let n = 0; n < 1024; n++) {
     const e = (n - 512) * 0.5, ae = Math.abs(e);
-    BL[n] = 0.5 * (1 - sstep(14, 23, ae)) + 0.18 * Math.exp(-(e * e) / 50) + 0.15 * Math.exp(-(e * e) / 3400) + 0.12 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.04 * Math.exp(-((e - 128) * (e - 128)) / 1800);
+    BL[n] = 0.62 * (1 - sstep(10, 18, ae)) + 0.18 * Math.exp(-(e * e) / 50) + 0.15 * Math.exp(-(e * e) / 3400) + 0.12 * Math.exp(-((e - 128) * (e - 128)) / 110) + 0.04 * Math.exp(-((e - 128) * (e - 128)) / 1800);
   }
   const LL = new Float32Array(1024);   // lateral falloff vs |U − Uc|, 2 px steps
   for (let n = 0; n < 1024; n++) { const t = (n * 2) / 900; LL[n] = Math.exp(-t * t) * 0.92 + 0.08; }
@@ -365,7 +366,7 @@ function renderSpec(E0, Uc) {
     let ei = ((E2[k] - E0) * 2 + 512) | 0; ei = ei < 0 ? 0 : ei > 1023 ? 1023 : ei;
     let li = U2[k] - Uc; li = (li < 0 ? -li : li) * 0.5 | 0; if (li > 1023) li = 1023;
     const v = BL[ei] * LL[li] * g, m = M2[k] * (1 / 255), o = k * 4;
-    d[o] = v * (1 + 0.25 * m); d[o + 1] = v * (0.8 + 0.1 * m); d[o + 2] = v * (0.66 - 0.28 * m);
+    d[o] = v * (1 + 0.9 * m); d[o + 1] = v * (0.68 + 0.5 * m); d[o + 2] = v * (0.38 - 0.2 * m);
   }
   S.sctx.putImageData(spec, 0, 0);
 }

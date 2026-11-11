@@ -5,6 +5,8 @@
 //   node tools/preview.js s02 s07 --notext   (hide the tagline overlay)
 //   node tools/preview.js s02 --p 0.25       (extra full-res still at progress 0.25 → s02_p25.jpg)
 //   node tools/preview.js s02 --film coins   (another film of the series → build/coins/preview/)
+//   node tools/preview.js s02 --out some/dir   (write somewhere else, e.g. for a review that must not touch the shared preview folder)
+// Each run also writes <id>_compare.jpg — the reference film's frames of the same shot next to ours (see tools/compare.py).
 // Exit code 1 if the scene threw or logged errors.
 const fs = require('fs');
 const path = require('path');
@@ -19,7 +21,8 @@ const { openPlayer, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
   const pIdx = args.indexOf('--p');
   const extraP = pIdx >= 0 ? parseFloat(args[pIdx + 1]) : null;
   if (!ids.length) { console.error('usage: node tools/preview.js <shotId...> [--notext] [--p 0.25]'); process.exit(2); }
-  const outDir = fa.previewDir;
+  const oIdx = args.indexOf('--out');
+  const outDir = oIdx >= 0 ? path.resolve(args[oIdx + 1]) : fa.previewDir;
   fs.mkdirSync(outDir, { recursive: true });
   const { page, logs, close } = await openPlayer(fa.film);
   let failed = false;
@@ -46,6 +49,11 @@ const { openPlayer, dataUrlToBuffer, filmArgs, ROOT } = require('./harness');
     console.log(`${id}: init ${a.info.initMs.toFixed(0)} ms, draw ${b.info.drawMs.toFixed(0)} ms/frame, ${frames} frames (${(frames / 25).toFixed(2)} s)`);
     console.log(`  sheet: ${sheet}\n  mid:   ${b.f}`);
     if (errs.length) { failed = true; console.log('  ERRORS:\n   ' + errs.join('\n   ')); }
+    // side-by-side with the reference film (skipped silently when the reference stills are not on this machine)
+    try {
+      const cmp = execFileSync('python3', [path.join(ROOT, 'tools', 'compare.py'), '--dir', outDir, '--label', fa.film, id], { encoding: 'utf8' }).trim();
+      if (cmp) console.log(`  compare: ${cmp}\n  ↑ 左半是参考片的同一镜头，右半是你的画面。每一轮都要用 Read 打开这张图逐项对比（主体大小与画面填充、明暗层次、质感密度、光与景深、色彩干净程度），差在哪就改哪；细则见 docs/AUTHORING.md「对照参考片」。`);
+    } catch (e) { /* comparison is a convenience; never fail a preview because of it */ }
     [a.f, c.f, g.f].forEach((f) => fs.unlinkSync(f));
   }
   if (logs.length) { console.log('browser log:\n ' + logs.slice(0, 20).join('\n ')); if (logs.some((l) => l.includes('pageerror'))) failed = true; }
