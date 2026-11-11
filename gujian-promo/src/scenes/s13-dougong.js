@@ -1,476 +1,509 @@
 // s13 — 木构斗拱. Bare, unpainted timber bracket sets lying on a sheet of old paper.
-// The arc is the top edge of a curved eave tie-beam (挑檐枋); a row of pegs runs along it. Under the beam hang the
-// bracket sets, seen square-on: cap block (栌斗) → short bow arm with three small blocks → long bow arm with three
-// small blocks → beam. On the centre line of each set the arms that run toward the viewer show their sawn ends
-// (end grain). Each tier is wider and stands further forward than the one below, so every piece throws a shadow
-// on the next and the voids between sets (拱眼) fall into darkness. Above the arc: old paper with the faintest
-// pencil ghost of the eave (rafter ends) the beam would carry.
+// The arc is the top edge of a curved eave tie-beam (挑檐枋); a row of pegs runs along it, and under it hangs a row of
+// bracket sets (攒) seen in true front elevation: 栌斗 → 泥道拱 + 散斗 → 慢拱 + 散斗 → 枋, with the end-grain heads of the
+// projecting arms (华拱) stacked on the centre line. Between the sets: the deep dark gaps (拱眼).
+// Everything is laid out in 分° (fen, the modular unit of the bracket system) and mapped through polar coordinates so
+// every member is concentric with the arc — a `rot` about the arc centre slides the row along without bending anything.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
-const PAD = 240;
-
-// every size is a multiple of one module (斗口), the way the real thing is set out
-const U = 46;
-const BEAM = 2.5 * U;                     // radial depth of the beam whose top edge is the arc
-const PITCH = 11 * U;                     // centre-to-centre spacing of the sets along the arc
-const ARM_H = 1.4 * U;                    // depth of a bow arm (拱)
-const ARM1_W = 6.2 * U, ARM2_W = 9.2 * U; // short arm / long arm
-const DOU_W = 1.45 * U, DOU_B = 0.86 * U, DOU_H = U;   // small block (升): top width, foot width, height
-const EAR = 0.4 * U;                      // a small block's ears lap this far over the member it carries
-const LU_W = 3 * U, LU_B = 2.1 * U, LU_H = 2 * U;       // cap block (栌斗)
-// distances below the arc, measured toward the circle centre
-const Y_DOU2 = BEAM - EAR;                // upper row of blocks (they carry the beam)
-const Y_ARM2 = Y_DOU2 + DOU_H;            // long arm
-const Y_DOU1 = Y_ARM2 + ARM_H - EAR;      // lower row of blocks (they carry the long arm)
-const Y_ARM1 = Y_DOU1 + DOU_H;            // short arm
-const Y_LU = Y_ARM1 + ARM_H - 0.8 * U;    // cap block: the short arm sits 0.8 U deep in its mouth
-const Y_PLATE = Y_LU + LU_H;              // plate the cap blocks stand on
-const PLATE_H = 1.25 * U;
-const Y_LINTEL = Y_PLATE + PLATE_H;       // big lintel under the plate
-const LINTEL_H = 6 * U;
-
-const FOOT = 0.57;                        // a block's foot (斗欹) starts this far down its height
-const PAPER = '#e6d7b8';
-const LIGHT = [-0.56, -0.83];             // direction TOWARD the light on screen (upper left)
-
+const PAD = 180;
+const U = 5.2;                 // px per 分°
+const B = 17;                  // depth of the beam on the arc (分°)
+const PITCH = 100;             // spacing of the bracket sets along the arc (分°)
+// vertical layout, 分° measured down from the arc (材高 15, 栔 6, 小斗 10 = 耳4 平2 欹4, 栌斗 20 = 耳8 平4 欹8)
+const V_D2 = B - 4;            // top of the upper small blocks (their ears grip the beam)
+const V_G2 = B + 6;            // top of the long arm 慢拱
+const V_D1 = B + 17;           // top of the lower small blocks
+const V_G1 = B + 27;           // top of the short arm 泥道拱
+const V_LU = B + 34;           // top of the cap block 栌斗
+const V_BOT = B + 54;          // underside of the cap block = top of the plate 普拍枋
+const LIGHT = 45;              // L.bumpLight angle for light arriving from the upper left
 let S = null;
 
-// ───────────────────────── procedural timber ─────────────────────────
-/** long-grain face of a plank: growth rings cut lengthwise (dark late-wood lines, soft early wood), fibres, pores, raised grain */
-function woodTexture(w, h, seed) {
-  const nz = L.makeNoise(seed);
-  const f = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const breathe = 1.7 * Math.sin(y / 71 + 1.3) + 0.9 * Math.sin(y / 23.7);   // ring spacing tightens and opens
-    for (let x = 0; x < w; x++) {
-      const warp = 38 * nz.fbm(x / 1100, y / 140, 2) + 6 * nz.n2(x / 260 + 40, y / 40 - 7);
-      const ring = (y + warp) / 10 + breathe;
-      const t = ring - Math.floor(ring);
-      const late = t < 0.84 ? Math.pow(t / 0.84, 3) : (1 - t) / 0.16;          // slow darkening, then a sharp return
-      const fiber = nz.n2(x / 64, y / 1.3 + 90);
-      const pore = nz.n2(x / 17 + 300, y / 0.85);
-      f[y * w + x] = 0.69 - 0.36 * late + 0.085 * fiber - (pore > 0.45 ? (pore - 0.45) * 0.36 : 0);
-    }
-  }
-  const ramp = L.makeRamp([[0, '#2a1606'], [0.24, '#573018'], [0.46, '#905b31'], [0.64, '#b47641'], [0.82, '#d7995a'], [1, '#edc085']]);
-  const lut = new Uint8ClampedArray(256 * 3);
-  for (let i = 0; i < 256; i++) { const c = ramp(i / 255); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
-  const img = new ImageData(w, h); const d = img.data;
-  for (let y = 0; y < h; y++) {
-    const ym = (y > 0 ? y - 1 : 0) * w, yp = (y < h - 1 ? y + 1 : y) * w;
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      // hard late-wood stands proud of the worn early wood → light it from above
-      const v = L.clamp(f[i] + 0.85 * (f[ym + x] - f[yp + x]));
-      const li = (v * 255) | 0, k = i * 4;
-      d[k] = lut[li * 3]; d[k + 1] = lut[li * 3 + 1]; d[k + 2] = lut[li * 3 + 2]; d[k + 3] = 255;
-    }
-  }
-  const c = L.makeCanvas(w, h); const g = c.getContext('2d');
-  g.putImageData(img, 0, 0);
-  // age: broad streaks where the surface has darkened or bleached
-  g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.6;
-  g.drawImage(L.noiseTex(w, h, { seed: seed + 'a', scale: 260, sx: 3.5, sy: 0.55, octaves: 3, res: 0.2, contrast: 1.3, ramp: [[0, '#b38a5c'], [0.55, '#ffffff'], [1, '#ffffff']] }), 0, 0);
-  g.globalCompositeOperation = 'soft-light'; g.globalAlpha = 0.4;
-  g.drawImage(L.noiseTex(w, h, { seed: seed + 'b', scale: 110, sx: 7, sy: 0.5, octaves: 3, res: 0.25, contrast: 1.7 }), 0, 0);
-  return c;
+// ───────────────────────── timber texture ─────────────────────────
+const RAMPS = [
+  [[0, '#281305'], [0.22, '#5a3518'], [0.45, '#96602f'], [0.62, '#b47b43'], [0.8, '#d49c5a'], [1, '#ecbf7c']],   // golden
+  [[0, '#261104'], [0.22, '#572f13'], [0.45, '#935828'], [0.62, '#ae6f3a'], [0.8, '#cd8e50'], [1, '#e5b06c']],   // redder
+  [[0, '#2b1607'], [0.22, '#5e3a1c'], [0.45, '#9c6a36'], [0.62, '#b9854c'], [0.8, '#d8a664'], [1, '#efc786']],   // paler, drier
+  [[0, '#221004'], [0.22, '#4e2c12'], [0.45, '#885426'], [0.62, '#a46a35'], [0.8, '#c48748'], [1, '#dca663']],   // darker heartwood
+];
+function lutOf(stops) {
+  const f = L.makeRamp(stops); const lut = new Uint8ClampedArray(256 * 3);
+  for (let i = 0; i < 256; i++) { const c = f(i / 255); lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2]; }
+  return lut;
 }
-
-/** end grain: annual rings around the pith, medullary rays, saw marks, grime toward the rim. The pith sits at the canvas centre. */
-function endGrainTexture(n, seed) {
-  const nz = L.makeNoise(seed);
-  const ramp = L.makeRamp([[0, '#34200f'], [0.3, '#6c4424'], [0.58, '#a5733e'], [0.82, '#cf9c62'], [1, '#e8c08c']]);
-  const img = new ImageData(n, n); const d = img.data;
-  const c0 = n / 2;
+/** long-grain timber value at (s along the grain, t across it), px. Growth rings → sharp dark latewood lines. */
+function woodVal(nz, s, t, ring, wave) {
+  const wv = nz.fbm(s / 640, t / (ring * 8), 3) * wave + nz.n2(s / 170 + 40.5, t / (ring * 3)) * 0.2;
+  const q = t / ring + wv;
+  const f = q - Math.floor(q);
+  const late = f < 0.82 ? Math.pow(f / 0.82, 3.2) : 1 - (f - 0.82) / 0.18;
+  const fib = nz.n2(s / 64, t / 1.5) * 0.6 + nz.n2(s / 22 + 9.7, t / 0.9 + 3.1) * 0.4;
+  const bl = nz.fbm(s / 330 + 5.3, t / 120 - 3.7, 2);
+  return 0.72 - 0.54 * late + 0.13 * fib + 0.17 * bl;
+}
+/** per-pixel timber image. map(x, y, out) may remap canvas px → (s, t) and return false to leave a pixel empty. */
+function woodImage(w, h, o, map) {
+  const res = o.res || 1;
+  const cw = Math.max(2, Math.round(w * res)), ch = Math.max(2, Math.round(h * res));
+  const nz = L.makeNoise(o.seed), lut = lutOf(o.ramp);
+  const img = new ImageData(cw, ch); const d = img.data; const st = [0, 0];
   let k = 0;
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    const dx = x - c0, dy = (y - c0) * 1.12;
-    const dist = Math.hypot(dx, dy) + 0.001;
-    const ring = (dist + 4 * nz.fbm(x / 46, y / 46, 2)) / 5.6 + 0.3 * Math.sin(Math.atan2(dy, dx) * 3 + 1);
-    const t = ring - Math.floor(ring);
-    const late = t < 0.78 ? Math.pow(t / 0.78, 2.4) : (1 - t) / 0.22;
-    const ray = nz.n2((dx / dist) * 11 + dist / 38, (dy / dist) * 11);
-    const saw = nz.n2(x / 34, (y + x * 0.22) / 1.5);            // the saw's kerf marks run across the cut
-    const v = L.clamp(0.88 - 0.34 * late + 0.05 * ray + 0.075 * saw - 0.2 * L.smooth(dist / (n * 0.42)));
-    const c = ramp(v);
-    d[k++] = c[0]; d[k++] = c[1]; d[k++] = c[2]; d[k++] = 255;
+  for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++, k += 4) {
+    let s = x / res, t = y / res;
+    if (map) { if (!map(s, t, st)) continue; s = st[0]; t = st[1]; }
+    const li = (L.clamp(woodVal(nz, s, t, o.ring, o.wave)) * 255) | 0;
+    d[k] = lut[li * 3]; d[k + 1] = lut[li * 3 + 1]; d[k + 2] = lut[li * 3 + 2]; d[k + 3] = 255;
   }
-  const c = L.makeCanvas(n, n);
-  c.getContext('2d').putImageData(img, 0, 0);
+  const small = L.makeCanvas(cw, ch); small.getContext('2d').putImageData(img, 0, 0);
+  if (res === 1) return small;
+  const out = L.makeCanvas(w, h); const g = out.getContext('2d');
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(small, 0, 0, w, h);
+  return out;
+}
+/** give a timber image its surface: pores and loose fibres along the grain, then relief so the grain catches the light */
+function finishTimber(c, seed, relief = 2.6) {
+  const g = c.getContext('2d'), w = c.width, h = c.height, r = L.rng('s13fin' + seed);
+  g.lineCap = 'round';
+  for (let i = 0, n = (w * h) / 120; i < n; i++) {
+    const x = r() * w, y = r() * h, len = r.range(5, 36);
+    g.strokeStyle = r.chance(0.72) ? `rgba(50,22,5,${r.range(0.12, 0.42)})` : `rgba(255,226,170,${r.range(0.08, 0.24)})`;
+    g.lineWidth = r.range(0.5, 1.1);
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + len, y + r.range(-0.8, 0.8)); g.stroke();
+  }
+  const bump = L.bumpLight(c, { angle: LIGHT, strength: relief, res: 1 });
+  g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.62; g.drawImage(bump, 0, 0);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
   return c;
 }
-
-// ───────────────────────── carpentry helpers (all in a set's local frame: +x along the arc, +y toward the centre) ─────────────────────────
-/** the screen light direction expressed in a frame rotated by th */
-function lightIn(th) {
-  const c = Math.cos(th), s = Math.sin(th);
-  return [LIGHT[0] * c + LIGHT[1] * s, -LIGHT[0] * s + LIGHT[1] * c];
+/** timber whose grain follows the arc, covering depths v0..v1 px below it. Returns {c, x, y} (canvas + frame position). */
+function polarWood(env, v0, v1, yTop, yBot, o) {
+  const a = env.arc, x0 = -PAD, w = W + PAD * 2, h = Math.ceil(yBot - yTop);
+  const cxp = a.cx - x0, cyp = a.cy - yTop, R = a.R, m = 6 / (o.res || 1);
+  const c = woodImage(w, h, o, (x, y, st) => {
+    const dx = x - cxp, dy = cyp - y; const dep = R - Math.sqrt(dx * dx + dy * dy);
+    if (dep < v0 - m || dep > v1 + m) return false;
+    st[0] = Math.atan2(dx, dy) * R; st[1] = dep; return true;
+  });
+  return { c, x: x0, y: yTop };
 }
 
-/** chamfer light: a pale line inside the edges that face the light, a dark one inside the edges that face away */
-function bevel(g, th, path, o = {}) {
-  const { d = 1.5, hi = 'rgba(255,230,184,0.55)', lo = 'rgba(30,12,2,0.5)', wHi = 2.2, wLo = 3 } = o;
-  const [lx, ly] = lightIn(th);
-  g.save(); path(); g.clip(); g.lineJoin = 'round';
-  g.save(); g.translate(lx * d, ly * d); path(); g.strokeStyle = lo; g.lineWidth = wLo; g.stroke(); g.restore();
-  g.save(); g.translate(-lx * d, -ly * d); path(); g.strokeStyle = hi; g.lineWidth = wHi; g.stroke(); g.restore();
-  g.restore();
+// ───────────────────────── geometry (分° → frame) ─────────────────────────
+function quad(p0, c, p1, n) {
+  const out = [];
+  for (let i = 1; i <= n; i++) { const t = i / n, k = 1 - t; out.push([k * k * p0[0] + 2 * k * t * c[0] + t * t * p1[0], k * k * p0[1] + 2 * k * t * c[1] + t * t * p1[1]]); }
+  return out;
 }
-
-/** drying checks: thin lens-shaped splits that follow the grain, with a lit lower lip */
-function checks(g, r, bb, n) {
-  for (let k = 0; k < n; k++) {
-    const len = r.range(0.3, 0.75) * bb.w, x0 = bb.x + r.range(0, bb.w - len), wmax = r.range(1.2, 2.6);
-    let y = bb.y + r() * bb.h;
-    const m = Math.max(4, Math.round(len / 10)), top = [], bot = [];
-    for (let i = 0; i <= m; i++) {
-      const u = i / m; y += r.range(-0.8, 0.8);
-      const t = wmax * Math.pow(Math.sin(Math.PI * u), 0.6);
-      top.push([x0 + u * len, y - t / 2]); bot.push([x0 + u * len, y + t / 2]);
+/** add a polyline given in 分° to the current path, subdividing so straight runs follow the arc */
+function trace(g, P, pts, close = true) {
+  const n = pts.length, m = close ? n : n - 1;
+  for (let i = 0; i < m; i++) {
+    const p0 = pts[i], p1 = pts[(i + 1) % n];
+    const k = Math.max(1, Math.ceil(Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / 5));
+    for (let j = 0; j < k; j++) {
+      const q = P(L.lerp(p0[0], p1[0], j / k), L.lerp(p0[1], p1[1], j / k));
+      if (i === 0 && j === 0) g.moveTo(q.x, q.y); else g.lineTo(q.x, q.y);
     }
-    g.beginPath(); top.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])));
-    for (let i = m; i >= 0; i--) g.lineTo(bot[i][0], bot[i][1]);
-    g.closePath(); g.fillStyle = 'rgba(20,8,2,0.82)'; g.fill();
-    g.beginPath(); bot.forEach((p, i) => (i ? g.lineTo(p[0], p[1] + 1) : g.moveTo(p[0], p[1] + 1)));
-    g.strokeStyle = 'rgba(255,228,180,0.3)'; g.lineWidth = 0.9; g.stroke();
+  }
+  if (close) g.closePath(); else { const q = P(pts[n - 1][0], pts[n - 1][1]); g.lineTo(q.x, q.y); }
+}
+/** bow arm 拱: ends keep a 6分° vertical face, the lower corner is cut back in four straight facets (卷杀) */
+function gongShape(half, top, kx) {
+  const b = top + 15, e = top + 6;
+  const Rk = quad([half, e], [half, b], [half - kx, b], 4);
+  const Lk = quad([-half + kx, b], [-half, b], [-half, e], 4);
+  return {
+    pts: [[-half, top], [half, top], [half, e], ...Rk, [-half + kx, b], ...Lk],
+    top: [[-half, top], [half, top]], left: [[-half, e], [-half, top]], right: [[half, top], [half, e]],
+    bottom: [[half, e], ...Rk, [-half + kx, b], ...Lk],
+  };
+}
+/** bearing block 斗 / 升: square upper part (耳 + 平), concave tapered foot (欹) */
+function douShape(cu, top, hw, hUp, hQi, inset) {
+  const m = top + hUp, b = m + hQi;
+  const Rq = quad([cu + hw, m], [cu + hw - inset * 0.9, m + hQi * 0.3], [cu + hw - inset, b], 4);
+  const Lq = quad([cu - hw + inset, b], [cu - hw + inset * 0.9, m + hQi * 0.3], [cu - hw, m], 4);
+  return {
+    pts: [[cu - hw, top], [cu + hw, top], [cu + hw, m], ...Rq, [cu - hw + inset, b], ...Lq],
+    top: [[cu - hw, top], [cu + hw, top]], left: [[cu - hw + inset, b], ...Lq, [cu - hw, top]], right: [[cu + hw, top], [cu + hw, m], ...Rq],
+    bottom: [[cu + hw - inset, b], [cu - hw + inset, b]],
+  };
+}
+/** the squared end of an arm that runs straight toward the viewer (华拱) */
+const headShape = (top) => ({
+  pts: [[-5, top], [5, top], [5, top + 15], [-5, top + 15]],
+  top: [[-5, top], [5, top]], left: [[-5, top + 15], [-5, top]], right: [[5, top], [5, top + 15]], bottom: [[5, top + 15], [-5, top + 15]],
+});
+
+// ───────────────────────── painting one member ─────────────────────────
+const SH_DOU = { dx: 7, dy: 13, blur: 10, a: 0.74 };
+const SH_LU = { dx: 9, dy: 16, blur: 14, a: 0.76 };
+const SH_HEAD = { dx: 14, dy: 28, blur: 16, a: 0.82 };
+const SH_ARM = { dx: 7, dy: 14, blur: 14, a: 0.66 };
+
+function edges(g, P, sh) {
+  g.lineCap = 'butt'; g.lineJoin = 'round';
+  const run = (pts, style, lw) => { g.strokeStyle = style; g.lineWidth = lw; g.beginPath(); trace(g, P, pts, false); g.stroke(); };
+  run(sh.bottom, 'rgba(20,7,0,0.66)', 5);
+  run(sh.right, 'rgba(20,7,0,0.46)', 4.4);
+  run(sh.left, 'rgba(255,230,184,0.36)', 3.2);
+  run(sh.top, 'rgba(255,236,196,0.72)', 3.6);
+}
+/** drying checks: thin lens-shaped splits that follow the grain, with a lit lower lip (分°) */
+function checksOn(g, P, r, u0, u1, v0, v1, n) {
+  for (let k = 0; k < n; k++) {
+    const len = r.range(0.22, 0.55) * (u1 - u0), ua = r.range(u0, u1 - len), wmax = r.range(0.24, 0.5);
+    let v = r.range(v0, v1);
+    const m = Math.max(4, Math.round(len / 2)), top = [], bot = [];
+    for (let i = 0; i <= m; i++) {
+      const t = i / m; v += r.range(-0.14, 0.14);
+      const hw = (wmax * Math.pow(Math.sin(Math.PI * t), 0.6)) / 2;
+      top.push([ua + t * len, v - hw]); bot.push([ua + t * len, v + hw]);
+    }
+    g.fillStyle = 'rgba(20,8,2,0.82)'; g.beginPath(); trace(g, P, [...top, ...bot.slice().reverse()]); g.fill();
+    g.strokeStyle = 'rgba(255,228,180,0.32)'; g.lineWidth = 0.9; g.beginPath(); trace(g, P, bot.map(([u, w]) => [u, w + 0.2]), false); g.stroke();
   }
 }
-
+/** knocks and chips out of an edge (分°). where: 'top' | 'both' */
+function chipsOn(g, P, r, u0, u1, vTop, vBot, n, where = 'both') {
+  for (let k = 0; k < n; k++) {
+    const top = where === 'top' || r.chance(0.55), cu = r.range(u0, u1), cw = r.range(0.6, 1.7), cd = r.range(0.45, 0.95) * (top ? 1 : -1), cv = top ? vTop : vBot;
+    g.fillStyle = 'rgba(18,7,1,0.8)'; g.beginPath();
+    trace(g, P, [[cu - cw, cv - cd * 0.3], [cu - cw * 0.2, cv + cd], [cu + cw * 0.7, cv + cd * 0.5], [cu + cw, cv - cd * 0.3]]); g.fill();
+    g.strokeStyle = 'rgba(255,230,184,0.4)'; g.lineWidth = 0.9; g.beginPath();
+    trace(g, P, [[cu - cw * 0.2, cv + cd + 0.18 * Math.sign(cd)], [cu + cw * 0.7, cv + cd * 0.5 + 0.18 * Math.sign(cd)]], false); g.stroke();
+  }
+}
 /**
- * One piece of timber: its underside (we look up at it slightly) + the shadow it throws on whatever is already drawn,
- * then the textured, tinted, edge-worn front face. `inner` adds piece-specific shading while still clipped to the face.
+ * One piece of timber: its underside (we look up at it slightly) and the shadow it throws on whatever is already drawn,
+ * then its own length of wood, tone, form shading, piece-specific marks, lit / shaded edges and a dark seam.
  */
-function timber(g, th, r, path, bb, tex, o = {}, inner = null) {
-  const { ext = 8, sh = [8, 13, 16, 0.62], src = null, dim = 0, chips = 2 } = o;
-  const tint = o.tint === undefined ? r.range(-1, 1) : o.tint;
+function member(g, a, P, th, sh, o) {
+  const { uc, vc, w, h, tile, r, shadow, shade, extra, tone = 0, ext = 0 } = o;
   g.save();
-  g.shadowColor = `rgba(12,5,1,${sh[3]})`; g.shadowBlur = sh[2]; g.shadowOffsetX = sh[0]; g.shadowOffsetY = sh[1];
-  g.translate(0, ext); path(); g.fillStyle = '#261407'; g.fill();
+  if (shadow) { g.shadowColor = `rgba(10,4,0,${shadow.a})`; g.shadowBlur = shadow.blur; g.shadowOffsetX = shadow.dx; g.shadowOffsetY = shadow.dy; }
+  g.fillStyle = '#2a1508'; g.beginPath(); trace(g, P, ext ? sh.pts.map(([u, v]) => [u, v + ext]) : sh.pts); g.fill();
   g.restore();
-  g.save(); path(); g.clip();
-  const sx = src ? src.x : r.range(1, tex.width - bb.w - 2), sy = src ? src.y : r.range(1, tex.height - bb.h - 2);
-  g.drawImage(tex, sx, sy, bb.w, bb.h, bb.x, bb.y, bb.w, bb.h);
-  // no two pieces have aged alike
-  if (tint > 0) { g.globalCompositeOperation = 'soft-light'; g.fillStyle = `rgba(255,238,200,${0.4 * tint})`; }
-  else { g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgba(146,94,54,${-0.5 * tint})`; }
-  g.fillRect(bb.x - 2, bb.y - 2, bb.w + 4, bb.h + 4);
-  g.globalCompositeOperation = 'source-over';
-  if (r.chance(0.22)) { g.fillStyle = `rgba(150,138,120,${r.range(0.1, 0.2)})`; g.fillRect(bb.x - 2, bb.y - 2, bb.w + 4, bb.h + 4); }   // a few pieces have weathered grey
-  // pieces set further back sit deeper in the eave's shade
-  if (dim > 0) { g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgba(70,40,18,${dim})`; g.fillRect(bb.x - 2, bb.y - 2, bb.w + 4, bb.h + 4); g.globalCompositeOperation = 'source-over'; }
-  // grime gathers along the edges
-  g.lineJoin = 'round';
-  for (const [lw, al] of [[14, 0.09], [7, 0.11], [3, 0.15]]) { path(); g.strokeStyle = `rgba(36,16,4,${al})`; g.lineWidth = lw; g.stroke(); }
-  // knocks and chips along the top and bottom edges
-  for (let k = r.int(0, chips); k > 0; k--) {
-    const cx = bb.x + r.range(0.06, 0.94) * bb.w, top = r.chance(0.6), cw = r.range(3, 9), cd = r.range(2, 4.5) * (top ? 1 : -1), cy = top ? bb.y : bb.y + bb.h;
-    g.beginPath(); g.moveTo(cx - cw, cy - cd * 0.2); g.lineTo(cx - cw * 0.2, cy + cd); g.lineTo(cx + cw * 0.7, cy + cd * 0.5); g.lineTo(cx + cw, cy - cd * 0.2); g.closePath();
-    g.fillStyle = 'rgba(18,7,1,0.8)'; g.fill();
-    g.strokeStyle = 'rgba(255,230,184,0.35)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(cx - cw * 0.2, cy + cd + 0.8); g.lineTo(cx + cw * 0.7, cy + cd * 0.5 + 0.8); g.stroke();
-  }
-  if (inner) inner();
-  g.restore();
-  bevel(g, th, path, o.bevel);
-  path(); g.strokeStyle = 'rgba(22,9,2,0.6)'; g.lineWidth = 1; g.stroke();
-}
-
-/** bow arm (拱): a squared timber whose ends are cut back underneath in short facets (卷杀) so they sweep up like a bow */
-function gongPath(g, w, y0, h) {
-  const hw = w / 2, c = 1.25 * U, v = h * 0.4, N = 4;
-  g.beginPath();
-  g.moveTo(-hw, y0); g.lineTo(hw, y0); g.lineTo(hw, y0 + v);
-  for (let k = 1; k <= N; k++) { const a = (k / N) * Math.PI / 2; g.lineTo(hw - c * (1 - Math.cos(a)), y0 + v + (h - v) * Math.sin(a)); }
-  for (let k = N; k >= 0; k--) { const a = (k / N) * Math.PI / 2; g.lineTo(-hw + c * (1 - Math.cos(a)), y0 + v + (h - v) * Math.sin(a)); }
-  g.closePath();
-}
-
-/** block (斗 / 升): square upper part (ears + waist) over a foot that tapers inward with a slight hollow (斗欹) */
-function douPath(g, w, wb, y0, h) {
-  const ye = y0 + h * FOOT, hw = w / 2, hb = wb / 2, fh = h * (1 - FOOT);
-  g.beginPath();
-  g.moveTo(-hw, y0); g.lineTo(hw, y0); g.lineTo(hw, ye);
-  g.quadraticCurveTo(hb + (hw - hb) * 0.1, ye + fh * 0.5, hb, y0 + h);
-  g.lineTo(-hb, y0 + h);
-  g.quadraticCurveTo(-hb - (hw - hb) * 0.1, ye + fh * 0.5, -hw, ye);
-  g.closePath();
-}
-
-function drawGong(g, th, r, tex, w, y0, seats, o) {
-  const h = ARM_H, hw = w / 2;
-  const path = () => gongPath(g, w, y0, h);
-  g.save(); g.translate(r.range(-1.5, 1.5), y0 + h / 2); g.rotate(r.range(-0.006, 0.006)); g.translate(0, -y0 - h / 2);   // nothing hand-cut sits dead true
-  timber(g, th, r, path, { x: -hw, y: y0, w, h }, tex, { ext: 11, chips: 3, ...o }, () => {
-    // lit along the top, turning away from the light toward the underside
-    g.fillStyle = L.linear(g, 0, y0, 0, y0 + h, [[0, 'rgba(255,234,192,0.2)'], [0.32, 'rgba(255,234,192,0)'], [0.6, 'rgba(34,14,3,0)'], [1, 'rgba(34,14,3,0.36)']]);
-    g.fillRect(-hw, y0, w, h);
-    // the cut-back ends roll under
-    for (const sg of [-1, 1]) {
-      g.fillStyle = L.radial(g, sg * hw, y0 + h, 0, 1.6 * U, [[0, 'rgba(24,9,2,0.62)'], [0.5, 'rgba(24,9,2,0.22)'], [1, 'rgba(24,9,2,0)']]);
-      g.fillRect(sg > 0 ? hw - 1.6 * U : -hw, y0, 1.6 * U, h);
+  g.fillStyle = '#8f5d30'; g.beginPath(); trace(g, P, sh.pts); g.fill();
+  g.save(); g.beginPath(); trace(g, P, sh.pts); g.clip();
+  a.at(g, th(uc), -vc * U, () => {
+    if (tile) {
+      const sw = Math.min(tile.width, w + 10), shh = Math.min(tile.height, h + 22);
+      const ox = r.range(0, tile.width - sw), oy = r.range(0, tile.height - shh);
+      g.save(); g.scale(r.chance(0.5) ? -1 : 1, 1);
+      g.drawImage(tile, ox, oy, sw, shh, -sw / 2, -shh / 2, sw, shh);
+      g.restore();
     }
-    // 拱眼: the shallow scoop cut into the top edge between the block seats
-    for (let k = 0; k < seats.length - 1; k++) {
-      const x1 = seats[k] + DOU_B / 2 + 6, x2 = seats[k + 1] - DOU_B / 2 - 6;
-      if (x2 - x1 < 24) continue;
-      const d = h * 0.27;
-      g.beginPath(); g.moveTo(x1, y0 - 1); g.bezierCurveTo(x1 + 6, y0 + d * 1.33, x2 - 6, y0 + d * 1.33, x2, y0 - 1); g.closePath();
-      g.fillStyle = L.linear(g, 0, y0, 0, y0 + d, [[0, 'rgba(22,8,2,0.62)'], [1, 'rgba(22,8,2,0.34)']]); g.fill();
-      g.beginPath(); g.moveTo(x1, y0); g.bezierCurveTo(x1 + 6, y0 + d * 1.33 + 1.4, x2 - 6, y0 + d * 1.33 + 1.4, x2, y0);
-      g.strokeStyle = 'rgba(255,232,190,0.36)'; g.lineWidth = 1.8; g.stroke();
-    }
-    checks(g, r, { x: -hw + 24, y: y0 + h * 0.4, w: w - 48, h: h * 0.45 }, r.int(1, 2));
-  });
-  g.restore();
-}
-
-function drawDou(g, th, r, tex, x, y0, w, wb, h, big, o) {
-  g.save(); g.translate(x + r.range(-1.2, 1.2), y0 + h / 2); g.rotate(r.range(-0.012, 0.012)); g.translate(0, -y0 - h / 2);
-  const path = () => douPath(g, w, wb, y0, h);
-  const ye = y0 + h * FOOT;
-  timber(g, th, r, path, { x: -w / 2, y: y0, w, h }, tex, { ext: big ? 7 : 5, chips: big ? 2 : 1, sh: big ? [10, 16, 16, 0.7] : [8, 13, 11, 0.64], ...o }, () => {
-    // upper part catches the light…
-    g.fillStyle = L.linear(g, 0, y0, 0, ye, [[0, 'rgba(255,236,196,0.26)'], [1, 'rgba(255,236,196,0.04)']]);
-    g.fillRect(-w / 2, y0, w, ye - y0);
-    // …the hollowed foot turns under into shade
-    g.fillStyle = L.linear(g, 0, ye, 0, y0 + h, [[0, 'rgba(30,12,2,0.34)'], [1, 'rgba(22,8,2,0.74)']]);
-    g.fillRect(-w / 2, ye, w, y0 + h - ye);
-    g.fillStyle = 'rgba(255,232,188,0.42)'; g.fillRect(-w / 2, ye - 1.4, w, 1.4);
-    g.fillStyle = 'rgba(20,8,2,0.4)'; g.fillRect(-w / 2, ye, w, 1.6);
-    if (big) checks(g, r, { x: -w / 2 + 12, y: y0 + 8, w: w - 24, h: h * 0.4 }, 1);
-  });
-  g.restore();
-}
-
-/** the end of an arm that runs straight toward us: end grain above, the cut-back underside receding below */
-function drawEnd(g, th, r, endTex, y0, o) {
-  const w = U, h = ARM_H, n = endTex.width;
-  const src = { x: n / 2 - w / 2 + r.range(-11, 11), y: n / 2 - h * 0.34 + r.range(-10, 8) };
-  const px = -w / 2 + n / 2 - src.x, py = y0 + n / 2 - src.y;    // where the pith lands
-  const path = () => { g.beginPath(); g.rect(-w / 2, y0, w, h); };
-  timber(g, th, r, path, { x: -w / 2, y: y0, w, h }, endTex, { ext: 10, sh: [11, 18, 13, 0.74], src, chips: 0, tint: r.range(0, 0.8), bevel: { hi: 'rgba(255,240,208,0.75)' }, ...o }, () => {
-    // radial checks opening from the pith
-    for (let k = r.int(1, 2); k > 0; k--) {
-      const a = r.range(0, L.TAU), len = r.range(22, 46), wd = r.range(0.5, 1.1), ca = Math.cos(a), sa = Math.sin(a);
-      const bx = px + ca * 3, by = py + sa * 3, mx = px + ca * len * 0.55 + r.range(-1.5, 1.5), my = py + sa * len * 0.55 + r.range(-1.5, 1.5), ex = px + ca * len, ey = py + sa * len;
-      g.beginPath(); g.moveTo(bx, by); g.lineTo(mx - sa * wd * 0.6, my + ca * wd * 0.6); g.lineTo(ex - sa * wd, ey + ca * wd); g.lineTo(ex + sa * wd, ey - ca * wd); g.lineTo(mx + sa * wd * 0.6, my - ca * wd * 0.6); g.closePath();
-      g.fillStyle = 'rgba(24,10,2,0.72)'; g.fill();
-    }
-    // below the square end face the underside is cut back in facets: seen head-on they are bands, each a step darker
-    const y1 = y0 + h * 0.56, bands = 3, bh = (h * 0.44) / bands;
-    for (let k = 0; k < bands; k++) {
-      g.fillStyle = `rgba(40,18,5,${0.3 + 0.17 * k})`; g.fillRect(-w / 2, y1 + k * bh, w, bh + 0.5);
-      g.fillStyle = 'rgba(255,232,190,0.28)'; g.fillRect(-w / 2, y1 + k * bh, w, 1);
-    }
-  });
-}
-
-// ───────────────────────── curved members (bands concentric with the arc) ─────────────────────────
-/** wrap the plank texture round a band: thin radial slices, each a straight strip in its own local frame */
-function bandFace(g, a, r, tex, y0, depth, cuts) {
-  const step = 10;
-  for (let k = 0; k < cuts.length - 1; k++) {
-    const t0 = cuts[k], t1 = cuts[k + 1];
-    const len = (t1 - t0) * a.R;
-    const sc = Math.min(1, (tex.width - 6) / len);
-    const sx0 = r.range(1, tex.width - 4 - len * sc), sy = r.range(1, tex.height - depth - 2);
-    const n = Math.ceil(len / step);
-    for (let i = 0; i < n; i++) {
-      a.at(g, t0 + ((i + 0.5) * step) / a.R, -y0, () => { g.drawImage(tex, sx0 + i * step * sc, sy, step * sc + 1, depth, -step / 2 - 0.6, 0, step + 1.2, depth); });
-    }
-    // each length of timber has its own colour
-    const tint = r.range(-1, 1);
-    if (tint > 0) { g.globalCompositeOperation = 'soft-light'; g.fillStyle = `rgba(255,238,200,${0.3 * tint})`; }
-    else { g.globalCompositeOperation = 'multiply'; g.fillStyle = `rgba(150,102,60,${-0.4 * tint})`; }
-    a.pathBand(g, -y0 + 1, -y0 - depth - 1, t0, t1); g.fill();
+    // no two pieces have aged alike
+    if (tone > 0) { g.fillStyle = `rgba(255,214,150,${tone})`; g.globalCompositeOperation = 'soft-light'; g.fillRect(-w, -h, w * 2, h * 2); }
+    else if (tone < 0) { g.fillStyle = `rgba(52,22,4,${-tone})`; g.fillRect(-w, -h, w * 2, h * 2); }
     g.globalCompositeOperation = 'source-over';
-  }
-  // butt joints between lengths
-  for (let k = 1; k < cuts.length - 1; k++) {
-    a.at(g, cuts[k], -y0, () => {
-      g.fillStyle = 'rgba(16,6,1,0.85)'; g.fillRect(-1.1, 0, 2.2, depth);
-      g.fillStyle = 'rgba(255,230,184,0.35)'; g.fillRect(1.1, 0, 1.2, depth);
-      g.fillStyle = L.linear(g, -14, 0, 14, 0, [[0, 'rgba(30,12,2,0)'], [0.5, 'rgba(30,12,2,0.28)'], [1, 'rgba(30,12,2,0)']]); g.fillRect(-14, 0, 28, depth);
-    });
-  }
-}
-
-/** checks that follow a curved member */
-function bandChecks(g, a, r, y0, depth, t0, t1, n) {
-  for (let k = 0; k < n; k++) {
-    const len = r.range(90, 380) / a.R, ts = r.range(t0, t1 - len), wmax = r.range(1.4, 3.2);
-    let y = y0 + r.range(0.14, 0.86) * depth;
-    const m = Math.max(5, Math.round((len * a.R) / 12)), top = [], bot = [];
-    for (let i = 0; i <= m; i++) {
-      const u = i / m; y += r.range(-0.9, 0.9);
-      const t = wmax * Math.pow(Math.sin(Math.PI * u), 0.6);
-      top.push(a.pt(ts + u * len, -(y - t / 2))); bot.push(a.pt(ts + u * len, -(y + t / 2)));
-    }
-    g.beginPath(); top.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
-    for (let i = m; i >= 0; i--) g.lineTo(bot[i].x, bot[i].y);
-    g.closePath(); g.fillStyle = 'rgba(20,8,2,0.82)'; g.fill();
-    g.beginPath(); bot.forEach((p, i) => (i ? g.lineTo(p.x, p.y + 1.1) : g.moveTo(p.x, p.y + 1.1)));
-    g.strokeStyle = 'rgba(255,228,180,0.3)'; g.lineWidth = 1; g.stroke();
-  }
-}
-
-/** a whole curved timber: underside + cast shadow, wrapped grain, radial shading given as [[0..1 from top to bottom, colour]...] */
-function band(g, a, r, tex, y0, depth, cuts, o = {}) {
-  const { ext = 10, sh = [9, 16, 20, 0.66], shade = null, nChecks = 6 } = o;
-  const s = a.span(PAD + 160);
-  g.save();
-  g.shadowColor = `rgba(12,5,1,${sh[3]})`; g.shadowBlur = sh[2]; g.shadowOffsetX = sh[0]; g.shadowOffsetY = sh[1];
-  a.pathBand(g, -y0 - ext, -y0 - depth - ext, -s, s); g.fillStyle = '#231206'; g.fill();
+    if (tile && r.chance(0.2)) { g.fillStyle = `rgba(150,138,120,${r.range(0.08, 0.18)})`; g.fillRect(-w, -h, w * 2, h * 2); }   // a few have weathered grey
+    if (shade) shade(g, w, h);
+  });
+  if (extra) extra(g, P);
+  edges(g, P, sh);
   g.restore();
-  g.save(); a.clipBand(g, -y0, -y0 - depth, -s, s);
-  bandFace(g, a, r, tex, y0, depth, cuts);
-  if (shade) {
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - y0 - depth, a.R - y0, shade.map(([t, c]) => [1 - t, c]));
-    g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-  }
-  bandChecks(g, a, r, y0, depth, -s, s, nChecks);
-  g.restore();
+  g.save(); g.strokeStyle = 'rgba(18,7,1,0.66)'; g.lineWidth = 1.1; g.beginPath(); trace(g, P, sh.pts); g.stroke(); g.restore();
 }
+const shadeArm = (kx) => (g, w, h) => {
+  // a squared timber lit from the upper left: top a little brighter, belly falling into shade
+  g.fillStyle = L.linear(g, 0, -h / 2, 0, h / 2 + 8, [[0, 'rgba(255,226,170,0.18)'], [0.3, 'rgba(255,226,170,0)'], [0.5, 'rgba(24,9,0,0)'], [1, 'rgba(24,9,0,0.5)']]);
+  g.fillRect(-w, -h, w * 2, h * 2.4);
+  g.fillStyle = L.linear(g, -w / 2, 0, w / 2, 0, [[0, 'rgba(255,226,170,0.1)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(24,9,0,0.24)']]);
+  g.fillRect(-w, -h, w * 2, h * 2.4);
+  // the facetted cut-backs at both ends face downward → darker
+  for (const sgn of [-1, 1]) {
+    const x0 = sgn * (w / 2 - kx * U * 1.25), x1 = sgn * (w / 2 + 4);
+    g.fillStyle = L.linear(g, x0, -h * 0.05, x1, h * 0.55, [[0, 'rgba(24,9,0,0)'], [1, sgn > 0 ? 'rgba(24,9,0,0.66)' : 'rgba(24,9,0,0.46)']]);
+    g.fillRect(Math.min(x0, x1), -h / 2 + 6 * U - 6, Math.abs(x1 - x0), h);
+  }
+};
+/** 栱眼: between the block seats the upper arris of an arm is scooped away in a shallow hollow */
+const scoops = (top, zones) => (g, P) => {
+  for (const [x0, x1] of zones) {
+    const d = 3.4, lower = [[x0, top], ...quad([x0, top], [x0 + 0.4, top + d], [x0 + 3.6, top + d], 4), [x1 - 3.6, top + d], ...quad([x1 - 3.6, top + d], [x1 - 0.4, top + d], [x1, top], 4)];
+    const p0 = P((x0 + x1) / 2, top), p1 = P((x0 + x1) / 2, top + d);
+    g.fillStyle = L.linear(g, p0.x, p0.y, p1.x, p1.y, [[0, 'rgba(20,8,2,0.62)'], [1, 'rgba(20,8,2,0.2)']]);
+    g.beginPath(); trace(g, P, lower); g.fill();
+    g.strokeStyle = 'rgba(255,234,194,0.42)'; g.lineWidth = 1.5; g.beginPath(); trace(g, P, lower.map(([u, v]) => [u, v + 0.3]), false); g.stroke();
+  }
+};
+const shadeDou = (upPx) => (g, w, h) => {
+  const yM = -h / 2 + upPx;
+  g.fillStyle = L.linear(g, 0, -h / 2, 0, yM, [[0, 'rgba(255,230,180,0.22)'], [1, 'rgba(255,230,180,0.02)']]);
+  g.fillRect(-w, -h, w * 2, h / 2 + upPx);
+  // the concave foot tucks under the square top: darkest right below the lip
+  g.fillStyle = L.linear(g, 0, yM, 0, h / 2 + 2, [[0, 'rgba(18,7,0,0.72)'], [0.45, 'rgba(18,7,0,0.46)'], [1, 'rgba(18,7,0,0.26)']]);
+  g.fillRect(-w, yM, w * 2, h);
+  g.fillStyle = 'rgba(255,236,196,0.55)'; g.fillRect(-w, yM - 1.8, w * 2, 1.8);
+  g.fillStyle = L.linear(g, -w / 2, 0, w / 2, 0, [[0, 'rgba(255,230,180,0.12)'], [0.45, 'rgba(0,0,0,0)'], [1, 'rgba(24,9,0,0.3)']]);
+  g.fillRect(-w, -h, w * 2, h * 2);
+};
+/** end grain of a squared timber: growth rings round an off-centre pith, rays, a drying check */
+function endGrain(g, w, h, r, seed) {
+  const nz = L.makeNoise('s13eg' + seed);
+  g.fillStyle = L.linear(g, 0, -h / 2, 0, h / 2, [[0, '#c48b4c'], [1, '#935d2b']]); g.fillRect(-w, -h, w * 2, h * 2);
+  const px = r.range(-0.7, 0.7) * w, py = r.range(0.25, 0.95) * h * (r.chance(0.75) ? 1 : -1);
+  const far = Math.hypot(Math.abs(px) + w / 2, Math.abs(py) + h / 2) + 6;
+  const step = r.range(4.6, 6.2);
+  g.lineCap = 'round';
+  for (let k = 1, rad = step * 0.6; rad < far; k++, rad += step * (0.75 + 0.5 * r())) {
+    const wob = (ang) => rad * (1 + 0.035 * nz.n2(ang * 1.6, k * 0.21)) + 0.9 * nz.n2(ang * 7, k * 1.3);
+    g.beginPath();
+    for (let i = 0; i <= 72; i++) { const ang = (i / 72) * L.TAU, q = wob(ang); const x = px + Math.cos(ang) * q, y = py + Math.sin(ang) * q; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
+    g.strokeStyle = `rgba(74,38,12,${r.range(0.55, 0.9)})`; g.lineWidth = r.range(1.2, 2.3); g.stroke();
+    g.beginPath();
+    for (let i = 0; i <= 72; i++) { const ang = (i / 72) * L.TAU, q = wob(ang) + step * 0.45; const x = px + Math.cos(ang) * q, y = py + Math.sin(ang) * q; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
+    g.strokeStyle = 'rgba(246,206,146,0.34)'; g.lineWidth = 1.6; g.stroke();
+  }
+  // medullary rays
+  for (let i = 0; i < 46; i++) {
+    const ang = r() * L.TAU, r0 = r.range(4, far * 0.6), r1 = r0 + r.range(10, 40);
+    g.strokeStyle = r.chance(0.5) ? 'rgba(60,30,8,0.16)' : 'rgba(250,214,160,0.16)'; g.lineWidth = 0.8;
+    g.beginPath(); g.moveTo(px + Math.cos(ang) * r0, py + Math.sin(ang) * r0); g.lineTo(px + Math.cos(ang) * r1, py + Math.sin(ang) * r1); g.stroke();
+  }
+  // a drying check opening from the pith
+  const ca = Math.atan2(-py, -px) + r.range(-0.35, 0.35);
+  g.strokeStyle = 'rgba(22,8,1,0.85)'; g.lineWidth = 1.6;
+  g.beginPath(); g.moveTo(px + Math.cos(ca) * 3, py + Math.sin(ca) * 3);
+  let cl = 3; const cmax = r.range(0.5, 0.85) * far;
+  while (cl < cmax) { cl += 6; const j = nz.n2(cl * 0.08, 7.7) * 2.2; g.lineTo(px + Math.cos(ca) * cl - Math.sin(ca) * j, py + Math.sin(ca) * cl + Math.cos(ca) * j); }
+  g.stroke();
+}
+/** head of a projecting arm 华拱 seen end-on: end-grain face on top, then the four facets of its cut-back underside */
+const shadeHead = (seed) => (g, w, h) => {
+  const r = L.rng('s13head' + seed);
+  endGrain(g, w, h, r, seed);
+  const y0 = -h / 2 + 6 * U, fh = (9 * U) / 4;
+  for (let k = 0; k < 4; k++) {
+    g.fillStyle = `rgba(20,8,0,${0.24 + 0.18 * k})`; g.fillRect(-w, y0 + k * fh, w * 2, fh + (k === 3 ? 20 : 0));
+    g.fillStyle = 'rgba(255,232,190,0.3)'; g.fillRect(-w, y0 + k * fh - 0.6, w * 2, 1.2);
+  }
+  g.fillStyle = L.linear(g, -w / 2, 0, w / 2, 0, [[0, 'rgba(255,236,196,0.2)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(24,9,0,0.32)']]);
+  g.fillRect(-w, -h, w * 2, h * 2);
+  g.fillStyle = L.linear(g, 0, -h / 2, 0, -h / 2 + 6 * U, [[0, 'rgba(255,240,206,0.3)'], [1, 'rgba(255,240,206,0)']]);
+  g.fillRect(-w, -h, w * 2, h / 2 + 6 * U);
+};
 
 // ───────────────────────── the timber layer ─────────────────────────
 function buildWood(env) {
-  const a = env.arc;
-  const tex = woodTexture(2048, 448, 's13wood');
-  const endTex = endGrainTexture(220, 's13end');
-  const s = a.span(PAD + 160);
-  const dth = PITCH / a.R;
-  const nSets = Math.ceil(s / dth) + 1;
-  const cutsFrom = (first, every) => { const out = []; for (let i = first; i <= nSets + every; i += every) out.push(i * dth); return out; };
-  const full = (g) => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
+  const a = env.arc, R = a.R;
+  const Rm = R - 36 * U;                       // radius at which 分° are true to scale along the arc
+  const pitch = (PITCH * U) / Rm;              // angular spacing of the sets
+  const sp = a.span(PAD + 160);
+  const NS = Math.ceil(sp / pitch) + 1;
 
-  return L.makeLayer(PAD, (g) => {
-    // the timber lies on the paper: a soft contact shadow creeps out above the beam
-    g.save(); a.clipAbove(g, -0.5);
-    g.shadowColor = 'rgba(74,46,16,0.6)'; g.shadowBlur = 20; g.shadowOffsetY = -1;
-    g.strokeStyle = 'rgba(74,46,16,0.9)'; g.lineWidth = 14; a.stroke(g, -9, -s, s);
-    g.shadowBlur = 6; a.stroke(g, -9, -s, s);
+  // individual lengths of timber for the bracket members: some quarter-sawn (straight), some with a broader figure
+  const rings = [8.5, 11, 7, 9.5, 12, 8, 10], waves = [1.3, 3.4, 0.9, 1.9, 4.2, 2.6, 1.5];
+  const tiles = [];
+  for (let i = 0; i < 7; i++) tiles.push(finishTimber(woodImage(512, 128, { seed: 's13tile' + i, ramp: RAMPS[i % RAMPS.length], ring: rings[i], wave: waves[i] }), i));
+  const beam = polarWood(env, -4, B * U, a.crestY - 8, a.yAt(-PAD, -B * U) + 10, { seed: 's13beam', ramp: RAMPS[0], ring: 9.5, wave: 2.3 });
+  const beamBump = L.bumpLight(beam.c, { angle: LIGHT, strength: 2.6, res: 1 });
+  const low = polarWood(env, V_BOT * U, 9999, a.crestY + V_BOT * U - 8, H + PAD * 0.45, { seed: 's13low', ramp: RAMPS[3], ring: 11, wave: 2.4, res: 0.6 });
+  const panel = L.polarNoiseLayer(env, PAD, { seed: 's13panel', scale: 26, sx: 0.55, sy: 14, octaves: 3, contrast: 1.5, res: 0.25, ramp: [[0, '#050201'], [0.55, '#120904'], [1, '#2a170b']] });
+
+  const layer = L.makeLayer(PAD, (g) => {
+    const full = () => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
+    // 0) the recess behind the brackets (拱眼壁): old boards deep in shadow
+    g.save(); a.clipBelow(g, 3);
+    g.fillStyle = '#0c0603'; full();
+    g.drawImage(panel, -PAD, -PAD);
+    g.fillStyle = L.radial(g, a.cx, a.cy, R - V_BOT * U, R - B * U, [[0, 'rgba(120,66,24,0.22)'], [0.35, 'rgba(60,30,10,0.03)'], [1, 'rgba(0,0,0,0.72)']]);
+    full();
     g.restore();
 
-    // the recess behind the brackets (拱眼壁): deep shadow, a ghost of boards
-    g.save(); a.clipBelow(g, -BEAM + 6);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 620, a.R - BEAM, [[0, '#2a180b'], [0.55, '#1a0e06'], [1, '#0c0502']]);
-    full(g);
-    g.globalAlpha = 0.9;
-    g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's13wall', scale: 26, sx: 0.55, sy: 9, octaves: 3, contrast: 1.6, res: 0.3,
-      ramp: [[0, 'rgba(0,0,0,0.55)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(160,104,56,0.16)']] }), -PAD, -PAD);
-    g.restore();
-
-    // lintel and the plate the cap blocks stand on
-    band(g, a, L.rng('s13lintel'), tex, Y_LINTEL, LINTEL_H, [-0.325, 0.325], {
-      ext: 12, sh: [8, 18, 26, 0.7], nChecks: 7,
-      shade: [[0, 'rgba(18,7,1,0.72)'], [0.1, 'rgba(26,10,2,0.42)'], [0.3, 'rgba(30,12,2,0.2)'], [0.6, 'rgba(30,12,2,0.3)'], [1, 'rgba(14,5,1,0.78)']] });
-    band(g, a, L.rng('s13plate'), tex, Y_PLATE, PLATE_H, cutsFrom(-5, 3), {
-      ext: 9, sh: [8, 14, 16, 0.7], nChecks: 5,
-      shade: [[0, 'rgba(255,236,196,0.3)'], [0.12, 'rgba(255,236,196,0.06)'], [0.5, 'rgba(30,12,2,0.08)'], [1, 'rgba(26,10,2,0.5)']] });
-    g.save(); a.clipBand(g, -Y_PLATE, -Y_PLATE - 3, -s, s); g.fillStyle = 'rgba(255,234,190,0.5)'; full(g); g.restore();
-
-    // bracket sets, lower tiers first
-    for (let i = -nSets; i <= nSets; i++) {
-      const th = i * dth, r = L.rng('s13set' + i);
-      a.at(g, th, 0, () => {
-        drawGong(g, th, r, tex, ARM1_W, Y_ARM1, [-(ARM1_W - DOU_W) / 2 + 2, 0, (ARM1_W - DOU_W) / 2 - 2], { sh: [10, 18, 16, 0.62], dim: 0.3 });
-        drawDou(g, th, r, tex, 0, Y_LU, LU_W, LU_B, LU_H, true, { dim: 0.2 });
-        drawEnd(g, th, r, endTex, Y_ARM1, { dim: 0.14 });
-        drawGong(g, th, r, tex, ARM2_W, Y_ARM2, [-(ARM2_W - DOU_W) / 2 + 2, 0, (ARM2_W - DOU_W) / 2 - 2], { sh: [13, 30, 15, 0.6], dim: 0.16 });
-        for (const k of [-1, 0, 1]) drawDou(g, th, r, tex, k * ((ARM1_W - DOU_W) / 2 - 2), Y_DOU1, DOU_W, DOU_B, DOU_H, false, { dim: 0.12 });
-        drawEnd(g, th, r, endTex, Y_ARM2);
-      });
+    // 1) plate 普拍枋 and architrave 阑额 carrying the row
+    {
+      const d0 = V_BOT * U, d1 = d0 + 11 * U, d2 = d1 + 1.5 * U, D = 720;
+      const t = (d) => 1 - (d - d0) / (D - d0);
+      g.save(); a.clipBelow(g, -d0);
+      g.drawImage(low.c, low.x, low.y);
+      g.fillStyle = L.radial(g, a.cx, a.cy, R - D, R - d0, [
+        [0, 'rgba(10,4,0,0.85)'], [t(d2 + 150), 'rgba(14,6,0,0.55)'], [t(d2 + 30), 'rgba(18,7,0,0.26)'], [t(d2 + 3), 'rgba(255,224,170,0.14)'], [t(d2 + 0.5), 'rgba(255,224,170,0.3)'],
+        [t(d2), 'rgba(6,2,0,0.94)'], [t(d1), 'rgba(6,2,0,0.94)'], [t(d1 - 0.5), 'rgba(18,7,0,0.55)'], [t(d1 - 16), 'rgba(18,7,0,0.2)'],
+        [t(d0 + 7), 'rgba(18,7,0,0.06)'], [t(d0 + 2.5), 'rgba(255,232,186,0.36)'], [1, 'rgba(255,238,200,0.5)']]);
+      full();
+      // checks along the plate
+      const rc = L.rng('s13platecheck');
+      for (let k = 0; k < 14; k++) {
+        const t0 = rc.range(-sp, sp), len = rc.range(80, 320) / R, dr = -(d0 + rc.range(8, 11 * U - 8));
+        g.strokeStyle = `rgba(24,9,2,${rc.range(0.35, 0.7)})`; g.lineWidth = rc.range(0.9, 1.8); g.beginPath(); a.trace(g, dr, t0, t0 + len); g.stroke();
+        g.strokeStyle = 'rgba(255,230,186,0.2)'; g.lineWidth = 1; g.beginPath(); a.trace(g, dr - 1.5, t0 + len * 0.1, t0 + len * 0.9); g.stroke();
+      }
+      g.restore();
     }
 
-    // the beam: its top edge IS the arc
-    band(g, a, L.rng('s13beam'), tex, 0, BEAM, cutsFrom(-4, 3), {
-      ext: 13, sh: [15, 38, 20, 0.6], nChecks: 9,
-      shade: [[0, 'rgba(255,238,200,0.34)'], [0.07, 'rgba(255,238,200,0.1)'], [0.3, 'rgba(255,238,200,0)'], [0.62, 'rgba(30,12,2,0.06)'], [0.9, 'rgba(26,10,2,0.36)'], [1, 'rgba(18,7,1,0.6)']] });
-    // crisp arris: a dark line where it meets the paper, a pale chamfer just inside
-    g.save(); a.clipBand(g, 0, -BEAM, -s, s);
-    g.strokeStyle = 'rgba(255,240,206,0.62)'; g.lineWidth = 2.2; a.stroke(g, -3.2, -s, s);
-    g.strokeStyle = 'rgba(40,18,5,0.9)'; g.lineWidth = 2.4; a.stroke(g, -0.6, -s, s);
-    g.restore();
-
-    // a row of pegs along the beam
-    const pr = L.rng('s13pegs');
-    const pegStep = PITCH / 6 / a.R;
-    for (let k = -Math.ceil(s / pegStep); k <= Math.ceil(s / pegStep); k++) {
-      a.at(g, (k + 0.5) * pegStep, -BEAM * 0.47 + pr.range(-1.2, 1.2), () => {
-        const rad = pr.range(7, 8.8), dk = pr.range(-0.18, 0.12);
-        g.fillStyle = L.linear(g, 0, rad, 0, rad + 46, [[0, `rgba(44,20,6,${pr.range(0.16, 0.34)})`], [1, 'rgba(44,20,6,0)']]); g.fillRect(-rad * 0.6, rad, rad * 1.2, 46);
-        g.fillStyle = 'rgba(16,6,1,0.9)'; g.beginPath(); g.arc(1, 1.6, rad + 1.5, 0, L.TAU); g.fill();
-        g.fillStyle = 'rgba(255,232,190,0.4)'; g.beginPath(); g.arc(1.6, 2.4, rad + 1.6, 0.1, 1.5); g.arc(1, 1.6, rad + 1.5, 1.5, 0.1, true); g.fill();
-        g.fillStyle = L.radial(g, -2, -2.4, 0.5, rad * 1.5, [[0, L.shade('#8f5d31', dk)], [0.55, L.shade('#653d1e', dk)], [1, L.shade('#3f2410', dk)]]);
-        g.beginPath(); g.arc(0, 0, rad, 0, L.TAU); g.fill();
-        g.strokeStyle = 'rgba(24,10,2,0.5)'; g.lineWidth = 0.8;
-        g.beginPath(); g.arc(pr.range(-1, 1), pr.range(-1, 1), rad * 0.5, 0, L.TAU); g.stroke();
-        g.strokeStyle = 'rgba(255,226,176,0.5)'; g.lineWidth = 1.1;
-        g.beginPath(); g.arc(0, 0, rad - 0.8, Math.PI * 1.02, Math.PI * 1.62); g.stroke();
-      });
+    // 2) bracket sets, far → near
+    const sets = [];
+    for (let i = -NS; i <= NS; i++) {
+      const r = L.rng('s13set' + i);
+      const P = (u, v) => a.pt(i * pitch + (u * U) / Rm, -v * U);
+      const T = (u) => i * pitch + (u * U) / Rm;
+      const pick = () => tiles[r.int(0, tiles.length - 1)];
+      const tone = (bias = 0) => r.range(-0.22, 0.18) + bias;
+      const armMarks = (half, top, kx, zones) => (gg, PP) => {
+        scoops(top, zones)(gg, PP);
+        checksOn(gg, PP, r, -half + 5, half - 5, top + 5.5, top + 12, r.int(0, 2));
+        chipsOn(gg, PP, r, -half + kx, half - kx, top, top + 15, r.int(0, 2));
+      };
+      const douMarks = (cu, top, hw) => (gg, PP) => { if (r.chance(0.28)) chipsOn(gg, PP, r, cu - hw + 1.5, cu + hw - 1.5, top, top, 1, 'top'); };
+      // short arm 泥道拱 (set back under the long arm → a little deeper in the eave's shade)
+      member(g, a, P, T, gongShape(31, V_G1, 14), { uc: 0, vc: V_G1 + 7.5, w: 62 * U, h: 15 * U, tile: pick(), r, tone: tone(-0.08), ext: 1.6, shadow: SH_ARM, shade: shadeArm(14),
+        extra: armMarks(31, V_G1, 14, [[-14.2, -8.3], [8.3, 14.2]]) });
+      // cap block 栌斗: the biggest block, at the bottom
+      member(g, a, P, T, douShape(0, V_LU, 16, 12, 8, 4), { uc: 0, vc: V_LU + 10, w: 32 * U, h: 20 * U, tile: pick(), r, tone: tone(-0.04) * 0.7, ext: 1.2, shadow: SH_LU, shade: shadeDou(12 * U),
+        extra: (gg, PP) => { checksOn(gg, PP, r, -13, 13, V_LU + 2, V_LU + 10, r.int(0, 1)); douMarks(0, V_LU, 16)(gg, PP); } });
+      // first projecting arm, end-on
+      member(g, a, P, T, headShape(V_G1), { uc: 0, vc: V_G1 + 7.5, w: 10 * U, h: 15 * U, tile: null, r, shadow: SH_HEAD, shade: shadeHead(i + 'a') });
+      // long arm 慢拱
+      member(g, a, P, T, gongShape(46, V_G2, 12), { uc: 0, vc: V_G2 + 7.5, w: 92 * U, h: 15 * U, tile: pick(), r, tone: tone(), ext: 1.6, shadow: SH_ARM, shade: shadeArm(12),
+        extra: armMarks(46, V_G2, 12, [[-29.2, -8.3], [8.3, 29.2]]) });
+      // lower small blocks: two 散斗 on the arm ends, then the centre block riding on the projecting arm
+      for (const cu of [-22.5, 22.5, 0]) {
+        member(g, a, P, T, douShape(cu, V_D1, 8, 6, 4, 2), { uc: cu, vc: V_D1 + 5, w: 16 * U, h: 10 * U, tile: pick(), r, tone: tone(), ext: 0.8, shadow: SH_DOU, shade: shadeDou(6 * U), extra: douMarks(cu, V_D1, 8) });
+      }
+      // second projecting arm
+      member(g, a, P, T, headShape(V_G2), { uc: 0, vc: V_G2 + 7.5, w: 10 * U, h: 15 * U, tile: null, r, shadow: SH_HEAD, shade: shadeHead(i + 'b') });
+      sets.push({ r, P, T, pick, tone, douMarks });
     }
 
-    // upper row of blocks: they stand proud of the beam and grip it with their ears
-    for (let i = -nSets; i <= nSets; i++) {
-      const th = i * dth, r = L.rng('s13top' + i);
-      a.at(g, th, 0, () => {
-        for (const k of [-1, 0, 1]) drawDou(g, th, r, tex, k * ((ARM2_W - DOU_W) / 2 - 2), Y_DOU2, DOU_W, DOU_B, DOU_H, false);
-      });
+    // 3) the beam on the arc (挑檐枋): grain follows the curve
+    {
+      const bd = B * U;
+      // underside lip, seen from slightly below, and the shade the beam lays on what hangs under it
+      g.save();
+      g.shadowColor = 'rgba(10,4,0,0.7)'; g.shadowBlur = 18; g.shadowOffsetX = 7; g.shadowOffsetY = 15;
+      g.fillStyle = '#2a1508'; a.pathBand(g, -bd + 1, -bd - 8, -sp, sp); g.fill();
+      g.restore();
+      g.save(); a.clipBand(g, 3, -bd, -sp, sp);
+      g.drawImage(beam.c, beam.x, beam.y);
+      // pores and fibres following the curve
+      const rf = L.rng('s13beamfib');
+      for (let k = 0; k < 2600; k++) {
+        const t0 = rf.range(-sp, sp), dr = -rf.range(0, bd);
+        g.strokeStyle = rf.chance(0.72) ? `rgba(50,22,5,${rf.range(0.12, 0.4)})` : `rgba(255,226,170,${rf.range(0.08, 0.22)})`;
+        g.lineWidth = rf.range(0.5, 1.1); g.beginPath(); a.trace(g, dr, t0, t0 + rf.range(6, 40) / R); g.stroke();
+      }
+      g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.62; g.drawImage(beamBump, beam.x, beam.y);
+      g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+      // lengths of timber joined over the bracket centres: each length its own tone
+      const joints = [];
+      for (let k = -NS - 1; k <= NS + 1; k++) if (((k % 3) + 3) % 3 === 2) joints.push(k * pitch);
+      const rj = L.rng('s13joint');
+      let prev = -sp - 0.1;
+      for (const j of [...joints, sp + 0.1]) {
+        const tn = rj.range(-0.05, 0.24);
+        g.save(); a.clipBand(g, 6, -bd - 2, prev, j);
+        if (tn > 0) { g.globalCompositeOperation = 'soft-light'; g.fillStyle = `rgba(255,214,150,${tn})`; } else g.fillStyle = `rgba(52,22,4,${-tn})`;
+        full(); g.restore();
+        prev = j;
+      }
+      // form: lit upper part, body, shaded belly (the bright arris itself is drawn live, exactly on the arc)
+      g.fillStyle = L.radial(g, a.cx, a.cy, R - bd, R, [[0, 'rgba(20,8,0,0.5)'], [0.1, 'rgba(20,8,0,0.2)'], [0.36, 'rgba(0,0,0,0)'], [0.6, 'rgba(255,232,186,0.03)'], [1, 'rgba(255,232,186,0.26)']]);
+      full();
+      // drying checks along the grain
+      const rc = L.rng('s13check');
+      for (let k = 0; k < 26; k++) {
+        const t0 = rc.range(-sp, sp), len = rc.range(60, 300) / R, dr = -rc.range(10, bd - 8);
+        g.strokeStyle = `rgba(26,10,2,${rc.range(0.35, 0.7)})`; g.lineWidth = rc.range(0.8, 1.7); g.beginPath(); a.trace(g, dr, t0, t0 + len); g.stroke();
+        g.strokeStyle = 'rgba(255,230,186,0.22)'; g.lineWidth = 1; g.beginPath(); a.trace(g, dr - 1.4, t0 + len * 0.1, t0 + len * 0.9); g.stroke();
+      }
+      // the joints
+      for (const j of joints) {
+        const p0 = a.pt(j, 4), p1 = a.pt(j, -bd - 2);
+        g.strokeStyle = 'rgba(16,6,0,0.88)'; g.lineWidth = 2; g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke();
+        const q0 = a.pt(j + 2.2 / R, 4), q1 = a.pt(j + 2.2 / R, -bd - 2);
+        g.strokeStyle = 'rgba(255,234,194,0.3)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(q0.x, q0.y); g.lineTo(q1.x, q1.y); g.stroke();
+      }
+      g.restore();
+      // a row of wooden pegs 木销 pinning the beam: little discs of end grain, proud of the surface
+      const rp = L.rng('s13peg');
+      const stepA = pitch / 6;
+      for (let k = Math.floor(-sp / stepA); k * stepA <= sp; k++) {
+        const tp = (k + 0.5) * stepA + rp.range(-1.5, 1.5) / R, dp = -(6.4 * U + rp.range(-1.6, 1.6)), pr = rp.range(7.6, 9);
+        a.at(g, tp, dp, () => {
+          g.save(); g.rotate(-tp);     // keep the light direction fixed on the page
+          g.fillStyle = 'rgba(14,5,0,0.6)'; g.beginPath(); g.ellipse(3.2, 4.6, pr + 1.4, pr + 0.8, 0, 0, L.TAU); g.fill();
+          g.fillStyle = 'rgba(20,8,0,0.92)'; g.beginPath(); g.arc(0, 0, pr + 1.3, 0, L.TAU); g.fill();
+          const tn = rp.range(-0.16, 0.1);
+          g.fillStyle = L.radial(g, -pr * 0.35, -pr * 0.4, 0.5, pr * 1.25, [[0, L.shade('#cf9a5c', tn)], [0.55, L.shade('#9a6332', tn)], [1, L.shade('#5c3717', tn)]]);
+          g.beginPath(); g.arc(0, 0, pr, 0, L.TAU); g.fill();
+          g.strokeStyle = 'rgba(64,34,10,0.6)'; g.lineWidth = 0.9;
+          const ex = rp.range(-2, 2), ey = rp.range(-2, 2);
+          for (const q of [0.3, 0.58, 0.82]) { g.beginPath(); g.arc(ex * (1 - q), ey * (1 - q), pr * q, 0, L.TAU); g.stroke(); }
+          g.strokeStyle = 'rgba(255,240,208,0.78)'; g.lineWidth = 1.3; g.beginPath(); g.arc(0, 0, pr - 0.8, Math.PI * 0.95, Math.PI * 1.65); g.stroke();
+          g.restore();
+        });
+      }
     }
 
-    // worm holes and dust
-    g.save(); a.clipBelow(g, -3);
-    g.globalCompositeOperation = 'overlay';
-    L.speckle(g, { seed: 's13worm', count: 900, x: -PAD, y: a.crestY - 20, w: W + PAD * 2, h: 780, rMin: 0.5, rMax: 1.7, colors: ['#1c0c03', '#2a1407'], alpha: [0.25, 0.8] });
-    L.speckle(g, { seed: 's13dust', count: 700, x: -PAD, y: a.crestY - 20, w: W + PAD * 2, h: 780, rMin: 0.4, rMax: 1.3, colors: ['#fff0cc', '#f3d9a8'], alpha: [0.15, 0.55] });
-    g.restore();
+    // 4) upper small blocks: their ears lap over the beam and hold it
+    for (const s of sets) {
+      for (const cu of [-37.5, 37.5, 0]) {
+        member(g, a, s.P, s.T, douShape(cu, V_D2, 8, 6, 4, 2), { uc: cu, vc: V_D2 + 5, w: 16 * U, h: 10 * U, tile: s.pick(), r: s.r, tone: s.tone(0.04), ext: 0.8, shadow: SH_DOU, shade: shadeDou(6 * U), extra: s.douMarks(cu, V_D2, 8) });
+      }
+    }
 
-    // light over the whole assembly: warm key from the upper left, falling away to the right and into the depth
-    g.save(); a.clipBelow(g, 0);
-    g.globalCompositeOperation = 'soft-light';
-    g.fillStyle = L.radial(g, 640, a.crestY + 60, 60, 1500, [[0, 'rgba(255,226,170,0.55)'], [0.42, 'rgba(255,226,170,0.12)'], [0.7, 'rgba(20,8,0,0.2)'], [1, 'rgba(20,8,0,0.6)']]);
-    full(g);
-    g.globalCompositeOperation = 'multiply';
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 760, a.R - 260, [[0, 'rgba(60,34,14,1)'], [0.5, 'rgba(150,118,90,1)'], [1, 'rgba(255,255,255,1)']]);
-    full(g);
+    // 5) age: uneven patina, worm holes, dust in the pores
+    g.save(); a.clipBelow(g, 3);
+    g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.4;
+    g.drawImage(L.noiseLayer(PAD, { seed: 's13patina', scale: 300, octaves: 4, warp: 0.5, res: 0.2, ramp: [[0, '#8a6240'], [0.5, '#f6e8d6'], [1, '#ffffff']] }), -PAD, -PAD);
+    g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
+    L.speckle(g, { seed: 's13dust', count: 2600, x: -PAD, y: a.crestY - 10, w: W + PAD * 2, h: H - a.crestY + 60, rMin: 0.4, rMax: 1.5, colors: ['#241004', '#3a1c08', '#f3d6a4'], alpha: [0.1, 0.5] });
     g.restore();
   });
+  return L.filtered(layer, 'brightness(1.1) saturate(0.97) contrast(1.03)');
 }
 
 // ───────────────────────── the paper ─────────────────────────
+/** the faintest ghost of a measured drawing: one bracket set in elevation, pencilled large, nearer pieces hiding farther ones */
+function buildGhost(env) {
+  const a = env.arc;
+  const K = 8.6;                                              // px per 分° on the sheet
+  const y0 = a.crestY + 8 - V_BOT * K;                         // the cap block's foot just tucks under the timber
+  const Pg = (u, v) => ({ x: a.cx + u * K, y: y0 + v * K });
+  return L.makeLayer(PAD, (q) => {
+    const ink = '#62431f', jr = L.rng('s13ghost');
+    q.lineJoin = 'round'; q.lineCap = 'round';
+    const line = (pts, al, lw) => { q.strokeStyle = L.rgba(ink, al); q.lineWidth = lw; q.beginPath(); trace(q, Pg, pts, false); q.stroke(); };
+    const piece = (sh) => {
+      q.globalCompositeOperation = 'destination-out'; q.fillStyle = '#000'; q.beginPath(); trace(q, Pg, sh.pts); q.fill();
+      q.globalCompositeOperation = 'source-over';
+      q.strokeStyle = ink; q.lineWidth = 1.5; q.beginPath(); trace(q, Pg, sh.pts); q.stroke();
+      // the pencil went over it twice
+      q.save(); q.translate(jr.range(-0.9, 0.9), jr.range(-0.9, 0.9)); q.strokeStyle = L.rgba(ink, 0.42); q.lineWidth = 0.9; q.beginPath(); trace(q, Pg, sh.pts); q.stroke(); q.restore();
+    };
+    // the beam it carries and the plate it stands on, run out past the set
+    for (const v of [B, V_BOT]) line([[-64, v], [64, v]], 0.8, 1.2);
+    piece(gongShape(31, V_G1, 14)); piece(douShape(0, V_LU, 16, 12, 8, 4)); piece(headShape(V_G1));
+    piece(gongShape(46, V_G2, 12));
+    for (const cu of [-22.5, 22.5, 0]) piece(douShape(cu, V_D1, 8, 6, 4, 2));
+    piece(headShape(V_G2));
+    for (const cu of [-37.5, 37.5, 0]) piece(douShape(cu, V_D2, 8, 6, 4, 2));
+    // centre line, dash-dot, the way a survey sheet marks it
+    q.setLineDash([26, 7, 3, 7]); line([[0, V_D2 - 5], [0, V_BOT + 2]], 0.9, 1); q.setLineDash([]);
+  });
+}
 function buildPaper(env) {
   const a = env.arc;
+  const hh = Math.ceil(a.yAt(-PAD) + PAD + 60);
+  const tex = L.paperTex(W + PAD * 2, hh, { base: '#e6d7b8', seed: 513, tone: '#8a683a', fiber: 0.7, stain: 0.62, grain: 0.22 });
+  const ghost = buildGhost(env);
   return L.makeLayer(PAD, (g) => {
-    const PH = 1160;   // the paper only ever shows above the arc
-    g.fillStyle = '#cdb98f'; g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
-    g.drawImage(L.paperTex(W + PAD * 2, PH, { base: PAPER, seed: 's13paper', tone: '#8d6a3a', fiber: 0.6, stain: 0.62, grain: 0.2 }), -PAD, -PAD);
+    g.drawImage(tex, -PAD, -PAD);
+    // laid lines of a hand-made sheet (帘纹), and the wider chain lines across them
+    const r = L.rng('s13laid');
+    g.lineWidth = 1;
+    for (let y = -PAD; y < hh - PAD; y += 3.2) { g.strokeStyle = `rgba(110,82,44,${r.range(0.015, 0.055)})`; g.beginPath(); g.moveTo(-PAD, y + 0.5); g.lineTo(W + PAD, y + 0.5 + r.range(-0.6, 0.6)); g.stroke(); }
+    for (let x = -PAD + 30; x < W + PAD; x += 118) { g.strokeStyle = 'rgba(255,250,236,0.1)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x, -PAD); g.lineTo(x + r.range(-3, 3), hh - PAD); g.stroke(); }
+    // foxing: a scatter of small rusty spots
+    L.speckle(g, { seed: 's13fox', count: 260, x: -PAD, y: -PAD, w: W + PAD * 2, h: hh, rMin: 0.8, rMax: 4.2, colors: ['#a97a42', '#8d5f2c', '#b98c55'], alpha: [0.05, 0.22] });
+    g.globalAlpha = 0.2; g.drawImage(ghost, -PAD, -PAD); g.globalAlpha = 1;
     // light pools on the sheet toward the upper left; the far corners fall off a little
-    g.fillStyle = L.radial(g, 760, 200, 100, 1500, [[0, 'rgba(255,248,226,0.2)'], [0.5, 'rgba(255,248,226,0)'], [1, 'rgba(120,88,44,0.2)']]);
-    g.fillRect(-PAD, -PAD, W + PAD * 2, PH);
-
-    // the faintest ghost of a measured drawing: the eave that this beam would carry, set out concentric with it
-    const s = a.span(PAD + 120), ink = '#70502c';
-    const rule = (dr, alpha, width, seed) => L.sketchLine(g, L.arcPts(a, dr, -s, s, 96), { width, color: ink, alpha, wobble: 0.7, seed });
-    rule(36, 0.17, 1.1, 1); rule(106, 0.17, 1.1, 2); rule(113, 0.12, 0.9, 3); rule(160, 0.17, 1.1, 4); rule(170, 0.13, 1, 5);
-    const dR = (2.5 * U) / a.R, nR = Math.ceil(s / dR);
-    const jr = L.rng('s13ghost');
-    const pen = (pts, seed) => L.sketchLine(g, pts, { width: 1, color: ink, alpha: 0.17, wobble: 0.8, seed });
-    for (let k = -nR; k <= nR; k++) {
-      // rafter ends (round) and, above them, flying-rafter ends (square), drawn freehand with the corners overrun
-      a.at(g, (k + 0.5) * dR, 71, () => {
-        const rr = 0.62 * U, a0 = jr.range(0, L.TAU), circle = [];
-        for (let i = 0; i <= 20; i++) { const t = a0 + (i / 18) * L.TAU; circle.push([Math.cos(t) * (rr + jr.range(-0.5, 0.5)), Math.sin(t) * (rr + jr.range(-0.5, 0.5))]); }
-        pen(circle, 100 + k);
-        const q = 0.44 * U, cy = -63, ov = 3;
-        pen([[-q - ov, cy - q], [q + ov, cy - q + jr.range(-0.6, 0.6)]], 300 + k); pen([[-q - ov, cy + q], [q + ov, cy + q + jr.range(-0.6, 0.6)]], 500 + k);
-        pen([[-q, cy - q - ov], [-q + jr.range(-0.6, 0.6), cy + q + ov]], 700 + k); pen([[q, cy - q - ov], [q + jr.range(-0.6, 0.6), cy + q + ov]], 900 + k);
-      });
-    }
-    // centre lines of the bracket sets, dash-dot, the way a survey sheet marks them
-    g.save(); g.setLineDash([26, 7, 3, 7]); g.strokeStyle = L.rgba(ink, 0.2); g.lineWidth = 1;
-    const dth = PITCH / a.R, nS = Math.ceil(s / dth);
-    for (let i = -nS; i <= nS; i++) { const p0 = a.pt(i * dth, 8), p1 = a.pt(i * dth, 198); g.beginPath(); g.moveTo(p0.x, p0.y); g.lineTo(p1.x, p1.y); g.stroke(); }
-    g.restore();
+    g.fillStyle = L.radial(g, 640, 140, 120, 1750, [[0, 'rgba(255,250,236,0.26)'], [0.5, 'rgba(255,250,236,0)'], [1, 'rgba(120,88,46,0.22)']]);
+    g.fillRect(-PAD, -PAD, W + PAD * 2, hh);
   });
 }
 
@@ -482,15 +515,29 @@ export default {
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.006, 0.006, p), zoom = L.lerp(1.0, 1.028, p);
-    L.blit(ctx, env, S.paper, { rot: rot * 0.35, zoom: 1 + (zoom - 1) * 0.4 });
+    const rot = L.lerp(-0.0075, 0.0075, p), zoom = L.lerp(1.0, 1.03, p);
     L.blit(ctx, env, S.wood, { rot, zoom });
-    // a patch of raking light glides along the beam
-    L.cam(ctx, env, { zoom }, () => {
-      ctx.save(); a.clipBelow(ctx, 0);
-      const q = a.pt(L.lerp(-0.13, 0.05, p), -70);
-      L.glow(ctx, q.x, q.y, 560, '#ffe0aa', 0.34, 'overlay');
-      ctx.restore();
-    });
+    // warm key light from the upper left, pooling a little further along the beam as the shot runs
+    const lx = L.lerp(560, 800, p), ly = a.crestY + 60;
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = L.radial(ctx, lx, ly, 300, 1550, [[0, '#ffffff'], [0.45, '#e4d4c4'], [1, '#8e7460']]);
+    ctx.fillRect(0, a.crestY - 10, W, H);
+    ctx.globalCompositeOperation = 'soft-light';
+    ctx.fillStyle = L.radial(ctx, lx, ly, 40, 950, [[0, 'rgba(255,232,196,0.56)'], [0.6, 'rgba(255,232,196,0.14)'], [1, 'rgba(255,232,196,0)']]);
+    ctx.fillRect(0, a.crestY - 10, W, H);
+    ctx.restore();
+    // the paper covers everything above the arc → the beam's upper edge is exactly the arc on every frame
+    ctx.save(); a.clipAbove(ctx, 0);
+    L.blit(ctx, env, S.paper, { rot: rot * 0.45, zoom: 1 + (zoom - 1) * 0.5 });
+    // the timber's soft contact shadow on the sheet
+    for (const [lw, al] of [[34, 0.035], [22, 0.045], [12, 0.06], [5, 0.1]]) { ctx.strokeStyle = `rgba(66,40,16,${al})`; ctx.lineWidth = lw; a.stroke(ctx, 1); }
+    ctx.restore();
+    // the beam's upper arris: a pale chamfer just inside the arc, a dark line where the timber meets the paper
+    ctx.save(); a.clipBelow(ctx, 0);
+    ctx.strokeStyle = 'rgba(255,240,206,0.6)'; ctx.lineWidth = 2.4; a.stroke(ctx, -3.2);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(40,20,6,0.6)'; ctx.lineWidth = 1.5; a.stroke(ctx, 0.2);
+    L.vignette(ctx, { strength: 0.16, color: '#1a0c02', inner: 0.62, outer: 1.12 });
   },
 };

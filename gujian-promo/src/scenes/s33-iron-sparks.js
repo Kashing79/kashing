@@ -6,7 +6,8 @@
 // Recipe: everything that does not move (lit brickwork, arch ring, ember bed, baked spatter) is rendered ONCE into a
 // pixel buffer in init(). Every frame copies that buffer and plots ~45 000 particles straight into it, additively:
 // shimmering spatter, airborne dust, spark streaks and soft foreground sparks — each one advancing along its own
-// ballistic path with p (seeded, fully deterministic). One putImageData puts the frame on screen.
+// ballistic path with p (seeded, fully deterministic). The buffer goes to an off-screen canvas and is blitted once.
+// Nothing here is rotated or zoomed as a layer, so there are no padded layers and no edges to expose.
 import * as L from '../lib/core.js';
 
 const { W, H } = L;
@@ -679,11 +680,11 @@ export default {
     ctx.drawImage(S.fc, 0, 0);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.globalAlpha = 0.15 + 0.4 * fl; ctx.drawImage(S.rim, 0, S.rimY);
+    ctx.globalAlpha = 0.22 + 0.28 * fl; ctx.drawImage(S.rim, 0, S.rimY);
     ctx.restore();
     // the blaze at the point of impact
-    L.glow(ctx, IMP.x, IMP.y, 330, '#ff5a1f', 0.3 + 0.2 * fl);
-    L.glow(ctx, IMP.x, IMP.y, 140, '#ffb347', 0.45 + 0.25 * fl);
+    L.glow(ctx, IMP.x, IMP.y, 330, '#ff5a1f', 0.34 + 0.14 * fl);
+    L.glow(ctx, IMP.x, IMP.y, 140, '#ffb347', 0.5 + 0.18 * fl);
     L.glow(ctx, IMP.x, IMP.y, 52, '#fff0c8', 0.9);
   },
 };

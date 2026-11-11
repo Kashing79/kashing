@@ -3,7 +3,8 @@
 //   below it   : the 箍头 band — 群青 with 退晕 steps and a strip of 连珠 pearls on black
 //   then       : the 藻头 — big 旋花 in the standard "一整二破" layout: whole rosettes on the centre line, half rosettes
 //                hanging from the upper line and rising from the lower one, every circle touching its neighbours.
-//                青/绿 alternate ring by ring and flower by flower; every 旋瓣 steps deep → mid → light → white (退晕);
+//                青/绿 alternate ring by ring and flower by flower; every 旋瓣 is tucked under the next one (the whirl
+//                that gives 旋子 its name) and steps deep → mid → light → white line (退晕);
 //                the 旋眼 and the little 菱角地 grounds left between the circles are gilded.
 //   above      : the vermilion-lacquered board (垫板) with fine 断纹 cracks — kept calm for the tagline
 // Everything is painted flat first, then aged: mineral-pigment grain, craquelure whose cells sometimes flake off to the
@@ -137,7 +138,6 @@ function drawPattern(g, env, P) {
   // 一整二破: the half rosettes are 绿 outside / 青 inside, the whole ones the reverse
   g.save(); a.clipBand(g, FZ0 + 0.5, FZ1 - 0.5, -s, s);
   eachFlower(a, (th, dr, r, kind) => a.at(g, th, dr, () => {
-    if (kind === 'T') g.rotate(Math.PI);                   // its crown petal points into the band
     g.scale(r / RW, r / RW);
     if (kind === 'W') xuanhua(g, P, P.b, P.g, tone, jr); else xuanhua(g, P, P.g, P.b, tone, jr);
   }));
@@ -156,7 +156,7 @@ function goldRing(g, r, w) {
   g.lineWidth = w - 2.2; g.strokeStyle = '#e3b341'; g.beginPath(); g.arc(0, 0, r, 0, TAU); g.stroke();
   g.lineWidth = w * 0.4; g.strokeStyle = '#fff0b4'; g.beginPath(); g.arc(-w * 0.1, -w * 0.15, r, 0, TAU); g.stroke();
 }
-/** gilded boss: 旋眼 (with a little ring of seed-petals) or the heart of a 栀花 */
+/** gilded boss: the 旋眼, a dome with a little ring of seed-petals */
 function goldBoss(g, r, petals) {
   g.fillStyle = L.radial(g, -r * 0.34, -r * 0.4, r * 0.04, r * 1.2, [[0, '#fff6c8'], [0.22, '#f8d566'], [0.55, '#d79f2e'], [0.85, '#99661a'], [1, '#5f3a09']]);
   g.beginPath(); g.arc(0, 0, r, 0, TAU); g.fill();
@@ -284,7 +284,7 @@ function buildAging(env) {
         if (v > 34 && cId < (0.008 + 0.1 * sstep(0.62, 1, m)) * keep) fl = Math.max(fl, sstep(0.05, 0.14, cE));
       } else {
         // lacquer 断纹: long fine cracks that follow the board, joined by short cross-breaks; kept faint behind the tagline
-        const tz = sstep(0.85, 1.7, Math.hypot((fx - 960) / 460, (fy - tzY) / 215));
+        const tz = sstep(0.85, 1.7, Math.hypot((fx - a.cx) / 460, (fy - tzY) / 215));
         cell(u / 172 + 50.5 + ux * 0.22, v / 29 + 50.5 + uy * 0.5);
         ci = (1 - sstep(0.0, 0.066, cE)) * (0.32 + 0.58 * m) * (0.3 + 0.7 * tz);
         if (v < -16 && cId < 0.028 * sstep(0.72, 1, m) * tz) fl = sstep(0.06, 0.2, cE);
@@ -319,7 +319,7 @@ function paintLacquer(g, env) {
   L.speckle(g, { seed: 's17pit', count: 2200, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.5, rMax: 1.7, colors: ['#2a0705', '#3d0c08'], alpha: [0.15, 0.55] });
   L.speckle(g, { seed: 's17dust', count: 600, x: T.x, y: T.y, w: T.w, h: T.h, rMin: 0.4, rMax: 1.3, colors: ['#f0b8a4', '#ffd9bf'], alpha: [0.08, 0.32] });
   // even out the tagline zone
-  g.save(); g.translate(960, a.crestY - 140); g.scale(1, 0.5);
+  g.save(); g.translate(a.cx, a.crestY - 140); g.scale(1, 0.5);
   g.fillStyle = L.radial(g, 0, 0, 0, 560, [[0, 'rgba(118,24,18,0.55)'], [0.6, 'rgba(118,24,18,0.45)'], [1, 'rgba(118,24,18,0)']]);
   g.fillRect(-600, -600, 1200, 1200);
   g.restore();
@@ -353,10 +353,9 @@ function buildMain(env) {
     g.save(); a.clipBelow(g, 0); g.globalAlpha = 0.75; g.drawImage(crack, -PAD, -PAD); g.restore();
     g.save(); a.clipAbove(g, 0); g.globalAlpha = 0.22; g.drawImage(crack, -PAD, -PAD); g.restore();
   });
- 
+
   // NB: with white = high, bumpLight's angle 45 is what lights raised detail from the upper left
   const bump = L.bumpLight(height, { angle: 45, strength: 3.2, blur: 0.7, res: 0.6 });
- 
 
   // the bare 地仗 ground that shows where paint has flaked
   const chips = L.makeLayer(PAD, (g) => {
@@ -365,7 +364,6 @@ function buildMain(env) {
     g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(flake, -PAD, -PAD);
     g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(46,10,6,0.62)'; a.pathAbove(g, 0); g.fill();
   });
- 
 
   const main = L.makeLayer(PAD, (g) => {
     paintLacquer(g, env);
@@ -384,7 +382,7 @@ function buildMain(env) {
     g.globalCompositeOperation = 'multiply'; g.globalAlpha = 0.5;
     g.drawImage(rectNoise(env, B, { seed: 's17grime', scale: 250, octaves: 4, warp: 0.8, res: 0.14, contrast: 1.5, ramp: [[0, '#6f5d40'], [0.55, '#ffffff'], [1, '#ffffff']] }), B.x, B.y);
     g.restore();
-   
+
     // gilding stands proud of the paint
     g.save(); g.shadowColor = 'rgba(3,5,18,0.7)'; g.shadowBlur = 5; g.shadowOffsetX = 2.5; g.shadowOffsetY = 3.5;
     g.drawImage(gold, -PAD, -PAD);
@@ -430,8 +428,8 @@ export default {
     for (let k = -1; k <= 1; k++) { const q = a.pt(2 * k * lat.d, FC); glints.push({ x: q.x - 12, y: q.y - 14, ph: (k + 1) * 0.55, size: 28 }); }
     for (let k = -2; k < 2; k++) { const q = a.pt((2 * k + 1) * lat.d, FZ0 - 16); glints.push({ x: q.x - 9, y: q.y, ph: 0.3 + (k + 2) * 0.4, size: 20 }); }
     [-0.31, -0.118, 0.052, 0.236].forEach((th, i) => { const q = a.pt(th, -4); glints.push({ x: q.x, y: q.y, ph: 0.5 + i * 0.29, size: 20 }); });
-    // flatten everything that is drawn per frame into plain bitmaps (a canvas built from thousands of small draws
-    // is re-rasterised every time it is used as a source, which made each frame cost ~170 ms)
+    // everything drawn per frame is baked into ImageBitmaps: plain images blit cheaply, whereas using the canvases
+    // themselves (built from thousands of small draws) as sources forced a slow synchronous flush on every frame
     const [mainB, sparkA, sparkB] = await Promise.all([main, buildSpark(env, gold, 's17spA'), buildSpark(env, gold, 's17spB')].map((c) => createImageBitmap(c)));
     S = { main: mainB, sparkA, sparkB, bx: B.x, by: B.y, glints };
   },

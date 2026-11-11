@@ -1,8 +1,9 @@
 // s30 — 琉璃海水纹. A glazed-tile (琉璃) relief of sea waves, seen close and lit from the upper left.
 // Above the arc: a flat field of imperial-yellow glaze — fine crazing (开片), a few flakes down to the pale clay body, scratches.
-// The arc itself: the white foam bead on the crest of the top row of waves.
+// The arc itself: the crest line of the top row of waves — a thin white foam lip (its outer edge is the arc) on a blue bead.
 // Below it, top → bottom (the traditional order): curling spray volutes (浪花) → rows of concentric half-round
-// billows (平水, growing with depth) → slanted parallel ribs (立水) at the very bottom.
+// billows (平水, growing with depth) → slanted parallel ribs (立水) at the very bottom. A few white spray beads
+// jump above the arc, but only well to the left and right of the title.
 // The relief is a tiny height-field renderer: init() evaluates colour + height per pixel in the arc's polar frame,
 // then lights it (diffuse + glaze specular + contact shadows). draw() only blits and cross-fades two lightings.
 import * as L from '../lib/core.js';
@@ -10,10 +11,10 @@ import * as L from '../lib/core.js';
 const { W, H } = L;
 const PAD = 64;                        // the move is only a few px of rot + a breath of zoom
 const LW = W + PAD * 2, LH = H + PAD * 2;
-const RIM = 15;                        // width of the foam bead that rides the arc (its outer edge IS the arc)
+const RIM = 19, LIP = 6.5;             // the crest moulding that rides the arc: a white foam lip (its outer edge IS the arc) over a blue bead
 // rows of billows, nearest the arc first: [radius, depth of the apex below the arc]. The last row is the 立水:
 // big arches whose foam lip trims a field of slanted ribs.
-const ROWS = [[120, 9], [142, 100], [168, 177], [198, 264], [256, 358]];
+const ROWS = [[120, 15], [142, 106], [168, 183], [198, 270], [256, 364]];
 const LI_ROW = 4, LI_LIP = 27;         // the 立水 row and the width (px) of its foam lip
 const VR = 64;                         // spray volute radius
 let S = null;
@@ -28,11 +29,11 @@ const DG_HI = rgb('#176f5a'), DG_LO = rgb('#0c3936');
 const GRV = [0.04, 0.115, 0.2];        // glaze pooled dark in the grooves
 const BODY = rgb('#d8cbae');           // the fired clay body where glaze has worn off
 // bands of one billow from its free edge inwards: [lo, hi] colour, per colour scheme
-const EDGES = [1, 0.86, 0.665, 0.47, 0.285, 0];
+const EDGES = [1, 0.865, 0.69, 0.515, 0.34, 0.165, 0];
 const NB = EDGES.length - 2;           // index of the innermost band (the domed heart)
 const PAL = [
-  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [DB_LO, DB_HI]],
-  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [DG_LO, DG_HI]],
+  [[WH_LO, WH_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [DB_LO, DB_HI]],
+  [[WH_LO, WH_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [GR_LO, GR_HI], [BL_LO, BL_HI], [DG_LO, DG_HI]],
 ];
 
 // sample outputs (module-level to keep the per-pixel loop allocation-free)
@@ -52,7 +53,7 @@ function sampleScale(t, r, v, tone) {
   oR = GRV[0] + ((lo[0] + (hi[0] - lo[0]) * k) * m - GRV[0]) * g;
   oG = GRV[1] + ((lo[1] + (hi[1] - lo[1]) * k) * m - GRV[1]) * g;
   oB = GRV[2] + ((lo[2] + (hi[2] - lo[2]) * k) * m - GRV[2]) * g;
-  const amp = (bw * 0.3 > 9 ? 9 : bw * 0.3) * (i === 0 ? 1.2 : i === NB ? 0.6 : 1);
+  const amp = (bw * 0.3 > 9 ? 9 : bw * 0.3) * (i === 0 ? 1.2 : 1);
   oH = amp * s * (1.3 - 0.3 * s) + 4.5 * t;       // each billow lifts toward its free edge, like an overlapping scale
   oGl = 0.35 + 0.65 * g; oTop = i === NB ? 0 : s;
 }
@@ -86,18 +87,25 @@ function sampleVolute(t, phi, r, phs, tone) {
   oGl = 0.35 + 0.65 * g; oTop = white ? s : 0;
 }
 
-/** the foam bead on the arc. u = 0 on the arc … 1 at its inner edge */
-function sampleRim(u) {
-  if (u < 0) u = 0; else if (u > 1) u = 1;
-  const x2 = 2 * u - 1, s = Math.sqrt(1 - x2 * x2);
-  oH = u < 0.5 ? 20 * s : 12.5 + 7.5 * s;
-  let g = ((1 - u) * RIM) / 2.6; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
-  let am = 1 - u / 0.2; am = am < 0 ? 0 : am * 0.5;      // a little yellow glaze ran into the white along the top
-  const k = 1 - s;
-  let r = WH_HI[0] - 0.2 * k, gg = WH_HI[1] - 0.12 * k, b = WH_HI[2] - 0.08 * k;
-  r += (0.9 - r) * am; gg += (0.72 - gg) * am; b += (0.3 - b) * am;
-  oR = GRV[0] + (r - GRV[0]) * g; oG = GRV[1] + (gg - GRV[1]) * g; oB = GRV[2] + (b - GRV[2]) * g;
-  oGl = 0.4 + 0.6 * g; oTop = s;
+/** the crest moulding on the arc. d = depth below the arc (px): white foam lip 0…LIP, then a rounded blue bead to RIM */
+function sampleRim(d) {
+  if (d < LIP) {
+    const u = d < 0 ? 0 : d / LIP, x2 = 2 * u - 1, s = Math.sqrt(1 - x2 * x2), k = 1 - s;
+    let g = (LIP - d) / 1.6; if (g > 1) g = 1; g = g * g * (3 - 2 * g);
+    let am = 1 - u / 0.4; am = am < 0 ? 0 : am * 0.5;      // a little yellow glaze ran into the white along the very top
+    let r = WH_HI[0] - 0.16 * k, gg = WH_HI[1] - 0.1 * k, b = WH_HI[2] - 0.07 * k;
+    r += (0.92 - r) * am; gg += (0.76 - gg) * am; b += (0.34 - b) * am;
+    oR = GRV[0] + (r - GRV[0]) * g; oG = GRV[1] + (gg - GRV[1]) * g; oB = GRV[2] + (b - GRV[2]) * g;
+    oH = 20 + 5 * s; oGl = 0.4 + 0.6 * g; oTop = s;
+    return;
+  }
+  let u = (d - LIP) / (RIM - LIP); if (u > 1) u = 1;
+  const x2 = 2 * u - 1, s = Math.sqrt(1 - x2 * x2), k = s * (0.55 + 0.45 * s);
+  let g = (d - LIP < RIM - d ? d - LIP : RIM - d) / 1.9; if (g > 1) g = 1; else if (g < 0) g = 0; g = g * g * (3 - 2 * g);
+  oR = GRV[0] + (BL_LO[0] + (BL_HI[0] - BL_LO[0]) * k - GRV[0]) * g;
+  oG = GRV[1] + (BL_LO[1] + (BL_HI[1] - BL_LO[1]) * k - GRV[1]) * g;
+  oB = GRV[2] + (BL_LO[2] + (BL_HI[2] - BL_LO[2]) * k - GRV[2]) * g;
+  oH = 20 + 8 * s; oGl = 0.4 + 0.6 * g; oTop = s;
 }
 
 const LI_SIN = Math.sin(L.deg(57)), LI_COS = Math.cos(L.deg(57)), LI_PER = 92;
@@ -186,7 +194,7 @@ function buildField(env) {
     // strays — only on curls far enough from the centre that nothing can touch the title
     const fx = a.cx + R * Math.sin(th);
     if (Math.abs(fx - a.cx) < 420) continue;
-    const big = rnd.range(0.9, 1.15);
+    const big = rnd.range(1.1, 1.35);
     for (const [ox, up, dr] of [[16, 21, 11.5], [35, 37, 7.8], [49, 55, 5.4], [57, 72, 3.6], [-7, 43, 4.4], [74, 29, 3.2], [9, 66, 2.6]]) {
       const rr2 = dr * big, up2 = up * big + rnd.range(-1.5, 1.5), t2 = th + (ox * big + rnd.range(-1.5, 1.5)) / R;
       drops.push({ x: cxL + (R + up2) * Math.sin(t2), y: cyL - (R + up2) * Math.cos(t2), r: rr2 });
@@ -216,10 +224,10 @@ function buildField(env) {
       let wk = d / 150; if (wk > 1) wk = 1; const wamp = 6.5 * wk * wk * (3 - 2 * wk);
       const qx = X + (WXf[i4] / 255 - 0.5) * wamp, qy = Y + (WYf[i4] / 255 - 0.5) * wamp;
       let A = 0, ar = 0, ag = 0, ab = 0, ah = 0, agl = 0, aoc = 0, atop = 0, sh = 0;
-      // 1) foam bead on the arc
+      // 1) crest moulding on the arc
       if (d < RIM + 0.5) {
         const cov = d < RIM - 0.5 ? 1 : RIM + 0.5 - d;
-        sampleRim(d / RIM);
+        sampleRim(d);
         A = cov; ar = cov * oR; ag = cov * oG; ab = cov * oB; ah = cov * oH; agl = cov * oGl; atop = cov * oTop;
       }
       if (d > RIM - 0.5 && d < RIM + 20) {
@@ -280,9 +288,10 @@ function buildField(env) {
       }
       // glaze life: uneven thickness, worn ridges showing the clay body, pin-prick surface
       const mot = MOT[i4] / 255, fine = FINE[i4] / 255;
-      const mm = 0.84 + 0.32 * mot;
+      let fall = (d - 220) / 420; fall = fall < 0 ? 0 : fall > 1 ? 1 : fall;      // the relief sinks gently into shade toward the bottom
+      const mm = (0.84 + 0.32 * mot) * (1 - 0.2 * fall * fall * (3 - 2 * fall));
       ar *= mm; ag *= mm; ab *= mm;
-      let chip = (CHIP[i4] / 255 - 0.975 + 0.1 * atop) / 0.035; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
+      let chip = (CHIP[i4] / 255 + 0.22 * (mot - 0.5) - 0.972 + 0.1 * atop) / 0.035; chip = chip < 0 ? 0 : chip > 1 ? 1 : chip;
       if (chip > 0) {
         const bb = 0.86 + 0.28 * fine;
         ar += (BODY[0] * bb - ar) * chip; ag += (BODY[1] * bb - ag) * chip; ab += (BODY[2] * bb - ab) * chip;
@@ -458,7 +467,12 @@ function buildBase(env, F, relief) {
     for (const [x, y, w, h, c] of tiles) { g.fillStyle = c; g.fillRect(x, y, w, h); }
     // crazing: an open mesh of darker hairlines over a much finer, fainter one
     crackle(g, env, 10, 0x2f6b1d, 0.7, '#7a4a04', 0.26, 0);
-    crackle(g, env, 26, 0x51ed27, 1.05, '#6a3c02', 0.44, 0.1);
+    crackle(g, env, 26, 0x51ed27, 1.05, '#6a3c02', 0.4, 0.1);
+    // a broad soft reflection of the sky on the glassy surface, upper left (clear of the title)
+    g.save(); g.translate(430, 96); g.rotate(-0.12); g.scale(1, 0.34);
+    g.fillStyle = L.radial(g, 0, 0, 0, 620, [[0, 'rgba(255,250,222,0.3)'], [0.5, 'rgba(255,248,210,0.12)'], [1, 'rgba(255,248,210,0)']]);
+    g.fillRect(-640, -640, 1280, 1280);
+    g.restore();
     // joints
     joint(g, -PAD, JY, W + PAD, JY, 1);
     joint(g, 545, JY, 545, H, 2); joint(g, 1375, JY, 1375, H, 3);
@@ -467,9 +481,9 @@ function buildBase(env, F, relief) {
     const flakes = [
       { x: 268, y: 176, rx: 44, ry: 150, rot: -0.04, seed: 1 }, { x: 1648, y: 138, rx: 88, ry: 46, rot: 0.25, seed: 2 },
       { x: 548, y: JY + 4, rx: 25, ry: 17, rot: 0.5, seed: 3 }, { x: 1379, y: JY - 3, rx: 13, ry: 10, rot: 0, seed: 4 },
-      { x: 96, y: 548, rx: 34, ry: 23, rot: 0.3, seed: 5 }, { x: 1842, y: 430, rx: 24, ry: 44, rot: -0.2, seed: 6 },
+      { x: 96, y: a.yAt(96) - 172, rx: 34, ry: 23, rot: 0.3, seed: 5 }, { x: 1842, y: 430, rx: 24, ry: 44, rot: -0.2, seed: 6 },
       { x: 846, y: 82, rx: 19, ry: 11, rot: 0.1, seed: 7 }, { x: 1250, y: 30, rx: 30, ry: 15, rot: -0.3, seed: 8 },
-      { x: 1512, y: 566, rx: 15, ry: 10, rot: 0.4, seed: 9 }, { x: 426, y: 610, rx: 12, ry: 8, rot: -0.5, seed: 10 },
+      { x: 1512, y: a.yAt(1512) - 58, rx: 15, ry: 10, rot: 0.4, seed: 9 }, { x: 426, y: a.yAt(426) - 12, rx: 12, ry: 8, rot: -0.5, seed: 10 },
       { x: -40, y: 250, rx: 50, ry: 70, rot: 0.2, seed: 11 }, { x: 1975, y: 120, rx: 40, ry: 80, rot: 0.1, seed: 12 },
     ];
     for (let i = 0; i < 16; i++) {
@@ -504,7 +518,7 @@ function buildBase(env, F, relief) {
     g.save(); a.pathBand(g, 52, -2);
     g.fillStyle = L.radial(g, a.cx, a.cy, a.R, a.R + 52, [[0, 'rgba(148,80,0,0.5)'], [0.2, 'rgba(184,112,0,0.26)'], [1, 'rgba(190,120,0,0)']]);
     g.fill(); g.restore();
-    g.save(); g.strokeStyle = 'rgba(56,30,0,0.7)'; g.lineWidth = 3.2; a.stroke(g, 0.6); g.restore();
+    g.save(); g.strokeStyle = 'rgba(52,28,0,0.8)'; g.lineWidth = 3.4; a.stroke(g, 0.7); g.restore();
     // spray beads throw small shadows on the yellow
     g.save(); g.filter = 'blur(2.5px)';
     g.fillStyle = 'rgba(96,52,0,0.55)';

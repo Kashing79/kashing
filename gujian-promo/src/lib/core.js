@@ -177,6 +177,7 @@ export function blurred(src, px) {
   const g = c.getContext('2d');
   g.filter = `blur(${px}px)`;
   g.drawImage(src, 0, 0);
+  g.filter = 'none'; // leave the returned canvas with a clean context
   if (src._pad !== undefined) c._pad = src._pad;
   return c;
 }
@@ -186,6 +187,7 @@ export function filtered(src, filter) {
   const g = c.getContext('2d');
   g.filter = filter;
   g.drawImage(src, 0, 0);
+  g.filter = 'none';
   if (src._pad !== undefined) c._pad = src._pad;
   return c;
 }
@@ -598,12 +600,15 @@ export function arcPts(arc, dr = 0, t0, t1, n = 80) {
 /**
  * Ink-brush stroke with pressure and optional dry-brush streaks.
  * pts: [[x,y],...] (will be smoothed). opts: width, color, seed, taper [in,out] fractions (0..0.5), wobble (0..1), dry (0..1), alpha
+ * Note: `dry` scratches gaps with destination-out on the target context, so it also erases whatever is already under the stroke —
+ * draw dry strokes on their own layer. `wobble` jitter is in absolute pixels: scale your points, not the context.
  */
 export function inkStroke(ctx, pts, opts = {}) {
   const { width = 10, color = '#111', seed = 1, taper = [0.15, 0.3], wobble = 0.25, dry = 0, alpha = 1, smoothStep = 3 } = opts;
   const p = smoothPath(pts, smoothStep);
   const n = p.length; if (n < 2) return;
   const nz = makeNoise('ink' + seed);
+  const sn = typeof seed === 'number' ? seed : (hashSeed(seed) % 9973) / 7; // numeric form for the noise lookups (string seeds are fine)
   const L = [], Rr = [];
   for (let i = 0; i < n; i++) {
     const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
@@ -612,7 +617,7 @@ export function inkStroke(ctx, pts, opts = {}) {
     let wv = 1;
     if (taper[0] > 0 && u < taper[0]) wv *= Math.pow(u / taper[0], 0.6);
     if (taper[1] > 0 && u > 1 - taper[1]) wv *= Math.pow((1 - u) / taper[1], 0.8);
-    wv *= 1 + wobble * nz.n2(u * 9, seed * 0.37);
+    wv *= 1 + wobble * nz.n2(u * 9, sn * 0.37);
     const hw = Math.max(0.3, (width * wv) / 2);
     const j = wobble * 0.8 * nz.n2(u * 40, 9.1);
     L.push([p[i][0] + nx * (hw + j), p[i][1] + ny * (hw + j)]);
