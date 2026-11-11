@@ -109,10 +109,10 @@ function coinList(a, dr, rc, off, seed) {
 function genFilaments(env, coins) {
   const a = env.arc, r = L.rng('s36fil'), nz = L.makeNoise('s36tuft');
   const sharp = [], soft = [];
-  const bumps = [[-150, 290, 130], [40, 250, 112], [288, 330, 120], [548, 190, 96], [1388, 215, 100], [1640, 350, 124], [1885, 250, 115], [2070, 290, 130]];
+  const bumps = [[-150, 260, 130], [40, 210, 112], [288, 290, 120], [520, 130, 90], [1410, 150, 92], [1640, 300, 124], [1885, 220, 115], [2070, 260, 130]];
   const envLen = (x) => {
-    const side = sm(290, 690, Math.abs(x - a.cx));
-    let e = 22 + side * (84 + 66 * (0.5 + 0.5 * nz.fbm(x / 140, 3.7, 2)));
+    const side = sm(325, 545, Math.abs(x - a.cx));
+    let e = 22 + side * (120 + 80 * (0.5 + 0.5 * nz.fbm(x / 140, 3.7, 2)));
     for (const [bx, A, s] of bumps) { const q = (x - bx) / s; e += A * Math.exp(-q * q) * side; }
     return e;
   };
@@ -121,13 +121,13 @@ function genFilaments(env, coins) {
     while (s < len) {
       const st = Math.min(6, len - s);
       x += Math.sin(ang) * st; y -= Math.cos(ang) * st; ang += kap * st; s += st;
-      if (Math.abs(x - a.cx) < 352 && a.drAt(x, y) > 26) break;       // never climb into the text column
+      if (Math.abs(x - a.cx) < 362 && a.drAt(x, y) > 26) break;       // never climb into the text column
       pts.push([x, y]);
     }
-    return { pts, w, al };
+    return { pts, w, al, soft: false };
   };
-  const lean = (x) => 0.17 * nz.n2(x / 210, 9.1);
-  const curl = (x) => 0.0011 * nz.n2(x / 240, 20.3);
+  const lean = (x) => 0.14 * nz.n2(x / 210, 9.1) + 0.13 * Math.sign(x - a.cx) * sm(300, 380, Math.abs(x - a.cx)) * (1 - sm(420, 760, Math.abs(x - a.cx)));
+  const curl = (x) => 0.0006 * nz.n2(x / 240, 20.3);
   const sp = a.span(PAD + 90);
   // 1) a fine, even fuzz all along the branch
   for (let th = -sp; th <= sp; th += 6 / a.R) {
@@ -138,14 +138,20 @@ function genFilaments(env, coins) {
   // 2) tufts: near-parallel filaments sharing a direction and a curl, like the barbs of a feather
   const tuft = (t0, e0) => {
     const x0 = a.pt(t0, 0).x;
-    const eT = e0 * r.range(0.55, 1.0), psiT = t0 * 1.15 + lean(x0) + r.gauss() * 0.11, kT = curl(x0) + r.gauss() * 0.0004;
+    const eT = e0 * r.range(0.55, 1.0), psiT = t0 * 1.15 + lean(x0) + r.gauss() * 0.11, kT = curl(x0) + r.gauss() * 0.00025;
     const n = Math.round(4 + eT / 38);
     for (let i = 0; i < n; i++) {
       const off = r.gauss() * 15, q = a.pt(t0 + off / a.R, -2);
       const len = eT * (0.2 + 0.8 * Math.pow(r(), 1.15));
       const psi = psiT + off * 0.0045 + r.gauss() * 0.045;
       sharp.push(mk(q.x, q.y, psi, kT + r.gauss() * 0.00025, len, 0.7 + 1.1 * r() * r() + len / 480, 0.35 + 0.65 * r()));
-      if (eT > 80 && r.chance(0.3)) soft.push(mk(q.x + r.range(-7, 7), q.y, psi + r.gauss() * 0.07, kT + r.gauss() * 0.0004, len * r.range(0.6, 1.1), r.range(2.5, 5), r.range(0.12, 0.28)));
+    }
+    // out-of-focus barbs in front of and behind the sharp ones: broad, soft, tapering to a point
+    const nb = Math.round(eT / 85 + r() * 0.8);
+    for (let i = 0; i < nb; i++) {
+      const off = r.gauss() * 17, q = a.pt(t0 + off / a.R, 0);
+      const f = mk(q.x, q.y, psiT + off * 0.0045 + r.gauss() * 0.07, kT + r.gauss() * 0.0003, eT * r.range(0.5, 1.05), r.range(4, 9), r.range(0.26, 0.52));
+      f.soft = true; soft.push(f);
     }
   };
   let th = -sp;
@@ -157,7 +163,8 @@ function genFilaments(env, coins) {
 function drawFil(g, f) {
   const P = f.pts, n = P.length; if (n < 2) return;
   const gr = g.createLinearGradient(P[0][0], P[0][1], P[n - 1][0], P[n - 1][1]);
-  gr.addColorStop(0, `rgba(255,255,255,${f.al})`);
+  gr.addColorStop(0, `rgba(255,255,255,${f.al * (f.soft ? 0.5 : 1)})`);
+  if (f.soft) gr.addColorStop(0.14, `rgba(255,255,255,${f.al})`);
   gr.addColorStop(0.45, `rgba(241,243,242,${f.al * 0.8})`);
   gr.addColorStop(0.8, `rgba(190,200,200,${f.al * 0.36})`);
   gr.addColorStop(1, 'rgba(154,165,166,0)');
@@ -244,7 +251,7 @@ function buildBack(env, sprites, awn) {
     for (const cn of coins2) a.at(g, cn.th, DRC2, () => { g.scale(K, K); const sp2 = sprites[cn.v]; g.drawImage(sp2, -sp2.width / 2, -sp2.height / 2); });
   });
   const farB = L.blurred(far, 14);
-  const streaks = L.polarNoiseLayer(env, PAD, { seed: 's36mist', scale: 70, sx: 0.6, sy: 7, octaves: 2, contrast: 1.0, res: 0.25, ramp: [[0, '#a9b4b5'], [0.5, '#dde3e2'], [1, '#ffffff']] });
+  const streaks = L.polarNoiseLayer(env, PAD, { seed: 's36mist', scale: 320, sx: 0.8, sy: 1.6, octaves: 3, contrast: 1.1, res: 0.2, ramp: [[0, '#aab5b6'], [0.5, '#dde3e2'], [1, '#ffffff']] });
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#030303'; full(g);
     g.drawImage(farB, -PAD, -PAD);
