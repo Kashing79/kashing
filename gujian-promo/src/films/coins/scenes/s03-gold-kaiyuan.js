@@ -82,7 +82,7 @@ function shadeCoin(a) {
     const u = i - UM;
     WOB[i] = 1.5 * nA.n2(u / 190, 1.7) + 0.45 * nB.n2(u / 47, 5.1);
     THR[i] = 0.16 * (1 + 0.4 * nC.n2(u / 120, 3.3) + 0.22 * nC.n2(u / 27, 8.1));
-    EDG[i] = EDGE * (1 + 0.24 * nC.n2(u / 230, 11.3) + 0.1 * nC.n2(u / 58, 4.4));
+    EDG[i] = EDGE * (1 + 0.11 * nC.n2(u / 430, 11.3) + 0.035 * nC.n2(u / 140, 4.4));
   }
   // integrated rim profile (height above the outer edge), 0.25 px steps
   const MHS = 4, MHN = 220 * MHS, MH = new Float32Array(MHN + 1);
