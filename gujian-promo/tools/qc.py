@@ -84,5 +84,16 @@ if mp4:
     for t in (0.5, 8.3, 12.0, 14.0, 15.6, 16.6, 18.2, 19.96):
         subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(t), '-i', mp, '-frames:v', '1', '-q:v', '2', os.path.join(out, 'mp4_%05.2f.jpg' % t)])
     print('      stills from the encoded file: ' + out + '/mp4_*.jpg')
+    # native-resolution crops of the encoded picture, to judge fineness and banding after compression
+    from PIL import ImageOps
+    tiles = []
+    for t in (0.5, 8.3, 14.0, 16.6, 18.2, 19.96):
+        p = os.path.join(out, 'mp4_%05.2f.jpg' % t)
+        if os.path.exists(p):
+            im = Image.open(p).convert('RGB'); tiles.append(im.crop((640, 470, 1280, 830)))
+    if tiles:
+        sheet = Image.new('RGB', (1920, 720), (18, 18, 20))
+        for k, tl in enumerate(tiles[:6]): sheet.paste(tl, ((k % 3) * 640, (k // 3) * 360))
+        sheet.save(os.path.join(out, 'mp4_zoom.jpg'), quality=95); print('      ' + os.path.join(out, 'mp4_zoom.jpg'))
 print('RESULT: ' + ('all checks passed' if ok else 'CHECKS FAILED'))
 sys.exit(0 if ok else 1)

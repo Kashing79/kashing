@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # encode.sh — frames + soundtrack → out/<name>.mp4 (H.264 High, yuv420p, BT.709, AAC stereo, faststart)
+# Quality: CRF 18 with aq-mode 3 keeps the fine grain in dark gradients, which is what prevents banding there
+# (measured on the title card: CRF 20 without it bands visibly once the contrast is stretched).
 #   tools/encode.sh [film] [crf] [output]        film: arch (default) | coins | antiques | tcm
 set -euo pipefail
 cd "$(dirname "$0")/.."
 FILM="${1:-arch}"
-CRF="${2:-20}"
+CRF="${2:-18}"
 case "$FILM" in
   arch) NAME="zhongguo-gujianzhu" ;;
   coins) NAME="zhongguo-guqianbi" ;;
@@ -23,7 +25,8 @@ echo "soundtrack: ${LUFS} LUFS, true peak ${PEAK} dBTP → gain ${GAIN} dB"
 ffmpeg -hide_banner -loglevel error -y \
   -framerate 25 -i "build/$FILM/frames/f_%05d.png" -i "build/$FILM/soundtrack.wav" \
   -vf "scale=in_range=pc:out_range=tv:out_color_matrix=bt709,format=yuv420p" \
-  -c:v libx264 -preset slow -crf "$CRF" -profile:v high -level 4.1 -g 50 -bf 2 \
+  -c:v libx264 -preset slower -crf "$CRF" -profile:v high -level 4.2 -g 50 -bf 2 \
+  -x264-params "aq-mode=3:aq-strength=0.9:deblock=-1,-1" \
   -colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv \
   -af "volume=${GAIN}dB" -c:a aac -b:a 256k -ar 48000 -movflags +faststart -shortest "$OUT"
 echo "$OUT"
