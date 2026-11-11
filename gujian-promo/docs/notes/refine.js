@@ -20,6 +20,7 @@ const previewDir = film === 'arch' ? `${PROJECT}/build/preview` : `${PROJECT}/bu
 const reviewDir = `${PROJECT}/build/${film}/review`
 const storyboard = film === 'arch' ? `${PROJECT}/docs/storyboard.json` : `${PROJECT}/docs/storyboard-${film}.json`
 const colourScript = `${PROJECT}/docs/colour-${film}.json`
+const notesFile = `${PROJECT}/docs/notes/director-${film}.json`
 const topic = { arch: '中国古建筑', coins: '中国古钱币', antiques: '中国古玩', tcm: '中国中医药' }[film]
 const num = (id) => parseInt(id.slice(1), 10)
 const sid = (n) => 's' + String(n).padStart(2, '0')
@@ -82,7 +83,9 @@ function polishPrompt(id, cycle, prev) {
   return `你是一位顶尖的 Canvas 2D 程序化插画师。任务：把镜头 ${id} 打磨到**能和参考片并排放映**的水准。客户看过上一版后的原话是：「多去参考、多去对比，审美和画图要最好」。所以这次的工作方法只有一条：**每一轮都把自己的画面和参考片并排比，差在哪就改哪。**
 
 ${CONTEXT(id)}
-${notes[id] ? `\n【总导演对这个镜头的意见 —— 最高优先级，必须落实；与任务单冲突时以这里为准】\n${notes[id]}\n` : ''}${cycle === 1
+
+【总导演对这个镜头的意见 —— 最高优先级，必须落实；与任务单冲突时以它为准】先读 ${notesFile}：这是一个 JSON 对象，键为 "${id}" 的那条就是总导演把这个镜头和参考片并排看过之后写的意见（文件或这个键不存在，说明没有特别意见，按「对照参考片」七条自己判断）。${notes[id] ? `\n补充意见：${notes[id]}` : ''}
+${cycle === 1
     ? `\n【上一轮美术指导的审片意见】如果文件 ${reviewDir}/${id}_crit.json 存在就先读它（whatISee / keep / fixes / paletteTarget）：其中关于色调和细节收尾的意见仍然有效，采纳你认同的；与总导演意见冲突时以总导演为准。不存在就跳过。\n`
     : `\n【上一轮复核留下的问题 —— 这一轮就是来解决它们的】\n${(prev.remaining || []).map((r, i) => `${i + 1}. ${r}`).join('\n')}\n（上一轮复核给的"与参考片的差距"分：${prev.parity}/10，总分：${prev.finalScore}/10）\n`}
 步骤：
@@ -107,7 +110,9 @@ function verifyPrompt(id, cycle, pol) {
   return `你是独立的成片质检，立场是**怀疑**：默认认为"打磨没有让画面变好"，除非图像证明它确实更好。你没有参与前面的工作。标尺是参考片：客户的要求是「多去参考、多去对比，审美和画图要最好」。
 
 ${CONTEXT(id)}
-${notes[id] ? `\n总导演对这个镜头的意见（判断时要看它有没有被落实）：${notes[id]}\n` : ''}
+
+总导演对这个镜头的意见在 ${notesFile} 里键为 "${id}" 的那条（文件或键不存在就是没有）；判断时要看它有没有被落实。${notes[id] ? `补充意见：${notes[id]}` : ''}
+
 背景：打磨的同事刚改完镜头 ${id}。他自述：${pol.summary}
 - 打磨前的图：${reviewDir}/${id}_${imgTag}_mid.jpg 和 ${reviewDir}/${id}_${imgTag}_sheet.jpg
 - 打磨前的源码备份：${reviewDir}/${id}.${jsTag}.js

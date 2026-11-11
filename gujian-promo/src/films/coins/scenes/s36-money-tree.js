@@ -36,12 +36,20 @@ function buildCoin(seed) {
     const rimO = sm(RC - WR - 3.5, RC - WR + 3, r) * (1 - sm(ro - 6.5, ro + 0.5, r));
     const rimI = (1 - sm(hs + WI - 3, hs + WI + 3, sq)) * sm(hs - 1.5, hs + 3, sq);
     const f1 = nA.fbm(x / 48, y / 48, 3), f2 = nB.n2(x / 3.1, y / 3.1), f3 = nB.n2(x / 11 + 9, y / 11 - 4);
-    let h = HR * rimO + HI * rimI + 0.85 * f1 + 0.04 * f2 + 0.12 * f3;
-    const cl = nB.cell(x / 13 + 40, y / 13);                              // sparse casting pits
-    if (cl.id > 0.9) h -= 1.2 * (1 - sm(0.02, 0.17, cl.d));
-    Hh[k] = h;
-    Pt[k] = nA.fbm(x / 70 + 11, y / 70 + 7, 3);
+    Hh[k] = HR * rimO + HI * rimI + 0.85 * f1 + 0.04 * f2 + 0.12 * f3;
+    Pt[k] = 0.75 * nA.fbm(x / 70 + 11, y / 70 + 7, 3) + 0.45 * nB.fbm(x / 21 - 5, y / 21 + 13, 3);
     Ed[k] = sm(ro - 5, ro - 0.8, r) * Math.pow(Math.max(0, -uy), 0.6);    // the top edge of the rim catches the back-light
+  }
+  // a few casting pits (砂眼), scattered irregularly over the field
+  const rp = L.rng('s36pit' + seed);
+  for (let n = 0; n < 11; n++) {
+    const an = rp.range(0, L.TAU), rr = rp.range(HS + WI + 16, RC - WR - 8), px = c + Math.cos(an) * rr, py = c + Math.sin(an) * rr;
+    const pr = rp.range(1.3, 3.2), dep = pr * rp.range(0.35, 0.6), e = Math.ceil(pr) + 1;
+    for (let j = Math.floor(py - e); j <= Math.ceil(py + e); j++) for (let i = Math.floor(px - e); i <= Math.ceil(px + e); i++) {
+      if (i < 0 || j < 0 || i >= SZ || j >= SZ) continue;
+      const q = ((i + 0.5 - px) ** 2 + (j + 0.5 - py) ** 2) / (pr * pr);
+      if (q < 1) Hh[j * SZ + i] -= dep * (1 - q) * (1 - q);
+    }
   }
   const lut = new Uint8ClampedArray(512 * 3);
   const ramp = L.makeRamp([[0, '#04090a'], [0.17, '#3c4a4c'], [0.4, '#9aa5a6'], [0.6, '#dde3e2'], [0.74, '#f1f3f2'], [0.84, '#ffffff'], [1, '#ffffff']]);
@@ -49,8 +57,8 @@ function buildCoin(seed) {
   const lx = -0.42, ly = -0.6, lz = 0.68;                 // soft key from the upper left, in front
   const hx0 = -0.229, hy0 = -0.327, hz0 = 0.917;          // half vector for the specular lobe
   const tx = -0.573, ty = -0.819, tanE = 0.36;            // toward the light on the surface, for the cast shadows
-  const sheenOff = [-30, 22, -4][seed % 3];
-  const cwA = Math.atan2(ty, tx) + [0.22, -0.2, 0.02][seed % 3], gainK = [1.0, 0.965, 1.03][seed % 3];   // every coin hangs at a slightly different tilt
+  const sheenOff = [-30, 22, -4, 12, -18][seed % 5];
+  const cwA = Math.atan2(ty, tx) + [0.22, -0.2, 0.02, -0.1, 0.14][seed % 5], gainK = [1.0, 0.965, 1.03, 0.985, 1.015][seed % 5];   // every coin hangs at a slightly different tilt
   const img = new ImageData(SZ, SZ), d = img.data;
   const at = (x, y) => { const i = Math.round(x), j = Math.round(y); return i < 0 || j < 0 || i >= SZ || j >= SZ ? 0 : Hh[j * SZ + i]; };
   for (let j = 1; j < SZ - 1; j++) for (let i = 1; i < SZ - 1; i++) {
@@ -66,16 +74,28 @@ function buildCoin(seed) {
     const x = i + 0.5 - c, y = j + 0.5 - c;
     const sq = (x * 0.55 + y * 0.83 + sheenOff) / (0.46 * RC), sheen = Math.exp(-sq * sq);
     const cw = Math.cos(2 * (Math.atan2(y, x) - cwA));   // the two opposed bright fans of light a silvery disc throws back
-    const alb = (0.86 + 0.28 * hn + 0.09 * Pt[k]) * gainK;
+    const alb = (0.86 + 0.28 * hn + 0.15 * Pt[k] * (1 - 0.5 * hn)) * gainK;
     const lum = (0.22 + 0.72 * diff * (1 - 0.78 * shadow)) * alb + 0.55 * sp * (0.35 + 0.65 * hn) + 0.07 * hn
       - 0.2 * (y / RC) + 0.11 * cw * (1 - 0.45 * hn) + 0.08 * sheen + 0.45 * Ed[k];
-    const li = (L.clamp(lum / 1.35) * 511 | 0) * 3;
+    const li = (L.clamp(((lum - 0.62) * 1.14 + 0.635) / 1.35) * 511 | 0) * 3;
     const cool = Pt[k] < 0 ? -Pt[k] : 0;                 // the dimmer patches lean a little toward teal
     const o = k * 4;
-    d[o] = lut[li] - 16 * cool; d[o + 1] = lut[li + 1] - 3 * cool; d[o + 2] = lut[li + 2] + 2 * cool; d[o + 3] = Am[k] * 255;
+    d[o] = lut[li] - 24 * cool; d[o + 1] = lut[li + 1] - 6 * cool; d[o + 2] = lut[li + 2] + 3 * cool; d[o + 3] = Am[k] * 255;
   }
-  const cv = L.makeCanvas(SZ, SZ);
-  cv.getContext('2d').putImageData(img, 0, 0);
+  const cv = L.makeCanvas(SZ, SZ), g = cv.getContext('2d');
+  g.putImageData(img, 0, 0);
+  // hairline handling marks: a bright lip with a dark twin, only on the metal
+  const rs = L.rng('s36scr' + seed);
+  g.globalCompositeOperation = 'source-atop'; g.lineCap = 'round';
+  for (let n = 0; n < 16; n++) {
+    const an = rs.range(0, L.TAU), rr = RC * Math.sqrt(rs()) * 0.92, x0 = c + Math.cos(an) * rr, y0 = c + Math.sin(an) * rr;
+    const dir = rs.range(0, Math.PI), len = rs.range(14, 64), bend = rs.range(-6, 6), al = rs.range(0.1, 0.3);
+    const x1 = x0 + Math.cos(dir) * len, y1 = y0 + Math.sin(dir) * len, mx = (x0 + x1) / 2 - Math.sin(dir) * bend, my = (y0 + y1) / 2 + Math.cos(dir) * bend;
+    g.lineWidth = rs.range(0.5, 1.0);
+    g.strokeStyle = `rgba(60,74,76,${al * 0.8})`; g.beginPath(); g.moveTo(x0 + 0.7, y0 + 0.8); g.quadraticCurveTo(mx + 0.7, my + 0.8, x1 + 0.7, y1 + 0.8); g.stroke();
+    g.strokeStyle = `rgba(255,255,255,${al})`; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(mx, my, x1, y1); g.stroke();
+  }
+  g.globalCompositeOperation = 'source-over';
   return cv;
 }
 
@@ -101,7 +121,7 @@ function buildAwns() {
 function coinList(a, dr, rc, off, seed) {
   const dth = 2 * Math.asin((rc - 0.4) / (a.R + dr));
   const n = Math.ceil(a.span(PAD + rc + 90) / dth) + 1, r = L.rng(seed), out = [];
-  for (let i = -n; i <= n; i++) out.push({ th: (i + off) * dth, v: r.int(0, 2), tw: r.range(-0.03, 0.03) });
+  for (let i = -n; i <= n; i++) out.push({ th: (i + off) * dth, v: (((i * 2) % 5) + 5) % 5, tw: r.range(-0.03, 0.03) });
   return out;
 }
 
@@ -109,7 +129,7 @@ function coinList(a, dr, rc, off, seed) {
 function genFilaments(env, coins) {
   const a = env.arc, r = L.rng('s36fil'), nz = L.makeNoise('s36tuft');
   const sharp = [], soft = [];
-  const bumps = [[-150, 260, 130], [40, 210, 112], [288, 290, 120], [520, 130, 90], [1410, 150, 92], [1640, 300, 124], [1885, 220, 115], [2070, 260, 130]];
+  const bumps = [[-150, 270, 130], [40, 230, 112], [288, 335, 120], [520, 130, 90], [1410, 150, 92], [1640, 355, 124], [1885, 240, 115], [2070, 270, 130]];
   const envLen = (x) => {
     const side = sm(325, 545, Math.abs(x - a.cx));
     let e = 22 + side * (120 + 80 * (0.5 + 0.5 * nz.fbm(x / 140, 3.7, 2)));
@@ -139,7 +159,7 @@ function genFilaments(env, coins) {
   const tuft = (t0, e0) => {
     const x0 = a.pt(t0, 0).x;
     const eT = e0 * r.range(0.55, 1.0), psiT = t0 * 1.15 + lean(x0) + r.gauss() * 0.11, kT = curl(x0) + r.gauss() * 0.00025;
-    const n = Math.round(4 + eT / 38);
+    const n = Math.round(5 + eT / 30);
     for (let i = 0; i < n; i++) {
       const off = r.gauss() * 15, q = a.pt(t0 + off / a.R, -2);
       const len = eT * (0.2 + 0.8 * Math.pow(r(), 1.15));
@@ -147,10 +167,10 @@ function genFilaments(env, coins) {
       sharp.push(mk(q.x, q.y, psi, kT + r.gauss() * 0.00025, len, 0.7 + 1.1 * r() * r() + len / 480, 0.35 + 0.65 * r()));
     }
     // out-of-focus barbs in front of and behind the sharp ones: broad, soft, tapering to a point
-    const nb = Math.round(eT / 85 + r() * 0.8);
+    const nb = Math.round(eT / 105 + r() * 0.7);
     for (let i = 0; i < nb; i++) {
       const off = r.gauss() * 17, q = a.pt(t0 + off / a.R, 0);
-      const f = mk(q.x, q.y, psiT + off * 0.0045 + r.gauss() * 0.07, kT + r.gauss() * 0.0003, eT * r.range(0.5, 1.05), r.range(4, 9), r.range(0.26, 0.52));
+      const f = mk(q.x, q.y, psiT + off * 0.0045 + r.gauss() * 0.07, kT + r.gauss() * 0.0003, eT * r.range(0.45, 1.0), r.range(4, 8.5), r.range(0.2, 0.42));
       f.soft = true; soft.push(f);
     }
   };
@@ -163,8 +183,8 @@ function genFilaments(env, coins) {
 function drawFil(g, f) {
   const P = f.pts, n = P.length; if (n < 2) return;
   const gr = g.createLinearGradient(P[0][0], P[0][1], P[n - 1][0], P[n - 1][1]);
-  gr.addColorStop(0, `rgba(255,255,255,${f.al * (f.soft ? 0.5 : 1)})`);
-  if (f.soft) gr.addColorStop(0.14, `rgba(255,255,255,${f.al})`);
+  gr.addColorStop(0, `rgba(255,255,255,${f.al * (f.soft ? 0.22 : 1)})`);
+  if (f.soft) gr.addColorStop(0.2, `rgba(255,255,255,${f.al})`);
   gr.addColorStop(0.45, `rgba(241,243,242,${f.al * 0.8})`);
   gr.addColorStop(0.8, `rgba(190,200,200,${f.al * 0.36})`);
   gr.addColorStop(1, 'rgba(154,165,166,0)');
@@ -227,6 +247,26 @@ function buildMain(env, sprites, awn, coins, filAll) {
   g.globalAlpha = 0.3; g.drawImage(b1, -PAD, -PAD);
   g.globalAlpha = 0.5; g.drawImage(b2, -PAD, -PAD);
   g.restore();
+  g.save(); g.globalCompositeOperation = 'lighter'; g.lineCap = 'butt';
+  g.shadowColor = 'rgba(236,244,244,0.9)'; g.shadowBlur = 9;
+  g.strokeStyle = 'rgba(255,255,255,0.5)'; g.lineWidth = 3.2; a.stroke(g, -0.6);
+  g.shadowBlur = 0; g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1.6; a.stroke(g, 0.6);
+  g.restore();
+  // pin-point glints where the rims turn to the light
+  const rg = L.rng('s36glint');
+  g.save(); g.globalCompositeOperation = 'lighter';
+  for (const cn of coins) {
+    const k = rg.int(1, 2);
+    for (let i = 0; i < k; i++) {
+      const an = Math.atan2(-0.819, -0.573) + rg.range(-0.75, 0.75), rr = rg.chance(0.7) ? RC - 4.5 : HS + WI + 1, q = rg.range(0.45, 1), gr = rg.range(9, 20);
+      a.at(g, cn.th, DRC, () => {
+        const x = Math.cos(an) * rr, y = Math.sin(an) * rr;
+        g.fillStyle = L.radial(g, x, y, 0, gr, [[0, `rgba(255,255,255,${0.95 * q})`], [0.16, `rgba(241,246,246,${0.5 * q})`], [0.5, `rgba(200,214,216,${0.1 * q})`], [1, 'rgba(154,165,166,0)']]);
+        g.fillRect(x - gr, y - gr, gr * 2, gr * 2);
+      });
+    }
+  }
+  g.restore();
   return layer;
 }
 
@@ -255,7 +295,7 @@ function buildBack(env, sprites, awn) {
   return L.makeLayer(PAD, (g) => {
     g.fillStyle = '#030303'; full(g);
     g.drawImage(farB, -PAD, -PAD);
-    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.35; g.drawImage(farB, -PAD, -PAD); g.globalAlpha = 1;
+    g.globalCompositeOperation = 'screen'; g.globalAlpha = 0.55; g.drawImage(farB, -PAD, -PAD); g.globalAlpha = 1;
     // the mist: out-of-focus down, brightest at the bottom, nothing left by the height of the square holes
     const mist = L.makeLayer(PAD, (m) => {
       m.drawImage(streaks, -PAD, -PAD);
@@ -264,7 +304,7 @@ function buildBack(env, sprites, awn) {
       full(m);
     });
     g.drawImage(mist, -PAD, -PAD);
-    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 680, a.R - 300, [[0, 'rgba(241,243,242,0.85)'], [0.5, 'rgba(214,222,222,0.4)'], [1, 'rgba(154,165,166,0)']]); full(g);
+    g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 690, a.R - 295, [[0, 'rgba(241,243,242,0.95)'], [0.45, 'rgba(221,228,228,0.55)'], [1, 'rgba(154,165,166,0)']]); full(g);
     g.globalCompositeOperation = 'source-over';
   });
 }
@@ -287,7 +327,7 @@ export default {
   tone: 'light',
   async init(env) {
     const a = env.arc;
-    const sprites = [1, 2, 3].map(buildCoin), awn = buildAwns();
+    const sprites = [1, 2, 3, 4, 5].map(buildCoin), awn = buildAwns();
     const coins = coinList(a, DRC, RC, 0, 's36row1');
     const fil = genFilaments(env, coins);
     const filAll = L.makeLayer(PAD, (g) => { g.globalCompositeOperation = 'lighter'; for (const f of fil.sharp) drawFil(g, f); });
@@ -301,7 +341,7 @@ export default {
       g.drawImage(maskedCopy(L.blurred(filAll, b1), env, 60, 380, M1, g1), 0, 0);
       g.drawImage(maskedCopy(L.blurred(filAll, b2), env, 200, 380, M2, g2), 0, 0);
       g.drawImage(L.blurred(filSoft, b3), 0, 0);
-      g.globalAlpha = 0.3; g.drawImage(haze, 0, 0);
+      g.globalAlpha = 0.15; g.drawImage(haze, 0, 0);
       c._pad = PAD;
       return c;
     };
@@ -310,8 +350,8 @@ export default {
     S = {
       back: await bake(back, a.crestY + RC, H + PAD),
       main: await bake(main, a.crestY - 260, H + PAD),
-      tipsA: await bake(tips(1.2, 2.8, 4.2, 1.15, 1.5), -PAD, yEdge + 40),
-      tipsB: await bake(tips(2.2, 4.6, 6.2, 1.25, 1.8), -PAD, yEdge + 40),
+      tipsA: await bake(tips(1.1, 2.2, 4.0, 1.15, 1.6), -PAD, yEdge + 40),
+      tipsB: await bake(tips(2.0, 3.8, 6.0, 1.25, 1.9), -PAD, yEdge + 40),
     };
   },
   draw(ctx, env, p) {
