@@ -51,11 +51,12 @@ let S = null;
 
 // ── colour by distance from the rim (px). Task palette: 月白 #e6f3ef · 天青 #8fc9c4 · 青蓝 #3f7f9a · 夜蓝 #0d1b3a · #050a16 ──
 const FAR = [[495, '#0d1b3a'], [650, '#0a152e'], [850, '#070f22'], [1150, '#050a16'], [2800, '#04080f']];
-const SKY_BRIGHT = [[0, '#bde2dd'], [5, '#b1dcd7'], [14, '#a6d6d1'], [30, '#9ad0cb'], [54, '#8fc9c4'], [90, '#7bc1c3'], [134, '#63b1be'],
-  [182, '#4f9cb2'], [236, '#3f7f9a'], [300, '#2e6992'], [370, '#205080'], [444, '#173b6a'], [520, '#122b53'], [600, '#0e2042'], [720, '#0a152e'], [850, '#070f22']];
+// (the stops are spaced so that the fall-off never changes pace abruptly: a knee in it would read as the edge of a band)
+const SKY_BRIGHT = [[0, '#bde2dd'], [5, '#b1dcd7'], [14, '#a6d6d1'], [30, '#9ad0cb'], [54, '#8fc9c4'], [87, '#7bc1c3'], [134, '#63b1be'],
+  [182, '#4f9cb2'], [240, '#3f7f9a'], [292, '#2e6992'], [362, '#205080'], [434, '#173b6a'], [508, '#122b53'], [586, '#0e2042'], [707, '#0a152e'], [837, '#070f22']];
 const SKY_DIM = [[0, '#5a9cae'], [2.5, '#468aa0'], [9, '#3f7f9a'], [26, '#35708f'], [58, '#2a5d82'], [105, '#204b74'], [165, '#183b66'], [240, '#132e58'],
   [320, '#10254b'], [422, '#0e1f41'], ...FAR];
-const DEEP = [[300, '#081327'], [430, '#060d1c'], [620, '#050a16'], [1400, '#04080f']];
+const DEEP = [[300, '#071123'], [430, '#060e1e'], [620, '#050b18'], [1400, '#04080f']];
 // under the lip the light drops fast (the wall is in shadow) and then lingers as a long, low glow inside the glaze
 const BODY_BRIGHT = [[0, '#c4e5e0'], [1.2, '#aad7d2'], [2.6, '#8fc9c4'], [4.5, '#6aaeb6'], [7, '#4f93a6'], [10.5, '#3d7b96'], [16, '#2e6587'], [25, '#225276'],
   [38, '#194064'], [56, '#123152'], [80, '#0d2542'], [112, '#0a1c35'], [155, '#09172d'], [215, '#081428'], ...DEEP];
@@ -65,7 +66,7 @@ const MOON = [233, 245, 241];    // the lip highlight (月白)
 
 const sstep = (a, b, v) => { const t = v <= a ? 0 : v >= b ? 1 : (v - a) / (b - a); return t * t * (3 - 2 * t); };
 
-/** colour ramp through [distance, css colour] stops as one smooth curve (monotone cubic: no kink at a stop, no overshoot between two) */
+/** colour ramp through [distance, css colour] stops as one smooth curve (cubic, tangents from the three nearest stops and held monotone: no kink at a stop, no flat spot or overshoot between two) */
 function smoothRamp(stops) {
   const xs = stops.map((st) => st[0]), cs = stops.map((st) => L.parseColor(st[1])), n = xs.length;
   const ms = [0, 1, 2].map((ch) => {
@@ -74,7 +75,8 @@ function smoothRamp(stops) {
     m[0] = d[0]; m[n - 1] = d[n - 2];
     for (let i = 1; i < n - 1; i++) {
       const h0 = xs[i] - xs[i - 1], h1 = xs[i + 1] - xs[i];
-      m[i] = d[i - 1] * d[i] <= 0 ? 0 : (3 * (h0 + h1)) / ((2 * h1 + h0) / d[i - 1] + (h1 + 2 * h0) / d[i]);
+      const t = (h1 * d[i - 1] + h0 * d[i]) / (h0 + h1), lim = 3 * Math.min(Math.abs(d[i - 1]), Math.abs(d[i]));
+      m[i] = d[i - 1] * d[i] <= 0 ? 0 : Math.sign(t) * Math.min(Math.abs(t), lim);
     }
     return m;
   });
@@ -360,7 +362,7 @@ function buildFields(a) {
       sg.fillStyle = `rgb(0,${Math.round(255 * v * c.k)},0)`; sg.fill();
     }
     // a bold crack that crosses the lip nicks the highlight there
-    const dep = 0.5 * Math.pow(L.clamp((c.k - 0.5) / 0.5), 1.2);
+    const dep = 0.36 * Math.pow(L.clamp((c.k - 0.5) / 0.5), 1.2);
     if (dep > 0.01) for (let i = 1; i < n; i++) {
       if ((pts[i - 1].V - 2) * (pts[i].V - 2) >= 0) continue;
       const U = L.lerp(pts[i - 1].U, pts[i].U, (2 - pts[i - 1].V) / (pts[i].V - pts[i - 1].V)), sw = 1 + 0.7 * sigmaOf(U), dd = dep * Math.pow(1.35 / sw, 0.7);
@@ -393,8 +395,8 @@ function buildFields(a) {
       const glow = s0[q + 1] + (s2[q + 1] - s0[q + 1]) * w2;
       const fu = (U + UMAX) / VU, iu = fu | 0, tu = fu - iu, fv = surfV(d) / VU, iv = fv | 0, tv = fv - iv, k0 = iv * UN + iu;
       const see = (vis[k0] + (vis[k0 + 1] - vis[k0]) * tu) * (1 - tv) + (vis[k0 + UN] + (vis[k0 + UN + 1] - vis[k0 + UN]) * tu) * tv;
-      // seen edge-on where the lip rolls away, a crack all but disappears
-      const e = 1 - (d < RL ? d : RL) / RL, fore = Math.min(1, 2.2 * Math.sqrt(1 - e * e)) * sstep(0.5, 3, d);
+      // seen edge-on where the lip rolls away, a crack all but disappears (and the highlight on the lip keeps a clean lower edge)
+      const e = 1 - (d < RL ? d : RL) / RL, fore = Math.min(1, 2.2 * Math.sqrt(1 - e * e)) * sstep(1, 12, d);
       // the brand line sits in the dark below the crest: the crackle is fainter still there
       const calm = 1 - 0.62 * by * sstep(520, 640, x) * (1 - sstep(1280, 1400, x));
       lit[k] = ((0.9 * line + 0.5 * glow) / 255 * see + TONE * (tone - 128) / 112 * (0.55 + 0.45 * see)) * fore * calm;
@@ -486,7 +488,7 @@ function paintLip(a, F, T) {
       const t = (dk + HR) * Q, i0 = t | 0, f = t - i0;
       const ha = A[i0] + (A[i0 + 1] - A[i0]) * f, hb = B[i0] + (B[i0 + 1] - B[i0]) * f;
       let al = (ha + (hb - ha) * lf) * inten[iu];
-      al *= 1 - F.nick[iu] * (d > 0 ? 1 : 0.4);   // a bold crack crossing the lip nicks the highlight
+      al *= 1 - F.nick[iu] * (d > 0 ? 1 - sstep(2.5, 7, d) : 0.4);   // a bold crack crossing the lip nicks the bright core of the highlight
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n1 = (s >>> 0) / 4294967296;
       s ^= s << 13; s ^= s >>> 17; s ^= s << 5; const n2 = (s >>> 0) / 4294967296;
       o8[o + 3] = al * 255 + (n1 + n2 - 1) * 0.8 + 0.5;

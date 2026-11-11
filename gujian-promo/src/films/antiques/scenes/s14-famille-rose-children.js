@@ -1,41 +1,47 @@
 // s14 — 粉彩婴戏图. Macro of the glazed wall of a famille-rose (粉彩) vessel: the arc is the upper edge of a painted
-// green slope; on it just TWO big children at play — one astride a bamboo hobby-horse (竹马), one carrying a lantern and
-// looking back — brush line over soft enamel washes on a milk-white ground, close enough that the frame crops their hair.
-// Below the slope: bare glaze with a window's reflection lying across it, and pin-holes.
+// green bank; behind it two children at play, drawn the way a Qing enameller drew them — one astride a bamboo horse (竹马),
+// one holding up a round lantern on a stick, the lantern hanging between them over the crest. Milk-white glaze all round,
+// a window mirrored in the empty upper left, a long soft light lying across the bare wall under the bank.
 //
-// Everything painted lives on ONE transparent "paint" layer (drawn painter's-order: every patch of enamel is a filled
-// shape with pooled colour at its rim and along its folds, then its ink line). The layer is then given the slight
-// relief of over-glaze enamel (bumpLight on its own luminance/alpha) and dropped onto the porcelain with a hair of shadow.
-// In draw() the painted surface turns about the arc's centre while the light (shading + reflection) stays put.
+// How it is painted (everything at full resolution, nothing is scaled up):
+//  · every patch of enamel is a filled shape: a pale 玻璃白-bodied base, colour washed in from one side of each fold
+//    (洗染: crisp at the fold, fading away from it), pooled a little inside the rim that faces away from the light,
+//    faint drags of the brush, then its fine line (勾线: 1.3–2 px, set down with a touch of pressure, lifted to a point);
+//  · alongside the colour a HEIGHT map is painted (how far each enamel stands proud of the glaze). It is lit once from the
+//    upper left: a thin glint just inside the edges that face the light, a hair of shadow beyond the edges that do not;
+//  · in draw() the painted wall turns about the arc's centre while the light (falloff + reflections) stays where it is.
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
 const PAD = 200;
 let S = null;
 let SEED = 0;
-const LW = 2.9;   // contour weight in a child's own units (the children are drawn at about ×2.1)
+let G = null, HG = null;   // the colour / height contexts being painted on (both in frame coordinates)
+let RX = 0, RY = 0;        // frame position of the region those contexts cover
+let KS = 1, MIR = 1;       // scale and mirroring of the figure being painted (line weights and blurs are given in final pixels)
 
-const C = {
-  cream: '#f5efe0', pink: '#e9a3a8', green: '#8fbf7a', ochre: '#a8643a', ink: '#2b2620',
-  sepia: '#6b3a26', flesh: '#fdf0e4', fleshD: '#eeb09c', rouge: '#d2475f', hair: '#27211d',
-};
-// enamel families: base = the white-bodied wash, deep = colour pooled in folds and rims, light = 玻璃白 showing through
-const ST = {
-  pink: { base: '#ee9fad', deep: '#c43c66', light: '#fff2ef', line: '#5a2630' },
-  rouge: { base: '#e77f93', deep: '#ae2748', light: '#fbd3d5', line: '#4e1c28' },
-  green: { base: '#97ca7c', deep: '#35803f', light: '#edf8d9', line: '#253d27' },
-  yellow: { base: '#f5d560', deep: '#cd841c', light: '#fffadc', line: '#5a3a18' },
-  ochre: { base: '#c8824a', deep: '#7c3c1a', light: '#f3d3ae', line: '#3f2415' },
-  white: { base: '#fbf3e4', deep: '#d59d8a', light: '#ffffff', line: '#4a3026' },
-  blue: { base: '#a6cce0', deep: '#3f7ba2', light: '#eef6f8', line: '#27384a' },
-  black: { base: '#3b332c', deep: '#120f0c', light: '#7a6e63', line: '#1c1714' },
+const C = { cream: '#f5efe0', ink: '#2b2620' };
+// enamel families: lt = 玻璃白 showing through, base = the wash, mid / deep = colour gathered in folds and rims, line = its drawing colour
+const F = {
+  pink: { lt: '#fef0ec', base: '#f5c0c5', mid: '#e98fa2', deep: '#cf5677', line: '#8a2b46' },
+  rouge: { lt: '#fde0dc', base: '#ec8497', mid: '#d5506f', deep: '#b22c50', line: '#741c36' },
+  red: { lt: '#f9c4b4', base: '#d9553e', mid: '#c23c2b', deep: '#9a2518', line: '#6e1c12' },
+  green: { lt: '#f0f8de', base: '#bfe0a6', mid: '#8cc27a', deep: '#559a56', line: '#2b5a33' },
+  yellow: { lt: '#fffadf', base: '#f8e493', mid: '#eec95a', deep: '#d39c2e', line: '#7c5119' },
+  blue: { lt: '#f0f8f9', base: '#b9d9e5', mid: '#86b7d0', deep: '#5289ad', line: '#2c4b66' },
+  ochre: { lt: '#f6e0be', base: '#dba562', mid: '#bf7a3c', deep: '#96552a', line: '#5a3016' },
+  flesh: { lt: '#fffdf8', base: '#fff6ec', mid: '#f6c4bb', deep: '#ec9494', line: '#9a4a36' },
+  bamboo: { lt: '#f0f7d6', base: '#b6d892', mid: '#86b96d', deep: '#4f8d4c', line: '#2c5a30' },
+  ink: { lt: '#77716c', base: '#2b2620', mid: '#1a1613', deep: '#0b0908', line: '#16120f' },
 };
 
 // ───────────────────────── small geometry helpers ─────────────────────────
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
-const add = (a, b, s = 1) => [a[0] + b[0] * s, a[1] + b[1] * s];
 const nrm = (a) => { const m = Math.hypot(a[0], a[1]) || 1; return [a[0] / m, a[1] / m]; };
 const mixP = (a, b, t) => [L.lerp(a[0], b[0], t), L.lerp(a[1], b[1], t)];
+const xy = (p) => [p[0], p[1]];
+const ss = (e0, e1, v) => { const t = L.clamp((v - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
+const zc = (z) => { const v = Math.round(L.clamp(z) * 255); return `rgb(${v},${v},${v})`; };
 
 /** Catmull-Rom through pts (open or closed) → dense [[x, y, u]] where u is the control-point parameter */
 function cr(pts, closed = false, step = 5) {
@@ -57,14 +63,14 @@ function cr(pts, closed = false, step = 5) {
   if (!closed) out.push([pts[n - 1][0], pts[n - 1][1], n - 1]);
   return out;
 }
-/** straight-edged polygon → dense points (corners stay sharp when an ink stroke is run round it) */
-function dense(pts, closed = true, step = 6) {
+/** straight-edged polyline → dense points (corners stay sharp) */
+function dense(pts, closed = true, step = 5) {
   const out = [], n = pts.length, segs = closed ? n : n - 1;
   for (let i = 0; i < segs; i++) {
     const a = pts[i], b = pts[(i + 1) % n], m = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / step));
     for (let j = 0; j < m; j++) out.push(mixP(a, b, j / m));
   }
-  if (!closed) out.push(pts[n - 1]);
+  if (!closed) out.push(xy(pts[n - 1]));
   return out;
 }
 const ell = (cx, cy, rx, ry, n = 14, rot = 0) => {
@@ -77,26 +83,17 @@ const bbox = (pts) => {
   for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[0] > x1) x1 = p[0]; if (p[1] < y0) y0 = p[1]; if (p[1] > y1) y1 = p[1]; }
   return [x0, y0, x1, y1];
 };
-/** a closed contour drawn the way a brush draws it: in two or three pulls that swell, thin out, and do not quite meet */
-function contour(g, poly, lw, color) {
-  const n = poly.length, r = L.rng('s14o' + (SEED++));
-  if (n < 46) { ink(g, poly.concat([poly[0], poly[1]]), lw, { taper: [0.02, 0.05], color }); return; }
-  const parts = n > 120 ? 3 : 2, start = r.int(0, n - 1), cuts = [];
-  for (let k = 0; k <= parts; k++) cuts.push(start + Math.round((n * k) / parts + (k && k < parts ? r.range(-0.08, 0.08) * n : 0)));
-  for (let k = 0; k < parts; k++) {
-    const i0 = cuts[k] + r.int(0, 2), i1 = cuts[k + 1] + r.int(-2, 3), seg = [];
-    for (let i = i0; i <= i1; i++) seg.push(poly[((i % n) + n) % n]);
-    if (seg.length > 2) ink(g, seg, lw * r.range(0.86, 1.2), { taper: [r.range(0.03, 0.08), r.range(0.06, 0.16)], color });
-  }
+function addLine(g, pts) { for (let i = 0; i < pts.length; i++) { if (i) g.lineTo(pts[i][0], pts[i][1]); else g.moveTo(pts[i][0], pts[i][1]); } }
+function addPoly(g, pts) { addLine(g, pts); g.closePath(); }
+function trace(g, pts, close) { g.beginPath(); addLine(g, pts); if (close) g.closePath(); }
+/** run fn in a moved / turned frame on BOTH the colour and the height context */
+function xf(x, y, ang, fn) {
+  for (const c of [G, HG]) { c.save(); c.translate(x, y); if (ang) c.rotate(ang); }
+  fn();
+  for (const c of [G, HG]) c.restore();
 }
-function trace(g, pts, close) {
-  g.beginPath();
-  for (let i = 0; i < pts.length; i++) { if (i) g.lineTo(pts[i][0], pts[i][1]); else g.moveTo(pts[i][0], pts[i][1]); }
-  if (close) g.closePath();
-}
-/** a fine brush line: pressure swell, tapered lift-off */
+/** the hand is not a ruler: push a polyline slowly off its true course */
 const SHK = L.makeNoise('s14shake');
-/** the hand is not a ruler: push a polyline slowly off its true course (so line and colour never quite register) */
 function shake(pts, amp, id) {
   let t = 0; const out = [];
   for (let i = 0; i < pts.length; i++) {
@@ -105,16 +102,8 @@ function shake(pts, amp, id) {
   }
   return out;
 }
-function ink(g, pts, w = LW, o = {}) {
-  const id = SEED++, amp = o.shake === undefined ? 1.5 : o.shake;
-  if (amp) pts = shake(pts, amp, id);
-  L.inkStroke(g, pts, {
-    width: w, color: o.color || C.ink, seed: 's14i' + id, taper: o.taper || [0.1, 0.3],
-    wobble: o.wobble === undefined ? 0.42 : o.wobble, alpha: o.alpha === undefined ? 0.88 : o.alpha, smoothStep: 3,
-  });
-}
 /** a limb / ribbon / stick: polygon of varying width round a smooth centre line */
-function tube(center, widths, step = 5) {
+function tube(center, widths, step = 4) {
   const c = cr(center, false, step), n = c.length, Lf = [], Rt = [];
   for (let i = 0; i < n; i++) {
     const a = c[Math.max(0, i - 1)], b = c[Math.min(n - 1, i + 1)];
@@ -123,470 +112,649 @@ function tube(center, widths, step = 5) {
     const hw = L.lerp(widths[k], widths[k + 1], L.smooth(t)) / 2;
     Lf.push([c[i][0] + nx * hw, c[i][1] + ny * hw]); Rt.push([c[i][0] - nx * hw, c[i][1] - ny * hw]);
   }
-  return { poly: Lf.concat(Rt.slice().reverse()), left: Lf, right: Rt, c };
+  return { poly: Lf.concat(Rt.slice().reverse()), left: Lf, right: Rt, c: c.map(xy) };
 }
-/**
- * One patch of enamel. poly = dense closed outline.
- * o: base (the wash), light + lightCol (玻璃白 showing through, soft streaks), deep (colour pooled at the rim and in the folds),
- *    wash (0..1: the patch is shaded from 玻璃白 at its upper left to pooled colour at its lower right — the 粉彩 look),
- *    streak {dir, seed} (broad brush drags of the wash), folds (polylines: wash + line), ew (wash width scale), edge (rim strength),
- *    lw (line width), outline, inkColor, pattern(g) (clipped)
- */
-function piece(g, poly, o = {}) {
-  const { base, deep = null, light = null, lightCol = '#ffffff', folds = [], ew = 1, edge = 1, lw = LW, outline = true, inkColor = C.ink, pattern = null,
-    foldInk = true, foldLw = lw * 0.74, foldAlpha = 0.88, wash = 0, streak = null } = o;
-  g.save();
-  const mr = L.rng('s14m' + (SEED++)), mis = o.mis === undefined ? 1 : o.mis;
-  g.translate(mr.range(-1.7, 1.7) * mis, mr.range(-1.7, 1.7) * mis);          // the colour never sits exactly inside its line
-  trace(g, poly, true); g.fillStyle = base; g.fill(); g.clip();
-  g.lineJoin = 'round'; g.lineCap = 'round';
-  if (wash && deep) {
-    const [x0, y0, x1, y1] = bbox(poly), w = x1 - x0, h = y1 - y0, m = Math.max(w, h);
-    g.fillStyle = L.radial(g, x0 + w * 0.34, y0 + h * 0.32, 0, m * 0.72, [[0, L.rgba(lightCol, 0.7 * wash)], [0.5, L.rgba(lightCol, 0.26 * wash)], [1, L.rgba(lightCol, 0)]]);
-    g.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
-    g.fillStyle = L.radial(g, x0 + w * 0.8, y0 + h * 0.94, 0, m * 0.78, [[0, L.rgba(deep, 0.4 * wash)], [0.55, L.rgba(deep, 0.13 * wash)], [1, L.rgba(deep, 0)]]);
-    g.fillRect(x0 - 2, y0 - 2, w + 4, h + 4);
+/** the band between two offsets on ONE side of a polyline, swelling from nothing and dying away again: the footprint of a graded wash */
+function wedge(p, side, w0, w1) {
+  const n = p.length, a = [], b = [];
+  for (let i = 0; i < n; i++) {
+    const q0 = p[Math.max(0, i - 1)], q1 = p[Math.min(n - 1, i + 1)];
+    let nx = -(q1[1] - q0[1]), ny = q1[0] - q0[0]; const m = Math.hypot(nx, ny) || 1; nx = (nx / m) * side; ny = (ny / m) * side;
+    const pr = Math.pow(Math.sin(Math.PI * L.clamp(0.05 + 0.9 * (i / (n - 1)))), 0.7), w = w0 + (w1 - w0) * pr;
+    a.push([p[i][0] + nx * w0, p[i][1] + ny * w0]); b.push([p[i][0] + nx * w, p[i][1] + ny * w]);
   }
-  if (streak && deep) {
-    // the wash was dragged on with a soft brush: broad, barely darker / lighter bands running one way
-    const [x0, y0, x1, y1] = bbox(poly), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, m = Math.hypot(x1 - x0, y1 - y0) / 2;
-    const r = L.rng(streak.seed), d = nrm(streak.dir), q = [-d[1], d[0]];
-    for (let i = 0; i < (streak.n || 11); i++) {
-      const off = r.range(-m, m) * 0.8, s0 = r.range(-m, -m * 0.1), s1 = s0 + r.range(m * 0.5, m * 1.4), bend = r.range(-0.14, 0.14) * m;
-      const a = [cx + q[0] * off + d[0] * s0, cy + q[1] * off + d[1] * s0], b = [cx + q[0] * off + d[0] * s1, cy + q[1] * off + d[1] * s1];
-      g.strokeStyle = r.chance(0.55) ? deep : lightCol; g.globalAlpha = r.range(0.05, 0.12); g.lineWidth = r.range(7, 24);
-      g.beginPath(); g.moveTo(a[0], a[1]); g.quadraticCurveTo((a[0] + b[0]) / 2 + q[0] * bend, (a[1] + b[1]) / 2 + q[1] * bend, b[0], b[1]); g.stroke();
-    }
-    g.globalAlpha = 1;
-  }
-  if (light) {
-    g.strokeStyle = lightCol;
-    for (const lp of light) for (const [w, al] of [[48, 0.13], [32, 0.2], [18, 0.26], [8, 0.22]]) { g.globalAlpha = al; g.lineWidth = w * ew; trace(g, lp, false); g.stroke(); }
-  }
-  if (deep) {
-    g.strokeStyle = deep;
-    // colour pools at the rim — more on the side away from the light
-    g.save(); g.translate(-3.5 * ew, -4.5 * ew);
-    for (const [w, al] of [[46, 0.08], [30, 0.11], [16, 0.16], [7, 0.2]]) { g.globalAlpha = al * edge; g.lineWidth = w * ew; trace(g, poly, true); g.stroke(); }
-    g.restore();
-    for (const f of folds) {
-      const fp = cr(f, false, 6);
-      for (const [w, al] of [[38, 0.1], [24, 0.15], [13, 0.22], [5, 0.28]]) { g.globalAlpha = al; g.lineWidth = w * ew; trace(g, fp, false); g.stroke(); }
-    }
-  }
-  g.globalAlpha = 1;
-  if (pattern) pattern(g);
-  g.restore();
-  if (outline) contour(g, poly, lw, inkColor);
-  if (foldInk) for (const f of folds) ink(g, f, foldLw, { taper: [0.06, 0.55], color: inkColor, alpha: foldAlpha });
+  return a.concat(b.reverse());
 }
-/** short creases on the inside of a bent limb */
-function creases(g, t, a, b, c, col, lw = 2.2) {
-  const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-  if (Math.abs(cross) < 400) return;
-  const inn = cross > 0 ? t.left : t.right, out = cross > 0 ? t.right : t.left, n = t.c.length;
-  let m = 0; for (let i = 0; i < n; i++) if (t.c[i][2] <= 1) m = i;
-  for (const [o, f] of [[-2, 0.55], [2, 0.42]]) {
-    const i0 = L.clamp(m + o, 0, n - 1) | 0, i1 = L.clamp(m + o + (o < 0 ? -3 : 3), 0, n - 1) | 0;
-    ink(g, [inn[i0], mixP(inn[i0], out[i1], f * 0.5), mixP(inn[i1], out[i1], f)], lw, { taper: [0.05, 0.65], color: col });
-  }
+function bloomAt(g, x, y, r, col, al) {
+  g.fillStyle = L.radial(g, x, y, 0, r, [[0, L.rgba(col, al)], [0.25, L.rgba(col, al * 0.86)], [0.5, L.rgba(col, al * 0.5)], [0.75, L.rgba(col, al * 0.15)], [1, L.rgba(col, 0)]]);
+  g.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
-// ───────────────────────── the children ─────────────────────────
-function hand(g, c, ang, open = false) {
-  g.save(); g.translate(c[0], c[1]); g.rotate(ang); g.scale(1.22, 1.22);
-  if (open) {
-    // a plump open palm: stubby fingers together, the thumb standing off
-    piece(g, cr([[-12, 10], [-13, -8], [-3, -13], [3, -22], [10, -26], [15, -20], [13, -12], [24, -11], [31, -5], [32, 3], [27, 10], [14, 13], [0, 13]], true, 3), { base: C.flesh, deep: C.fleshD, ew: 0.4, lw: 2.3, inkColor: C.sepia });
-    ink(g, [[31, -1], [25, -1.5], [20, -2]], 1.5, { color: C.sepia, taper: [0.02, 0.5] });
-    ink(g, [[30, 4.5], [25, 4], [20, 3.5]], 1.5, { color: C.sepia, taper: [0.02, 0.5] });
-    ink(g, [[27, -7], [23, -6.5], [19, -6]], 1.4, { color: C.sepia, taper: [0.02, 0.5], alpha: 0.75 });
-    ink(g, [[4, -12], [8, -8], [9, -3]], 1.4, { color: C.sepia, alpha: 0.7 });
-  } else {
-    piece(g, cr([[-12, -10], [2, -13], [14, -8], [18, 2], [12, 11], [0, 13], [-12, 10]], true, 3), { base: C.flesh, deep: C.fleshD, ew: 0.4, lw: 2.3, inkColor: C.sepia });
-    ink(g, [[7, -9], [11, -2], [8, 6]], 1.6, { color: C.sepia });
-    ink(g, [[1, -11], [5, -3], [2, 5]], 1.5, { color: C.sepia, alpha: 0.7 });
+// ───────────────────────── the enameller's two tools: the line and the wash ─────────────────────────
+/**
+ * 勾线 — one fine brush line. px = its weight in final pixels. The brush is set down with a touch of pressure (起笔),
+ * runs even, and is lifted to a point (收笔). o.spindle: fine at both ends, fullest in the middle (lids, brows).
+ * o: alpha, head, tin / tout (px of set-down / lift-off), tail, shake, z (height it adds)
+ */
+function line(pts, px, color, o = {}) {
+  const id = SEED++;
+  let p = (pts.length > 2 ? cr(pts, false, 2.5) : dense(pts, false, 2.5)).map(xy);
+  const amp = o.shake === undefined ? 0.45 : o.shake;
+  if (amp) p = shake(p, amp, id);
+  const n = p.length; if (n < 2) return;
+  const s = new Array(n); s[0] = 0;
+  for (let i = 1; i < n; i++) s[i] = s[i - 1] + Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+  const len = s[n - 1] || 1, w0 = px / KS;
+  const tin = Math.min(len * 0.3, (o.tin === undefined ? 6 : o.tin) / KS), tout = Math.min(len * 0.6, (o.tout === undefined ? 24 : o.tout) / KS);
+  const head = o.head === undefined ? 1.3 : o.head, tail = o.tail === undefined ? Math.max(0.3, 0.95 / px) : o.tail;
+  const Lf = [], Rt = [];
+  for (let i = 0; i < n; i++) {
+    const a = p[Math.max(0, i - 1)], b = p[Math.min(n - 1, i + 1)];
+    let nx = -(b[1] - a[1]), ny = b[0] - a[0]; const m = Math.hypot(nx, ny) || 1; nx /= m; ny /= m;
+    const d0 = s[i], d1 = len - s[i];
+    let wv = 1 + 0.09 * SHK.n2((s[i] * KS) / 34, id * 5.3);                      // the pressure breathes a little
+    if (o.spindle) wv *= 0.42 + 0.58 * Math.pow(Math.sin(Math.PI * L.clamp(d0 / len)), 0.7);
+    else {
+      if (tin > 0 && d0 < tin * 2) wv *= L.lerp(head, 1, L.smooth(d0 / (tin * 2)));
+      if (tout > 0 && d1 < tout) wv *= L.lerp(tail, 1, Math.pow(d1 / tout, 0.7));
+    }
+    const hw = (w0 * wv) / 2;
+    Lf.push([p[i][0] + nx * hw, p[i][1] + ny * hw]); Rt.push([p[i][0] - nx * hw, p[i][1] - ny * hw]);
+  }
+  const g = G, ch = Math.hypot(p[n - 1][0] - p[0][0], p[n - 1][1] - p[0][1]);
+  g.save(); g.globalAlpha *= o.alpha === undefined ? 0.9 : o.alpha;
+  // the ink runs a little thinner toward the end of the pull
+  g.fillStyle = ch > 8 / KS ? L.linear(g, p[0][0], p[0][1], p[n - 1][0], p[n - 1][1], [[0, color], [0.55, L.rgba(color, 0.92)], [1, L.rgba(color, 0.7)]]) : color;
+  trace(g, Lf.concat(Rt.reverse()), true); g.fill();
+  if (!o.spindle && head >= 1) { g.beginPath(); g.arc(p[0][0], p[0][1], (w0 * head) / 2, 0, L.TAU); g.fill(); }
+  g.restore();
+  if (o.z) { HG.save(); HG.strokeStyle = zc(o.z); HG.lineWidth = w0 * 1.2; HG.lineCap = 'round'; HG.lineJoin = 'round'; trace(HG, p, false); HG.stroke(); HG.restore(); }
+}
+/** an open contour drawn in several pulls of the brush; cuts = fractions along it where the brush was lifted */
+function pulls(d, cuts, px, color, o = {}) {
+  const n = d.length, idx = [0].concat(cuts.map((c) => Math.round(c * (n - 1))), [n - 1]);
+  for (let k = 0; k < idx.length - 1; k++) {
+    const seg = d.slice(Math.max(0, idx[k] - (k ? 2 : 0)), idx[k + 1] + 1);
+    if (seg.length > 2) line(seg, px, color, o);
+  }
+}
+/** a closed contour: two or three pulls that do not quite meet */
+function outline(poly, px, color, o = {}) {
+  const n = poly.length, r = L.rng('s14o' + (SEED++));
+  const parts = o.parts || (n > 150 ? 3 : n > 50 ? 2 : 1), start = o.start === undefined ? r.int(0, n - 1) : Math.round(o.start * n);
+  for (let k = 0; k < parts; k++) {
+    const i0 = start + Math.round((n * k) / parts), i1 = start + Math.round((n * (k + 1)) / parts) - (parts > 1 ? 1 : -1), seg = [];
+    for (let i = i0; i <= i1; i++) seg.push(poly[((i % n) + n) % n]);
+    if (seg.length > 2) line(seg, px * r.range(0.95, 1.06), color, { tout: 16, ...o });
+  }
+}
+/**
+ * One patch of enamel. poly = dense closed outline (figure units), fam = colour family.
+ * o.z      height above the glaze (0..1)
+ * o.grad   0..1: 玻璃白 on the side toward the light, colour gathering on the side away from it
+ * o.rim    0..1: colour pooled just inside the rim that faces away from the light
+ * o.folds  [{p, side: ±1 (which side of the line the wash lies on, +1 = to the right of travel), w, line (px, 0 = none), la}]; o.fw wash width px, o.fa alpha
+ * o.hi     [[pts]…] 玻璃白 left showing; o.hw width px, o.ha alpha
+ * o.drag   0..1 faint drags of the brush; o.dir their direction
+ * o.pattern(g) drawn clipped; o.outline px (0 = none); o.mis colour-to-line misregistration px
+ */
+function patch(poly, fam, o = {}) {
+  const g = G, id = SEED++, u = 1 / KS, z = o.z === undefined ? 0.5 : o.z;
+  const [x0, y0, x1, y1] = bbox(poly), bw = x1 - x0, bh = y1 - y0;
+  const r = L.rng('s14p' + id), mis = o.mis === undefined ? 0.7 : o.mis;
+  g.save();
+  g.translate(r.range(-1, 1) * mis * u, r.range(-1, 1) * mis * u);            // colour never sits exactly inside its line
+  trace(g, poly, true); g.fillStyle = o.fill || fam.base; g.fill(); g.clip();
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  const gr = o.grad === undefined ? 1 : o.grad;
+  if (gr) {
+    const ax = MIR > 0 ? x0 : x1, bx = MIR > 0 ? x1 : x0;
+    g.fillStyle = L.linear(g, ax, y0, bx, y1, [[0, L.rgba(fam.lt, 0.82 * gr)], [0.3, L.rgba(fam.lt, 0.4 * gr)], [0.62, L.rgba(fam.lt, 0)]]);
+    g.fillRect(x0 - 2, y0 - 2, bw + 4, bh + 4);
+    g.fillStyle = L.linear(g, ax, y0, bx, y1, [[0.4, L.rgba(fam.mid, 0)], [0.8, L.rgba(fam.mid, 0.3 * gr)], [1, L.rgba(fam.mid, 0.5 * gr)]]);
+    g.fillRect(x0 - 2, y0 - 2, bw + 4, bh + 4);
+  }
+  const rim = o.rim === undefined ? 1 : o.rim;
+  if (rim) {
+    g.save(); g.translate(-5 * u * MIR, -6 * u);
+    g.filter = 'blur(4.5px)'; g.strokeStyle = L.rgba(fam.mid, 0.6 * rim); g.lineWidth = 14 * u; trace(g, poly, true); g.stroke();
+    g.restore();
+    g.filter = 'blur(1.2px)'; g.strokeStyle = L.rgba(fam.deep, 0.2 * rim); g.lineWidth = 4 * u; trace(g, poly, true); g.stroke();
+    g.filter = 'none';
+  }
+  const folds = o.folds || [];
+  if (folds.length) {
+    const fpx = o.fw || 26, fw = fpx * u, fa = o.fa === undefined ? 0.6 : o.fa, ds = folds.map((f) => cr(f.p, false, 4));
+    g.filter = `blur(${(fpx * 0.2).toFixed(1)}px)`; g.fillStyle = L.rgba(fam.mid, fa);
+    g.beginPath(); ds.forEach((d, i) => addPoly(g, wedge(d, folds[i].side || 1, fw * 0.05, fw * (folds[i].w || 1)))); g.fill();
+    g.filter = `blur(${(fpx * 0.07).toFixed(1)}px)`; g.fillStyle = L.rgba(fam.deep, fa * 0.5);
+    g.beginPath(); ds.forEach((d, i) => addPoly(g, wedge(d, folds[i].side || 1, 0, fw * 0.3 * (folds[i].w || 1)))); g.fill();
+    g.filter = 'none';
+  }
+  if (o.hi) {
+    g.filter = `blur(${((o.hw || 12) * 0.4).toFixed(1)}px)`; g.strokeStyle = L.rgba(fam.lt, o.ha === undefined ? 0.75 : o.ha); g.lineWidth = (o.hw || 12) * u;
+    g.beginPath(); for (const hp of o.hi) addLine(g, cr(hp, false, 5)); g.stroke(); g.filter = 'none';
+  }
+  if (o.pattern) o.pattern(g);
+  const dg = o.drag === undefined ? 1 : o.drag;
+  if (dg) {
+    // the wash was drawn on with a soft brush: hair-fine streaks, barely lighter or deeper, all running one way
+    const dir = nrm(o.dir || [0.25, 1]), q = [-dir[1], dir[0]], cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, m = Math.hypot(bw, bh) / 2;
+    const n = Math.round(L.clamp((bw * bh * KS * KS) / 900, 5, 46) * dg);
+    for (let i = 0; i < n; i++) {
+      const off = r.range(-m, m), s0 = r.range(-m, m * 0.3), s1 = s0 + r.range(m * 0.35, m * 1.0), bend = r.range(-0.1, 0.1) * m;
+      const a = [cx + q[0] * off + dir[0] * s0, cy + q[1] * off + dir[1] * s0], b = [cx + q[0] * off + dir[0] * s1, cy + q[1] * off + dir[1] * s1];
+      g.strokeStyle = L.rgba(r.chance(0.5) ? fam.lt : fam.mid, r.range(0.07, 0.16)); g.lineWidth = r.range(1.5, 4.2) * u;
+      g.beginPath(); g.moveTo(a[0], a[1]); g.quadraticCurveTo((a[0] + b[0]) / 2 + q[0] * bend, (a[1] + b[1]) / 2 + q[1] * bend, b[0], b[1]); g.stroke();
+    }
   }
   g.restore();
+  HG.fillStyle = zc(z); trace(HG, poly, true); HG.fill();
+  for (const f of folds) if (f.line !== 0) line(f.p, f.line || 1.5, fam.line, { alpha: f.la === undefined ? 0.8 : f.la, tout: 30 });
+  if (o.outline) outline(poly, o.outline, o.lineCol || fam.line, { alpha: 0.9 });
 }
-function shoe(g, ank, ang, col) {
-  g.save(); g.translate(ank[0], ank[1]); g.rotate(ang); g.scale(1.14, 1.14);
-  piece(g, cr([[-14, -6], [-19, 8], [-13, 18], [12, 20], [34, 18], [42, 11], [32, 3], [14, -5]], true, 4), { base: col.base, deep: col.deep, ew: 0.4, lw: 2.5, inkColor: col.line });
-  // white layered sole
-  g.strokeStyle = 'rgba(254,250,240,0.96)'; g.lineWidth = 3.8; g.lineCap = 'round';
-  g.beginPath(); g.moveTo(-14, 18.5); g.quadraticCurveTo(12, 22, 37, 17.5); g.stroke();
-  ink(g, [[-16, 21], [12, 24.5], [39, 19.5]], 2, {});
-  g.restore();
+/** a border band (collar, cuff) round a centre line */
+function band(centre, w, fam, z) {
+  const t = tube(centre, centre.map(() => w), 3);
+  patch(t.poly, fam, { z, grad: 0.8, rim: 0.8, drag: 0.5, dir: sub(centre[centre.length - 1], centre[0]) });
+  line(t.left, 1.6, fam.line, { tout: 8 }); line(t.right, 1.6, fam.line, { tout: 8 });
 }
-function arm(g, sh, el, wr, col, trim, o = {}) {
-  const d = nrm(sub(wr, el));
-  hand(g, add(wr, d, 13), Math.atan2(d[1], d[0]), !!o.open);
-  const t = tube([add(sh, nrm(sub(sh, el)), 8), el, wr], o.w || [54, 50, 60]), n = t.c.length;
-  const fl = []; for (let i = 5; i < n - 9; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.7));
-  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(2, n - 2)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [], foldLw: 1.9, foldAlpha: 0.6, wash: 0.6 });
-  const k = Math.max(1, n - 5);
-  piece(g, t.left.slice(k).concat(t.right.slice(k).reverse()), { base: trim.base, deep: trim.deep, ew: 0.3, outline: false });
-  ink(g, t.left, LW, { taper: [0.05, 0.02], color: col.line }); ink(g, t.right, LW, { taper: [0.05, 0.02], color: col.line });
-  ink(g, [t.left[n - 1], t.right[n - 1]], LW, { taper: [0.04, 0.04], color: col.line });
-  ink(g, [t.left[k], t.right[k]], 2, { taper: [0.04, 0.04], color: col.line });
-  creases(g, t, sh, el, wr, col.line);
+/** a small pool of black enamel (hair): dense, a little glossy, its edge softened where the brush left hairs */
+function inkMass(poly, wisps = []) {
+  const g = G;
+  g.save(); g.filter = 'blur(1.4px)'; g.fillStyle = L.rgba(C.ink, 0.55); trace(g, poly, true); g.fill(); g.filter = 'none'; g.restore();
+  patch(poly, F.ink, { z: 0.82, grad: 0.32, rim: 0.7, drag: 0.6, mis: 0 });
+  for (const w of wisps) line(w, 1.4, C.ink, { alpha: 0.85, head: 1, tin: 0, tout: 12, tail: 0.5 });
 }
-function leg(g, hip, knee, ank, col, shoeCol, shoeAng = 0, o = {}) {
-  shoe(g, ank, shoeAng, shoeCol);
-  const t = tube([hip, knee, ank], o.w || [76, 64, 40]), n = t.c.length;
-  const fl = []; for (let i = 7; i < n - 9; i += 3) fl.push(mixP(t.left[i], t.right[i], 0.32));
-  piece(g, t.poly, { base: col.base, deep: col.deep, light: [t.c.slice(3, n - 3)], lightCol: col.light, outline: false, inkColor: col.line, folds: fl.length > 2 ? [fl] : [], foldLw: 1.9, foldAlpha: 0.6, wash: 0.6 });
-  ink(g, t.left, LW, { taper: [0.02, 0.02], color: col.line }); ink(g, t.right, LW, { taper: [0.02, 0.02], color: col.line });
-  ink(g, [t.left[n - 1], t.right[n - 1]], LW, { taper: [0.04, 0.04], color: col.line });
-  ink(g, [t.left[n - 3], t.right[n - 3]], 1.9, { taper: [0.04, 0.04], alpha: 0.75, color: col.line });
-  creases(g, t, hip, knee, ank, col.line);
+/** 团花: a faint roundel, white-petalled, on the pink */
+function roundel(g, x, y, r, fam) {
+  const u = 1 / KS;
+  g.strokeStyle = L.rgba(fam.deep, 0.4); g.lineWidth = 1.3 * u; g.beginPath(); g.arc(x, y, r, 0, L.TAU); g.stroke();
+  g.strokeStyle = L.rgba(fam.deep, 0.28); g.beginPath(); g.arc(x, y, r * 0.4, 0, L.TAU); g.stroke();
+  g.fillStyle = L.rgba('#fffaf4', 0.86);
+  for (let i = 0; i < 8; i++) { const t = (i / 8) * L.TAU + 0.3; g.beginPath(); g.ellipse(x + Math.cos(t) * r * 0.7, y + Math.sin(t) * r * 0.7, r * 0.18, r * 0.13, t, 0, L.TAU); g.fill(); }
+  g.fillStyle = L.rgba(fam.deep, 0.5); g.beginPath(); g.arc(x, y, r * 0.15, 0, L.TAU); g.fill();
 }
-/** the short cross-collared jacket. N = base of the neck, P = hips */
-function torso(g, N, P, st, o = {}) {
-  const ax = nrm(sub(P, N)), q = [ax[1], -ax[0]], len = Math.hypot(P[0] - N[0], P[1] - N[1]), col = st.jacket, wd = o.wd || 1.16, f = len / 144;
-  const at = (s, d) => [N[0] + ax[0] * s + q[0] * d * wd, N[1] + ax[1] * s + q[1] * d * wd];   // s down the spine, d toward the child's front
-  const poly = cr([at(-6, -24), at(14 * f, -50), at(len * 0.5, -56), at(len + 14, -70), at(len + 30, -38), at(len + 36, 4), at(len + 28, 46), at(len + 12, 67), at(len * 0.56, 60), at(18 * f, 47), at(-6, 22)], true, 5);
-  const folds = [
-    [at(len * 0.5, -27), at(len * 0.74, -19), at(len + 30, -13)],              // the closing edge, down the wearer's right side
-    [at(len * 0.56, -53), at(len * 0.8, -41), at(len + 20, -50)],
-    [at(len * 0.66, 58), at(len * 0.84, 42), at(len + 22, 50)],
-  ];
-  piece(g, poly, {
-    base: col.base, deep: col.deep, inkColor: col.line, folds, pattern: o.pattern, wash: 1, streak: { dir: ax, seed: 's14st' + (SEED++) },
-    light: [cr([at(30 * f, 30), at(len * 0.55, 44), at(len + 2, 40)], false, 6), cr([at(34 * f, -30), at(len * 0.72, -26), at(len + 6, -14)], false, 6)], lightCol: col.light,
-  });
-  if (o.sash) {
-    const t = tube([at(len * 0.63, -60), at(len * 0.72, 2), at(len * 0.63, 65)], [17, 21, 17]);
-    piece(g, t.poly, { base: o.sash.base, deep: o.sash.deep, ew: 0.3, outline: false });
-    ink(g, t.left, 2.3, { taper: [0.03, 0.03], color: o.sash.line }); ink(g, t.right, 2.3, { taper: [0.03, 0.03], color: o.sash.line });
+/** a small five-petalled flower scattered on the yellow */
+function floret(g, x, y, r, col) {
+  g.fillStyle = L.rgba(col, 0.6);
+  for (let i = 0; i < 5; i++) { const t = (i / 5) * L.TAU - 1.57; g.beginPath(); g.arc(x + Math.cos(t) * r * 0.62, y + Math.sin(t) * r * 0.62, r * 0.36, 0, L.TAU); g.fill(); }
+  g.fillStyle = L.rgba('#fffbe6', 0.92); g.beginPath(); g.arc(x, y, r * 0.24, 0, L.TAU); g.fill();
+}
+
+// ───────────────────────── the children (figure units: the head is 200 across, centred on the origin, facing +x) ─────────────────────────
+/** a hair knot tied with red thread */
+function knot(x, y, r) {
+  const rr = L.rng('s14k' + (SEED++)), d = nrm([-x, -y]), q = [-d[1], d[0]];       // d: toward the crown, where it is tied
+  const bx = x + d[0] * r * 0.9, by = y + d[1] * r * 0.9;
+  for (const s of [-1, 1]) {
+    const e0 = [bx + q[0] * s * r * 0.45, by + q[1] * s * r * 0.45];
+    const e1 = [e0[0] + q[0] * s * r * 0.75 - d[0] * r * 0.2, e0[1] + q[1] * s * r * 0.75 - d[1] * r * 0.2];
+    const e2 = [e1[0] + q[0] * s * r * 0.5 + d[0] * r * 0.4, e1[1] + q[1] * s * r * 0.5 + d[1] * r * 0.4];
+    line([e0, e1, e2], 3.2, F.red.base, { alpha: 0.92, head: 1, tin: 2, tout: r * KS * 0.9, tail: 0.32, z: 0.62 });
   }
-  // crossed lapels in the trim colour, closing to the wearer's right (右衽): in this view the child's left side is the far one,
-  // so the upper lapel starts at the far side of the neck and runs down toward the near armpit
-  for (const cpts of [[at(-8, -22), at(18 * f, -20), at(46 * f, -6)], [at(-8, 24), at(20 * f, 16), at(48 * f, -5), at(72 * f, -30)]]) {
-    const t = tube(cpts, cpts.map(() => 15.5));
-    piece(g, t.poly, { base: st.trim.base, deep: st.trim.deep, ew: 0.3, outline: false });
-    ink(g, t.left, 2.2, { taper: [0.03, 0.03], color: st.trim.line }); ink(g, t.right, 2.2, { taper: [0.03, 0.03], color: st.trim.line });
-  }
+  const blob = cr(ell(x, y, r, r * 0.9, 9).map((p) => [p[0] + rr.range(-1.5, 1.5), p[1] + rr.range(-1.5, 1.5)]), true, 2.5);
+  const up = [-d[0], -d[1]];
+  inkMass(blob, [-0.7, 0.1, 0.8].map((t) => { const b = [x + (up[0] + q[0] * t) * r * 0.82, y + (up[1] + q[1] * t) * r * 0.82]; return [b, [b[0] + (up[0] + q[0] * t * 1.4) * r * 0.36, b[1] + (up[1] + q[1] * t * 1.4) * r * 0.36]]; }));
+  // a soft light on the knot, and the thread
+  G.save(); G.filter = 'blur(1.6px)'; G.strokeStyle = 'rgba(190,186,182,0.5)'; G.lineWidth = 2.6 / KS; G.lineCap = 'round';
+  G.beginPath(); G.arc(x, y, r * 0.55, Math.PI * (MIR > 0 ? 1.05 : 1.45), Math.PI * (MIR > 0 ? 1.55 : 1.95)); G.stroke(); G.filter = 'none'; G.restore();
+  patch(cr(ell(bx, by, r * 0.6, r * 0.24, 8, Math.atan2(q[1], q[0])), true, 2), F.red, { z: 0.7, grad: 0.6, rim: 0.8, drag: 0, outline: 1.3, mis: 0 });
 }
-/** big round head on a 100-unit grid, three-quarter view facing +x (flip: looking back over the shoulder) */
-function head(g, c, r, o = {}) {
-  const { tilt = 0, hair = 'peach', ribbon = C.rouge, flip = false } = o;
-  g.save(); g.translate(c[0], c[1]); g.rotate(tilt); g.scale((flip ? -1 : 1) * r / 100, r / 100);
-  const HC = { base: C.hair, deep: '#0c0a08' };
-  const tuft = (pts, wisps = []) => {
-    piece(g, cr(pts, true, 4), { base: HC.base, deep: HC.deep, ew: 0.5, lw: 2.6 });
-    for (const w of wisps) ink(g, w, 3, { taper: [0.02, 0.85], alpha: 0.88 });
-  };
-  const bun = (bx, by, br, side) => {
-    // the tie: two short ribbon ends flying outward, a red band at the root
-    ink(g, [[bx + side * br * 0.4, by + br * 0.72], [bx + side * br * 1.1, by + br * 0.5], [bx + side * br * 1.55, by + br * 0.78]], 8.5, { color: ribbon, taper: [0.05, 0.45], alpha: 0.95, wobble: 0.15 });
-    ink(g, [[bx + side * br * 0.4, by + br * 0.84], [bx + side * br * 1.0, by + br * 1.05], [bx + side * br * 1.25, by + br * 1.5]], 7.5, { color: ribbon, taper: [0.05, 0.45], alpha: 0.95, wobble: 0.15 });
-    tuft(ell(bx, by, br, br * 0.9, 10));
-    g.strokeStyle = 'rgba(214,204,190,0.5)'; g.lineWidth = 3; g.lineCap = 'round';
-    g.beginPath(); g.arc(bx, by, br * 0.58, Math.PI * 1.08, Math.PI * 1.55); g.stroke();
-    g.fillStyle = ribbon; g.beginPath(); g.ellipse(bx, by + br * 0.84, br * 0.62, br * 0.25, 0, 0, L.TAU); g.fill();
-  };
-  if (hair === 'buns') bun(50, -103, 23, 1);
-  const skull = cr([[0, -100], [46, -93], [80, -65], [96, -24], [95, 8], [100, 34], [93, 60], [72, 84], [42, 97], [8, 97], [-32, 87], [-66, 63], [-89, 27], [-97, -14], [-87, -54], [-55, -86]], true, 5);
-  piece(g, skull, {
-    base: C.flesh, deep: C.fleshD, edge: 0.8, lw: 3.7, inkColor: C.sepia, wash: 0.55, lightCol: '#ffffff',
-    light: [cr([[-30, -60], [10, -70], [40, -55]], false, 6)],
-    pattern: (q) => {
-      // 胭脂 on the cheeks: a soft bloom, deepest at its heart
-      for (const [bx, by, br, al] of [[20, 42, 42, 0.85], [87, 38, 24, 0.66]]) {
-        q.fillStyle = L.radial(q, bx, by, 0, br, [[0, L.rgba('#e8788a', al)], [0.45, L.rgba('#ee96a0', al * 0.6)], [1, L.rgba('#f1aab0', 0)]]);
-        q.fillRect(bx - br, by - br, br * 2, br * 2);
+/** the head, three-quarter view. o.hair: 'buns' (总角) | 'peach' (a tuft left on the shaved crown, another over the ear) */
+function head(o = {}) {
+  const FL = F.flesh, LC = FL.line, INK = C.ink, u = 1 / KS, g = G;
+  if (o.hair === 'buns') knot(55, -96, 15);                                       // the far knot sits behind the crown
+  const skullPts = [[2, -100], [40, -94], [70, -74], [88, -44], [93, -12], [95, 14], [98, 36], [92, 58], [76, 78], [52, 92], [24, 98], [-6, 94], [-36, 82], [-62, 62], [-82, 34], [-95, 0], [-97, -34], [-84, -66], [-58, -88], [-28, -98]];
+  const skull = cr(skullPts, true, 3);
+  const peach = cr([[2, -99], [28, -103], [52, -93], [63, -75], [56, -60], [41, -50], [27, -58], [11, -66], [0, -83]], true, 2.5);
+  const tuft = cr(ell(-62, -23, 12, 16, 9, 0.1), true, 2.5);
+  patch(skull, FL, {
+    z: 0.56, grad: 0, rim: 0, drag: 0, mis: 0,
+    pattern: () => {
+      // 淡粉层层渲染: a breath of pink inside the contour on the side away from the light, then the cheeks, lids, chin
+      g.save(); g.translate(-7 * u * MIR, -8 * u);
+      g.filter = 'blur(9px)'; g.strokeStyle = L.rgba('#f3b0a8', 0.52); g.lineWidth = 19 * u; trace(g, skull, true); g.stroke(); g.filter = 'none';
+      g.restore();
+      bloomAt(g, 24, 47, 42, '#f19aa2', 0.46); bloomAt(g, 23, 48, 21, '#ea7d8e', 0.3);
+      bloomAt(g, 84, 44, 23, '#f19aa2', 0.42);
+      bloomAt(g, 26, 2, 21, '#f6b9b2', 0.24); bloomAt(g, 75, 0, 15, '#f6b9b2', 0.22);
+      bloomAt(g, 54, 78, 19, '#f6b9b2', 0.26);
+      bloomAt(g, 58, 38, 9, '#f19aa2', 0.3);
+      // where the hair springs from the scalp
+      if (o.hair === 'buns') { bloomAt(g, -50, -90, 34, '#5d5650', 0.26); bloomAt(g, 55, -90, 26, '#5d5650', 0.22); }
+      else {
+        g.filter = 'blur(5px)'; g.fillStyle = L.rgba('#5d5650', 0.34);
+        g.beginPath(); addPoly(g, peach); addPoly(g, tuft); g.fill(); g.filter = 'none';
       }
     },
   });
+  // the contour: forehead – cheek – chin in one pull, the back of the skull in another
+  line(skullPts.slice(-1).concat(skullPts.slice(0, 13)), 1.9, LC, { tout: 30 });
+  line([[-34, -97], [-58, -88], [-84, -66], [-97, -34], [-95, 0], [-82, 34], [-62, 62], [-46, 75]], 1.8, LC, { tout: 30 });
   // ear
-  piece(g, cr([[-52, -2], [-68, 0], [-77, 16], [-73, 36], [-60, 44], [-50, 32], [-47, 12]], true, 3), { base: C.flesh, deep: C.fleshD, ew: 0.35, lw: 3.1, inkColor: C.sepia });
-  ink(g, [[-67, 10], [-61, 20], [-63, 33]], 2.3, { color: C.sepia });
-  // brows: thin, high
-  ink(g, [[2, -25], [20, -34], [44, -29]], 3.6, { taper: [0.15, 0.5], alpha: 0.85 });
-  ink(g, [[62, -31], [76, -36], [90, -30]], 3.1, { taper: [0.2, 0.4], alpha: 0.85 });
-  // eyes: a long slender upper lid, a small dark pupil tucked under it, a whisper of lower lid
-  ink(g, [[3, -1], [15, -9], [30, -9.5], [45, -2]], 4.2, { taper: [0.2, 0.3], wobble: 0.15 });
-  ink(g, [[61, -5], [71, -11], [82, -10.5], [91, -4]], 3.8, { taper: [0.2, 0.3], wobble: 0.15 });
-  ink(g, [[11, 3.5], [25, 6.5], [39, 3]], 1.7, { color: C.sepia, alpha: 0.5, taper: [0.2, 0.2] });
-  ink(g, [[66, 1], [77, 3.5], [87, 0.5]], 1.6, { color: C.sepia, alpha: 0.5, taper: [0.2, 0.2] });
-  g.fillStyle = '#1c1714';
-  g.beginPath(); g.ellipse(26, -3.6, 5, 4.6, 0, 0, L.TAU); g.fill();
-  g.beginPath(); g.ellipse(76.5, -5.4, 4.3, 4.1, 0, 0, L.TAU); g.fill();
-  // nose, mouth, the fold of a plump chin
-  ink(g, [[58, 3], [64, 17], [55, 21]], 2.8, { color: C.sepia, taper: [0.2, 0.3] });
-  g.fillStyle = L.rgba(C.rouge, 0.95);
-  g.beginPath(); g.ellipse(54, 43.5, 8.6, 4.2, 0, 0, L.TAU); g.fill();
-  g.beginPath(); g.ellipse(54, 48.5, 5.8, 3.6, 0, 0, L.TAU); g.fill();
-  ink(g, [[42, 42.5], [54, 46.5], [66, 42]], 2.4, { taper: [0.2, 0.2] });
-  ink(g, [[34, 70], [51, 77], [68, 69]], 1.9, { color: C.sepia, alpha: 0.5, taper: [0.2, 0.2] });
-  // the tufts left on a shaved head
-  if (hair === 'peach') {
-    tuft([[10, -102], [48, -98], [74, -80], [80, -58], [66, -46], [50, -56], [36, -48], [20, -58], [6, -72], [0, -90]], [[[68, -48], [70, -38], [68, -30]], [[36, -50], [35, -40], [38, -33]], [[52, -56], [53, -46], [51, -40]], [[22, -58], [20, -50], [22, -44]]]);
-    tuft([[-90, -40], [-66, -58], [-44, -46], [-42, -20], [-56, -4], [-72, 0], [-88, -14]], [[[-52, -8], [-50, 2], [-52, 8]], [[-66, -2], [-66, 8], [-63, 14]], [[-80, -8], [-81, 0], [-78, 6]]]);
-  } else if (hair === 'buns') {
-    bun(-50, -95, 27, -1);
-    tuft([[26, -100], [52, -95], [68, -80], [66, -62], [50, -62], [36, -72], [22, -88]], [[[56, -63], [57, -54], [55, -48]], [[40, -70], [40, -61], [42, -55]]]);
+  const ear = cr([[-46, 8], [-57, 1], [-68, 8], [-72, 24], [-67, 40], [-57, 48], [-48, 41], [-44, 24]], true, 2.5);
+  patch(ear, FL, { z: 0.61, grad: 0, rim: 0.9, drag: 0, mis: 0, pattern: () => bloomAt(g, -60, 30, 18, '#f19aa2', 0.42) });
+  line([[-45.5, 9], [-57, 1], [-68, 8], [-72, 24], [-67, 40], [-57, 48], [-49, 42]], 1.7, LC, { tout: 12 });
+  line([[-61, 12], [-64.5, 25], [-59, 38]], 1.3, LC, { alpha: 0.7, tout: 10 });
+  // brows: fine, pale, arched high
+  line([[5, -7], [22, -17], [44, -10.5]], 1.5, INK, { alpha: 0.62, spindle: 1 });
+  line([[60, -12.5], [72, -19], [86, -12.5]], 1.4, INK, { alpha: 0.6, spindle: 1 });
+  // eyes: one slender lid each, the pupil a small dark bead tucked under it, a whisper of lower lid
+  line([[9, 19.5], [18, 13], [30, 12], [42, 17.5]], 2.3, INK, { alpha: 0.95, spindle: 1, shake: 0.2 });
+  line([[61, 16], [68.5, 10.5], [78, 10.5], [87.5, 15]], 2.1, INK, { alpha: 0.95, spindle: 1, shake: 0.2 });
+  g.fillStyle = L.rgba(INK, 0.96);
+  g.beginPath(); g.ellipse(29.5, 16.4, 3.5, 3.1, 0, 0, L.TAU); g.fill();
+  g.beginPath(); g.ellipse(76.5, 14.2, 3.1, 2.8, 0, 0, L.TAU); g.fill();
+  line([[14, 22.5], [26, 25], [38, 22]], 1.2, LC, { alpha: 0.5, spindle: 1 });
+  line([[64, 19.5], [74, 21.5], [84, 19]], 1.2, LC, { alpha: 0.46, spindle: 1 });
+  // nose: one small hook; mouth: a short smiling line with a touch of red above and below it (点朱); the plump chin
+  line([[55, 26], [60.5, 36.5], [58, 41], [51.5, 41.5]], 1.4, LC, { alpha: 0.86, tout: 8 });
+  g.fillStyle = L.rgba('#cf3f30', 0.84);
+  g.beginPath(); g.ellipse(53, 56.3, 5.2, 2.3, -0.05, 0, L.TAU); g.fill();
+  g.beginPath(); g.ellipse(53.2, 62.7, 4.4, 2.9, 0, 0, L.TAU); g.fill();
+  line([[44.5, 57.3], [49, 59.6], [53.5, 60.2], [58, 59.2], [62, 56.4]], 1.5, '#7c241c', { alpha: 0.92, spindle: 1, shake: 0.2 });
+  line([[40, 80], [52, 84.5], [64, 79.5]], 1.2, LC, { alpha: 0.45, spindle: 1 });
+  // hair: small masses of ink
+  if (o.hair === 'buns') knot(-50, -96, 19);
+  else {
+    inkMass(peach, [[[41, -50], [42, -43], [40, -37]], [[30, -57], [30, -49], [32, -44]], [[51, -55], [53, -47], [52, -42]], [[17, -63], [16, -56], [18, -51]]]);
+    inkMass(tuft, [[[-58, -8], [-57, -1], [-59, 4]], [[-66, -8], [-67, -1], [-65, 3]]]);
+    G.save(); G.filter = 'blur(2px)'; G.strokeStyle = 'rgba(190,186,182,0.42)'; G.lineWidth = 3 / KS; G.lineCap = 'round';
+    trace(G, cr(MIR > 0 ? [[8, -84], [20, -93], [36, -95]] : [[36, -95], [50, -88], [57, -76]], false, 3), false); G.stroke(); G.filter = 'none'; G.restore();
   }
-  g.restore();
 }
-/**
- * Assemble a child from joints (all in the child's own frame: feet at y = 0, up is −y, facing +x).
- * J: N, P, H, r, tilt, flipHead, far/near arm [shoulder, elbow, wrist], far/near leg [hip, knee, ankle, shoeAngle]
- * pr: back / mid / preArm / front callbacks for the things they carry
- */
-function kid(g, J, st, pr = {}) {
-  if (pr.back) pr.back(g);
-  arm(g, J.armFar[0], J.armFar[1], J.armFar[2], st.jacket, st.trim, { open: !!J.openFar });
-  if (J.legFar) leg(g, J.legFar[0], J.legFar[1], J.legFar[2], st.pants, st.shoe, J.legFar[3]);
-  if (pr.mid) pr.mid(g);
-  if (J.legNear) leg(g, J.legNear[0], J.legNear[1], J.legNear[2], st.pants, st.shoe, J.legNear[3]);
-  torso(g, J.N, J.P, st, { pattern: st.pattern, sash: st.sash });
-  head(g, J.H, J.r || 80, { tilt: J.tilt || 0, hair: st.hair, ribbon: st.ribbon, flip: !!J.flipHead });
-  if (pr.preArm) pr.preArm(g);
-  arm(g, J.armNear[0], J.armNear[1], J.armNear[2], st.jacket, st.trim);
-  if (pr.front) pr.front(g);
+/** a small plump fist closed round a stick that runs along the local x axis */
+function fist(x, y, ang) {
+  xf(x, y, ang, () => {
+    const FL = F.flesh;
+    patch(cr([[-13, -8], [-4, -13.5], [8, -13], [15.5, -6], [16.5, 5], [10, 13], [-3, 14.5], [-12.5, 9.5]], true, 2), FL, {
+      z: 0.66, grad: 0, rim: 0.8, drag: 0, mis: 0, outline: 1.7, pattern: (g) => { bloomAt(g, 8, -8, 12, '#f19aa2', 0.42); bloomAt(g, -6, 8, 10, '#f3b0a8', 0.3); },
+    });
+    line([[7, -12], [10.5, -4.5], [8.5, 3.5]], 1.3, FL.line, { alpha: 0.8, tout: 6 });
+    line([[1, -13], [4, -5.5], [2, 2]], 1.3, FL.line, { alpha: 0.75, tout: 6 });
+    line([[-5.5, -12.5], [-2.5, -6], [-4.5, 0]], 1.2, FL.line, { alpha: 0.65, tout: 6 });
+    line([[-10, 5], [-2, 8], [6.5, 6]], 1.3, FL.line, { alpha: 0.75, tout: 6 });
+  });
 }
-/** stand a child BEHIND the bank at screen x0: `sink` of its own units are hidden below the contour */
-function place(g, env, x0, k, sink, fn) {
-  const a = env.arc, th = a.thetaAtX(x0), p = a.pt(th, -sink * k);
-  g.save(); g.translate(p.x, p.y); g.rotate(th * 0.5); g.scale(k, k);
-  fn(g); g.restore();
-}
-
-// ───────────────────────── playthings: one each ─────────────────────────
-function leaf(g, bx, by, ang, len, wid, col) {
-  g.save(); g.translate(bx, by); g.rotate(ang);
-  piece(g, cr([[0, 0], [len * 0.3, -wid * 0.5], [len * 0.7, -wid * 0.36], [len, 0], [len * 0.7, wid * 0.36], [len * 0.3, wid * 0.5]], true, 3), { base: col.base, deep: col.deep, ew: 0.4, lw: 2.2, inkColor: col.line, wash: 0.5, lightCol: col.light });
-  ink(g, [[2, 0], [len * 0.5, 0], [len * 0.94, 0]], 1.6, { alpha: 0.7, color: col.line });
-  g.restore();
-}
-/** 竹马: a bamboo pole ridden between the legs, two leaves left on the end that trails on the ground */
-function bambooHorse(g, tail, mid, tip, leaves = true) {
-  const d = nrm(sub(tail, mid)), ang = Math.atan2(d[1], d[0]);
-  if (leaves) {
-    leaf(g, tail[0] + 16, tail[1] - 8, ang + 0.62, 84, 23, ST.green);
-    leaf(g, tail[0] + 4, tail[1] - 2, ang + 0.12, 96, 25, ST.green);
-  }
-  const t = tube([tail, mid, tip], [14, 17, 16]);
-  piece(g, t.poly, { base: '#a5d28a', deep: ST.green.deep, ew: 0.34, lw: 2.5, light: [t.c], lightCol: '#f3fae2', inkColor: ST.green.line });
-  for (const u of [0.06, 0.2, 0.33, 0.61, 0.77, 0.93]) { const i = Math.round(u * (t.c.length - 1)); ink(g, [t.left[i], t.right[i]], 2.8, { taper: [0.02, 0.02], color: ST.green.line }); }
-}
-/** a round lantern hanging by a cord from the point (x, y) */
-function lantern(g, x, y) {
-  ink(g, [[x, y], [x + 1, y + 18]], 2, { taper: [0.02, 0.02] });
-  const cy = y + 80;
-  for (let i = -2; i <= 2; i++) ink(g, [[x + i * 3, cy + 64], [x + i * 6 + (i & 1) * 2, cy + 98], [x + i * 8 - 4, cy + 136]], 4, { color: ST.yellow.deep, taper: [0.02, 0.5], alpha: 0.95 });
-  piece(g, cr(ell(x, cy + 68, 9, 8, 8), true, 3), { base: ST.rouge.base, deep: ST.rouge.deep, ew: 0.3, lw: 2.1, inkColor: ST.rouge.line });
-  piece(g, cr(ell(x, cy, 52, 55, 14), true, 4), {
-    base: L.radial(g, x - 17, cy - 19, 2, 84, [[0, '#fff3ee'], [0.38, '#f3a0ae'], [1, '#d4476a']]), deep: '#a82848', edge: 1.1, lw: LW, inkColor: ST.rouge.line,
-    pattern: (q) => {
-      q.strokeStyle = L.rgba('#a82848', 0.46); q.lineWidth = 2.4; q.lineCap = 'round';
-      for (const k of [-0.7, -0.33, 0.04, 0.4, 0.74]) { q.beginPath(); q.moveTo(x + k * 15, cy - 55); q.quadraticCurveTo(x + k * 90, cy, x + k * 15, cy + 55); q.stroke(); }
+/** a stick of some thickness: bamboo (with nodes) or a plain cane */
+function stick(p0, p1, w, fam, nodes = []) {
+  const t = tube([p0, mixP(p0, p1, 0.5), p1], [w, w * 1.05, w * 0.94], 3), n = t.c.length;
+  const lit = t.right.map((p, i) => mixP(p, t.left[i], 0.3)), dark = t.right.map((p, i) => mixP(p, t.left[i], 0.82));
+  patch(t.poly, fam, {
+    z: 0.64, grad: 0, rim: 0, drag: 0, mis: 0,
+    pattern: (g) => {
+      g.lineCap = 'butt';
+      g.strokeStyle = L.rgba(fam.mid, 0.75); g.lineWidth = w * 0.36; trace(g, dark, false); g.stroke();
+      g.strokeStyle = L.rgba(fam.lt, 0.9); g.lineWidth = w * 0.26; trace(g, lit, false); g.stroke();
     },
   });
-  for (const s of [-1, 1]) {
-    const yy = cy + s * 54;
-    piece(g, dense([[x - 21, yy - 7], [x + 21, yy - 7], [x + 23, yy + 7], [x - 23, yy + 7]]), { base: ST.ochre.base, deep: ST.ochre.deep, ew: 0.3, lw: 2.3, inkColor: ST.ochre.line });
+  line(t.left, 1.6, fam.line, { tout: 0, tin: 0, head: 1 }); line(t.right, 1.5, fam.line, { tout: 0, tin: 0, head: 1, alpha: 0.8 });
+  line([t.left[n - 1], t.right[n - 1]], 1.5, fam.line, { tout: 0, tin: 0, head: 1 });
+  for (const f of nodes) {
+    const i = Math.round(f * (n - 1));
+    line([mixP(t.left[i], t.right[i], -0.12), mixP(t.left[i], t.right[i], 1.12)], 1.8, fam.line, { tout: 0, tin: 0, head: 1 });
+    const j = Math.min(n - 1, i + 2);
+    line([t.left[j], t.right[j]], 1.2, fam.line, { tout: 0, tin: 0, head: 1, alpha: 0.5 });
   }
 }
+/** the round lantern, hanging by a cord from (x, y) */
+function lantern(x, y) {
+  const R = F.rouge, O = F.ochre, rx = 62, ry = 66, cy = y + 32 + ry, g = G, r = L.rng('s14tassel');
+  line([[x, y], [x + 0.5, y + 21]], 1.5, C.ink, { tout: 0, alpha: 0.85 });
+  // tassel: fine threads, red and yellow by turns
+  for (let i = -3; i <= 3; i++) {
+    line([[x + i * 1.5, cy + ry + 21], [x + i * 2.5 + r.range(-1, 1), cy + ry + 46], [x + i * 3.3 + r.range(-2, 2), cy + ry + 74 + r.range(-6, 4)]], 1.7, i & 1 ? '#c8452f' : '#d9912e', { alpha: 0.92, tout: 22, tail: 0.55, z: 0.5 });
+  }
+  patch(cr(ell(x, cy + ry + 17, 5.6, 5.4, 8), true, 1.5), F.red, { z: 0.72, grad: 0.7, rim: 0.8, drag: 0, mis: 0, outline: 1.4 });
+  const ball = cr(ell(x, cy, rx, ry, 18), true, 3);
+  patch(ball, R, {
+    z: 0.6, grad: 0, rim: 0.8, drag: 0.7, dir: [0.05, 1], outline: 1.9, mis: 0,
+    pattern: () => {
+      // round: 玻璃白 swelling toward the light, the rouge deepening away from it
+      const hx = x - MIR * 19, hy = cy - 22;
+      g.fillStyle = L.radial(g, hx, hy, 2, rx * 1.25, [[0, L.rgba(R.lt, 0.96)], [0.3, L.rgba(R.lt, 0.62)], [0.62, L.rgba(R.lt, 0.16)], [0.85, L.rgba(R.lt, 0)]]);
+      g.fillRect(x - rx - 4, cy - ry - 4, rx * 2 + 8, ry * 2 + 8);
+      g.fillStyle = L.radial(g, hx, hy, rx * 0.7, rx * 1.75, [[0, L.rgba(R.deep, 0)], [0.55, L.rgba(R.deep, 0.34)], [1, L.rgba(R.deep, 0.72)]]);
+      g.fillRect(x - rx - 4, cy - ry - 4, rx * 2 + 8, ry * 2 + 8);
+    },
+  });
+  // ribs: fine lines along the meridians
+  for (const k of [-0.76, -0.4, 0, 0.4, 0.76]) {
+    line([[x + k * rx * 0.3, cy - ry * 0.97], [x + k * rx * 0.86, cy - ry * 0.5], [x + k * rx, cy], [x + k * rx * 0.86, cy + ry * 0.5], [x + k * rx * 0.3, cy + ry * 0.97]], 1.4, R.line, { alpha: 0.62, tout: 0, tin: 0, head: 1 });
+  }
+  // a glint where the enamel stands thickest
+  g.save(); g.filter = 'blur(2.2px)'; g.fillStyle = 'rgba(255,255,255,0.8)'; g.beginPath(); g.ellipse(x - MIR * 23, cy - 30, 9, 5, -0.6 * MIR, 0, L.TAU); g.fill(); g.filter = 'none'; g.restore();
+  // caps
+  patch(dense([[x - 15, y + 20], [x + 15, y + 20], [x + 19, y + 34], [x - 19, y + 34]], true, 3), O, { z: 0.72, grad: 0.8, rim: 0.9, drag: 0, mis: 0, outline: 1.6 });
+  patch(dense([[x - 19, cy + ry - 3], [x + 19, cy + ry - 3], [x + 15, cy + ry + 11], [x - 15, cy + ry + 11]], true, 3), O, { z: 0.72, grad: 0.8, rim: 0.9, drag: 0, mis: 0, outline: 1.6 });
+}
+/** the flesh showing in the V of the collar, with the shadow of the chin */
+function throat(pts) {
+  patch(dense(pts, true, 4), F.flesh, {
+    z: 0.5, grad: 0, rim: 0, drag: 0, mis: 0,
+    pattern: (g) => { g.filter = 'blur(6px)'; g.fillStyle = L.rgba('#eaa79c', 0.62); g.beginPath(); g.ellipse(12, 95, 54, 13, 0.05, 0, L.TAU); g.fill(); g.filter = 'none'; },
+  });
+}
 
-// ───────────────────────── the two children ─────────────────────────
 /** astride the bamboo horse, both fists on the pole, leaning into the gallop (the bank hides the legs and the pole's trailing end) */
-function kidHorse(g) {
-  const st = { jacket: ST.pink, trim: ST.green, pants: ST.yellow, shoe: ST.black, hair: 'buns', ribbon: C.rouge, sash: ST.green };
-  kid(g, {
-    N: [20, -240], P: [-6, -124], H: [36, -302], r: 80, tilt: -0.06,
-    armFar: [[30, -222], [86, -196], [130, -172]], armNear: [[8, -222], [46, -176], [88, -153]],
-  }, st, { mid: () => bambooHorse(g, [-120, -54], [-8, -100], [222, -195], false) });
-}
-/** carrying the lantern ahead on a stick, looking back and beckoning */
-function kidLantern(g) {
-  const st = { jacket: ST.ochre, trim: ST.yellow, pants: ST.pink, shoe: ST.black, hair: 'peach', ribbon: C.rouge, sash: ST.blue };
-  kid(g, {
-    N: [-4, -236], P: [2, -120], H: [-6, -298], r: 80, tilt: 0.05, flipHead: true, openFar: true,
-    armFar: [[6, -218], [-66, -208], [-108, -242]], armNear: [[-10, -218], [36, -186], [80, -200]],
-  }, st, {
-    preArm: () => ink(g, [[54, -187], [92, -202], [150, -226], [214, -252]], 5.4, { color: C.sepia, taper: [0.02, 0.1], alpha: 0.95, wobble: 0.15 }),
-    front: () => lantern(g, 214, -252),
+function kidA() {
+  const P = F.pink, T = F.green;
+  const dots = (g) => { for (const [x, y] of [[-74, 176], [-34, 247], [18, 253], [52, 176], [86, 252], [128, 176]]) roundel(g, x, y, 14, P); };
+  // far sleeve, reaching forward to the pole, with its cuff
+  patch(cr([[58, 126], [92, 132], [124, 160], [146, 196], [151, 222], [117, 236], [104, 212], [88, 190], [62, 172]], true, 4), P, {
+    z: 0.47, fw: 22, folds: [{ p: [[98, 142], [122, 176], [135, 214]], side: 1 }], pattern: dots, dir: [0.4, 1],
   });
+  line([[70, 125], [92, 132], [124, 160], [146, 196], [151, 221]], 1.9, P.line, { tout: 8 });
+  line([[117, 235], [104, 212], [91, 193]], 1.7, P.line, { tout: 14 });
+  patch(dense([[152, 221], [117, 236.5], [113, 224], [148, 208.5]], true, 3), T, { z: 0.58, grad: 0.8, rim: 0.8, drag: 0.5, outline: 1.6 });
+  // the jacket
+  patch(cr([[-40, 100], [-74, 114], [-100, 146], [-106, 210], [-102, 290], [-96, 400], [70, 404], [96, 330], [102, 262], [94, 200], [84, 150], [70, 122], [50, 104], [30, 112], [0, 112], [-25, 106]], true, 5), P, {
+    z: 0.5, fw: 30, pattern: dots, dir: [0.1, 1],
+    folds: [{ p: [[46, 152], [60, 204], [58, 258], [46, 318]], side: -1 }, { p: [[14, 168], [26, 214], [22, 266], [8, 320]], side: -1, la: 0.6 }, { p: [[84, 176], [74, 206], [72, 252], [80, 318]], side: 1, w: 0.7, la: 0.6 }],
+    hi: [[[70, 140], [84, 190], [90, 250]]], hw: 13,
+  });
+  line([[52, 104], [70, 122], [84, 150], [94, 200], [102, 262], [96, 330]], 2.0, P.line, { tout: 0 });
+  line([[-42, 100], [-74, 114], [-100, 146], [-106, 210], [-102, 300]], 2.0, P.line, { tout: 0 });
+  // the bamboo horse, then the far fist over it
+  stick([-62, 302], [192, 220.6], 11, F.bamboo, [0.16, 0.45, 0.9]);
+  fist(131, 239.5, -0.31);
+  // collar: crossed, the left lapel over the right (右衽)
+  throat([[-38, 84], [48, 88], [52, 105], [12, 148], [-42, 99]]);
+  band([[-42, 97], [-20, 118], [8, 142]], 13, T, 0.6);
+  band([[52, 103], [36, 128], [8, 157], [-26, 184]], 13.5, T, 0.64);
+  // near sleeve: hanging from the forearm, pushed into folds at the crook of the elbow
+  const sl = cr([[56, 238], [30, 228], [4, 220], [-22, 206], [-40, 172], [-50, 134], [-72, 114], [-98, 136], [-107, 186], [-94, 236], [-58, 268], [-8, 279], [44, 273]], false, 4).map(xy);
+  patch(sl, P, {
+    z: 0.57, fw: 27, pattern: dots, dir: [0.5, 1],
+    folds: [{ p: [[-80, 128], [-88, 172], [-82, 214]], side: -1, la: 0.6 }, { p: [[-24, 209], [-48, 227], [-78, 238]], side: 1 }, { p: [[-19, 213], [-30, 241], [-50, 262]], side: -1 }, { p: [[-6, 223], [8, 250], [30, 267]], side: 1, w: 0.8 }],
+    hi: [[[-66, 124], [-92, 146], [-99, 186]], [[-8, 226], [22, 234], [44, 240]]], hw: 12,
+  });
+  pulls(sl, [0.42, 0.7], 2.0, P.line, { tout: 20 });
+  patch(dense([[57, 237.5], [44.5, 274], [31, 272.5], [43.5, 233.5]], true, 3), T, { z: 0.66, grad: 0.8, rim: 0.8, drag: 0.5, outline: 1.6 });
+  fist(67, 257.5, -0.31);
+  xf(0, 0, 0.05, () => head({ hair: 'buns' }));
+}
+/** holding the lantern up on its stick (drawn facing +x, placed mirrored) */
+function kidB() {
+  const Y = F.yellow, T = F.blue, RED = '#cf5a3c';
+  const dots = (g) => { for (const [x, y] of [[-78, 168], [-58, 228], [-18, 246], [28, 226], [54, 208], [-8, 160], [64, 150], [86, 236], [-48, 292], [32, 292], [78, 290]]) floret(g, x, y, 6.5, RED); };
+  patch(cr([[-40, 100], [-74, 114], [-100, 146], [-104, 210], [-100, 290], [-96, 400], [70, 404], [90, 330], [95, 262], [91, 200], [83, 150], [70, 122], [50, 104], [30, 112], [0, 112], [-25, 106]], true, 5), Y, {
+    z: 0.5, fw: 30, pattern: dots, dir: [0.1, 1],
+    folds: [{ p: [[42, 128], [64, 150], [80, 188]], side: 1, la: 0.6 }, { p: [[80, 196], [72, 246], [80, 304]], side: 1, w: 0.8 }, { p: [[20, 272], [30, 292], [26, 316]], side: -1, la: 0.6 }, { p: [[-40, 274], [-34, 294], [-40, 316]], side: -1, la: 0.6 }],
+    hi: [[[66, 136], [80, 186], [86, 250]]], hw: 13,
+  });
+  line([[52, 104], [70, 122], [83, 150], [91, 200], [95, 262], [90, 330]], 2.0, Y.line, { tout: 0 });
+  line([[-42, 100], [-74, 114], [-100, 146], [-104, 210], [-100, 300]], 2.0, Y.line, { tout: 0 });
+  // the lantern's stick and the lantern
+  stick([62, 251], [246, 22], 5.4, F.ochre);
+  lantern(246, 22);
+  // collar (drawn so that, mirrored on the wall, it still closes to the wearer's right)
+  throat([[-38, 84], [48, 88], [52, 105], [30, 141], [-42, 99]]);
+  band([[52, 103], [42, 121], [30, 139]], 13, T, 0.6);
+  band([[-42, 97], [-14, 120], [22, 150], [60, 184]], 13.5, T, 0.64);
+  // near sleeve, the forearm lifted
+  const sl = cr([[74, 188], [44, 190], [10, 196], [-20, 200], [-40, 170], [-50, 134], [-72, 114], [-98, 136], [-108, 188], [-96, 240], [-62, 270], [-10, 274], [40, 260], [88, 236]], false, 4).map(xy);
+  patch(sl, Y, {
+    z: 0.57, fw: 27, pattern: dots, dir: [0.5, 1],
+    folds: [{ p: [[-80, 128], [-90, 174], [-84, 218]], side: -1, la: 0.6 }, { p: [[-22, 203], [-48, 226], [-80, 240]], side: 1 }, { p: [[-17, 207], [-26, 238], [-44, 262]], side: -1 }, { p: [[0, 204], [20, 232], [50, 250]], side: 1, w: 0.8 }],
+    hi: [[[-66, 124], [-92, 146], [-100, 188]], [[0, 203], [34, 198], [64, 196]]], hw: 12,
+  });
+  pulls(sl, [0.42, 0.7], 2.0, Y.line, { tout: 20 });
+  patch(dense([[74, 188], [88, 236], [75.3, 238.8], [61.3, 190.8]], true, 3), T, { z: 0.66, grad: 0.8, rim: 0.8, drag: 0.5, outline: 1.6 });
+  fist(100, 204, Math.atan2(-182, 146));
+  xf(0, 0, -0.05, () => head({ hair: 'peach' }));
+}
+/** stand a figure on the wall: (x, y) = centre of its head in the frame, k = scale, mir = −1 to face left, lean = radians forward */
+function place(x, y, k, mir, lean, fn) {
+  KS = k; MIR = mir;
+  for (const c of [G, HG]) { c.save(); c.translate(x, y); c.rotate(lean * mir); c.scale(k * mir, k); }
+  fn();
+  for (const c of [G, HG]) c.restore();
+  KS = 1; MIR = 1;
 }
 
-// ───────────────────────── the green slope ─────────────────────────
-const GCOLS = ['#263a26', '#2d4a2e', '#2b2620', '#33603a'];
-function grassClump(g, a, r, th, dr, sc, col) {
-  a.at(g, th, dr, () => {
-    const nb = r.int(4, 6);
-    for (let b = 0; b < nb; b++) {
-      const lean = L.lerp(-0.95, 0.95, (b + r.range(-0.3, 0.3)) / (nb - 1)), len = sc * r.range(24, 44) * (1 - 0.3 * Math.abs(lean)), bx = r.range(-5, 5) * sc;
-      L.inkStroke(g, [[bx, 2], [bx + Math.sin(lean * 0.4) * len * 0.55, -Math.cos(lean * 0.4) * len * 0.55], [bx + Math.sin(lean) * len, -Math.cos(lean) * len]],
-        { width: sc * r.range(3.2, 4.6), color: col, seed: 's14g' + (SEED++), taper: [0.02, 0.8], wobble: 0.25, alpha: 0.9 });
-    }
-  });
-}
-function slope(g, env) {
-  const a = env.arc, sp = a.span(PAD + 180), nz = L.makeNoise('s14slope'), r = L.rng('s14grass');
-  const N = 260, lowPts = [];
+// ───────────────────────── the green bank ─────────────────────────
+const GCOLS = ['#24361f', '#2b2620', '#2c4a2b'];
+const TUFTS = [[-1330, -50, 1.2], [-1120, -40, 1.2], [-900, -8, 1.1], [-700, -62, 1.3], [-470, -6, 1.0], [-300, -50, 1.25], [-120, -20, 0.95], [70, -70, 1.2], [230, -8, 1.0], [420, -44, 1.3], [640, -12, 1.1], [800, -66, 1.2], [1010, -30, 1.3], [1220, -10, 1.1]];
+const MOSS = [[-1260, -24], [-1000, -80], [-590, -28], [-380, -92], [-30, -48], [300, -90], [540, -70], [900, -26], [1130, -84]];
+function slope(env) {
+  const g = G, a = env.arc, sp = a.span(PAD + 180), nz = L.makeNoise('s14slope'), r = L.rng('s14grass');
+  // the lower edge of the green wash, and of the thinner first wash that shows below it here and there
+  const N = 560, low = [], low2 = [];
   for (let i = 0; i <= N; i++) {
     const th = L.lerp(sp, -sp, i / N), u = th * a.R;
-    const p = a.pt(th, -(122 + 50 * nz.fbm(u / 760, 1.3, 3) + 5 * nz.n2(u / 150, 7.7)));
-    lowPts.push([p.x, p.y]);
+    const d = 114 + 46 * nz.fbm(u / 760, 1.3, 3) + 10 * nz.n2(u / 140, 7.7) + 3.4 * nz.n2(u / 41, 2.2) + 1.1 * nz.n2(u / 13, 5.1);
+    const d2 = d + 15 + 13 * nz.n2(u / 210, 11.3) + 4 * nz.n2(u / 47, 15.9);
+    const p = a.pt(th, -d), p2 = a.pt(th, -d2);
+    low.push([p.x, p.y]); low2.push([p2.x, p2.y]);
   }
+  const bandPath = (c, pts) => { c.beginPath(); a.trace(c, 0, -sp, sp); for (const p of pts) c.lineTo(p[0], p[1]); c.closePath(); };
+  bandPath(g, low2); g.fillStyle = L.rgba('#d3ebbc', 0.82); g.fill();
+  bandPath(HG, low2); HG.fillStyle = zc(0.2); HG.fill();
   g.save();
-  g.beginPath(); a.trace(g, 0, -sp, sp); for (const p of lowPts) g.lineTo(p[0], p[1]); g.closePath();
-  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 170, a.R, [[0, L.rgba('#cdeab2', 0.9)], [0.35, L.rgba('#b2dc96', 0.97)], [0.7, '#9dcf83'], [0.92, '#8ec577'], [1, '#82bd6c']]);
+  bandPath(g, low);
+  g.fillStyle = L.radial(g, a.cx, a.cy, a.R - 170, a.R, [[0, '#c3e3a8'], [0.35, '#acd692'], [0.7, '#96c87f'], [0.93, '#86bd70'], [1, '#7bb566']]);
   g.fill(); g.clip();
   // a second, deeper wash laid in long drifting patches
   g.drawImage(L.polarNoiseLayer(env, PAD, { seed: 's14w2', scale: 230, sx: 3.4, sy: 0.7, octaves: 3, res: 0.25, contrast: 1.5,
-    ramp: [[0, L.rgba('#eaf7d6', 0.3)], [0.36, L.rgba('#eaf7d6', 0)], [0.54, L.rgba('#5aa257', 0)], [0.66, L.rgba('#5aa257', 0.2)], [1, L.rgba('#3f8a45', 0.42)]] }), -PAD, -PAD);
-  // one long shading stroke part-way down the bank, running with the contour and breaking where the brush lifted
-  g.lineCap = 'round';
-  for (let i = 0; i < 9; i++) {
-    const t0 = L.lerp(-sp, sp, (i + r.range(0.0, 0.35)) / 9), ln = (2 * sp / 9) * r.range(0.5, 0.86), dr = -(62 + 12 * nz.n2(i * 1.7, 3.3));
-    for (const [w, al] of [[26, 0.1], [15, 0.14], [7, 0.2]]) { g.strokeStyle = L.rgba('#3c8443', al); g.lineWidth = w; a.stroke(g, dr, t0, t0 + ln); }
+    ramp: [[0, L.rgba('#eaf7d6', 0.34)], [0.36, L.rgba('#eaf7d6', 0)], [0.54, L.rgba('#5aa257', 0)], [0.66, L.rgba('#5aa257', 0.2)], [1, L.rgba('#3f8a45', 0.4)]] }), -PAD, -PAD);
+  // everything soft goes on one sheet that is blurred once: broad pulls of the brush along the bank, colour pooled under the
+  // crest line and along the lower rim of the wash
+  const sheet = L.makeCanvas(g.canvas.width, g.canvas.height), sg = sheet.getContext('2d');
+  sg.translate(-RX, -RY); sg.lineCap = 'round'; sg.lineJoin = 'round';
+  for (const [n, col, a0, a1, w0, w1] of [[18, '#479a50', 0.12, 0.26, 12, 36], [13, '#e6f5cc', 0.16, 0.32, 10, 26]]) {
+    for (let i = 0; i < n; i++) {
+      const t0 = L.lerp(-sp, sp, (i + r.range(0, 0.8)) / n), ln = ((2 * sp) / n) * r.range(0.7, 1.9), dr = -r.range(24, 124), tilt = r.range(-14, 14), pts = [];
+      for (let k = 0; k <= 14; k++) { const p = a.pt(t0 + (ln * k) / 14, dr + tilt * (k / 14 - 0.5) + 5 * nz.n2(i * 3.1, k * 0.4)); pts.push([p.x, p.y]); }
+      sg.strokeStyle = L.rgba(col, r.range(a0, a1)); sg.lineWidth = r.range(w0, w1); trace(sg, pts, false); sg.stroke();
+    }
   }
-  // pigment pooled along the lower rim of the wash, and under the crest line
-  g.lineJoin = 'round';
-  g.strokeStyle = L.rgba('#5aa257', 0.28); g.lineWidth = 11; trace(g, lowPts, false); g.stroke();
-  g.strokeStyle = L.rgba('#479049', 0.4); g.lineWidth = 3.4; trace(g, lowPts, false); g.stroke();
-  g.strokeStyle = L.rgba('#479049', 0.16); g.lineWidth = 38; a.stroke(g, -6, -sp, sp);
-  g.strokeStyle = L.rgba('#3f8a45', 0.2); g.lineWidth = 16; a.stroke(g, -5, -sp, sp);
+  sg.strokeStyle = L.rgba('#3f8a47', 0.4); sg.lineWidth = 24; a.stroke(sg, -9, -sp, sp);
+  sg.strokeStyle = L.rgba('#4c9a53', 0.42); sg.lineWidth = 12; trace(sg, low, false); sg.stroke();
+  g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.filter = 'blur(4.5px)'; g.drawImage(sheet, 0, 0); g.filter = 'none'; g.restore();
+  // hair-fine streaks of the brush, running with the bank
+  g.lineCap = 'round';
+  for (let i = 0; i < 190; i++) {
+    const t0 = r.range(-sp, sp), ln = r.range(50, 240) / a.R, dr = -r.range(8, 150), tilt = r.range(-6, 6), pts = [];
+    for (let k = 0; k <= 8; k++) { const p = a.pt(t0 + (ln * k) / 8, dr + tilt * (k / 8 - 0.5)); pts.push([p.x, p.y]); }
+    g.strokeStyle = L.rgba(r.chance(0.5) ? '#eef8d8' : '#3f8f49', r.range(0.07, 0.17)); g.lineWidth = r.range(1.4, 3.6); trace(g, pts, false); g.stroke();
+  }
+  // the rim where the wash stopped and dried a shade deeper
+  g.strokeStyle = L.rgba('#3f8a45', 0.34); g.lineWidth = 4.6; g.lineJoin = 'round'; trace(g, low, false); g.stroke();
+  // pin-point bubbles in the thick green
+  for (let i = 0; i < 150; i++) {
+    const p = a.pt(r.range(-sp, sp), -r.range(10, 140)), rad = r.range(0.9, 1.7);
+    g.fillStyle = L.rgba('#2f7a3c', r.range(0.25, 0.5)); g.beginPath(); g.arc(p.x, p.y, rad + 0.7, 0, L.TAU); g.fill();
+    g.fillStyle = L.rgba('#f2fbe2', r.range(0.5, 0.85)); g.beginPath(); g.arc(p.x - 0.4, p.y - 0.5, rad * 0.62, 0, L.TAU); g.fill();
+  }
   g.restore();
+  bandPath(HG, low);
+  HG.fillStyle = L.radial(HG, a.cx, a.cy, a.R - 170, a.R, [[0, zc(0.3)], [0.7, zc(0.42)], [1, zc(0.5)]]); HG.fill();
 
   // the brush contour ON the arc: its upper edge is fixed, the brush swells downward and now and then runs thin
-  const M = 640, up = [], dn = [];
+  const M = 700, up = [], dn = [];
   for (let i = 0; i <= M; i++) {
     const th = L.lerp(-sp, sp, i / M), u = th * a.R;
-    const w = Math.max(2.4, 6.4 + 3.0 * nz.n2(u / 150, 3.1) + 1.4 * nz.n2(u / 31, 8.8));
+    const w = Math.max(2.3, 5.6 + 2.7 * nz.n2(u / 150, 3.1) + 1.2 * nz.n2(u / 31, 8.8));
     const p0 = a.pt(th, 1.4), p1 = a.pt(th, 1.4 - w);
     up.push([p0.x, p0.y]); dn.push([p1.x, p1.y]);
   }
-  g.fillStyle = L.rgba('#232d1c', 0.92); trace(g, up.concat(dn.reverse()), true); g.fill();
+  const edge = up.concat(dn.reverse());
+  g.fillStyle = L.rgba('#232d1c', 0.93); trace(g, edge, true); g.fill();
+  HG.fillStyle = zc(0.64); trace(HG, edge, true); HG.fill();
   // the doubled line under it: finer, in long broken runs
   for (let i = 0; i < 10; i++) {
-    const t0 = L.lerp(-sp, sp, (i + r.range(0.0, 0.3)) / 10), ln = (2 * sp / 10) * r.range(0.6, 0.94), dr = -r.range(15, 19);
-    ink(g, L.arcPts(a, dr, t0, t0 + ln, 24), r.range(2.6, 3.6), { color: '#2a4428', alpha: 0.66, taper: [0.06, 0.3], wobble: 0.5 });
+    const t0 = L.lerp(-sp, sp, (i + r.range(0.0, 0.3)) / 10), ln = ((2 * sp) / 10) * r.range(0.6, 0.94), dr = -r.range(14, 18);
+    line(L.arcPts(a, dr, t0, t0 + ln, 26), r.range(2.0, 2.7), '#2a4428', { alpha: 0.6, tin: 8, tout: 70, tail: 0.3, shake: 0.9 });
   }
-  // grass: a handful of big springy tufts, unevenly spaced (px along the arc from the crest)
-  for (const [u, dr, sc] of [[-1130, -62, 1.9], [-905, -30, 1.5], [-640, -78, 2.2], [-250, -46, 1.7], [-70, -88, 1.3], [215, -58, 2.1], [520, -34, 1.5], [585, -84, 1.9], [905, -56, 2.2], [1160, -40, 1.6], [1390, -76, 2.0], [-1420, -44, 1.8]]) {
-    grassClump(g, a, r, u / a.R, dr, sc, r.pick(GCOLS));
-  }
-  // moss dots (苔点): a few fat clusters on the bank
-  for (const [u, dr] of [[-1010, -84], [-455, -26], [-380, -92], [60, -30], [370, -96], [760, -74], [1040, -98], [1265, -28], [-1300, -92], [1500, -60]]) {
-    a.at(g, u / a.R, dr, () => {
-      const n = r.int(3, 5);
-      for (let k = 0; k < n; k++) {
-        const rx = r.range(6.5, 11.5);
-        g.fillStyle = L.rgba(r.pick(['#24361f', '#2b2620', '#2f5230']), r.range(0.72, 0.92));
-        g.beginPath(); g.ellipse(r.range(-30, 30), r.range(-6, 12), rx, rx * r.range(0.55, 0.75), r.range(-0.3, 0.3), 0, L.TAU); g.fill();
+  // grass: a few springy tufts drawn in ink under the green (px along the arc from the crest, depth, size)
+  for (const [u0, dr, sc] of TUFTS) {
+    const th = u0 / a.R, base = a.pt(th, dr), nb = r.int(4, 6), col = r.pick(GCOLS);
+    xf(base.x, base.y, th, () => {
+      for (let b = 0; b < nb; b++) {
+        const lean = L.lerp(-0.95, 0.95, (b + r.range(-0.3, 0.3)) / (nb - 1)), len = sc * r.range(30, 54) * (1 - 0.28 * Math.abs(lean)), bx = r.range(-5, 5) * sc, curl = lean * r.range(0.2, 0.6);
+        line([[bx, 2], [bx + Math.sin(lean * 0.45) * len * 0.5, -Math.cos(lean * 0.45) * len * 0.5], [bx + Math.sin(lean + curl) * len, -Math.cos(lean + curl) * len]],
+          sc * r.range(2.3, 3.1), col, { alpha: 0.9, head: 1.2, tin: 4, tout: len * 0.75, tail: 0.3, shake: 0.3, z: 0.62 });
       }
     });
+  }
+  // moss dots (苔点): a few fat clusters, each dot a bead of dark enamel
+  for (const [u0, dr] of MOSS) {
+    const n = r.int(3, 5);
+    for (let k = 0; k < n; k++) {
+      const th = (u0 + r.range(-34, 34)) / a.R, c = a.pt(th, dr + r.range(-12, 12)), rx = r.range(6, 10.5), ry = rx * r.range(0.6, 0.85);
+      const blob = cr(ell(c.x, c.y, rx, ry, 7, th + r.range(-0.4, 0.4)).map((p) => [p[0] + r.range(-1.1, 1.1), p[1] + r.range(-1.1, 1.1)]), true, 2);
+      g.fillStyle = L.rgba(r.pick(['#234a2a', '#1f3a22', '#2b2620']), r.range(0.8, 0.92)); trace(g, blob, true); g.fill();
+      HG.fillStyle = zc(0.8); trace(HG, blob, true); HG.fill();
+    }
   }
 }
 
 // ───────────────────────── layers ─────────────────────────
-function buildPaint(env) {
-  const paint = L.makeLayer(PAD, (g) => {
-    // the two children come up from behind the bank: painted only above its contour, then the bank is laid over them
-    const a = env.arc;
-    g.save(); a.clipAbove(g, -3);
-    place(g, env, 400, 2.15, 106, kidHorse);
-    place(g, env, 1225, 2.1, 113, kidLantern);
-    g.restore();
-    slope(g, env);
-  });
-  // the enamel itself: uneven pooling, a fine tooth, then the slight relief of colour standing proud of the glaze
-  L.overlayOn(paint, L.noiseLayer(PAD, { seed: 's14en', scale: 96, octaves: 3, contrast: 1.5, res: 0.25 }), { blend: 'soft-light', alpha: 0.24 });
-  L.overlayOn(paint, L.noiseLayer(PAD, { seed: 's14en2', scale: 8, octaves: 2, contrast: 1.5, res: 0.5 }), { blend: 'soft-light', alpha: 0.15 });
-  const relief = L.bumpLight(paint, { angle: 45, strength: 1.1, blur: 1.6, res: 0.6 });
-  L.overlayOn(paint, relief, { blend: 'overlay', alpha: 0.46 });
-  return L.blurred(paint, 1.0);
+/** paint fn on a small sheet covering one part of the wall (blurred washes stay cheap there), then lay it into the big layers */
+function region(paint, hmap, x0, y0, w, h, fn) {
+  const c = L.makeCanvas(w, h), hc = L.makeCanvas(w, h);
+  G = c.getContext('2d'); HG = hc.getContext('2d'); RX = x0; RY = y0;
+  G.translate(-x0, -y0); HG.translate(-x0, -y0);
+  fn();
+  paint.getContext('2d').drawImage(c, x0, y0); hmap.getContext('2d').drawImage(hc, x0, y0);
+  G = null; HG = null;
 }
-function buildSurface(env, paint) {
+/** light the height map once from the upper left → a transparent sheet of glints (white) and shade (warm dark) */
+function reliefLight(hmap) {
+  const w = hmap.width, h = hmap.height;
+  const tmp = L.makeCanvas(w, h), tg = tmp.getContext('2d', { willReadFrequently: true });
+  tg.filter = 'blur(1.25px)'; tg.drawImage(hmap, 0, 0); tg.filter = 'none';
+  const src = tg.getImageData(0, 0, w, h).data, hg = new Float32Array(w * h);
+  for (let i = 0, k = 0; i < hg.length; i++, k += 4) hg[i] = (src[k] * src[k + 3]) / 255;
+  const img = new ImageData(w, h), o = img.data, nz = L.makeNoise('s14glint');
+  const s = 0.012, lx = -0.35, ly = -0.75, lz = 0.56;
+  let hx = lx, hy = ly, hz = lz + 1; const hm = Math.hypot(hx, hy, hz); hx /= hm; hy /= hm; hz /= hm;
+  for (let y = 1; y < h - 1; y++) {
+    let i = y * w + 1;
+    for (let x = 1; x < w - 1; x++, i++) {
+      const gx = hg[i + 1] - hg[i - 1], gy = hg[i + w] - hg[i - w];
+      if (gx === 0 && gy === 0) continue;
+      const nx = -gx * 0.5 * s, ny = -gy * 0.5 * s, inv = 1 / Math.sqrt(nx * nx + ny * ny + 1);
+      const dif = (nx * lx + ny * ly + lz) * inv - lz;
+      let v = dif > 0 ? dif * 0.5 : dif * 0.42;
+      const sd = (nx * hx + ny * hy + hz) * inv - 0.955;
+      if (sd > 0) { const t = sd / 0.045; v += t * t * 0.62 * (0.15 + 0.85 * ss(-0.35, 0.4, nz.n2(x / 64, y / 64))); }   // the glint comes and goes along an edge
+      const k = i * 4;
+      if (v > 0.004) { o[k] = 255; o[k + 1] = 253; o[k + 2] = 244; o[k + 3] = v >= 1 ? 255 : v * 255; }
+      else if (v < -0.004) { o[k] = 78; o[k + 1] = 44; o[k + 2] = 30; o[k + 3] = v <= -1 ? 255 : -v * 255; }
+    }
+  }
+  tg.clearRect(0, 0, w, h); tg.putImageData(img, 0, 0);
+  return tmp;
+}
+function buildPaint(env) {
+  const a = env.arc, paint = L.makeLayer(PAD), hmap = L.makeLayer(PAD);
+  // the two children come up from behind the bank: painted only above its contour, then the bank is laid over them
+  region(paint, hmap, 400, -10, 520, 660, () => { a.clipAbove(G, -3); a.clipAbove(HG, -3); place(590, 195, 1.3, 1, 0.035, kidA); });
+  region(paint, hmap, 860, -10, 620, 660, () => { a.clipAbove(G, -3); a.clipAbove(HG, -3); place(1290, 190, 1.28, -1, 0.02, kidB); });
+  region(paint, hmap, -PAD, 500, W + PAD * 2, 590, () => slope(env));
+  // enamel is never laid perfectly even; here and there a pin-prick bubble burst in the firing
+  L.overlayOn(paint, L.noiseLayer(PAD, { seed: 's14en', scale: 80, octaves: 3, contrast: 1.4, res: 0.25 }), { blend: 'soft-light', alpha: 0.15 });
+  const pits = L.makeLayer(PAD, (g) => {
+    const r = L.rng('s14pits');
+    for (let i = 0; i < 900; i++) {
+      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, 760), rad = r.range(0.8, 1.5);
+      g.fillStyle = L.rgba('#5a3a2a', r.range(0.16, 0.34)); g.beginPath(); g.arc(x, y, rad + 0.5, 0, L.TAU); g.fill();
+      g.fillStyle = L.rgba('#ffffff', r.range(0.35, 0.7)); g.beginPath(); g.arc(x + 0.5, y + 0.6, rad * 0.6, 0, L.TAU); g.fill();
+    }
+  });
+  L.overlayOn(paint, pits, { blend: 'source-over', alpha: 1 });
+  // the enamel's surface is not dead flat either
+  const hg = hmap.getContext('2d');
+  hg.save(); hg.setTransform(1, 0, 0, 1, 0, 0); hg.globalCompositeOperation = 'source-atop'; hg.globalAlpha = 0.3;
+  hg.drawImage(L.noiseLayer(PAD, { seed: 's14wav', scale: 20, octaves: 2, res: 0.5 }), 0, 0); hg.restore();
+  return { paint, light: reliefLight(hmap) };
+}
+function buildSurface(env, paint, light) {
   const surf = L.makeLayer(PAD, (g) => {
     const full = () => g.fillRect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
     g.fillStyle = C.cream; full();
     // slow drift in the glaze thickness
-    g.globalAlpha = 0.6;
-    g.drawImage(L.noiseLayer(PAD, { seed: 's14glaze', scale: 420, octaves: 3, res: 0.2, ramp: [[0, '#eee5cd'], [0.5, '#f5efe0'], [1, '#fcf9f0']] }), -PAD, -PAD);
+    g.globalAlpha = 0.55;
+    g.drawImage(L.noiseLayer(PAD, { seed: 's14glaze', scale: 460, octaves: 3, res: 0.2, ramp: [[0, '#efe7d2'], [0.5, '#f5efe0'], [1, '#fbf8ee']] }), -PAD, -PAD);
     g.globalAlpha = 1;
-    // pin-holes (棕眼) and the odd iron speck
+    // pin-holes (棕眼): a dark speck in a paler dimple, lit on the wall that faces the light; the odd iron spot
     const r = L.rng('s14pin');
-    for (let i = 0; i < 46; i++) {
-      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), rad = r.range(1.1, 2.4) * (r.chance(0.14) ? 1.8 : 1);
-      g.fillStyle = L.rgba('#fffdf6', 0.85); g.beginPath(); g.arc(x + rad * 0.55, y + rad * 0.6, rad * 1.05, 0, L.TAU); g.fill();
-      g.fillStyle = L.rgba(r.chance(0.25) ? '#3a2a1c' : '#8a6238', r.range(0.45, 0.8)); g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
+    for (let i = 0; i < 40; i++) {
+      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), rad = r.range(1.2, 2.3) * (r.chance(0.15) ? 1.7 : 1), iron = r.chance(0.22);
+      bloomAt(g, x, y, rad * 4.2, '#fffdf6', 0.75);
+      g.fillStyle = L.rgba(iron ? '#3a2a1c' : '#8a6238', r.range(0.5, 0.82)); g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
+      g.fillStyle = L.rgba('#fffdf6', 0.8); g.beginPath(); g.arc(x + rad * 0.7, y + rad * 0.8, rad * 0.55, 0, L.TAU); g.fill();
     }
-    // hairline wear
+    // a few hairlines of wear
     g.lineCap = 'round';
-    for (let i = 0; i < 26; i++) {
-      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), ang = r.range(-0.5, 0.5) + (r.chance(0.2) ? 1.2 : 0), len = r.range(60, 260), al = r.range(0.04, 0.1);
-      const x1 = x + Math.cos(ang) * len, y1 = y + Math.sin(ang) * len;
-      g.lineWidth = r.range(0.7, 1.3);
-      g.strokeStyle = L.rgba('#7a5c3a', al); g.beginPath(); g.moveTo(x, y); g.lineTo(x1, y1); g.stroke();
-      g.strokeStyle = L.rgba('#ffffff', al * 2.4); g.beginPath(); g.moveTo(x, y + 1); g.lineTo(x1, y1 + 1); g.stroke();
+    for (let i = 0; i < 14; i++) {
+      const x = r.range(-PAD, W + PAD), y = r.range(-PAD, H + PAD), ang = r.range(-0.5, 0.5) + (r.chance(0.2) ? 1.2 : 0), len = r.range(70, 260), al = r.range(0.04, 0.085);
+      const x1 = x + Math.cos(ang) * len, y1 = y + Math.sin(ang) * len, bx = (x + x1) / 2 + r.range(-8, 8), by = (y + y1) / 2 + r.range(-8, 8);
+      g.lineWidth = r.range(1.2, 1.5);
+      g.strokeStyle = L.rgba('#7a5c3a', al); g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(bx, by, x1, y1); g.stroke();
+      g.strokeStyle = L.rgba('#ffffff', al * 2.2); g.beginPath(); g.moveTo(x, y + 1.2); g.quadraticCurveTo(bx, by + 1.2, x1, y1 + 1.2); g.stroke();
     }
-    // colour breathing into the glaze round the enamel, then the enamel with a hair of shadow under its lower-right rim
-    g.globalAlpha = 0.14; g.drawImage(L.blurred(paint, 12), -PAD, -PAD); g.globalAlpha = 1;
-    g.shadowColor = 'rgba(110,72,36,0.34)'; g.shadowBlur = 3; g.shadowOffsetX = 1.6; g.shadowOffsetY = 2.2;
+    // a breath of colour in the glaze round the enamel, the enamel with a hair of shadow under its lower-right rim, then its light
+    g.globalAlpha = 0.07; g.drawImage(L.blurred(paint, 9), -PAD, -PAD); g.globalAlpha = 1;
+    g.shadowColor = 'rgba(105,70,40,0.26)'; g.shadowBlur = 2.6; g.shadowOffsetX = 1.4; g.shadowOffsetY = 2.0;
     g.drawImage(paint, -PAD, -PAD);
     g.shadowColor = 'rgba(0,0,0,0)'; g.shadowBlur = 0; g.shadowOffsetX = 0; g.shadowOffsetY = 0;
+    g.drawImage(light, -PAD + 2.0, -PAD + 2.4);
   });
-  // macro lens: focus sits on the crest and the two children; the wall falls out of focus toward the frame's ends and its foot
+  // macro lens: focus sits on the crest, the lantern and the two faces; the wall falls out of focus toward the frame's ends and its foot
   const sg0 = surf.getContext('2d');
-  for (const [px, r0, r1] of [[3, 640, 1040], [7, 940, 1420]]) {
+  for (const [px, r0, r1] of [[2.2, 600, 940], [5.5, 900, 1340]]) {
     const soft = L.blurred(surf, px), sg = soft.getContext('2d');
     sg.globalCompositeOperation = 'destination-in';
-    sg.fillStyle = L.radial(sg, 960 + PAD, 420 + PAD, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
+    sg.fillStyle = L.radial(sg, 960 + PAD, 400 + PAD, r0, r1, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]);
     sg.fillRect(0, 0, soft.width, soft.height);
     sg0.drawImage(soft, -PAD, -PAD);
   }
   return surf;
 }
 /**
- * Reflections on the glaze (half-res, padded). The lens is focused on the painted surface, so the window it mirrors is soft:
- * a long pane lying across the bare wall below the slope, a second, upright one in the gap between the children,
- * and a broken glint where the green enamel stands thick.
+ * Reflections on the glaze (half-res, padded; they are out of focus — the lens is focused on the painted surface, not on what it mirrors):
+ * a four-paned window in the empty upper left, bowed by the wall's curve; a long soft light lying across the bare wall below
+ * the bank; a broken glint where the green enamel stands thick. The glaze's faint orange-peel ruffles their edges.
  */
 function buildGloss(env) {
   const a = env.arc, res = 0.5, GW = Math.round((W + PAD * 2) * res), GH = Math.round((H + PAD * 2) * res);
   const img = new ImageData(GW, GH), d = img.data, nz = L.makeNoise('s14gloss');
-  const ss = (e0, e1, v) => { const t = L.clamp((v - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
   for (let j = 0; j < GH; j++) {
     const y = j / res - PAD;
     for (let i = 0; i < GW; i++) {
       const x = i / res - PAD, ddx = x - a.cx, ddy = a.cy - y, rr = Math.sqrt(ddx * ddx + ddy * ddy), dr = rr - a.R;
       let v = 0;
       if (dr < -24 && dr > -100) {
-        // light catching the thickness of the green enamel: a broken streak that follows the slope
-        const u = Math.atan2(ddx, ddy) * a.R, d0 = dr + 44 + 6 * nz.n2(u / 140, 4.4);
+        // light catching the thickness of the green enamel: a broken streak that follows the bank
+        const u = Math.atan2(ddx, ddy) * a.R, d0 = dr + 46 + 6 * nz.n2(u / 140, 4.4);
         const brk = ss(-0.2, 0.4, nz.n2(u / 60, dr / 18 + 30));
-        v = 0.3 * Math.exp(-(d0 * d0) / (2 * 6 * 6)) * brk * Math.exp(-Math.pow((u + 300) / 640, 2));
-      } else if (dr < -150) {
-        // a long strip of window lying across the bare wall: soft (the lens is focused on the surface, not on the window),
-        // fattest left of centre where the light comes from, thinning to nothing at both ends
+        v = 0.26 * Math.exp(-(d0 * d0) / (2 * 6 * 6)) * brk * Math.exp(-Math.pow((u + 300) / 640, 2));
+      } else if (dr < -170) {
+        // the long light on the bare wall: fattest left of centre where the light comes from, dying away at both ends
         const u = Math.atan2(ddx, ddy) * a.R;
-        const op = 3.6 * nz.n2(u / 74, dr / 74) + 1.4 * nz.n2(u / 23 + 9, dr / 23);       // the glaze's orange-peel ruffles the reflection's edge
-        const along = Math.exp(-Math.pow((u + 170) / 820, 2));
-        const hw = 8 + 30 * along;                                                         // half-width of the bright core
-        const e = dr + 318 + op - 0.014 * u;                                               // > 0 above the strip's middle
-        const core = (1 - ss(hw * 0.5, hw + 16, e)) * ss(-hw - 9, -hw * 0.55, e);
-        const halo = Math.exp(-(e * e) / (2 * 120 * 120));
-        // in the sheen round the strip the glaze shows its skin: a fine dimpling (橘皮) that catches the light
-        const dim = 0.5 + 0.5 * (0.62 * nz.n2(x / 13, y / 13) + 0.38 * nz.n2(x / 5.5 + 40, y / 5.5));
-        v = (0.92 * core * (0.85 + 0.15 * ss(hw, -hw, e)) + halo * (0.06 + 0.2 * dim * dim)) * along;
-      } else if (dr > 4 && y < 600 && x > 690 && x < 1210) {
-        // the same window seen again in the gap between the children: upright, four panes, bowed by the wall's curve
-        const yy = y - 150, op = 2.4 * nz.n2(x / 66, y / 66) + 0.9 * nz.n2(x / 21 + 5, y / 21);
-        const bx = x - 792 - 0.00055 * yy * yy - 0.07 * yy + op, by = yy + op * 0.6;
-        const px = Math.max(1 - ss(15, 31, Math.abs(bx + 34)), 1 - ss(13, 28, Math.abs(bx - 31)));
-        const py = Math.max(1 - ss(50, 70, Math.abs(by + 74)), 1 - ss(54, 76, Math.abs(by - 80)));
-        const bloom = Math.exp(-(bx * bx) / (2 * 96 * 96) - (by * by) / (2 * 170 * 170));
-        v = 0.5 * px * py * (0.7 + 0.3 * L.clamp(1 - (by + 140) / 300)) + 0.13 * bloom;
+        const op = 4.5 * nz.n2(u / 90, dr / 90) + 1.5 * nz.n2(u / 17 + 9, dr / 17);
+        const along = Math.exp(-Math.pow((u + 220) / 780, 2));
+        const hw = 9 + 25 * along;
+        const e = dr + 322 + op - 0.016 * u;                                               // > 0 above the middle of the light
+        const core = (1 - ss(hw - 8, hw + 24, e)) * ss(-hw - 38, -hw + 6, e);
+        const halo = Math.exp(-(e * e) / (2 * 105 * 105));
+        v = (0.66 * core + 0.15 * halo) * along;
+      } else if (dr > 24 && x < 470 && y < 440) {
+        // the window: two by two panes, soft
+        const wx = x - 212, wy = y - 196, op = 3.0 * nz.n2(x / 80, y / 80) + 1.2 * nz.n2(x / 19 + 5, y / 19);
+        const bx = wx - 0.00045 * wy * wy + 0.05 * wy + op, by = wy + 0.1 * wx + op * 0.6;
+        const px = Math.max(1 - ss(33, 52, Math.abs(bx + 57)), 1 - ss(33, 52, Math.abs(bx - 57)));
+        const py = Math.max(1 - ss(50, 69, Math.abs(by + 73)), 1 - ss(50, 69, Math.abs(by - 73)));
+        const bloom = Math.exp(-(bx * bx) / (2 * 115 * 115) - (by * by) / (2 * 165 * 165));
+        v = 0.56 * px * py * (0.72 + 0.28 * L.clamp(1 - (by + 130) / 300)) + 0.1 * bloom;
       }
       if (v <= 0.003) continue;
       const k = (j * GW + i) * 4;
-      d[k] = 252; d[k + 1] = 253; d[k + 2] = 252; d[k + 3] = L.clamp(v) * 255;
+      d[k] = 253; d[k + 1] = 253; d[k + 2] = 250; d[k + 3] = L.clamp(v) * 255;
     }
   }
   const c = L.makeCanvas(GW, GH);
@@ -600,27 +768,27 @@ export default {
   init(env) {
     SEED = 0;
     const t0 = performance.now();
-    const paint = buildPaint(env);
+    const { paint, light } = buildPaint(env);
     const t1 = performance.now();
-    const surface = buildSurface(env, paint);
+    const surface = buildSurface(env, paint, light);
     const t2 = performance.now();
     const gloss = buildGloss(env);
     console.warn(`s14 timing: paint ${(t1 - t0) | 0} surface ${(t2 - t1) | 0} gloss ${(performance.now() - t2) | 0}`);
     S = { surface, gloss };
   },
   draw(ctx, env, p) {
-    // the painted wall turns slowly: children and slope slide along the arc
-    const rot = L.lerp(-0.014, 0.014, p);
-    L.blit(ctx, env, S.surface, { rot, zoom: L.lerp(1.0, 1.014, p) });
-    // the light does not turn with it: it comes from the upper left, and the wall rolls away toward its foot and the corners …
+    // the painted wall turns slowly: children and bank slide along the arc
+    const rot = L.lerp(-0.012, 0.012, p);
+    L.blit(ctx, env, S.surface, { rot, zoom: L.lerp(1.0, 1.012, p) });
+    // the light does not turn with it: it comes from the upper left, and the wall rolls away toward its foot and the far corners …
     ctx.save(); ctx.globalCompositeOperation = 'multiply';
     const a = env.arc;
-    ctx.fillStyle = L.radial(ctx, 660, 220, 300, 1850, [[0, '#ffffff'], [0.5, '#fbf6ea'], [1, '#eedfc4']]);
+    ctx.fillStyle = L.radial(ctx, 640, 210, 280, 1850, [[0, '#ffffff'], [0.5, '#fbf7ee'], [1, '#eee6d6']]);
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 720, a.R - 170, [[0, '#e0d2b6'], [0.4, '#f1e9d7'], [0.7, '#f7f1e4'], [1, '#ffffff']]);
+    ctx.fillStyle = L.radial(ctx, a.cx, a.cy, a.R - 720, a.R - 170, [[0, '#e9e1d0'], [0.45, '#f4eee2'], [0.75, '#fbf8f1'], [1, '#ffffff']]);
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
-    // … and the window's reflections lie still on the glaze
-    L.cam(ctx, env, { rot: -rot * 0.4 }, () => ctx.drawImage(S.gloss, -PAD, -PAD, W + PAD * 2, H + PAD * 2));
+    // … and the reflections lie still on the glaze
+    L.cam(ctx, env, { rot: -rot * 0.35 }, () => ctx.drawImage(S.gloss, -PAD, -PAD, W + PAD * 2, H + PAD * 2));
   },
 };

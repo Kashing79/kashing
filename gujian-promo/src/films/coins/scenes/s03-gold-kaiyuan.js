@@ -29,11 +29,12 @@ const [LX, LY, LZ] = unit(-0.06, -0.75, 0.66);   // key light: high above the fr
 const [HX, HY, HZ] = unit(LX, LY, LZ + 1);       // its half vector
 const [BX, BY, BZ] = unit(0.05, 0.85, 0.53);     // bounce: the lit field throws a warm glow back up at whatever faces it
 
-/** slope of the rim profile along the inward radius (d = depth below the arc); > 0 = rising toward the coin's centre */
-function macroSlope(d) {
+/** slope of the rim profile along the inward radius (d = depth below the arc); > 0 = rising toward the coin's centre.
+ *  E = how far in the rounded shoulder reaches (wear has made it a little broader here, a little tighter there) */
+function macroSlope(d, E = EDGE) {
   if (d < 0) d = 0;
-  if (d < EDGE) return 0.1 + 1.5 * Math.pow(1 - d / EDGE, 1.7);
-  if (d < W0) return L.lerp(0.1, -0.16, (d - EDGE) / (W0 - EDGE));
+  if (d < E) return 0.1 + 1.5 * Math.pow(1 - d / E, 1.7);
+  if (d < W0) return L.lerp(0.1, -0.16, (d - E) / (W0 - E));
   // the wall: a worn, fairly tight corner at the top, steepest a third of the way down, a longer fillet into the field
   if (d < W1) { const t = (d - W0) / (W1 - W0), s = Math.sin(Math.PI * Math.pow(t, 0.8)); return -0.16 * (1 - t) - 1.7 * s * s; }
   return 0;
@@ -49,7 +50,7 @@ function curve(pts) {
 }
 
 // the tops of 開: the two leaves of 門 (丨 + ㇕ on the left, 丨 + ㇆ on the right). Only their upper ~70 px ever enter the frame.
-const GLY = { yT: 1010, sw: 66, A: 400, G: 46, GH: 11.5, GE: 14, CR: 1.6 };
+const GLY = { yT: 1010, sw: 66, A: 400, G: 46, GH: 11.5, GE: 14, CR: 2.6 };
 function glyphBoxes(cx) {
   const { yT, sw, A, G } = GLY, hw = sw * 0.8, far = H + PAD + 300;
   return [
@@ -76,11 +77,12 @@ function shadeCoin(a) {
   const fd = curve([[0, 1.3], [90, 1.27], [RIM, 1.17], [240, 1.05], [340, 0.83], [450, 0.63], [540, 0.5], [720, 0.4]]);
   const FD = new Float32Array(800); for (let i = 0; i < 800; i++) FD[i] = fd(i);
   // the cast rim's inner edge is never a perfect circle; nor is the thread of light on its corner even
-  const UM = 1500, WOB = new Float32Array(UM * 2 + 1), THR = new Float32Array(UM * 2 + 1);
+  const UM = 1500, WOB = new Float32Array(UM * 2 + 1), THR = new Float32Array(UM * 2 + 1), EDG = new Float32Array(UM * 2 + 1);
   for (let i = 0; i <= UM * 2; i++) {
     const u = i - UM;
     WOB[i] = 1.5 * nA.n2(u / 190, 1.7) + 0.45 * nB.n2(u / 47, 5.1);
     THR[i] = 0.16 * (1 + 0.4 * nC.n2(u / 120, 3.3) + 0.22 * nC.n2(u / 27, 8.1));
+    EDG[i] = EDGE * (1 + 0.24 * nC.n2(u / 230, 11.3) + 0.1 * nC.n2(u / 58, 4.4));
   }
   // integrated rim profile (height above the outer edge), 0.25 px steps
   const MHS = 4, MHN = 220 * MHS, MH = new Float32Array(MHN + 1);
@@ -148,7 +150,7 @@ function shadeCoin(a) {
     const u = Uu[k];
     // "orange peel": quieter on the rim and on the stroke tops, which handling has burnished
     const onRim = 1 - sstep(RIM - 30, RIM + 10, d);
-    const peel = 0.5 * nA.n2(u / 13, d / 13) + 0.22 * nB.n2(u / 5.2 + 40, d / 5.2) + 0.3 * nB.n2(u / 41 - 8, d / 41 + 3);
+    const peel = 0.5 * nA.n2(u / 13, d / 13) + 0.16 * nB.n2(u / 5.2 + 40, d / 5.2) + 0.3 * nB.n2(u / 41 - 8, d / 41 + 3);
     Hh[k] = peel * L.lerp(0.15, 0.08, onRim) * (1 - 0.6 * Gh[k]) + GhH[k];
     // concentric polishing lines: long along the arc, a pixel or two across
     St[k] = 0.6 * nB.n2(u / 560 + 9, d / 1.9) + 0.4 * nA.n2(u / 1500 - 3, d / 4.9 + 70);
@@ -229,6 +231,10 @@ function shadeCoin(a) {
     const uu = u0 + rk.range(-40, 40), [px, py] = toPx(uu, W0 + rk.range(-2, 3));
     stamp(px, py, rk.range(5, 9), rk.range(2.4, 3.6), uu / R + rk.range(-0.15, 0.15), rk.range(1.0, 1.7), { pw: 1.5, l2: 0.15, p2: rk.range(0, L.TAU) });
   }
+  for (const u0 of [-704, -168, 342, 806]) {                   // … so has the outer shoulder (the silhouette itself stays exact)
+    const uu = u0 + rk.range(-60, 60), [px, py] = toPx(uu, rk.range(11, 22));
+    stamp(px, py, rk.range(7, 13), rk.range(3, 4.6), uu / R + rk.range(-0.12, 0.12), rk.range(1.4, 2.6), { pw: 1.6, l2: 0.12, p2: rk.range(0, L.TAU), minD: 4 });
+  }
   for (const [gx, gy] of [[-262, 3], [228, 4]]) {              // … and so have the upper edges of the strokes
     stamp(cx + gx + rk.range(-12, 12) - X0, GLY.yT + gy - Y0, rk.range(4, 6), rk.range(2.2, 3), rk.range(-0.3, 0.3), rk.range(0.9, 1.4), { pw: 1.6 });
   }
@@ -236,9 +242,9 @@ function shadeCoin(a) {
   // hairlines: grooves cut into the height field, so each one shows a lit lip and a shaded lip — or nothing, if it runs toward the light
   const rs = L.rng('c03hair');
   const seg = (px, py, ang, len, bend, sig, amp, zone) => { const c = Math.cos(ang) * len / 2, s = Math.sin(ang) * len / 2; line(Sc, px - c, py - s, px + c, py + s, bend, sig, amp, zone, rs.range(0, 900)); };
-  for (let n = 0; n < 150; n++) {                              // field: handling marks in every direction
+  for (let n = 0; n < 190; n++) {                              // field: handling marks in every direction
     const [px, py] = toPx(rs.range(-1060, 1060), W1 + 18 + Math.pow(rs(), 0.8) * 400), len = 24 + Math.pow(rs(), 1.7) * 150;
-    seg(px, py, rs.range(0, Math.PI), len, rs.range(-0.06, 0.06) * len, rs.range(0.7, 0.92), rs.range(0.05, 0.15), 0);
+    seg(px, py, rs.range(0, Math.PI), len, rs.range(-0.06, 0.06) * len, rs.range(0.7, 0.92), rs.range(0.055, 0.17), 0);
   }
   for (let b = 0; b < 5; b++) {                                // field: a few wipes — bundles of near-parallel lines
     const [bx, by] = toPx(rs.range(-900, 900), rs.range(W1 + 60, 470)), ang = rs.range(-0.6, 0.6) + (rs.chance(0.3) ? 1.1 : 0), nn = rs.int(5, 9);
@@ -260,9 +266,10 @@ function shadeCoin(a) {
     const [px, py] = toPx(rs.range(-1050, 1050), rs.range(EDGE + 14, W0 - 16)), len = rs.range(36, 120);
     seg(px, py, rs.range(0.14, 0.6) * rs.sign() + (px + X0 - cx) / R, len, rs.range(-0.05, 0.05) * len, rs.range(0.7, 0.9), rs.range(0.06, 0.16), 1);
   }
-  for (let n = 0; n < 30; n++) {                               // the stroke tops are the high points: fine wear in all directions
-    const sgn = rs.sign(), px = cx + sgn * rs.range(GLY.G + 14, GLY.A - 14) - X0, py = GLY.yT + rs.range(10, 44) - Y0, len = rs.range(14, 58);
-    seg(px, py, rs.range(0, Math.PI), len, rs.range(-0.05, 0.05) * len, rs.range(0.7, 0.85), rs.range(0.05, 0.13), 2);
+  for (let n = 0; n < 46; n++) {                               // the stroke tops are the high points: fine wear, mostly along the stroke
+    const sgn = rs.sign(), px = cx + sgn * rs.range(GLY.G + 14, GLY.A - 14) - X0, py = GLY.yT + rs.range(9, 46) - Y0, along = rs.chance(0.6);
+    const len = along ? rs.range(30, 110) : rs.range(14, 50);
+    seg(px, py, along ? rs.range(-0.22, 0.22) : rs.range(0, Math.PI), len, rs.range(-0.05, 0.05) * len, rs.range(0.72, 0.9), rs.range(0.08, 0.2), 2);
   }
   // micro-glints for the travelling light: short bright dashes lying along the polishing direction
   for (let n = 0; n < 760; n++) {
@@ -304,7 +311,7 @@ function shadeCoin(a) {
         const ii = i + OX[s]; if (ii < 0 || ii >= RW) break;
         const sl = (HT[k + OF[s]] - h0) * IV[s]; if (sl > m) m = sl;
       }
-      SH[k] = sstep(0.4, 1.2, m);                              // a broad soft source: penumbra from 22° to 50° of horizon
+      SH[k] = sstep(0.36, 1.2, m);                             // a broad soft source: penumbra from 20° to 50° of horizon
     }
   }
   SH = boxBlur(SH, 1);
@@ -321,7 +328,7 @@ function shadeCoin(a) {
       if (dd < -1.5) continue;
       const ddx = X0 + i - cx, rr = R - dd, sn = ddx / rr, cs = ddy / rr, u = Uu[k], dW = Dw[k];
       let hx = (Hh[k + (i < RW - 1 ? 1 : 0)] - Hh[k - (i > 0 ? 1 : 0)]) * 0.5, hy = (Hh[k + jp] - Hh[k + jm]) * 0.5;
-      const ms = macroSlope(dW);
+      const ui = Math.max(0, Math.min(UM * 2, Math.round(u) + UM)), ms = macroSlope(dW, EDG[ui]);
       hx -= ms * sn; hy += ms * cs;
       const inv = 1 / Math.sqrt(hx * hx + hy * hy + 1);
       const nl = (-hx * LX - hy * LY + LZ) * inv, nh = (-hx * HX - hy * HY + HZ) * inv, nb = (-hx * BX - hy * BY + BZ) * inv;
@@ -340,17 +347,17 @@ function shadeCoin(a) {
       // the rim keeps a little of the light off the field for a long way in
       if (dW > RIM) I *= 1 - 0.13 * (1 - sstep(RIM, RIM + 150, dW));
       // the worn inner corner of the rim catches a thread of light
-      const ui = Math.max(0, Math.min(UM * 2, Math.round(u) + UM)), ce = (dW - (W0 - 1)) / 3.4;
+      const ce = (dW - (W0 - 1)) / 3.4;
       if (ce > -3 && ce < 3) I += F * THR[ui] * Math.exp(-ce * ce) * (1 - Math.min(1, cav * 4));
       // high points are rubbed brighter
       I *= 1 + 0.2 * gh + 0.1 * wear;
       const top = sstep(EDGE - 12, EDGE + 8, dd) * (1 - sstep(W0 - 6, W0 + 6, dW));
-      I += F * st * L.lerp(0.045, 0.085, top);
+      I += F * st * L.lerp(0.032, 0.085, top);
       I *= 1 + L.lerp(0.075, 0.1, top) * bil(cMed, i, j);
       // a tight glint + the broad, soft lustre of a surface polished by handling
       const ni = nh > 0 ? (nh * PN + 0.5) | 0 : 0, sp = P46[ni], lit = 1 - 0.9 * sh;
       I += sp * 0.32 * F * lit;
-      if (gh > 0 && nh > HZ) I += F * 0.2 * gh * ((Math.pow(nh, 7) - HZ7) / (1 - HZ7)) * lit;
+      if (gh > 0 && nh > HZ) I += F * 0.26 * gh * ((Math.pow(nh, 7) - HZ7) / (1 - HZ7)) * lit;
       if (cav > 0) I *= 1 - cav;
       const li = Math.max(0, Math.min(NL - 1, (I / IMAX) * (NL - 1) | 0)) * 3, o = k * 4;
       const al = L.clamp(dd + 0.75);
@@ -385,7 +392,7 @@ function buildCoin(env) {
     bg.fillRect(0, 0, RW, RH);
     g.drawImage(b, 0, 0);
   };
-  soften(1.2, 340, 460); soften(2.4, 455, 590);
+  soften(1.2, 340, 460); soften(2.2, 470, 600);
   // … and so does the far limb (a true cross-fade: the soft copy replaces the sharp one, alpha edge included)
   const far = L.blurred(coin, 2.3), fg = far.getContext('2d');
   const limbMask = (c) => { c.fillStyle = L.radial(c, cxl, cyl, R - 110, R - 12, [[0, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,1)']]); c.fillRect(0, 0, RW, RH); };

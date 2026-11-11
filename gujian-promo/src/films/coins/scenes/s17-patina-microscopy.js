@@ -120,18 +120,6 @@ function relight(d, hB, sB, gB, RW, RH, o) {
   }
 }
 
-/** stamp a tiny dome (amp > 0) or pit (amp < 0) into a height field at a sub-pixel position; the f² profile leaves no hard rim */
-function stamp(hB, sB, RW, px, py, r, amp, occ) {
-  const ir = Math.ceil(r), r2 = r * r, x0 = Math.floor(px), y0 = Math.floor(py);
-  for (let yy = -ir; yy <= ir + 1; yy++) for (let xx = -ir; xx <= ir + 1; xx++) {
-    const ex = x0 + xx - px, ey = y0 + yy - py, d2 = ex * ex + ey * ey;
-    if (d2 >= r2) continue;
-    const f = 1 - d2 / r2, p = (y0 + yy) * RW + x0 + xx;
-    hB[p] += amp * f * f;
-    if (occ) sB[p] *= 1 - occ * f;
-  }
-}
-
 // focus sits on the crest of the arc; this is how far (in "focus radii") a frame point is from it
 const FOC = { rx: 700, ry: 330, dy: 24 };
 
@@ -300,17 +288,23 @@ function buildUpper(env) {
       let hseg = hsh(ai, si * 31 + bi * 7), hseg2 = hsh(ai, si * 17 + bi * 29 + 5), hseg3 = hsh(ai, si * 7 + bi * 3 + 11);
       let tilt = (af - 0.5) * (hseg - 0.5);
       const afPx = af * segLen;
-      if (afPx < 3) {
-        // just past a crack: ease out of the previous segment's facets over three pixels, so the step is a lit / shaded
-        // little cliff with a soft foot instead of a one-pixel hairline
-        const wq = sstep(0, 3, afPx);
-        const pA = hsh(ai - 1, si * 31 + bi * 7), pB = hsh(ai - 1, si * 17 + bi * 29 + 5), pC = hsh(ai - 1, si * 7 + bi * 3 + 11);
-        tilt = (af + 0.5) * (pA - 0.5) * (1 - wq) + tilt * wq;
-        hseg = pA + (hseg - pA) * wq; hseg2 = pB + (hseg2 - pB) * wq; hseg3 = pC + (hseg3 - pC) * wq;
+      let bwSeg = hseg2;
+      if (afPx < 18) {
+        // just past a crack. The bevel's width eases from the previous segment's over a longer run (a ribbon of light never
+        // ends square) …
+        const pB = hsh(ai - 1, si * 17 + bi * 29 + 5);
+        bwSeg = pB + (hseg2 - pB) * sstep(0, 18, afPx);
+        if (afPx < 3) {
+          // … and the facets themselves ease over three pixels, so the step is a lit / shaded little cliff with a soft foot
+          // instead of a one-pixel hairline
+          const wq = sstep(0, 3, afPx), pA = hsh(ai - 1, si * 31 + bi * 7), pC = hsh(ai - 1, si * 7 + bi * 3 + 11);
+          tilt = (af + 0.5) * (pA - 0.5) * (1 - wq) + tilt * wq;
+          hseg = pA + (hseg - pA) * wq; hseg2 = pB + (hseg2 - pB) * wq; hseg3 = pC + (hseg3 - pC) * wq;
+        }
       }
       const bv = bil(fBev, i, j);
       const Hb = (11 + 10 * hs3) * (0.3 + 0.7 * pinS) * k * (1 + 0.4 * (hseg - 0.5) * vary);
-      let bw = (5 + 11 * hseg2) * (1 + 0.32 * bv * vary); if (bw > Wb * 0.45) bw = Wb * 0.45;       // the bevel that faces the light
+      let bw = (5 + 11 * bwSeg) * (1 + 0.32 * bv * vary); if (bw > Wb * 0.45) bw = Wb * 0.45;       // the bevel that faces the light
       const back = 0.36 + (0.95 * hseg3 - 0.48) * vary;                    // how far the main facet falls away behind it
       const xc = xb < Wb ? xb : Wb;
       let h = xc < bw ? Hb * xc / bw : Hb * (1 - back * (xc - bw) / (Wb - bw));
@@ -337,11 +331,16 @@ function buildUpper(env) {
         let bg = sstep(Wb - 0.7, Wb + 0.7, xb) * (1 - sstep(P - 1.4, P, xb));
         if (gapPx < 2) bg *= gapPx / 2;
         const gp = xb - Wb;
-        cell(x / 7.4, y / 7.4);
-        const d1 = Math.sqrt(cD1), bump = 1 - 1.55 * d1, ed = sstep(0, 0.14, Math.sqrt(cD2) - d1);     // ed → 0 on the border between two crystals
-        const gv = 1 + (0.3 * cId - 0.16) * ed;
-        let gr = 229 * gv, gG = 54 * gv, gb = 30 * gv;
-        if (cId > 0.92) { gr += (252 - gr) * ed; gG += (100 - gG) * ed; gb += (50 - gb) * ed; }          // a few thin, glowing ones
+        // cuprite grows as octahedra: every cell carries the tip of one — a little square pyramid of its own size, turned its
+        // own way, so each of its faces takes the lamp differently — on a floor of deeper crimson
+        cell(x / 8.6, y / 8.6);
+        const an = cId * 19.7, cc = Math.cos(an), ss = Math.sin(an);
+        const ux = Math.abs(cDx * cc + cDy * ss), uy = Math.abs(cDy * cc - cDx * ss);
+        const pyr = 1 - (ux > uy ? ux : uy) / (0.36 + 0.3 * ((cId * 13.7) % 1));
+        const on = sstep(0, 0.16, pyr), gv = 0.9 + 0.2 * ((cId * 7.1) % 1);
+        const bump = pyr > 0 ? pyr * (0.7 + 1.05 * ((cId * 29.3) % 1)) : 0;
+        let gr = 150 + (229 * gv - 150) * on, gG = 30 + (54 * gv - 30) * on, gb = 26 + (30 * gv - 26) * on;
+        if (cId > 0.92) { gr += (252 - gr) * on; gG += (100 - gG) * on; gb += (50 - gb) * on; }          // a few thin, glowing ones
         const Ls = 1.25 * (hEdge > 0 ? hEdge : 0) + 2.5;
         let shd = 0.1 + 0.9 * sstep(Ls * 0.5, Ls * 1.15, gp);
         if (hs3 < 0.23) shd *= cId > 0.8 ? 0.75 : 0.22;                 // some slits stay almost entirely purple-black, a few red embers
@@ -376,18 +375,6 @@ function buildUpper(env) {
       d[o] = cr * (1 + 0.5 * hv); d[o + 1] = cg * (1 - 0.2 * hv); d[o + 2] = cb; d[o + 3] = 255;
       hB[p] = h; sB[p] = sh; gB[p] = gloss;
     }
-  }
-
-  // what only a height field can give the crystal faces: pin-prick etch pits and a dusting of tiny crystallites,
-  // each one lit and shaded by the same lamp (sparser in the calm window over the crest)
-  const rp = L.rng('s17pits');
-  for (let n = 0; n < 5200; n++) {
-    const px = rp.range(8, RW - 9), py = rp.range(8, RH - 9), r0 = rp(), u = rp(), v = rp();
-    const p0 = (py | 0) * RW + (px | 0);
-    if (gB[p0] < 0.6 || d[p0 * 4 + 3] === 0) continue;                  // faces only: not the slits, not the seams
-    if (u > 0.22 + 0.78 * featherMask(a, px + X0, py + Y0, 0)) continue;
-    if (r0 < 0.55) stamp(hB, sB, RW, px, py, 1.7 + 2.1 * v, -(0.7 + 1.1 * v), 0.3);       // pit
-    else stamp(hB, sB, RW, px, py, 1.6 + 2.6 * v * v, 0.9 + 1.5 * v, 0);                   // crystallite
   }
 
   relight(d, hB, sB, gB, RW, RH, { kd: 0.92, amb: [24, 13, 56], spec: [190, 215, 255], pw: 46 });
@@ -462,22 +449,21 @@ function buildLower(env) {
         const wq = 0.5 * (1 - eb * 10) * sstep(-0.06, 0.04, gv2);
         cr += (gcR - cr) * wq; cg += (gcG - cg) * wq; cb += (gcB - cb) * wq; gloss += (gcGl - gloss) * wq;
       }
-      // … and its own little crystal: most are rounded, a third are flat-topped chips, and each leans its own way, so the
+      // … and its own little crystal: most are rounded, a few are flat-topped chips, and each leans its own way, so the
       // lamp finds some faces and misses others
       const j1 = (gid * 7.31) % 1, j3 = (gid * 41.77) % 1, j4 = (gid * 89.3) % 1;
       const g1 = gv > 0 ? gv : 0;
       let cap;
-      if (j3 < 0.36) { const tt = g1 * 2.3; cap = 0.82 * (tt >= 1 ? 1 : tt * (2 - tt)); gloss += 0.25; }
+      if (j3 < 0.18) { const tt = g1 * 1.7; cap = 0.9 * (tt >= 1 ? 1 : tt * (2 - tt)); gloss += 0.25; }
       else cap = 0.6 * g1 + 0.4 * g1 * g1;
       let h = 0.3 * gR * GS * cap * (0.7 + 0.6 * j1);
-      const lean = 0.34 * ((j3 * 3.7) % 1) * GS * sstep(0, 0.3, g1), la = j4 * 6.2832;
+      const lean = 0.2 * ((j3 * 3.7) % 1) * GS * sstep(0, 0.3, g1), la = j4 * 6.2832;
       h -= lean * (gdx * Math.cos(la) + gdy * Math.sin(la));
       // bedded in a darker green matrix
       const gin = sstep(0, 0.14, gv);
       const mr = 22 - 8 * tm, mg = 160, mb = 112 + 34 * tm;
       cr = mr + (cr - mr) * gin; cg = mg + (cg - mg) * gin; cb = mb + (cb - mb) * gin; gloss *= gin;
-      let sh = 0.64 + 0.36 * sstep(-0.1, 0.3, gv);
-      if (gv2 > 0) sh *= 0.87 + 0.13 * sstep(0, 0.2, eb);                        // the crease where two grains touch
+      let sh = 0.7 + 0.3 * sstep(-0.07, 0.3, gv);
       // botryoidal knobs (葡萄状): silky domes of very different sizes crowding each other in patches
       let cover = 0;
       const bm = sstep(0.2, 0.5, bil(fBot, i, j));
@@ -494,7 +480,7 @@ function buildLower(env) {
             // a knob is a bundle of needles seen end-on: fine fibres run from its pole down its flanks and give it the silk
             const fc = Math.atan2(lDy, lDx) * (3 + 5 * lR) + lId * 97 + 64, fi = fc | 0, fk = fi & 1023;
             const fib = (SF[fk] + (SF[fk + 1] - SF[fk]) * (fc - fi)) * sstep(0.04, 0.5, 1 - v);
-            h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v)) + 0.5 * fib * cover;
+            h = h * (1 - 0.8 * cover) + 0.34 * lR * BS * (0.5 * v + 0.5 * Math.sqrt(v)) + 0.8 * fib * cover;
             sh += (1 - sh) * cover * 0.85;
             sh *= 0.8 + 0.2 * sstep(0, 0.14, v - (lV2 > 0 ? lV2 : 0));  // the crease where two domes meet
             gloss += (0.6 - gloss) * cover;
@@ -508,11 +494,12 @@ function buildLower(env) {
       h += 0.4 * MT[((y & 255) << 8) | (x & 255)] * (1 - 0.6 * cover);
       // the crust ends in a smooth, rounded lip — one clean bright line for the lamp to run along, right under the seam
       if (u > -9) {
-        const s = Math.atan2(ddx, ddy) * R, lw = 6.4 + 1.8 * nA.n2(s / 47, 7.7);
+        const s = Math.atan2(ddx, ddy) * R, lw = 6.0 + 2.0 * nA.n2(s / 47, 7.7);
         if (u > -lw) {
-          const tb = (u + lw) / lw, wb = sstep(0, 0.45, tb), lt = 0.95 + 0.07 * nA.n2(s / 110, 2.2);
-          cr += (70 * lt - cr) * wb * 0.6; cg += (226 * lt - cg) * wb * 0.6; cb += (166 * lt - cb) * wb * 0.6;
-          h += (1.0 + 4.4 * (1 - tb * tb) - h) * wb; sh += (1 - sh) * wb; gloss += (0.55 - gloss) * wb;
+          // (it comes and goes along the arc: where it thins, whole grains run right up to the seam)
+          const tb = (u + lw) / lw, wb = sstep(0, 0.5, tb) * (0.62 + 0.38 * nA.n2(s / 29, 4.4)), lt = 0.95 + 0.07 * nA.n2(s / 110, 2.2);
+          cr += (64 * lt - cr) * wb * 0.5; cg += (220 * lt - cg) * wb * 0.5; cb += (156 * lt - cb) * wb * 0.5;
+          h += (0.8 + 3.6 * (1 - tb * tb) - h) * wb; sh += (1 - sh) * wb; gloss += (0.3 - gloss) * wb;
         }
       }
       // the rim of the mound catches the light; the light pools on its upper right shoulder

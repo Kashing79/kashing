@@ -74,7 +74,7 @@ function layout(a) {
     const n = 3 + (c.r > 100 ? 1 : 0);
     for (let j = 0; j < n; j++) {
       const ph = L.lerp(-0.95, 0.95, (j + rr.range(0.15, 0.85)) / n);
-      c.creases.push({ x0: rr.range(-0.3, 0.3) * c.r, y0: c.k * c.r + 0.06 * c.r, ux: Math.sin(ph), uy: -Math.cos(ph), len: c.r * rr.range(0.9, 1.7), amp: rr.range(0.1, 0.18) * rr.sign() });
+      c.creases.push({ x0: rr.range(-0.3, 0.3) * c.r, y0: c.k * c.r + 0.06 * c.r, ux: Math.sin(ph), uy: -Math.cos(ph), len: c.r * rr.range(0.9, 1.7), amp: rr.range(0.05, 0.1) * rr.sign() });
     }
   }
   return cs;
@@ -138,7 +138,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
         const tI = cl01((sdI + 2.4) / 4.8), dI = (-6 * tI * (1 - tI)) / 4.8;
         emb += -dI * (ahx > ahy ? (hx > 0 ? lhx : -lhx) : (hy > 0 ? lhy : -lhy)) * (1 - hole);
         t += 0.26 * emb;
-        if (emb > 0) gold = emb * 1.5;
+        if (emb > 0) gold = emb * 2.2;
         // patina: slow blotches, fine grain, crusty patches, a few thin bright veins, pits
         const u = lx / r, v = ly / r;
         const n1 = nA.fbm(u * 2.1 + sd, v * 2.1 - sd * 0.7, 4), n2 = nB.fbm(u * 7.5 - sd, v * 7.5 + 3.1, 3);
@@ -153,7 +153,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
         for (const q of c.creases) {
           const qx = lx - q.x0, qy = ly - q.y0, ql = qx * q.ux + qy * q.uy;
           if (ql < 0 || ql > q.len) continue;
-          const e = (-qx * q.uy + qy * q.ux) / (2.4 + ql * 0.03);
+          const e = (-qx * q.uy + qy * q.ux) / (1.8 + ql * 0.02);
           if (e * e > 9) continue;
           t += q.amp * e * Math.exp(-e * e) * sstep(0, 0.25 * r, ql) * (1 - sstep(q.len * 0.6, q.len, ql));
         }
@@ -170,7 +170,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
         t *= gain;
         const li = ((cl01(t) * 511) | 0) * 3;
         let bR = lutV[li] + (lutC[li] - lutV[li]) * hue, bG = lutV[li + 1] + (lutC[li + 1] - lutV[li + 1]) * hue, bB = lutV[li + 2] + (lutC[li + 2] - lutV[li + 2]) * hue;
-        // gold where the fill light catches a bevel, and on the gold thread
+        // gold where the fill light catches a bevel
         const gm = cl01(gold) * 0.5;
         bR += (255 - bR) * gm * 0.9; bG += (205 - bG) * gm; bB += (120 - bB) * gm;
         // the silk throws a little magenta back up onto the foot of the coin
@@ -184,7 +184,7 @@ function buildCoin(c, a, nA, nB, lutV, lutC, lutG) {
           const cxh = hx - core0x, cyh = hy - core0y;
           const core = cl01(1.08 * Math.exp(-(cxh * cxh + cyh * cyh) / (hs * hs * 0.62)) - 0.12 * Math.exp(sdB / 5));
           const gz = 1 - 0.04 * (cov - 0.36);
-          const wT = cl01(0.76 - 0.52 * cl01(sdB / wallW) + 0.07 * n2), wi = ((wT * 511) | 0) * 3;
+          const wT = cl01(0.68 - 0.5 * cl01(sdB / wallW) + 0.07 * n2), wi = ((wT * 511) | 0) * 3;
           const hR = lutG[wi] + (255 * gz - lutG[wi]) * thru, hG = lutG[wi + 1] + ((206 + 40 * core) * gz - lutG[wi + 1]) * thru, hB = lutG[wi + 2] + ((122 + 102 * core) * gz - lutG[wi + 2]) * thru;
           bR += (hR - bR) * hole; bG += (hG - bG) * hole; bB += (hB - bB) * hole;
         }
@@ -331,8 +331,9 @@ function buildSilk(env, coins) {
       return f.amp * grow * (Math.exp(-x * x) - 0.5 * Math.exp(-xv * xv / 0.8));
     });
   }
-  // a slow swell under everything
-  splat(-SMAX, SMAX, 0, VMAX + GS, (s, v) => 2.4 * nD.fbm(s / 300, v / 700 + 3.3, 2) * sstep(10, 160, v));
+  // a slow swell under everything, and the fine crinkle of thin silk: long shallow creases running toward the gathering
+  splat(-SMAX, SMAX, 0, VMAX + GS, (s, v) => 2.4 * nD.fbm(s / 300, v / 700 + 3.3, 2) * sstep(10, 160, v)
+    + (0.9 * nD.fbm(s / 42 + 5, v / 190, 3) + 0.55 * (nD.ridged(s / 30 + 11, v / 140 - 5, 2) - 0.55)) * sstep(4, 70, v));
   // every coin presses a shallow dent into the cushion and pulls short wrinkles out of it
   for (const c of coins) {
     const chord = c.r * Math.sqrt(1 - c.k * c.k);
@@ -356,7 +357,7 @@ function buildSilk(env, coins) {
   }
   // along the rim: where a coin stands it blocks the back light and presses the edge down a hair
   const nF = L.makeNoise('s11fuzz'), nS = L.makeNoise('s11slub');
-  const dipA = new Float32Array(ns), shA = new Float32Array(ns), rimA = new Float32Array(ns), bandA = new Float32Array(ns);
+  const dipA = new Float32Array(ns), shA = new Float32Array(ns), rimA = new Float32Array(ns), bandA = new Float32Array(ns), rwA = new Float32Array(ns);
   for (let i = 0; i < ns; i++) {
     const s = i * GS - SMAX;
     let dp = 0, sh = 0;
@@ -365,15 +366,16 @@ function buildSilk(env, coins) {
       const m = 1 - sstep(ch * 0.72, ch * 1.2, e); if (m > sh) sh = m;
       const q = (1 - sstep(ch * 0.5, ch * 1.35, e)) * Math.min(4, c.r * 0.034); if (q > dp) dp = q;
     }
-    dipA[i] = dp; shA[i] = sh;
+    dipA[i] = dp + 0.7 + 0.7 * nF.n2(s / 55, 4.4); shA[i] = sh;                   // a sewn edge is never a ruled line
     rimA[i] = 0.85 + 0.15 * nF.n2(s / 85, 9.3);
+    rwA[i] = 1 / (26 * (1 + 0.38 * nF.n2(s / 150, 6.1)));                              // the glowing band swells and thins along the rim
     bandA[i] = 0.75 + 0.45 * nF.n2(s / 420 + 3, 1.3);
   }
 
   // 2) shade
   const LUT = mkLut([[0, '#10010a'], [0.14, '#3a0520'], [0.3, '#780a40'], [0.46, '#C2186A'], [0.6, '#dc2076'], [0.72, '#f0408c'], [0.84, '#ff80b0'], [0.93, '#ffc2d6'], [1, '#fff0f3']]);
   const img = new ImageData(RW, RH), d = img.data;
-  const LX = -0.6, LY = -0.8, KL = 1.0, KR = L.TAU / 4.4;
+  const LX = -0.6, LY = -0.8, KL = 1.0, KR = L.TAU / 4.4, KP = L.TAU / 5.2;
   for (let j = 0; j < RH; j++) {
     const ddy = cy - (Y0 + j + 0.5);
     for (let i = 0; i < RW; i++) {
@@ -399,14 +401,16 @@ function buildSilk(env, coins) {
       const deep = sstep(40, 620, vp);
       const rimK = (rimA[i0] + (rimA[i0 + 1] - rimA[i0]) * tx) * (1 - 0.5 * (shA[i0] + (shA[i0 + 1] - shA[i0]) * tx));
       const bv = (vp - 130) / 100;
-      let tone = 0.47 - 0.17 * deep - 0.04 * (s - FOCUS) * (s - FOCUS) * 1e-6
-        + rimK * (0.36 * Math.exp(-vp / 6) + 0.26 * Math.exp(-vp / 26) + 0.08 * Math.exp(-vp / 80))    // the back light soaking through the edge
+      let tone = 0.47 - 0.21 * deep - 0.04 * (s - FOCUS) * (s - FOCUS) * 1e-6
+        + rimK * (0.36 * Math.exp(-vp / 6) + 0.26 * Math.exp(-vp * (rwA[i0] + (rwA[i0 + 1] - rwA[i0]) * tx)) + 0.08 * Math.exp(-vp / 80))    // the back light soaking through the edge
         + 0.07 * Math.exp(-bv * bv) * (bandA[i0] + (bandA[i0 + 1] - bandA[i0]) * tx);                  // the bulge turning toward the lens
       tone += sstep(2, 44, vp) * (0.7 * lamS + 0.16 * spec * (1 - 0.5 * deep) + 0.005 * h);
-      // weave: the weft lies along the arc as fine ribs that ride over the folds; a slub thickens a thread here and there
-      const vv = v + 0.55 * h + 1.1 * nS.n2(s * 0.011, v * 0.05);
+      // weave: the weft lies along the arc as fine ribs that ride over the folds and show more in one place than another;
+      // a slub thickens a thread here and there; the warp is only just there
+      const vv = v + 1.2 * h + 1.1 * nS.n2(s * 0.011, v * 0.05);
       const slub = nS.n2(s * 0.0045 + 7, vv * 0.31);
-      tone += (0.014 * Math.cos(vv * KR) + 0.03 * sstep(0.45, 0.9, slub) - 0.012 * sstep(0.5, 0.9, -slub)) * (0.7 + 1.2 * spec);
+      tone += (0.014 * Math.cos(vv * KR) * (0.62 + 0.55 * nF.n2(s / 70 + 2, v / 46)) + 0.005 * Math.cos((s + 1.4 * nS.n2(s * 0.004 + 9, v * 0.03)) * KP)
+        + 0.03 * sstep(0.45, 0.9, slub) - 0.012 * sstep(0.5, 0.9, -slub)) * (0.7 + 1.2 * spec);
       const li = ((cl01(tone) * 511) | 0) * 3, o = (j * RW + i) * 4;
       d[o] = LUT[li]; d[o + 1] = LUT[li + 1]; d[o + 2] = LUT[li + 2]; d[o + 3] = al * 255;
     }
@@ -486,7 +490,7 @@ function buildDust(env) {
       g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
     }
     for (let n = 0; n < 60; n++) {
-      const x = r.range(-PAD, W + PAD), up = 14 + Math.pow(r(), 1.9) * 600, y = a.yAt(x) - up, rad = L.lerp(1.3, 3, Math.pow(r(), 2.4)), al = r.range(0.25, 0.8) * (1 - up / 800);
+      const x = r.range(-PAD, W + PAD), up = 14 + Math.pow(r(), 1.9) * 600, y = a.yAt(x) - up, rad = L.lerp(1.4, 3.2, Math.pow(r(), 2.2)), al = r.range(0.35, 0.9) * (1 - up / 800);
       const col = r.pick(['#E0301E', '#FF6A3D', '#C2186A', '#ff3a52']);
       g.fillStyle = L.radial(g, x, y, 0, rad, [[0, L.rgba(col, al)], [0.45, L.rgba(col, al * 0.7)], [1, L.rgba(col, 0)]]);
       g.beginPath(); g.arc(x, y, rad, 0, L.TAU); g.fill();
@@ -503,7 +507,7 @@ export default {
   },
   draw(ctx, env, p) {
     const a = env.arc;
-    const rot = L.lerp(-0.008, 0.008, p);
+    const rot = L.lerp(-0.007, 0.007, p);
     ctx.fillStyle = '#050304'; ctx.fillRect(0, 0, W, H);
     L.blit(ctx, env, S.dust, { rot: rot * 0.45, dy: -5 * p });
     L.blit(ctx, env, S.coinLayer, { rot });

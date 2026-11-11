@@ -99,8 +99,8 @@ function reliefTile(T) {
       let v = 0.6 * (0.5 - T[i]) - 1.3 * (tx + ty);   // height falls where T rises, so a flank facing the top-left light has tx + ty < 0
       v = v < -1 ? -1 : v > 1 ? 1 : v;
       const k = i << 2;
-      if (v > 0) { d[k] = 104; d[k + 1] = 166; d[k + 2] = 240; d[k + 3] = 255 * 0.13 * v; }
-      else { d[k] = 7; d[k + 1] = 28; d[k + 2] = 64; d[k + 3] = 255 * 0.16 * -v; }
+      if (v > 0) { d[k] = 104; d[k + 1] = 166; d[k + 2] = 240; d[k + 3] = 255 * 0.115 * v; }
+      else { d[k] = 7; d[k + 1] = 28; d[k + 2] = 64; d[k + 3] = 255 * 0.14 * -v; }
     }
   });
 }
@@ -415,17 +415,17 @@ function develop(line, text, wearM, T, F) {
         const u = (p - t) * inv + 0.5;
         if (u > 0) {
           const al = u >= 1 ? 1 : u * u * (3 - 2 * u);
-          let b = (p - t) / 0.55; b = b < 0 ? 0 : b > 1 ? 1 : b;      // how thickly the chalk lies: thin over the pores, the blue still glimmers through
+          let b = (p - t) / 0.8; b = b < 0 ? 0 : b > 1 ? 1 : b;       // how thickly the chalk lies: thin over the pores and under a lane that lifted — the blue still glimmers through
           const th = p > 0.85 ? 1 : p / 0.85;                          // a light touch leaves a thinner film everywhere
-          cd[k] = 243; cd[k + 1] = 246; cd[k + 2] = 248; cd[k + 3] = 255 * al * (0.8 + 0.2 * b) * (0.62 + 0.38 * th) * (0.88 + 0.12 * F[ti]);   // F: the powder itself is not even
+          cd[k] = 243; cd[k + 1] = 246; cd[k + 2] = 248; cd[k + 3] = 255 * al * (0.8 + 0.2 * b) * (0.62 + 0.38 * th) * (0.9 + 0.1 * F[ti]);   // F: the powder itself is not even
         }
       }
       if (wv >= 3) {
-        const p = (wv / 255) * 0.8, u = (p - t) / 0.3 + 0.5;
+        const f = 0.65 * F[ti] + 0.35 * t, p = (wv / 255) * 0.9, u = (p - f) / 0.34 + 0.5;   // abrasion takes the fine grit first
         if (u > 0) {
           const al = u >= 1 ? 1 : u * u * (3 - 2 * u);
-          let b = (p - t) / 0.5; b = b < 0 ? 0 : b > 1 ? 1 : b;       // rubbed harder → paler
-          wo[k] = 92 + 70 * b; wo[k + 1] = 150 + 56 * b; wo[k + 2] = 214 + 26 * b; wo[k + 3] = 255 * al * (0.22 + 0.36 * b);
+          let b = (p - f) / 0.5; b = b < 0 ? 0 : b > 1 ? 1 : b;       // rubbed harder → paler
+          wo[k] = 92 + 70 * b; wo[k + 1] = 150 + 56 * b; wo[k + 2] = 214 + 26 * b; wo[k + 3] = 255 * al * (0.16 + 0.34 * b);
         }
       }
     }
@@ -442,7 +442,7 @@ function strewDust(g, chalk) {
   const near = rd(L.blurred(chalk, 6)), far = rd(L.blurred(chalk, 22));
   const r = L.rng('s07dust');
   g.save(); g.fillStyle = CHALK;
-  for (let i = 0; i < 110000; i++) {
+  for (let i = 0; i < 80000; i++) {
     const x = r() * w, y = r() * h, k = ((y | 0) * w + (x | 0)) << 2, nv = near[k + 3] / 255, fv = far[k + 3] / 255;
     if (r() > 1.5 * nv * (1 - nv) + 0.22 * fv + 0.0035) continue;
     g.globalAlpha = 0.22 + 0.6 * r();
@@ -450,7 +450,7 @@ function strewDust(g, chalk) {
   }
   for (let i = 0; i < 9000; i++) {   // crumbs broken off the stick: small irregular chips lying close to the heavy strokes
     const x = r() * w, y = r() * h, k = ((y | 0) * w + (x | 0)) << 2, nv = near[k + 3] / 255;
-    if (nv < 0.12 || nv > 0.5 || r() > 0.22) continue;
+    if (nv < 0.12 || nv > 0.5 || r() > 0.08) continue;
     const rad = r.range(1.3, 2.5), rot = r() * L.TAU;
     g.globalAlpha = r.range(0.6, 0.95);
     g.beginPath();
@@ -519,6 +519,11 @@ export default {
     g.globalAlpha = 0.08; g.drawImage(L.blurred(chalk, 20), 12, 5);     // a smear from the draughtsman's sleeve
     g.globalAlpha = 1;
     strewDust(g, chalk);
+    { // the chalk lies ON the sheet: a hairline of shade along the side turned away from the light
+      const sh = L.makeCanvas(LW, LH), hg = sh.getContext('2d');
+      hg.drawImage(chalk, 0, 0); hg.globalCompositeOperation = 'source-in'; hg.fillStyle = '#06183a'; hg.fillRect(0, 0, LW, LH);
+      g.globalAlpha = 0.3; g.drawImage(L.blurred(sh, 1.1), 1.3, 1.5); g.globalAlpha = 1;
+    }
     g.drawImage(chalk, 0, 0);
     g.drawImage(wear, 0, 0);
     g.translate(PAD, PAD);

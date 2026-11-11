@@ -13,7 +13,7 @@
 //     thread of white porcelain on the crown, and a hairline of deep green where the lip turns away from us;
 //   · depth of field: sharp under the crest, going soft toward the sides and the bottom; highlights bloom a little.
 // draw() only slides that layer a few pixels round the circle while points of light on the gilding flare and fade
-// (sharp sparks in the plane of focus, soft discs out of it).
+// (sharp sparks in the plane of focus, a soft glow out of it).
 import * as L from '../../../lib/core.js';
 
 const { W, H } = L;
@@ -65,7 +65,7 @@ const makeGild = (nA, nB) => ({
 /** defocus (px of blur) at a point of the frame: the plane of focus runs along the lip under the crest */
 function defocus(a, x, y) {
   const d = Math.max(0, a.R - Math.hypot(x - a.cx, a.cy - y));
-  const ex = (x - 930) / 1040, ey = Math.max(0, d - 120) / 420;
+  const ex = (x - a.cx + 30) / 1040, ey = Math.max(0, d - 120) / 420;
   return 9.5 * sstep(0.3, 1.15, Math.sqrt(0.55 * ex * ex + ey * ey));
 }
 
@@ -125,7 +125,7 @@ function buildDish(env, nA, nB, rimDash, gild) {
   const PHI = L.deg(13), CA = Math.cos(PHI), SA = Math.sin(PHI);
   // the window: centre, half-length, half-width, corner radius, slant of its ends, softness of its upper / lower edge,
   // where the glazing bar crosses it, and how much the wall bows it
-  const HX = 832, HY = 765, LH = 322, WH = 33, RC = 12, SK = 0.5, SVA = 6, SVB = 10, MU = 100, BEND = 0.00022;
+  const HX = cx - 128, HY = a.crestY + 205, LH = 322, WH = 33, RC = 12, SK = 0.5, SVA = 6, SVB = 10, MU = 100, BEND = 0.00022;
   const LIP = 46;
 
   // ── pass 2: shade ──
@@ -157,9 +157,9 @@ function buildDish(env, nA, nB, rimDash, gild) {
       let f = 1;
       const ma = 1 + 1.3 * thin;
       cell(U / 4.6, V / 4.6, 11);
-      { const rad = 0.2 + 0.22 * cId2, m = (1 - sstep(rad * 0.3, rad, Math.sqrt(cD1))) * (cId * 2 - 1); t += 0.11 * ma * m; f -= 0.045 * m; }
+      { const rad = 0.2 + 0.22 * cId2, m = (1 - sstep(rad * 0.3, rad, Math.sqrt(cD1))) * (cId * 2 - 1); t += 0.135 * ma * m; f -= 0.052 * m; }
       cell(U / 10.5 + 31, V / 10.5 - 17, 97);
-      { const m = (1 - sstep(0.02, 0.25, cD1)) * (cId - 0.5); t += 0.12 * ma * m; f -= 0.05 * m; }
+      { const m = (1 - sstep(0.02, 0.25, cD1)) * (cId - 0.5); t += 0.145 * ma * m; f -= 0.058 * m; }
       t = t < 0.1 ? 0.1 : t > 1 ? 1 : t;
       const li = ((t * (NL - 1)) | 0) * 3;
       let r = GLAZE[li], g = GLAZE[li + 1], b = GLAZE[li + 2];
@@ -188,7 +188,7 @@ function buildDish(env, nA, nB, rimDash, gild) {
         const rpx = 0.9 + 1.1 * cId2 * cId2, sx = -cDx * 34, sy = -cDy * 34;      // px from the nick's centre
         const dk = Math.exp(-((sx + 0.35 * rpx) ** 2 + (sy + 0.5 * rpx) ** 2) / (rpx * rpx));
         const br = Math.exp(-((sx - 0.4 * rpx) ** 2 + (sy - 0.55 * rpx) ** 2) / (0.5 * rpx * rpx));
-        const amp = ((cId - 0.5) * 2) ** 2 * (0.12 + 0.88 * near);
+        const amp = ((cId - 0.5) * 2) ** 2 * (0.12 + 0.2 * wide + 0.68 * near);
         const kd = 0.34 * dk * (1 - br); r -= r * kd * 0.8; g -= g * kd; b -= b * kd;
         glint = 0.95 * br * amp;
       }
@@ -222,9 +222,9 @@ function buildDish(env, nA, nB, rimDash, gild) {
         const dRed = 12.5 + 2.2 * nA.n2(U / 77, 3.9) + 1.2 * nB.n2(U / 19, 8.2);            // where the red stops short of the crown
         const wEdge = 3.4 + 7.6 * sstep(0.3, 0.92, wear) + 1.1 * nA.n2(U / 9, 1.3 + d / 4); // how far the gold has rubbed back
         // white porcelain: clean where it faces us; where the lip turns away it mirrors the ground — a hairline of deep green
-        const eq = dc / (1.9 + 0.5 * nA.n2(U / 61 + 4.1, 7.7)), edge = Math.exp(-eq * eq) * (0.74 + 0.26 * nB.n2(U / 37 + 1.9, 2.2)), cool = Math.exp(-dc / 4.2);
+        const eq = dc / (1.9 + 0.5 * nA.n2(U / 61 + 4.1, 7.7)), edge = Math.exp(-eq * eq) * (0.8 + 0.2 * nB.n2(U / 37 + 1.9, 2.2)), cool = Math.exp(-dc / 4.2);
         const wv = 0.97 + 0.03 * nB.n2(U / 30, d / 6);
-        const wr = (251 - 30 * cool - 178 * edge) * wv, wg = (248 - 11 * cool - 112 * edge) * wv, wb = (240 - 8 * cool - 108 * edge) * wv;
+        const wr = (251 - 30 * cool - 191 * edge) * wv, wg = (248 - 11 * cool - 119 * edge) * wv, wb = (240 - 8 * cool - 122 * edge) * wv;
         const kred = sstep(dRed - 2.6, dRed + 2.6, d + 1.4 * nA.n2(U / 5.1, d / 5.1));
         r = wr + (r - wr) * kred; g = wg + (g - wg) * kred; b = wb + (b - wb) * kred;
         // gold: a band from the rubbed crown to its wavering inner edge, worn as makeGild says
@@ -337,7 +337,7 @@ export default {
     // the vessel turns a hair under the lens
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';      // the slide resamples the layer: keep its finest grain
     L.cam(ctx, env, { rot }, () => ctx.drawImage(S.dish.cnv, S.dish.x0, S.dish.y0));
-    // each point flares as a burnished, still-gilded stretch slides under it; out of the plane of focus it opens into a soft disc
+    // each point flares as a burnished, still-gilded stretch slides under it; out of the plane of focus it spreads into a soft glow
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     for (const q of S.glints) {
@@ -351,9 +351,9 @@ export default {
           ctx.fillStyle = L.radial(ctx, 0, 0, 0, 9, [[0, `rgba(255,252,236,${Math.min(1, 1.25 * tw)})`], [0.2, `rgba(255,240,190,${0.8 * tw})`], [0.5, `rgba(255,214,130,${0.22 * tw})`], [1, 'rgba(255,200,110,0)']]);
           ctx.fillRect(-9, -9, 18, 18);
         } else {
-          // out of focus: the circle of confusion, a touch brighter toward its edge
-          const rr = 2.5 + 1.75 * q.blur, al = Math.min(0.62, 2.6 * tw / (1 + 0.32 * q.blur));
-          ctx.fillStyle = L.radial(ctx, 0, 0, 0, rr, [[0, `rgba(255,236,176,${0.72 * al})`], [0.62, `rgba(255,232,168,${0.8 * al})`], [0.86, `rgba(255,228,160,${al})`], [1, 'rgba(255,220,150,0)']]);
+          // out of focus: the same light spread into a soft warm glow, wider and fainter the further from the plane
+          const rr = 7 + 2.6 * q.blur, al = Math.min(0.5, 1.5 * tw / (1 + 0.22 * q.blur));
+          ctx.fillStyle = L.radial(ctx, 0, 0, 0, rr, [[0, `rgba(255,240,186,${al})`], [0.3, `rgba(255,232,168,${0.62 * al})`], [0.62, `rgba(255,226,156,${0.2 * al})`], [1, 'rgba(255,220,150,0)']]);
           ctx.fillRect(-rr, -rr, rr * 2, rr * 2);
         }
       });
