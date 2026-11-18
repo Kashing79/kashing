@@ -654,6 +654,7 @@
       else S.mem.set('giftDue', null);
       yield 0.6;
     },
+    end: function () { note.gift = 0; },
   });
   // 白天没打开的礼物：晚上再送一次（只送这一次）
   add({ name: 'special_delivery_evening', zh: '纪念日：晚上再送一次礼物', cast: 'man gold dax', weight: 8, cap: 1, tag: 'calm', mood: 'proud', timeout: 70,
@@ -739,7 +740,7 @@
         S.emote('heart', dax, 0, 1.2);
         yield 0.3;
         S.emote('heart', gold, 0, 1.2);
-        S.say('reunion', ['終於見到你了', '终于见到你了', 'Finally, you']);
+        S.say('reunion', ['終於等到今天了', '终于等到今天了', 'Today, at last']);
         yield 0.6;
       }
       S.prop.remove(bq, true);
@@ -760,5 +761,6 @@
       S.hold(man, null);
       yield 0.8;
     },
+    end: function () { note.bouquet = 0; },
   });
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

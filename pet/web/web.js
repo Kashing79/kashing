@@ -371,6 +371,16 @@
   setInterval(function () { if (grass) { makeLawn(); schedule(); } }, 5 * 60 * 1000);
 
   layout();
+  // 引擎有喂饭那一套的时候，岛上多一个"喂饭"按钮（没有就藏着）
+  (function () {
+    var fb = document.getElementById('isl-feed'), st = eng.status();
+    if (!fb || !st.care) return;
+    var nl = String((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
+    fb.textContent = /^zh-(tw|hk|mo|hant)/.test(nl) ? '餵飯' : (/^zh/.test(nl) ? '喂饭' : 'Feed');
+    fb.classList.remove('off');
+    if (fb.parentElement) fb.parentElement.classList.add('five');
+  })();
+
   schedule();
 
   // 画布到底能不能用：画一块红色再读回来。读不回来 = 这台机器上显卡画布是坏的，

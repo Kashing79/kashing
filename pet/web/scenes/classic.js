@@ -265,7 +265,11 @@
     run: function* (S) {
       var d = S.me, a = S.randPt(80 * S.SK, d), b = S.randPt(80 * S.SK, a), back = { x: d.x, y: d.y }, way = [a, b, a, back], i;
       d.pant = true;
-      for (i = 0; i < way.length; i++) yield S.go(d, way[i], 'run', null, 4);
+      for (i = 0; i < way.length; i++) {
+        yield S.go(d, way[i], 'run', null, 4);
+        // 疯跑经过金毛旁边：说一声（别的戏可以接：钻肚子、绕圈、撞个满怀……）
+        if (S.dist(d, S.gold) < 80 && !S.gold.hidden) S.raise('zoomPass', { who: d, near: S.gold, lying: S.gold.pose === 'lie' || S.gold.pose === 'sleep' });
+      }
     } });
   add({ name: 'tail_chase', zh: '追自己的尾巴', kind: 'solo', cast: 'dax', weight: 4, mood: 'funny',
     run: function* (S) {

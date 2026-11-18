@@ -150,6 +150,8 @@
 //   S.orbit(who, 中心 {x, y}, rx, ry, 几圈, 速度)    绕圈跑               S.slide(who, dx, dy, 秒)  不迈步地挪（被拖着、蹭过去）
 //   S.hop(who, 力气)   跳（60 ≈ 3 高、110 ≈ 10、150 ≈ 18、190 ≈ 29）     S.faceTo(who, 角色 | 道具 | x | 'cursor' | 'left' | 'right')
 //   S.turn(who)  转身         S.spd(who, 'run')  这个速度名字是多少
+//   S.backUp(dog, x, y, 速度, 最多几秒)  倒着退过去（脸不转过来，骨架收到 reverse）
+//   S.echo(who, 学谁, 慢几秒, 速度)  照着那个角色几秒以前走过的地方走（跟屁虫），一直到这段戏完或者 S.stop
 //   S.attach(who, 安到谁身上, 锚点, dx, dz, 画在后面?, 朝向)  骑到背上（'seat'）、抱在怀里（'arms'）、叼在嘴边（'mouth'）……
 //       之后那个角色走到哪它跟到哪；S.detach(who, 跳下来的力气)  放下来（0 = 直接落地）
 //   yield* S.enterIsland(who) / yield* S.leaveIsland(who)    一个角色自己进出岛（别人不受影响；戏完了会自己出来）
@@ -162,12 +164,16 @@
 //   S.mood(dog, 'happy')        狗的心情（PET_DOGS.MOODS：happy sleepy guilty curious proud worried focused）
 //   S.look(who, 目标)           看哪儿：角色 / 道具 / 'ball' / 'cursor' / 'camera'（看她）/ { x, y, z } / null = 引擎自己挑
 //   S.act(who, 'yawn', 最多几秒)   骨架自己演的一小段动作（PET_DOGS.ACTS / PET_PERSON.ACTS：伸懒腰、甩毛、打哈欠……）：
-//       返回"演完了"；画的人还没做这个动作就马上算完（所以随便写，不会卡住）
+//       返回"演完了"；画的人还没做这个动作就马上算完（所以随便写，不会卡住）。不给秒数就按画的人给的长度（ACT_TIME / ACT_LEN）。
+//       小人的 whistle / man_hum / beckon 引擎会配音符，heart_hands / blow_kiss 配爱心，画面 p_pocket 配一团灰和小星星
+//   狗被她拎着时画成 'held'；抱在小人怀里用 S.attach(dax, S.man, 'arms') + S.hold(dax, 'cradle')（cradle 的原点就在他手臂上）
 //   S.rig(who, { tilt: 1, eyes: 'closed' })   直接递别的输入给骨架（画的人新加的那些）；S.rig(who, null) 收回
 //   S.clip(who, [x, y, w, h])   只画这个框里的部分（躲在程序坞后面、从岛沿上探出头）；null = 整个画
 //   不用收：戏一完，姿势、表情、心情、眼神、安在谁身上、裁切都会自己还原
+//   S.wear(S.man, { tie: 'neat' | 'askew' | 'loose', mussed: true, specks: 0..1 }, 秒)  戏完了也留在他身上的样子（不给秒数 = 到明天），
+//       每一步交给他的骨架；S.wear(S.man, null) 收回       S.worn()  现在身上留着什么
 //   —— 身上的位置、地方 ——
-//   S.anchor(who, 'mouth')  → { x, y, z }：狗 mouth nose back seat head chin tailTip forepaw；小人 hand hand2 grip arms lap chest tie head mouth
+//   S.anchor(who, 'mouth')  → { x, y, z }：狗 mouth nose back seat head chin tailTip forepaw；小人 hand hand2 grip arms lap chest tie tieTip pocket knee cuff shoe head mouth
 //   S.hand('hand2')  小人的手现在在哪 → { x, y, z }       S.handPos()  他把东西丢出去那一下手在哪
 //   S.beside(a, b, 空隙, dy)  a 站到 b 旁边（鼻尖之间留空隙）    S.inFront(b, 多远, dy) / S.behind(b, 多远, dy)
 //   S.atHand(dog, dy)  狗站到小人手边    S.manAt(dog, 多远, dy)  小人站到狗旁边够得着它    S.ry(v)  满屏模式才有的前后偏移
@@ -194,6 +200,7 @@
 //   var p = S.prop.spawn('bowl', 'full', x, y, { z, face, cap: 秒, hot, obstacle: 半径, shadow, keep, sprite, click: '戏名', amount, care, data })
 //       hot: true 或 { w, h, dwell }：她可以点（鼠标在上面停 dwell 秒——默认 0.25——以后才算，点了出 click 事件，或者直接演 click 写的那段戏）
 //       obstacle：大家绕开它、跳过它，球也弹开；keep: true = 这段戏演完它还留着（到 cap 秒自己没）；默认戏完就收走
+//       flat: true = 平铺在地上（野餐垫、毯子）：画在所有角色和别的道具下面
 //   S.prop.set(p, 'empty')  换状态（换图）       S.prop.move(p, x, y, z)       S.prop.carry(p, who, 'mouth' | 'hand' | 'hand2' | 'arms'……)
 //   S.prop.drop(p[, x, y])  放到地上       S.prop.fling(p, vx, vy, vz)  扔出去 / 掉下来       S.prop.remove(p[, 冒烟?])
 //   S.prop.where(p) → { x, y, z }     S.prop.find('stick')  S.prop.all('poop')     S.prop.hot(p, true | false)     S.prop.keep(p)
@@ -220,6 +227,8 @@
 //   S.commit(秒)  接下来这几秒别打断我（≤ 1.5 秒最好；她拎人、回岛不等）     S.interrupted()  有人在等我让路（赶紧收尾）
 //   S.join(who)  中途拉一个有空的角色进来     S.leave(who)  放一个走     S.free(who)  他现在有没有空
 //   S.raise('名字', { ... })  自己发一个事件（别的 react 可以接）     S.shoo()  蝴蝶被扑了一下，飞开     S.log(话)  告诉外壳一句
+//   S.catchClicks(who[, false])  这段戏演着的时候，她点这个角色不打断戏、不丢球：只出 click 事件（ev.inScene = true），戏自己去接
+//   S.goHome()  这段演完就大家一起回岛（用 enterIsland 先进去的就待在里面）
 //   S.bfly  蝴蝶 { on, x, y }     S.cfg  config.js 的设定（只读）     S.COLORS  碎屑的颜色
 //
 // 六、事件（react 的 on 写这些名字；ev 里有这些东西；ev.name 是名字，ev.t 是时间）
@@ -231,11 +240,14 @@
 //   hover      鼠标停在谁身上 0.4 秒 { who, x, y, zone }     notice     鼠标在谁旁边（60 以内）停下来不动 0.6 秒 { who, dist, x, y }
 //   flyby      鼠标嗖地从谁头顶划过（每秒 500 以上）{ who, vx, vy, speed }     drift  鼠标慢慢挪（每秒 10-60，一秒以上）{ x, y, speed }
 //   shake      在哪儿又快又大地甩鼠标 { x, y }     sweep  很快地扫过一样能点的道具 { prop, kind, speed }
-//   pickup     她把谁拎起来了 { who }     drop  放下 { who, x, y }     dropOn  放到了谁身上 { who, target, anchor: 'seat' | 'arms' }
+//   pickup     她把谁拎起来了 { who }     pickupHeld  拎着 0.8 秒了 { who, t }
+//   drop       放下 { who, x, y, held（拎了几秒）}     dropOn  放到了谁身上 { who, target, anchor: 'seat' | 'arms', held }
 //   dropIsland 放到了岛上（大家回岛）{ who }     grabBall  她抓住了球 { x, y }     throw  她把球丢出去了 { by: 'her', vx, vy }
 //   她在不在：
 //   return     她回来了（走开 5 分钟以上）{ away（秒）, tier: 1（5-20 分钟）| 2（20 分钟-3 小时）| 3（更久，或者今天头一回）, woke, first }
-//   wake       屏幕刚亮 / 电脑刚醒 { gap（秒）}     menu  她打开了菜单     tuck  她点了岛里睡觉的那一格     battery { kind: 'plug' | 'unplug' | 'low' | 'full', level }
+//   wake       屏幕刚亮 / 电脑刚醒 { gap（秒）}     menu  她打开了菜单     battery { kind: 'plug' | 'unplug' | 'low' | 'full', level }
+//   tuck       她点了岛里睡觉的那一格 { inside }（它们在岛里的话，今晚一直盖着被子 blanket_den，S.mem.get('tucked') = 今天）
+//   dockChange 程序坞变了（藏起来、出来、变大小）{ was, now }（都是 { x, y, w, h } 或 null）
 //   钟和日子：
 //   minute { h, m, hm }   hour { h, hm }   dayphase { phase }   newday { day }
 //   date       今天是个日子（她在、它们在外面的时候说一次）{ kind: 'reunion'（days = 还有几天）| 设定 dates 里写的 kind, days, entry, line }
@@ -243,6 +255,8 @@
 //   out        从岛里出来了 { first: 今天头一回 }     home  要回岛了     edge  谁走到了屏幕边上 { who, side: 'left' | 'right' }
 //   island     谁走到了岛下面 { who }     dock  谁走到了程序坞上面 { who }
 //   catch      狗跳起来在空中接住了球 { who, z }     ballRest  丢出去的球停下来了 { x, y, far }     ballStuck  球停在地上好一阵没狗去捡 { x, y }
+//   fetched    狗把球叼回来交给了小人 { who }
+//   zoomPass   小腊肠疯跑（zoomies）经过金毛旁边（80 以内）{ who, near, lying }
 //   自己发的：S.raise('名字', ev) 发的任何名字
 //   （照料那一套——喂饭、喝水、拉粑粑——的戏都在 scenes/care.js，由照料导演开演，别的戏包不用管。）
 //
@@ -255,7 +269,15 @@
 //   · 别用 Math.random（用 S.rand，每段戏有自己的种子）；别存角色对象到别处（S.mem 只放数字、字符串这类）。
 //   · 台词只用 S.say(key, [繁, 简, 英])：她没写台词、也没开 lines: true 的时候小人不说话，戏要照样演得通。
 //
-// 八、怎么试
+// 八、照料（scenes/care.js 用；别的戏包只读）
+//   S.care.on()  有没有喂饭拉粑粑这一套         S.care.state()  账本（只读：每只狗 full / bowel / thirst，今天的统计）
+//   S.care.poopSpot(dog) → { x, y, face } | null    S.care.diningSpot() → { x, y, g } | null    S.care.rule(kind, x, y)  哪一条规矩不满足（'' = 都满足）
+//   S.care.poop(dog, x, y) → 道具 | null（拉在这一点；规矩不满足就不拉）    S.care.eat(dog, 碗, 每秒吃几分之一碗)  交给碗带着吃
+//   S.care.eating(dog)    S.care.mealDone()    S.care.biscuitDone(by)    S.care.drank()    S.care.cleaned('him' | 'her')
+//   S.care.abort(dog)  这次不拉了（过 1-2 分钟换地方）    S.care.giveUp(dog)    S.care.atHome(dog)  回岛里解决了    S.care.poops()
+//   S.care.EAT（19：狗离碗多远鼻子正好在碗里）S.care.REAR（9：蹲下时屁股在身体后面多远）
+//
+// 九、怎么试
 //   node pet/dev/scenes.js list                    列出登记了的每一段（种类、谁演、什么时候、weight）
 //   node pet/dev/scenes.js <输出目录> 名字,名字      把这几段各演一遍拍成连环画（每一拍一张）
 //   node pet/dev/sim.js 目录 30 ；node pet/dev/headless.js   快进乱玩半小时，查报错、卡住、角色飞出场地、道具没收走
@@ -345,7 +367,11 @@
 
     function clock() { return host.now ? host.now() : now; }
     // 现在是几月几号几点：外壳可以给一个 date()（毫秒，测试时用来拨钟）；不给就是电脑上的时间
-    function wall() { var v = host.date ? +host.date() : NaN; return v === v ? v : Date.now(); }
+    var wallFix = null, wallFixAt = 0;       // 测试拨过的钟（_t.care.clock）：之后跟着引擎的时间走
+    function wall() {
+      if (wallFix !== null) return wallFix + (now - wallFixAt) * 1000;
+      var v = host.date ? +host.date() : NaN; return v === v ? v : Date.now();
+    }
     // 钟：别的地方都读这里（每一步最多看两次表）。h m 几点几分、hm 'HH:MM'、wd 星期几（0 = 星期天）、day 'YYYY-M-D'、
     // md 'MM-DD'、ymd 'YYYY-MM-DD'、phase 'day' | 'dusk' | 'night'（草地该用哪套颜色）、night 是不是该睡觉的钟点、ms 毫秒
     var clk = { ms: 0, h: 12, m: 0, hm: '12:00', wd: 0, day: '', md: '', ymd: '', phase: 'day', night: false }, clkAt = -9;
@@ -422,6 +448,7 @@
     var stats = { day: '', fetch: 0, pets: 0 };
     var nextSceneAt = 14, sceneCount = {};
     var VIEW = { w: 300, h: 110 };      // 整个画面多大（给戏里看的）
+    var wear = {}, wearUntil = 0, wantHome = false;     // 小人身上留着的样子（S.wear）；戏里说了"回岛"（S.goHome）
     var entered = false, enterAt = 0, preHidden = false;     // 刚打开时的"出场"
 
     function loadStats() {
@@ -487,6 +514,12 @@
     //  表情、粒子、说话、震动
     // ------------------------------------------------------------
     function emote(type, ent, dx, life) {
+      // 屏幕上最多三颗爱心（R5 4.4）：再来一颗就把最老的那颗收掉
+      if (type === 'heart') {
+        var n = 0, first = -1;
+        for (var i = 0; i < emotes.length; i++) if (emotes[i].type === 'heart') { n++; if (first < 0) first = i; }
+        if (n >= 3) emotes.splice(first, 1);
+      }
       emotes.push({ id: ++serial, type: type, ent: ent, dx: dx || 0, t: 0, life: life || 1.1, ph: emotes.length });
     }
     function emoteAt(type, x, y, life) { emote(type, { x: x, top: y }, 0, life); }
@@ -535,16 +568,62 @@
       if (!quiet) emote('bang', d);
     }
     // 往 (tx, ty) 跑，返回是否到了
+    // 前面路上有挡路的东西（便便）吗：{ x, y } = 该先绕到哪一点（满屏模式）；底部一条时绕不开，返回 null，由 leap 跳过去
+    var detTmp = { x: 0, y: 0 };
+    function detour(e, tx, ty) {
+      var dx = tx - e.x, dy = ty - e.y, L = hyp(dx, dy), best = null, bl = 1e9;
+      if (L < 1) return null;
+      var ux = dx / L, uy = dy / L;
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        if (p.dead || p.holder || !(p.obstacle > 0)) continue;
+        var px = p.x - e.x, py = p.y - e.y, along = px * ux + py * uy, lat = px * uy - py * ux;
+        if (along < -1 || along > Math.min(L + 9, 70) || Math.abs(lat) >= 10) continue;
+        if (along < bl) { bl = along; best = p; detTmp.lat = lat; }
+      }
+      if (!best) return null;
+      if (!opt.roam || F.y1 - F.y0 < 20) { detTmp.leap = best; return null; }
+      var s = detTmp.lat >= 0 ? -1 : 1, wx = best.x + s * uy * 14, wy = best.y - s * ux * 14;
+      if (wy < F.y0 || wy > F.y1) { wx = best.x - s * uy * 14; wy = best.y + s * ux * 14; }
+      detTmp.x = wx; detTmp.y = clamp(wy, F.y0, F.y1);
+      return detTmp;
+    }
+    // 离它 9 个单位左右起跳（跑得快的早一帧），在空中 0.4 秒、至少冲出 19 个单位：落地时已经在它另一边 8 以外了
+    function leapOver(e, dt) {
+      var p = detTmp.leap; detTmp.leap = null;
+      var v = hyp(e.vx, e.vy);
+      if (!p || e.z > 0 || hyp(p.x - e.x, p.y - e.y) > 9.2 + v * (dt || 0) * 1.5) return;
+      e.vz = 125; e.z = 0.01; e.leapUntil = now + 0.45;
+      if (v > 0.5) { var k = Math.max(v, 48) / v; e.vx *= k; e.vy *= k; }
+    }
+    // 要停的地方后来冒出了挡路的东西（便便）：停在它这一边、离它 12 以外
+    function keepOff(e, tx, ty) {
+      for (var i = 0; i < props.length; i++) {
+        var p = props[i];
+        if (p.dead || p.holder || !(p.obstacle > 0)) continue;
+        var dx = tx - p.x, dy = ty - p.y;
+        if (dx * dx + dy * dy < 144) { var s = e.x >= p.x ? 1 : -1; detTmp.kx = p.x + s * 12; detTmp.ky = ty; return true; }
+      }
+      return false;
+    }
     function drive(e, tx, ty, maxSpd, dt) {
       var acc = e.K.accel * SK;
+      if (props.length && keepOff(e, tx, ty)) { tx = detTmp.kx; ty = detTmp.ky; }
       tx = clamp(tx, F.x0 + e.half + 1, F.x1 - e.half - 1); ty = clamp(ty, F.y0, F.y1);
       var dx = tx - e.x, dy = ty - e.y, d = hyp(dx, dy), sp = hyp(e.vx, e.vy);
       if (d < 1.8 && sp < 45) { e.vx = e.vy = 0; e.x = tx; e.y = ty; return true; }
+      // 半空中跳着越过挡路的东西：照着起跳时的速度飞，不刹车
+      if (e.z > 0 && e.leapUntil > now) { e.x += e.vx * dt; e.y += e.vy * dt; e.x = clamp(e.x, F.x0 + e.half + 1, F.x1 - e.half - 1); e.y = clamp(e.y, F.y0, F.y1); return false; }
       var brake = sp * sp / (2 * acc);
       var want = d <= brake + 1 ? 0 : maxSpd;
       // 目标正好在脚下（比如屏幕变小后两个都被挤到边上）时 d 是 0：只刹车，不能除以 0
       var inv = d > 1e-6 ? 1 / d : 0;
       var wx = dx * inv * want, wy = dy * inv * want * 0.8;
+      if (props.length) {
+        var dt2 = want > 0 ? detour(e, tx, ty) : (detour(e, tx, ty), null);
+        if (dt2) { var ddx = dt2.x - e.x, ddy = dt2.y - e.y, dd = hyp(ddx, ddy) || 1; wx = ddx / dd * want; wy = ddy / dd * want * 0.8; }
+        else if (detTmp.leap) leapOver(e, dt);
+      }
       var ax = wx - e.vx, ay = wy - e.vy, al = hyp(ax, ay), step = acc * dt;
       if (al > step) { ax *= step / al; ay *= step / al; }
       e.vx += ax; e.vy += ay;
@@ -553,7 +632,7 @@
       if (e.x > F.x1 - e.half - 1) { e.x = F.x1 - e.half - 1; e.vx = 0; }
       if (e.y < F.y0) { e.y = F.y0; e.vy = 0; }
       if (e.y > F.y1) { e.y = F.y1; e.vy = 0; }
-      if (Math.abs(e.vx) > 5) e.face = e.vx > 0 ? 1 : -1;
+      if (Math.abs(e.vx) > 5 && !e.noTurn) e.face = e.vx > 0 ? 1 : -1;
       return false;
     }
     function coast(e, dt) {
@@ -588,7 +667,7 @@
     //  身上的位置（锚点）：骨架画出来时会告诉我们嘴、背、手、怀里……在哪；没给的按老样子估一个
     //  都是 [往前多远（已经按朝向翻好）, 离地多高]，世界单位
     // ------------------------------------------------------------
-    var ANCHORS = ['mouth', 'nose', 'back', 'seat', 'head', 'hand', 'hand2', 'grip', 'arms', 'lap', 'chest', 'tailTip', 'headTop', 'chin', 'forepaw', 'tie'];
+    var ANCHORS = ['mouth', 'nose', 'back', 'seat', 'head', 'hand', 'hand2', 'grip', 'arms', 'lap', 'chest', 'tailTip', 'headTop', 'chin', 'forepaw', 'tie', 'tieTip', 'pocket', 'knee', 'cuff', 'shoe'];
     var anTmp = [0, 0];
     function anchorOf(b, name) {
       var q = b.vis.an[name];
@@ -810,7 +889,11 @@
       if (o.woke === true) wokeUp(0);
       if (o.battery !== undefined) setBattery(o.battery);
       if (o.frontApp !== undefined) her.frontApp = o.frontApp || null;
-      if (o.dock !== undefined) her.dock = (o.dock && isFinite(o.dock.x) && isFinite(o.dock.w)) ? { x: +o.dock.x, y: +o.dock.y, w: +o.dock.w, h: +o.dock.h } : null;
+      if (o.dock !== undefined) {
+        var was = her.dock, dk = (o.dock && isFinite(o.dock.x) && isFinite(o.dock.w)) ? { x: +o.dock.x, y: +o.dock.y, w: +o.dock.w, h: +o.dock.h } : null;
+        her.dock = dk;
+        if (booted && JSON.stringify(was) !== JSON.stringify(dk) && (was || dk)) raise('dockChange', { was: was, now: dk });
+      }
       if (o.statusItem !== undefined) her.statusItem = isFinite(o.statusItem) && o.statusItem !== null ? +o.statusItem : null;
       if (o.menu === true) raise('menu', {});
     }
@@ -965,7 +1048,8 @@
         else if (!(def.tag === 'hers' && sc.kind !== 'care' && def.kind !== 'scene')) return false;
       }
       if (a.isPerson) return (a.st === 'idle' || a.st === 'front' || a.st === 'act') && (ball.st === 'hand' || ball.st === 'pocket');
-      return a.st === 'idle' || a.st === 'pose' || a.st === 'walk' || a.st === 'zoom' || a.st === 'spin' || a.st === 'bfly' || a.st === 'scene' || a.st === 'eat';
+      if (a.st === 'eat') return def.kind === 'care';          // 正在吃饭：只有照料那一套能叫它
+      return a.st === 'idle' || a.st === 'pose' || a.st === 'walk' || a.st === 'zoom' || a.st === 'spin' || a.st === 'bfly' || a.st === 'scene';
     }
     function allFree(cast, def) { for (var i = 0; i < cast.length; i++) if (!freeFor(cast[i], def)) return false; return true; }
     // 这一段的演员都有空吗 → 具体是哪几个（没空就是 null）。写的是"哪只狗都行"又没指定时，两只都试一下
@@ -1059,10 +1143,10 @@
       else { wake(a, true); a.st = 'scene'; a.pose = 'stand'; a.wag = sc.kind === 'solo' ? 0.3 : 0.4; a.pant = false; a.t = 0; }
     }
     function releaseActor(a, sc) {
-      a.scene = null; a.cmd = null; a.lift = 0; a.att = null; a.mood = null; a.expr = null; a.lookT = null; a.rx = null; a.ract = null; a.clip = null; a.held = null;
+      a.scene = null; a.cmd = null; a.lift = 0; a.att = null; a.mood = null; a.expr = null; a.lookT = null; a.rx = null; a.ract = null; a.clip = null; a.held = null; a.noTurn = false;
       if (a.isPerson) { a.spr = null; a.item = null; if (a.st === 'idle') { a.t = 0; a.act = null; } }
       else if (a.st === 'scene') { a.st = 'idle'; a.pose = 'stand'; a.t = 0; a.pant = false; a.wag = 0.3; a.happy = 0; }
-      if (sc.hid && sc.hid.indexOf(a) >= 0 && a.hidden && home.st === 'out') { a.hidden = false; a.z = 0; puff(a.x, a.y - 10, true); }
+      if (sc.hid && sc.hid.indexOf(a) >= 0 && a.hidden && home.st === 'out' && !homeBound) { a.hidden = false; a.z = 0; puff(a.x, a.y - 10, true); }
     }
     function startScript(def, cast, b, ev) {
       var i, a;
@@ -1257,9 +1341,10 @@
       return cast ? !!startScript(def, cast, b, ev) : false;
     }
     // 角色闲下来了：给它挑一个自己的小动作。没有登记小动作的话返回 false，引擎用自己原来那一套
+    var soloAt = -9;            // 上一个小动作什么时候开始的：不让几个角色在同一秒里一起开始（R5 4.1）
     function pickSolo(a) {
       var list = SOLO[a.name], n = 0, i, def, w, b = { who: a, dog: a.isPerson ? null : a };
-      if (!list.length || home.st !== 'out' || a.hidden || a.carried) return false;
+      if (!list.length || home.st !== 'out' || a.hidden || a.carried || now - soloAt < 0.6) return false;
       setQ(b, null);
       var calm = now < calmUntil;
       for (i = 0; i < list.length; i++) {
@@ -1272,7 +1357,7 @@
       }
       i = draw(n);
       if (i < 0) return false;
-      a.solo2 = a.solo1; a.solo1 = pk[i].name;
+      a.solo2 = a.solo1; a.solo1 = pk[i].name; soloAt = now;
       return !!startScript(pk[i], [a], b, null);
     }
     // 出了一件事：name 是事件名，ev 里是细节（who = 这件事落在谁身上）。有登记在这件事上的 react 就挑来演。
@@ -1405,6 +1490,34 @@
       else if (isFinite(t.x)) faceTo(a, t.x);
     };
     API.turn = function (a) { if (owns(a)) a.face = -a.face; };
+    // 倒着退过去（脸朝着原来的方向，骨架收到 reverse）：狗用；返回"到了"
+    API.backUp = function (a, x, y, speed, maxSec) {
+      if (x && typeof x === 'object') { maxSec = speed; speed = y; y = x.y; x = x.x; }
+      if (!owns(a) || !isFinite(x) || !isFinite(y)) return YES;
+      var w = go(a, x, y, speed === undefined ? 'walk' : speed, a.pose, maxSec);
+      if (a.cmd) a.cmd.back = true;
+      return w;
+    };
+    // 学着 leader 走：照它 delay 秒以前走过的地方走（跟屁虫）；一直跟到这段戏结束或者 S.stop
+    API.echo = function (a, leader, delay, speed) {
+      if (!owns(a) || !leader || a === leader) return;
+      var hist = [], d = delay > 0 ? delay : 0.3;
+      API.each(function () { hist.push([now, leader.x, leader.y]); while (hist.length > 2 && now - hist[1][0] > d) hist.shift(); });
+      API.track(a, function () { var h = hist[0]; return h && now - h[0] >= d * 0.5 ? { x: h[1], y: h[2] } : null; }, speed === undefined ? (a.isPerson ? 30 : 'trot') : speed);
+    };
+    // 戏完了也留在小人身上的样子：{ tie: 'neat' | 'askew' | 'loose', mussed: true, specks: 0..1 }，留 sec 秒（不给就到明天）；
+    // 每一步交给他的骨架。S.wear(S.man, null) 全部收回
+    API.wear = function (a, o, sec) {
+      if (!a || !a.isPerson) return;
+      if (!o) { wear = {}; wearUntil = 0; return; }
+      for (var k in o) wear[k] = o[k];
+      wearUntil = sec > 0 ? now + sec : now + 86400;
+    };
+    API.worn = function () { var o = {}; for (var k in wear) o[k] = wear[k]; return o; };
+    // 演完这段就回岛（大家一起回去；用 enterIsland 先进去的就待在里面）
+    API.goHome = function () { if (CUR) wantHome = true; };
+    // 这段戏演着的时候，她点这个角色不打断戏、也不丢球 / 不摸：只出 click 事件（ev.inScene = true），戏自己接
+    API.catchClicks = function (a, on) { if (!CUR || !a) return; CUR.catches = CUR.catches || []; var i = CUR.catches.indexOf(a); if (on === false) { if (i >= 0) CUR.catches.splice(i, 1); } else if (i < 0) CUR.catches.push(a); };
     API.hop = function (a, power) { if (owns(a)) hop(a, power || 110); };
     // 不迈步地挪过去（被拖着、蹭过去）：dx, dy 世界单位，dur 秒
     API.slide = function (a, dx, dy, dur) {
@@ -1490,7 +1603,7 @@
       name = alt(a, name);
       var can = a.isPerson ? HAS.pact[name] : HAS.dact[name];
       if (!can) { a.ract = null; return YES; }
-      var AT = a.isPerson ? (PERSON && PERSON.ACT_TIME) : (DOGS && DOGS.ACT_TIME), at = AT && AT[name];
+      var AT = a.isPerson ? (PERSON && (PERSON.ACT_LEN || PERSON.ACT_TIME)) : (DOGS && DOGS.ACT_TIME), at = AT && AT[name];
       var dflt = at ? (typeof at === 'number' ? at : (a.kind === 'gold' ? at[0] : at[1])) * 1.4 + 0.5 : 4;
       var T = now + (sec > 0 ? sec : dflt);
       if (a.ract === name) a.ractRestart = true;          // 同一个动作再来一遍：先让骨架松开一步
@@ -1707,7 +1820,7 @@
         face: o.face < 0 ? -1 : 1, a: o.a === undefined ? 1 : clamp(+o.a, 0, 1), born: now, cap: +o.cap > 0 ? +o.cap : 0,
         hot: hotOf(o.hot), hotT: 0, live: false, box: null, sweepAt: -9, obstacle: +o.obstacle || 0, shadow: o.shadow === undefined ? true : o.shadow,
         holder: null, owner: o.keep ? null : CUR, dead: false, data: o.data || {}, spr: o.sprite || null, click: o.click || null,
-        top: 0, clip: null, amount: o.amount === undefined ? 1 : +o.amount, front: !!o.front, care: !!o.care,
+        top: 0, clip: null, amount: o.amount === undefined ? 1 : +o.amount, front: !!o.front, care: !!o.care, flat: !!o.flat,
       };
       if (!(p.y === p.y)) p.y = F.y1;
       props.push(p);
@@ -1770,6 +1883,7 @@
       return null;
     }
     function propClicked(p, x, y) {
+      if (p.care && careClick(p, x, y)) return;
       if (p.click && DEFN[p.click]) { if (forcePlay(DEFN[p.click], { name: 'click', prop: p, kind: p.kind, x: x, y: y })) return; }
       raise('click', { prop: p, kind: p.kind, x: x, y: y, who: null });
     }
@@ -2004,6 +2118,7 @@
       endScene(false, 'ball');
       dogs.forEach(function (d) {
         if (!awake(d) || d.hidden || d.carried) return;
+        if (d.st === 'eat' && d.kind === 'gold') return;      // 金毛吃饭的时候不去追（小腊肠会去，回来接着吃）
         if (d.kind === 'gold' && d.energy < 0.3) {   // 金毛累了，趴着看
           if (!(d.st === 'pose' && d.pose === 'lie')) setPose(d, 'lie', 12);
           d.pant = true; d.wag = 0.6;
@@ -2044,6 +2159,7 @@
         if (d.pose === 'sleep' && now > d.zAt) { emote(Math.random() < 0.5 ? 'z' : 'zs', d, d.face * 8, 1.8); d.zAt = now + 1.7; }
       } else if (d.scene) {
         var c = d.cmd;
+        d.noTurn = !!(c && c.back);
         if (c && c.k === 'go') { d.pose = c.pose; if (drive(d, c.x, c.y, c.spd, dt)) c.done = true; }
         else if (c && c.k === 'follow') {
           d.pose = c.pose || 'stand';
@@ -2063,6 +2179,10 @@
         case 'idle':
           coast(d, dt);
           think(d);
+          break;
+
+        case 'eat':      // 饭碗还在：接着吃（见"照料"那一节）
+          eatStep(d, dt);
           break;
 
         case 'pose':
@@ -2178,6 +2298,8 @@
             d.pose = d.kind === 'dax' ? ((Math.floor(d.t * 0.7) % 2) ? 'bow' : 'stand') : ((Math.floor(d.t * 0.4) % 3 === 2) ? 'bow' : 'sit');
             if (d.kind === 'dax' && Math.random() < dt * 0.9) hop(d, 95);
             d.look = 0.5;
+            // 等他丢球等得坐不住：骨架有 wait_fidget 就演一下（小腊肠隔三秒左右一次，金毛这一轮一次）
+            if (HAS.dact.wait_fidget && !d.ract && d.t > 1 && now > (d.fidgetAt || 0)) { d.ract = 'wait_fidget'; d.ractAt = now; d.ractDone = false; d.ractAuto = true; d.fidgetAt = now + (d.kind === 'dax' ? rand(2.5, 4) : 30); }
           } else d.pose = 'stand';
           d.wag = 1;
           break;
@@ -2210,6 +2332,7 @@
 
       // 鼠标靠近：看过来、摇尾巴；小腊肠会蹦一下
       d.near = false;
+      if (d.ractAuto && (d.st !== 'wait' || d.ractDone)) { d.ractAuto = false; if (!d.scene) d.ract = null; }
       var sc0 = d.scene;
       if (pointer.inside && !pointer.drag && !pointer.grab && !d.carried && awake(d) && d.pose !== 'lie' && d.pose !== 'roll' &&
           (sc0 ? (sc0.kind === 'solo' && sc0.def.aware && !d.cmd && !d.att && now >= sc0.commitTo) : (d.st === 'pose' || d.st === 'idle'))) {
@@ -2222,15 +2345,6 @@
       }
 
       d.sp = (d.st === 'tug' || d.att) ? 0 : hyp(d.vx, d.vy);
-      // 路上有挡路的小东西（便便之类）：离它 10 个单位的时候轻轻跳过去
-      if (d.sp > 8 && d.z === 0 && !d.att && props.length) {
-        for (var k2 = 0; k2 < props.length; k2++) {
-          var ob = props[k2];
-          if (ob.dead || ob.holder || !(ob.obstacle > 0)) continue;
-          var ax = ob.x - (d.x + d.face * d.half * 0.5), ay = ob.y - d.y;
-          if (Math.abs(ay) < 8 && ax * sgn(d.vx || d.face) > 0 && Math.abs(ax) < 10 + d.sp * 0.05 && now > d.hopAt) { hop(d, 80); d.hopAt = now + 0.6; break; }
-        }
-      }
       // 跑起来脚下扬起的灰
       if (d.z === 0 && d.sp > 95 * SK && now > d.dustAt) { puff(d.x - d.face * d.half * 0.6, d.y, false); d.dustAt = now + 0.13; }
       if (d.lastSp - d.sp > 70 * SK && d.z === 0) puff(d.x + d.face * 6, d.y, true);     // 急刹车
@@ -2298,7 +2412,7 @@
     // 告诉狗的骨架"现在是什么状态"（每一步都要给，骨架自己会平滑过渡）
     function rigInput(d, dt) {
       var I = d.ri, pose = d.pose === 'sniffwalk' ? 'sniff' : d.pose;
-      I.pose = d.carried ? 'air' : pose;
+      I.pose = d.carried ? (HAS.pose.held ? 'held' : 'air') : pose;
       I.speed = d.sp;
       I.air = (d.z > 1.5 || d.carried) ? 1 : 0;
       I.wag = d.carried ? 0.1 : d.wag;
@@ -2325,8 +2439,11 @@
       else if (bfly.on && (d.st === 'bfly' || (d.st === 'pose' && d.look > 0.5))) { lookTmp.x = bfly.x; lookTmp.y = bfly.y; pt = lookTmp; }
       else if (d.near) pt = lookPt(d, 'cursor');
       else if (d.st !== 'chase' && d.st !== 'return' && d.st !== 'zoom' && d.pose !== 'sleep') pt = lookPt(d, defaultLook(d));
+      if (d.st === 'eat' && d.bowl && !t) { var bw = PROP.where(d.bowl); lookTmp.x = bw.x; lookTmp.y = bw.y - 1; pt = lookTmp; }
       I.lookAt = smoothLook(d, pt, dt);
       d.la = I.lookAt;
+      I.gusto = d.st === 'eat' ? (d.kind === 'dax' ? 1 : 0.4) : 0;
+      I.reverse = !!(d.noTurn && d.sp > 1 && d.cmd && d.cmd.back);
       giveAct(d, I);
       giveExtra(d, I);
       d.rSp = d.sp; d.rFace = d.face;
@@ -2377,7 +2494,7 @@
       wake(dax, true);
       if (gold.energy > 0.3) wake(gold, true);
       dogs.forEach(function (d) {
-        if (!awake(d) || d.hidden || d.carried) return;
+        if (!awake(d) || d.hidden || d.carried || d.st === 'eat' || (d.scene && d.scene.kind === 'care')) return;
         if (d.kind === 'gold' && d.energy < 0.3) return;
         d.st = 'wait'; d.t = 0; d.pose = 'stand';
       });
@@ -2431,6 +2548,8 @@
       ball.x = mouthX(d); ball.y = d.y; ball.z = BALL_R;
       play.lastPlay = now;
       bump('fetch');
+      if (care.N) care.N.fetched(d.kind);
+      raise('fetched', { who: d });
       if (play.rounds > 0 && !sleepyTime()) { play.phase = 'ready'; play.throwAt = now + rand(1.5, 2.9); }
       else { play.phase = 'rest'; play.nextAt = now + range(CFG.autoPlaySeconds, 60); person.next = now + rand(3, 6); nextSceneAt = Math.max(nextSceneAt, now + rand(4, 8)); }
     }
@@ -2440,8 +2559,15 @@
       if (PY0 > F.y0 && ty < PY0) ty = PY0;
       var dx = tx - p.x, dy = ty - p.y, d = hyp(dx, dy);
       if (d < 1.4) { p.moving = false; return true; }
-      var st = Math.min(d, speed * SK * dt);
-      p.x = clamp(p.x + dx / d * st, F.x0 + P_HALF + 1, F.x1 - P_HALF - 1); p.y = clamp(p.y + dy / d * st * (Math.abs(dy) > Math.abs(dx) ? 0.85 : 1), PY0, F.y1);
+      var st = Math.min(d, speed * SK * dt), mx = dx / d, my = dy / d;
+      // 地上有便便：满屏的时候绕过去，底部一条的时候迈一大步跨过去
+      if (props.length) {
+        var dt2 = detour(p, tx, ty);
+        if (dt2) { var ddx = dt2.x - p.x, ddy = dt2.y - p.y, dd = hyp(ddx, ddy) || 1; mx = ddx / dd; my = ddy / dd; }
+        else if (detTmp.leap) { var lp = detTmp.leap; detTmp.leap = null; if (p.z === 0 && hyp(lp.x - p.x, lp.y - p.y) < 9.2 + speed * SK * dt * 1.5) { p.vz = 125; p.z = 0.01; } }
+        if (p.z > 0) st = Math.min(d, Math.max(speed * SK, 48) * dt);
+      }
+      p.x = clamp(p.x + mx * st, F.x0 + P_HALF + 1, F.x1 - P_HALF - 1); p.y = clamp(p.y + my * st * (Math.abs(my) > Math.abs(mx) ? 0.85 : 1), PY0, F.y1);
       if (Math.abs(dx) > 1.5) p.face = sgn(dx);
       p.anim += dt * (speed > 40 ? 9 : 6.5);
       p.moving = true; p.spd = speed;
@@ -2551,6 +2677,22 @@
       try { p = c.fn(a); } catch (e) { sceneFail('scene ' + (a.scene ? a.scene.name : '') + ' track', e); a.cmd = null; return null; }
       return p && isFinite(p.x) && isFinite(p.y) ? p : null;
     }
+    // 小人的几个小动作配上表情符号（画的人只画身子）：吹口哨、哼歌、招手 → 音符；比心、飞吻 → 爱心；
+    // 从口袋里掏东西（p_pocket）→ 手边一团灰、一颗小星星
+    var NOTE_ACTS = { whistle: 1, man_hum: 1, beckon: 1 }, HEART_ACTS = { heart_hands: 1, blow_kiss: 1 };
+    function personFx() {
+      var p = person;
+      if (p.hidden) { p.lastFrame = ''; return; }
+      if (p.ract && !p.ractDone) {
+        if (NOTE_ACTS[p.ract] && now > (p.fxAt || 0)) { var m = anchorOf(p, 'mouth'); emoteAt('note', p.x + m[0] + p.face * 3, p.y - p.z - m[1] - 2, 0.9); p.fxAt = now + 0.75; }
+        if (HEART_ACTS[p.ract] && p.fxAct !== p.ractAt) { p.fxAct = p.ractAt; p.fxHeart = now + 0.5; }
+      }
+      if (p.fxHeart && now > p.fxHeart) { p.fxHeart = 0; emote('heart', p, p.face * 6, 1.2); }
+      var f = p.ri.frame;
+      if (f === 'p_pocket' && p.lastFrame !== 'p_pocket') p.pocketAt = now + 0.4;
+      p.lastFrame = f;
+      if (p.pocketAt && now > p.pocketAt) { p.pocketAt = 0; var h = handNow(); puff(h.x, h.y - h.z + 4, false); emote('spark', p, p.face * 6, 0.5); }
+    }
     function frameOf(spec, t) {
       if (!spec) return null;
       if (typeof spec === 'string') return spec;
@@ -2597,6 +2739,8 @@
       I.holding = p.hidden ? null : (p.item ? p.item : (ball.st === 'hand' ? 'ball' : (p.held ? p.held.spr : null)));
       // 表情：剧本说了就听剧本的；不给就让骨架按画面自己挑（摸狗时温柔地笑、准备丢的时候专注……）
       I.face = layerOf(p, 'expr') || (p.st === 'sleep' ? 'sleepy' : null);
+      if (wearUntil && now > wearUntil) { wear = {}; wearUntil = 0; }
+      I.tie = wear.tie; I.mussed = wear.mussed; I.specks = wear.specks;
       // 眼睛看哪里（相对脚下：往旁边多远、多高）：剧本说的；球在外面就跟着球；正在摸的那只狗；凑过来的鼠标；戏里一起演的
       var t = layerOf(p, 'lookT'), g = p.giveTo, pt = null;
       if (p.hidden) pt = null;
@@ -2688,9 +2832,12 @@
     // ------------------------------------------------------------
     //  回岛睡觉 / 出来玩
     // ------------------------------------------------------------
+    var homeBound = false;         // 正要回岛：戏里自己钻进岛的角色就待在里面，不用再跳出来
     function goHome() {
       if (home.st !== 'out') return;
+      homeBound = true;
       endScene(true, 'home');
+      homeBound = false;
       clearProps(true, false);
       raise('home', {});
       pointer.drag = false; pointer.grab = null;
@@ -2787,6 +2934,8 @@
       var dbl = now - a.clickAt < 0.4;
       a.clickAt = now;
       var ev = { who: a, x: x, y: y, zone: x === undefined ? 'mid' : zoneOf(a, x, y) };
+      // 正在演的戏说了"点他归我管"（S.catchClicks）：只出事件，不打断、不丢球
+      if (a.scene && a.scene.catches && a.scene.catches.indexOf(a) >= 0) { ev.inScene = true; raise(dbl ? 'dblclick' : 'click', ev); return true; }
       var sc = raise(dbl ? 'dblclick' : 'click', ev);
       return !!(sc && !sc.overlay);
     }
@@ -2888,8 +3037,10 @@
           if (a.isPerson) { if (a.st === 'windup' || a.st === 'fake' || a.st === 'pat') personIdle(); }
           else { a.st = 'carried'; a.pose = 'stand'; emote('q', a, 0, 0.7); }
           haptic('light');
+          g.liftAt = now;
           raise('pickup', { who: a });
         }
+        if (g.moved && !g.heldSaid && now - g.liftAt >= 0.8) { g.heldSaid = true; raise('pickupHeld', { who: g.a, t: now - g.liftAt }); }
         if (g.moved) {
           var c = g.a;
           c.x = clamp(x, F.x0 + c.half + 1, F.x1 - c.half - 1);
@@ -2909,7 +3060,7 @@
       return true;
     }
     // 她放下了拎着的角色：放在谁身上（金毛背上、小人怀里）就是 dropOn，不然是 drop
-    function dropped(a) {
+    function dropped(a, held) {
       pushOut(a);
       var tgt = null, best = 15;
       for (var k = 0; k < actors.length; k++) {
@@ -2919,8 +3070,8 @@
         var an = o.isPerson ? 'arms' : 'seat', q = anchorOf(o, an), d = Math.abs(a.x - (o.x + q[0]));
         if (d < best && Math.abs(a.y - o.y) < 16) { best = d; tgt = { o: o, an: an }; }
       }
-      if (tgt) raise('dropOn', { who: a, target: tgt.o, anchor: tgt.an });
-      else raise('drop', { who: a, x: a.x, y: a.y });
+      if (tgt) raise('dropOn', { who: a, target: tgt.o, anchor: tgt.an, held: held });
+      else raise('drop', { who: a, x: a.x, y: a.y, held: held });
     }
     function ptUp() {
       pointer.down = false;
@@ -2942,7 +3093,7 @@
           if (home.st === 'going') { a.st = 'home'; a.t = 0; a.hq = false; a.react = 0.2; if (!a.isPerson) a.pose = 'stand'; }
           else if (a.isPerson) { personIdle(); }
           else { a.st = 'pose'; a.pose = 'sit'; a.t = 0; a.dur = 1.6; a.wag = 0.9; }
-          if (home.st === 'out') dropped(a);
+          if (home.st === 'out') dropped(a, now - (g.liftAt || now));
         } else if (g.pressed) { /* 按住不放的那一下已经算过了（press） */ }
         else if (a.isPerson) { if (g.sleepy) personWave(); else clickPerson(g.x, g.y); }
         else pet(a, g.x, g.y);
@@ -3069,8 +3220,8 @@
       return true;
     }
     // 把骨架刚画好的那一帧收下来：像素抄进角色自己的图里（没变就不动 ver），顺便记下嘴、手、头顶的位置
-    function adopt(a, o) {
-      var v = a.vis, im = v.im, s = o.scale || 1, w = o.w, h = o.h, n = w * h * 4, fresh = false;
+    function adopt(a, o, vv) {
+      var v = vv || a.vis, im = v.im, s = o.scale || 1, w = o.w, h = o.h, n = w * h * 4, fresh = false;
       if (!im.data || im.data.length !== n || im.w !== w || im.h !== h || im.scale !== s) {
         im.data = new Uint8ClampedArray(n); im.w = w; im.h = h; im.scale = s;
         v.p32 = null; fresh = true;
@@ -3095,8 +3246,19 @@
         else if (q) q.ok = false;
       }
       if (!a.isPerson && o.headX !== undefined && !(v.an.head && v.an.head.ok)) { var hq = v.an.head || (v.an.head = [0, 0]); hq[0] = o.headX; hq[1] = o.headY; hq.ok = isFinite(o.headX) && isFinite(o.headY); }
+      if (vv) return;          // 岛里那一小格的图：别的都不用记
       // 骨架自己的小动作演完了（它在演完后的下一张图里说一声 actDone）
       if (a.ract && o.actDone && (o.actDone === true || o.actDone === a.ract) && now - a.ractAt > 0.1) a.ractDone = true;
+      // 骨架数的"一下"（刨一下、舔一口、嚼一口）：在那个位置溅一点草屑 / 水 / 碎粮
+      if (o.beat !== undefined && o.beat !== v.beat) {
+        if (v.beat !== undefined && o.beatAt && !a.isPerson) {
+          var bx = a.x + o.beatAt[0], by = a.y - a.z - a.lift - o.beatAt[1];
+          if (a.pose === 'kick' || a.pose === 'dig') bits(bx, by, 2, a.pose === 'dig' ? ['#8a6a4a', '#6f5238', '#a98a62'] : grassBits(), 22, 34);
+          else if (a.pose === 'drink') bits(bx, by, 1, ['#b2e5ff', '#67adeb'], 10, 16);
+          else if (a.pose === 'eat' && a.kind === 'dax') bits(bx, by, 1, ['#a86239', '#d18e54', '#edbc7b'], 12, 22);
+        }
+        v.beat = o.beat;
+      }
     }
     // 该不该重画这个角色。下面任何一条成立就画，否则接着用上一张（位置照样每帧都挪）：
     //   · 出了大动静：换了姿势 / 画面 / 心情、起跳、落地、叼到球、转身
@@ -3105,8 +3267,8 @@
     //   · 只是呼吸、轻轻摇尾巴，离上次画过了大约 1/6 秒
     // sx：这张图的原点（脚下）会画在横向的哪里。把它落在像素格子里的零头告诉骨架，
     // 骨架就能按整格子来画：踩在地上的脚不会跟着身体在两个像素之间来回跳（旧的画法不理会这个）
-    function shoot(a, left, RR, sig, cls, active, sx) {
-      var v = a.vis, q = qual(), per = 1 / ((active ? RIG_FPS : CALM_FPS) * q);
+    function shoot(a, left, RR, sig, cls, active, sx, vv) {
+      var v = vv || a.vis, q = qual(), per = 1 / ((active ? RIG_FPS : CALM_FPS) * q);
       var el = now - v.seen;
       v.seen = now;
       v.acc += el > 0 ? (el > 1 ? 1 : el) : 0;
@@ -3122,7 +3284,7 @@
       v.dist = 0;
       v.sig = sig; v.cls = cls; v.left = left; v.R = RR;
       v.n++;
-      try { adopt(a, a.rig.render(left, RR, sx * RR - Math.floor(sx * RR))); v.bad = 0; }
+      try { adopt(a, a.rig.render(left, RR, sx * RR - Math.floor(sx * RR)), vv); v.bad = 0; }
       catch (e) {      // 画不出来：先接着用上一张；连着三次都不行，这个角色就不用新画法了
         artFail((a.isPerson ? 'person.js' : 'dogs.js ' + a.name) + ' render', e);
         if (++v.bad >= 3) a.rig = null;
@@ -3136,6 +3298,8 @@
       v.lx = a.x; v.ly = a.y;
     }
     // "出了大动静"的记号：姿势、心情、小动作、跳起来、叼着球……任何一样变了，这张图就得重画
+    // 这几个姿势本身一直在动（刨、挠、吃、喝、转圈……）：原地也要按 rigFps 重画
+    var LOOP_POSE = { scratch: 1, dig: 1, roll: 1, lick: 1, eat: 1, lickbowl: 1, drink: 1, taps: 1, circle: 1, kick: 1, squat: 1, stalk: 1, lickchops: 1, shakeoff: 1, stretch: 1, yawn: 1, sneeze: 1, nudge: 1 };
     function dogSig(d) {
       var I = d.ri;
       return I.pose + '|' + (I.mood || '') + '|' + (I.act || '') + '|' + ((I.air ? 1 : 0) + (I.carry ? 2 : 0) + (I.happy ? 4 : 0) + (I.bark ? 8 : 0) + (I.pant ? 16 : 0) + (I.shake ? 32 : 0));
@@ -3143,7 +3307,7 @@
     function dogActive(d) {
       var I = d.ri;
       return d.sp > 1 || d.z > 0 || d.carried || !!I.pant || !!I.bark || !!I.shake || d.wag > 0.55 || now < d.vis.hot || (!!d.ract && !d.ractDone) || !!d.att ||
-             d.st === 'spin' || d.pose === 'scratch' || d.pose === 'dig' || d.pose === 'roll' || d.pose === 'lick';
+             d.st === 'spin' || !!LOOP_POSE[d.pose];
     }
     function personSig() {
       var I = person.ri;
@@ -3302,6 +3466,8 @@
         var ps = sd('puff' + Math.min(puffN - 1, Math.floor(pp.t / pp.life * puffN)));
         put(list, 'puff:' + pp.id, ps.im, pp.x - (ps.l + ps.r) / 2, pp.y - ps.b, false);
       }
+      // 平铺在地上的道具（野餐垫、毯子）：压在所有角色和别的道具下面
+      for (i = 0; i < props.length; i++) if (!props[i].dead && !props[i].holder && props[i].flat) putProp(list, props[i]);
       // 影子
       if (opt.roam || opt.grass) {
         for (i = 0; i < actors.length; i++) {
@@ -3312,7 +3478,7 @@
         if (ballLoose()) putShadow(list, 'shadow:ball', ball.x, ball.y, clamp(4 - ball.z / 30, 2, 4), shade);
         for (i = 0; i < props.length; i++) {
           var sp0 = props[i];
-          if (sp0.dead || sp0.holder || !sp0.shadow) continue;
+          if (sp0.dead || sp0.holder || !sp0.shadow || sp0.flat) continue;
           var sa = propArt(sp0), sw = typeof sp0.shadow === 'number' ? sp0.shadow : (sa ? (sa.r - sa.l) * 0.45 : 0);
           if (sw >= 1) putShadow(list, 'shadow:prop:' + sp0.id, sp0.x, sp0.y, sw, shade * (sp0.z > 6 ? 0.6 : 1));
         }
@@ -3321,7 +3487,7 @@
       // 角色和地上的道具：谁站得靠下（离我们近）谁后画；球按它落在谁的前后插进去
       order.length = 0;
       for (i = 0; i < actors.length; i++) if (!actors[i].hidden) order.push(actors[i]);
-      for (i = 0; i < props.length; i++) if (!props[i].dead && !props[i].holder) order.push(props[i]);
+      for (i = 0; i < props.length; i++) if (!props[i].dead && !props[i].holder && !props[i].flat) order.push(props[i]);
       order.sort(byDepth);
       var ballDrawn = false;
       ball.vis = false;
@@ -3401,13 +3567,20 @@
         var a = slots[i][0], cx = slots[i][1];
         if (!a.hidden) continue;
         if (a.rig) {
-          var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false, cx), im = v.im;
+          // 岛里这一格用自己的一张图（和外面那张分开：两边的像素零头不一样）
+          if (!a.dvis) a.dvis = makeVis(a.vis.ph);
+          var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false, cx, a.dvis), im = v.im;
           if (im.data) put(list, 'den:' + a.name, im, cx - im.ox / im.scale, h - im.oy / im.scale, false);
         }
-        if (a.isPerson && !(a.rig && a.vis.im.data)) {
+        if (a.isPerson && !(a.rig && a.dvis && a.dvis.im.data)) {
           var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着
           if (s) put(list, 'den:person', s, cx - s.w / 2, h - s.h + 1, false);
         }
+      }
+      // 她给它们盖过被子（tuck）：今天夜里一直盖着
+      if (world.mem.tucked === clk.day && home.st === 'in') {
+        var bl = sd('blanket_den');
+        if (bl) put(list, 'den:blanket', bl.im, w * 0.5 - (bl.l + bl.r) / 2, h - bl.b + 1, false);
       }
       if ((home.st === 'in' || home.st === 'going') && Math.floor(now * 0.8) % 2) {
         var z = sd('fx_zs');
@@ -3431,9 +3604,11 @@
       var n = Math.ceil(dt * 60 - 1e-6);
       for (var i = 0; i < n; i++) tick(dt / n);
     }
+    var meter = null, metered = 0, meterN = 0;      // 测试用：导演 + 照料账本每一步花了多少毫秒（_t.set('meter', 取毫秒的函数)）
     function tick(dt) {
       if (!booted) relayout();
       now += dt;
+      var m0 = meter ? meter() : 0;
       if (now - clockAt >= 0.5) { clockAt = now; clockEvents(); }
       if (!entered && now >= enterAt) { entered = true; enter(); }
       updateCursor(dt);
@@ -3441,6 +3616,8 @@
       careTick(dt);
       updatePlay();
       runScripts(dt);
+      if (wantHome) { wantHome = false; if (home.st === 'out') { home.auto = false; goHome(); home.inAt = now; } }
+      if (meter) { metered += meter() - m0; meterN++; }
       updatePerson(dt);
       updateDog(gold, dt);
       updateDog(dax, dt);
@@ -3452,6 +3629,7 @@
       if (now >= placeAt) { placeAt = now + 0.25; placeEvents(); }
       for (i = 0; i < dogs.length; i++) feed(dogs[i], rigInput(dogs[i], dt), dt);
       feed(person, personInput(), dt);
+      personFx();
       for (i = 0; i < actors.length; i++) travelled(actors[i]);
       for (i = emotes.length - 1; i >= 0; i--) { emotes[i].t += dt; if (emotes[i].t >= emotes[i].life) emotes.splice(i, 1); }
       for (i = parts.length - 1; i >= 0; i--) {
@@ -3504,20 +3682,476 @@
     }
 
     // ============================================================
-    //  照料：喂饭、喝水、拉粑粑（needs.js + scenes/care.js）
+    //  照料：喂饭、喝水、拉粑粑。账本在 needs.js（PET_NEEDS），戏在 scenes/care.js（kind: 'care'，care: '哪件事'）。
+    //  这里是"照料导演"：每半秒问一次账本"现在该做什么"，挑安静的时候让对应的戏开演；
+    //  管着便便的期限（她在用电脑时最多 60 秒）、饭碗的期限、她点便便、她说开饭、睡前收拾、刚醒时补算
+    //  （规矩见 R6-care.md 第 1、3 节）
     // ============================================================
-    var CARE = {};
-    function careBoot() {}
-    function careResume(gap) {}
-    function careTick(dt) {}
-    function careEnded(sc, cancelled, why) {}
-    function careThink(d) { return false; }
-    function careWaiting() { return false; }
-    function careConfigure(o) {}
-    function careFeedNow() {}
-    function careStatus() { return null; }
-    function careHooks() { return {}; }
-    function careOut(first) {}
+    var NEEDS = G.PET_NEEDS || null;
+    var CT = { poopMaxSec: 120, poopActiveSec: 60, poopGraceSec: 15, bowlMaxSec: 150, calmAfterMealMin: 10, careBudgetSec: 240, careBreatherSec: 20, hotDwellSec: 0.25, hotSizeWu: 8 };
+    (function () { var t = CFG.care && CFG.care.tune; if (t) for (var k in CT) if (typeof t[k] === 'number') CT[k] = t[k]; })();
+    var EAT = 19, REAR = 9;      // 狗的原点离碗中心 19 时鼻子正好在碗里；蹲下时屁股在原点后面 9
+    var care = { N: null, on: false, at: 0, r: null, want: null, log: [], spans: [], breather: 0, saveAt: 0, waiting: false,
+                 retryAt: { dax: 0, gold: 0 }, noSpot: { dax: 0, gold: 0 }, aborts: { dax: 0, gold: 0 }, mealTry: 0, mealAt: 0, side: 0, outFirst: false };
+    // 这一件事有没有登记过戏（care.js 不在就没有照料这一套）
+    function careDefs(role) { var out = []; for (var i = 0; i < DEFS.length; i++) if (DEFS[i].kind === 'care' && DEFS[i].role === role && !DEFS[i].off) out.push(DEFS[i]); return out; }
+    function careLog(k, x) {
+      var e = { t: wall(), now: +now.toFixed(2), k: k };
+      if (x) for (var q in x) e[q] = x[q];
+      care.log.push(e); if (care.log.length > 600) care.log.shift();
+    }
+    function careClock() { return { parts: function (ms) { var d = new Date(ms); return { y: d.getFullYear(), mo: d.getMonth() + 1, d: d.getDate(), h: d.getHours(), mi: d.getMinutes() }; } }; }
+    function careBoot() {
+      if (!NEEDS || !careDefs('meal').length) return;          // 没有账本或者没有戏：不开照料这一套
+      var cc = Object.assign({}, CFG.care || {});
+      cc.nightSleep = CFG.nightSleep;
+      try {
+        care.N = NEEDS.create(cc, ((Math.random() * 4294967296) >>> 0) || 7, careClock());
+        var saved = null;
+        try { saved = host.storage ? host.storage.get('qiuqiu-care') : null; } catch (e) { saved = null; }
+        if (saved) care.N.load(saved, wall()); else care.N.tick(wall(), { idle: 0, out: false });
+        care.on = true;
+      } catch (e) { artFail('needs.js', e); care.N = null; care.on = false; }
+    }
+    function careSave() {
+      if (!care.N) return;
+      care.saveAt = wall();
+      try { if (host.storage) host.storage.set('qiuqiu-care', care.N.save()); } catch (e) {}
+    }
+    function careProps(kind) { var o = []; for (var i = 0; i < props.length; i++) { var p = props[i]; if (!p.dead && p.care && (!kind || p.kind === kind)) o.push(p); } return o; }
+    function careRunning(role) { for (var i = 0; i < scripts.length; i++) { var sc = scripts[i]; if (!sc.dead && sc.kind === 'care' && (!role || sc.def.role === role)) return sc; } return null; }
+    // 舞台上的照料用品全部收走（刚醒、要睡了、开关关了）：还在吃的饭算吃过了，地上的便便算他收的
+    function careClearStage(why, poof) {
+      var sc;
+      for (var i = scripts.length - 1; i >= 0; i--) { sc = scripts[i]; if (!sc.dead && sc.kind === 'care') endScript(sc, true, why); }
+      if (care.meal && care.N) { care.N.mealDone(wall(), care.meal.kind, care.meal.by, care.meal.slot); careLog('meal', { kind: care.meal.kind, by: care.meal.by, why: why }); care.meal = null; }
+      var ps = careProps(), n = 0;
+      for (i = 0; i < ps.length; i++) { if (ps[i].kind === 'poop') { if (care.N) care.N.cleaned('him'); n++; } propRemove(ps[i], !!poof); }
+      dogs.forEach(function (d) { if (d.st === 'eat') { d.st = 'idle'; d.pose = 'stand'; } d.bowl = null; });
+      if (n) careLog('cleared', { why: why, poops: n });
+      if (ball.st === 'pocket' && !person.scene) ballHome();
+    }
+    // 电脑刚醒 / 墙上的钟跳了：舞台先收干净（第一帧之前），账本补算
+    function careResume(gap) {
+      if (!care.on) return;
+      careClearStage('resume', false);
+      care.N.resume(wall());
+      care.want = null;
+      careLog('resume', { gap: Math.round(gap || 0) });
+    }
+    function careOut(first) {
+      if (!care.on) return;
+      if (care.N.firstOuting(wall())) { careLog('morning'); care.morning = now + 2.5; }
+    }
+    // 她菜单里的开关
+    function careConfigure(o) {
+      if (!care.N) return;
+      var s = {};
+      if (typeof o.feeding === 'boolean') s.feeding = o.feeding;
+      if (typeof o.potty === 'boolean') s.potty = o.potty;
+      if (typeof o.water === 'boolean') s.water = o.water;
+      care.N.set(s);
+      if (o.potty === false) {         // 马上：便便闪一下没了，正在上厕所的停下
+        for (var i = scripts.length - 1; i >= 0; i--) { var sc = scripts[i]; if (!sc.dead && sc.kind === 'care' && (sc.def.role === 'potty' || sc.def.role === 'cleanup')) endScript(sc, true, 'off'); }
+        var ps = careProps('poop');
+        for (i = 0; i < ps.length; i++) { emoteAt('spark', ps[i].x, ps[i].y - 6, 0.6); propRemove(ps[i], false); }
+      }
+      careLog('toggle', s);
+      careSave();
+    }
+    // 照料的一段戏演完了（cancelled = 被打断）
+    function careEnded(sc, cancelled, why) {
+      var role = sc.def.role, sp = care.spans[care.spans.length - 1];
+      if (sp && sp[2] === sc) sp[1] = now;
+      // 开饭被打断、碗还没放下：这顿还欠着（下次安静的时候再来）；碗已经放下了就让它们吃完
+      if (role === 'meal' && cancelled && care.meal && !careProps().some(function (p) { return /^bowl/.test(p.kind); })) care.meal = null;
+      if (role === 'meal' || role === 'water' || role === 'biscuit' || role === 'fullgag') care.breather = now + CT.careBreatherSec;
+      careLog('end', { role: role, name: sc.name, cancelled: !!cancelled, why: why || '' });
+    }
+    // 照料用了多少时间：任何 10 分钟里最多 240 秒（丢球和别的戏总要轮得上）
+    function careBudgetLeft() {
+      var used = 0, from = now - 600;
+      for (var i = care.spans.length - 1; i >= 0; i--) {
+        var s = care.spans[i], a = Math.max(s[0], from), b = s[1] === null ? now : s[1];
+        if (b < from) { if (i < care.spans.length - 20) care.spans.splice(0, i + 1); break; }
+        if (b > a) used += b - a;
+      }
+      return CT.careBudgetSec - used;
+    }
+    // 开演照料的一段戏（role = 哪件事）；没有这件事的戏、演员没空，返回 null
+    var CARE_DEF = { kind: 'care', tag: '', overlay: false };
+    function careStart(role, cast, ev) {
+      var list = careDefs(role), i;
+      if (!list.length) return null;
+      for (i = 0; i < cast.length; i++) if (!cast[i] || !freeFor(cast[i], CARE_DEF)) return null;
+      var n = 0, b = { who: ev.who || null, dog: ev.dog || null };
+      setQ(b, ev);
+      for (i = 0; i < list.length; i++) { if (!canPlay(list[i], ev)) continue; var w = weightOf(list[i]); if (!(w > 0)) continue; pk[n] = list[i]; pw[n] = w; n++; }
+      i = draw(n);
+      if (i < 0) return null;
+      ev.name = 'care:' + role; ev.t = now;
+      var sc = startScript(pk[i], cast, b, ev);
+      if (sc && !sc.dead) { care.spans.push([now, null, sc]); careLog('start', { role: role, name: sc.name }); }
+      return sc;
+    }
+    // 安静的时候吗：在外面、没在丢球、她没在拖 / 拎、球在他手里、天还亮着
+    function careQuiet() {
+      return home.st === 'out' && entered && play.phase === 'rest' && !pointer.drag && !(pointer.grab && pointer.grab.moved) && !sleepyTime() &&
+             (ball.st === 'hand' || ball.st === 'pocket') && !sceneRunning();
+    }
+    function freeDog(name) { var d = name === 'dax' ? dax : gold; return !d.hidden && !d.carried && freeFor(d, CARE_DEF) && d.st !== 'eat' ? d : null; }
+    // ------------------------------------------------------------
+    //  找地方（R6 第 3 节，照 spot_ref.js 搬过来）
+    // ------------------------------------------------------------
+    function careRadii() {
+      var Wf = F.x1 - F.x0;
+      return { cursor: clamp(0.25 * Wf, 40, 120), cursorBowl: clamp(0.20 * Wf, 40, 100), island: Math.min(100, 0.30 * Wf), actor: 28, bowl: Math.min(80, 0.20 * Wf), poop: 40, ball: 16, side: 0.28 * Wf };
+    }
+    // 现在的场面（光标、岛、别的角色、碗、便便、地上的球）
+    function careWorld(except) {
+      var w = { strip: !opt.roam, cursor: cur.known ? [cur.x, cur.y] : null, island: (host.island && islandOn() && opt.roam) ? [islandPt().x, F.y0] : null, actors: [], bowls: [], poops: [],
+                ball: (ball.st === 'free' || ball.st === 'rest') && ball.z <= BALL_R + 1 ? [ball.x, ball.y] : null };
+      for (var i = 0; i < actors.length; i++) if (actors[i] !== except && !actors[i].hidden) w.actors.push([actors[i].x, actors[i].y]);
+      for (i = 0; i < props.length; i++) {
+        var p = props[i];
+        if (p.dead || !p.care) continue;
+        if (p.kind === 'poop') w.poops.push([p.x, p.y]); else if (/^bowl/.test(p.kind)) w.bowls.push([p.x, p.y]);
+      }
+      return w;
+    }
+    function poopRule(kind, x, y, w) {
+      var Rr = careRadii(), Hf = F.y1 - F.y0, half = kind === 'gold' ? gold.half : dax.half, i;
+      if (x < F.x0 + 16 || x > F.x1 - 16) return 'P2 edge';
+      var left = x <= F.x0 + Rr.side, right = x >= F.x1 - Rr.side;
+      if (!left && !right) return 'P1 side region';
+      if (w.strip) { if (Math.abs(y - F.y1) > 0.01) return 'P3 strip line'; }
+      else if (y < F.y0 + 0.5 * Hf || y > F.y1 - 6) return 'P3 lower half';
+      if (w.cursor && hyp(x - w.cursor[0], (y - 2) - w.cursor[1]) < Rr.cursor) return 'P4 cursor';
+      if (w.island && hyp(x - w.island[0], y - w.island[1]) < Rr.island) return 'P5 island';
+      for (i = 0; i < w.actors.length; i++) if (hyp(x - w.actors[i][0], y - w.actors[i][1]) < Rr.actor) return 'P6 actor';
+      for (i = 0; i < w.bowls.length; i++) if (hyp(x - w.bowls[i][0], y - w.bowls[i][1]) < Rr.bowl) return 'P6 bowl';
+      for (i = 0; i < w.poops.length; i++) if (hyp(x - w.poops[i][0], y - w.poops[i][1]) < Rr.poop) return 'P6 poop';
+      if (w.ball && hyp(x - w.ball[0], y - w.ball[1]) < Rr.ball) return 'P6 ball';
+      var face = left ? 1 : -1, cx = x + face * REAR;
+      if (cx < F.x0 + half + 2 || cx > F.x1 - half - 2) return 'P7 dog does not fit';
+      if (!w.strip && Math.abs(x - VIEW.w / 2) <= 0.22 * VIEW.w && Math.abs(y - VIEW.h / 2) <= 0.22 * VIEW.h) return 'P8 screen centre';
+      return '';
+    }
+    function findPoopSpot(d) {
+      var w = careWorld(d), Rr = careRadii(), Hf = F.y1 - F.y0, best = null, bestScore = -1e9, s, i, j;
+      var y0 = w.strip ? F.y1 : F.y0 + 0.5 * Hf, y1 = w.strip ? F.y1 : F.y1 - 6, side = care.side || 0;
+      var gs = CFG.care && CFG.care.goldSide;
+      if (gs === 'left') side = -1; else if (gs === 'right') side = 1;
+      for (s = -1; s <= 1; s += 2) {
+        var xa = s < 0 ? F.x0 + 16 : F.x1 - Rr.side, xb = s < 0 ? F.x0 + Rr.side : F.x1 - 16;
+        for (i = 0; i < 6; i++) for (j = 0; j < (w.strip ? 1 : 4); j++) {
+          var x = xa + (xb - xa) * (i + Math.random()) / 6, y = w.strip ? F.y1 : y0 + (y1 - y0) * (j + Math.random()) / 4;
+          if (poopRule(d.kind, x, y, w)) continue;
+          var dCur = w.cursor ? hyp(x - w.cursor[0], y - w.cursor[1]) : 400, walk = hyp(x - d.x, y - d.y);
+          var score = Math.min(1, dCur / 300) + 0.6 * Math.abs(x - VIEW.w / 2) / (VIEW.w / 2) + (w.strip ? 0 : 0.4 * (y - y0) / Math.max(1, y1 - y0)) -
+                      (d.kind === 'dax' ? 1.2 : 0.3) * Math.min(1, walk / 400) + (d.kind === 'gold' && side === s ? 0.5 : 0) + 0.1 * Math.random();
+          if (score > bestScore) { bestScore = score; best = { x: x, y: y, face: s < 0 ? 1 : -1, side: s }; }
+        }
+      }
+      return best;
+    }
+    function diningRule(mx, my, g, w) {
+      var Rr = careRadii(), Hf = F.y1 - F.y0, lo = g > 0 ? 80 : 70, hi = g > 0 ? 70 : 80, i, k;
+      if (mx < F.x0 + lo || mx > F.x1 - hi) return 'D1 tableau does not fit';
+      if (w.strip) { if (Math.abs(my - F.y1) > 0.01) return 'D2 strip line'; }
+      else if (my < Math.max(F.y0 + 0.6 * Hf, VIEW.h / 2 + 0.22 * VIEW.h) || my > F.y1 - 4) return 'D2 low band';
+      var bowls = [[mx - g * 34, w.strip ? my : my + 4], [mx + g * 30, w.strip ? my : my + 4]];
+      for (k = 0; k < 2; k++) {
+        if (w.cursor && hyp(bowls[k][0] - w.cursor[0], bowls[k][1] - w.cursor[1]) < Rr.cursorBowl) return 'D3 cursor';
+        for (i = 0; i < w.poops.length; i++) if (hyp(bowls[k][0] - w.poops[i][0], bowls[k][1] - w.poops[i][1]) < Rr.bowl) return 'D5 poop';
+      }
+      if (w.island && hyp(mx - w.island[0], my - w.island[1]) < Rr.island) return 'D4 island';
+      return '';
+    }
+    function findDiningSpot() {
+      var w = careWorld(null), Hf = F.y1 - F.y0, best = null, bestScore = -1e9, i, j, g;
+      var y0 = w.strip ? F.y1 : Math.max(F.y0 + 0.6 * Hf, VIEW.h / 2 + 0.22 * VIEW.h), y1 = w.strip ? F.y1 : F.y1 - 4;
+      if (y0 > y1) return null;
+      for (i = 0; i < 12; i++) for (j = 0; j < (w.strip ? 1 : 3); j++) for (g = -1; g <= 1; g += 2) {
+        var mx = F.x0 + (F.x1 - F.x0) * (i + Math.random()) / 12, my = w.strip ? F.y1 : y0 + (y1 - y0) * (j + Math.random()) / 3;
+        if (diningRule(mx, my, g, w)) continue;
+        var dCur = w.cursor ? hyp(mx - w.cursor[0], my - w.cursor[1]) : 400, walk = hyp(mx - person.x, my - person.y);
+        var score = Math.min(1, dCur / 300) + 0.5 * Math.abs(mx - VIEW.w / 2) / (VIEW.w / 2) - 0.5 * Math.min(1, walk / 400) + 0.1 * Math.random();
+        if (score > bestScore) { bestScore = score; best = { x: mx, y: my, g: g }; }
+      }
+      return best;
+    }
+    // ------------------------------------------------------------
+    //  便便和饭碗的期限；她点便便
+    // ------------------------------------------------------------
+    function poopTick() {
+      for (var i = props.length - 1; i >= 0; i--) {
+        var p = props[i];
+        if (p.dead || !p.care) continue;
+        if (p.kind === 'poop') {
+          var D = p.data, age = now - D.t0;
+          if (her.active) D.deadline = Math.min(D.deadline, Math.max(D.t0 + CT.poopActiveSec, (D.activeAt || (D.activeAt = now)) + CT.poopGraceSec));
+          if (!p.hot && age >= 1 && !D.picking) p.hot = { w: CT.hotSizeWu, h: CT.hotSizeWu, dwell: CT.hotDwellSec };
+          if (now >= D.deadline) {          // 期限到了：闪一下没了（算他收的）
+            emoteAt('spark', p.x, p.y - 6, 0.6); puff(p.x, p.y, false);
+            propRemove(p, false);
+            if (care.N) care.N.cleaned('him');
+            careLog('failsafe', { dog: D.dog, age: +age.toFixed(1) });
+          }
+        } else if (/^bowl/.test(p.kind) && now - p.born > CT.bowlMaxSec) {
+          propRemove(p, true); careLog('bowlcap', { kind: p.kind });
+        } else if (p.kind === 'daisy') {      // 小雏菊：冒芽 0.3 秒就开，最后 2 秒慢慢淡掉
+          if (p.state === 'sprout' && now - p.born > 0.3) p.state = 'bloom';
+          if (p.cap) p.a = clamp((p.cap - (now - p.born)) / 2, 0, 1);
+        }
+      }
+    }
+    // 便便：剧本里 S.care.poop(dog) 调这个（地方是狗屁股下面那一点）
+    function poopSpawn(d, x, y) {
+      if (!care.on || d.hidden || d.carried || d.z > 0.5 || isNight()) return null;
+      // 蹲下以后她的鼠标凑过来不算（狗只是不好意思）；别的规矩一条都不能破，不然这次不算、过一会儿换个地方
+      var w = careWorld(d); w.cursor = null;
+      var rule = poopRule(d.kind, x, y, w);
+      if (rule) { careLog('nodrop', { dog: d.kind, rule: rule }); return null; }
+      var lucky0 = care.N.cfg.tune.luckyChance;
+      if (care.forceLucky) { care.N.cfg.tune.luckyChance = 1; care.forceLucky = false; }
+      var res = care.N.poopDone(d.kind, wall(), false), st = res.lucky ? 'gold' : (d.kind === 'gold' ? 'l' : 's');
+      care.N.cfg.tune.luckyChance = lucky0;
+      var p = propSpawn('poop', st, x, y, { keep: true, obstacle: 8, care: true, shadow: false, data: { dog: d.kind, t0: now, deadline: now + CT.poopMaxSec } });
+      p.owner = null;
+      careLog('poop', { dog: d.kind, x: Math.round(x), y: Math.round(y), lucky: res.lucky });
+      if (d.kind === 'gold' && !care.side) care.side = x < (F.x0 + F.x1) / 2 ? -1 : 1;
+      careSave();
+      return p;
+    }
+    // 她点了一下便便：一下就干净了，长出一朵小雏菊；小人和那只狗谢谢她
+    function careClick(p, x, y) {
+      if (p.kind !== 'poop') return false;
+      var D = p.data, gx = p.x, gy = p.y;
+      propRemove(p, false);
+      bits(gx, gy - 2, 6, ['#ffffff', '#fff08c', '#ffd342'], 26, 50); emoteAt('spark', gx, gy - 6, 0.6);
+      var daisies = careProps('daisy');
+      if (daisies.length >= 2) propRemove(daisies[0], false);
+      var dz = propSpawn('daisy', 'sprout', gx, gy, { keep: true, cap: 22, care: true, shadow: false });
+      dz.owner = null; dz.data.at = now;
+      if (care.N) care.N.cleaned('her');
+      careLog('herclean', { dog: D.dog });
+      careSave();
+      haptic('light');
+      var who = D.dog === 'gold' ? gold : dax;
+      var run = careRunning('cleanup');
+      if (run && run.ev && run.ev.poop === p) return true;      // 他正走过去：那段戏自己会发现，接着谢她
+      if (!careStart('herclean', [person], { who: who, dog: who, x: gx, y: gy })) careStart('herclean', [who], { who: who, dog: who, x: gx, y: gy });
+      return true;
+    }
+    // ------------------------------------------------------------
+    //  饭碗带着吃：狗走到碗边、低头吃，碗里的东西照狗的速度变少；吃完了就停。被叫走了，碗还在就回来接着吃
+    // ------------------------------------------------------------
+    function eatStart(d, bowl, rate) {
+      if (!bowl || bowl.dead) return false;
+      if (d.scene) { var sc = d.scene; if (sc.actors.length > 1 && sc.actors.indexOf(d) >= 0) { sc.actors.splice(sc.actors.indexOf(d), 1); releaseActor(d, sc); } else return false; }
+      d.bowl = bowl; bowl.data.eater = d.kind; bowl.data.leftAt = 0;
+      d.eatRate = rate > 0 ? rate : 1 / (d.kind === 'dax' ? rand(8, 11) : rand(22, 30));
+      d.st = 'eat'; d.t = 0; d.pose = 'stand'; d.wag = 0.8; d.happy = 0;
+      return true;
+    }
+    function eatStep(d, dt) {
+      var bw = d.bowl;
+      if (!bw || bw.dead) { d.bowl = null; setPose(d, 'sit', rand(1, 2)); return; }
+      var side = d.x >= bw.x ? 1 : -1, tx = bw.x + side * EAT, ty = bw.y;
+      if (d.t < 30 && !(hyp(d.x - tx, d.y - ty) < 2.5)) {
+        d.pose = 'stand';
+        if (drive(d, tx, ty, spd(d, hyp(d.x - tx, d.y - ty) > 40 ? 'trot' : 'walk') * 1.4, dt)) { d.vx = d.vy = 0; }
+        return;
+      }
+      coast(d, dt);
+      d.face = -side;
+      d.pose = HAS.pose.eat ? 'eat' : 'sniff';
+      d.wag = d.kind === 'dax' ? 1 : 0.6; d.happy = 1;
+      bw.amount = Math.max(0, bw.amount - d.eatRate * dt);
+      var st = bw.amount > 0.55 ? 'full' : (bw.amount > 0.01 ? 'half' : 'empty');
+      if (bw.state !== st) bw.state = st;
+      if (d.kind === 'dax' && Math.random() < dt * 2.5) bits(bw.x, bw.y - 2, 1, ['#a86239', '#d18e54', '#edbc7b'], 14, 26);
+      if (bw.amount <= 0) {
+        d.bowl = null; bw.data.done = true; d.happy = 0;
+        setPose(d, HAS.pose.lickchops ? 'lickchops' : 'sit', rand(1.2, 2)); d.wag = 0.7;
+        careLog('ate', { dog: d.kind });
+      }
+    }
+    // 闲下来的狗：饭还没吃完就回碗边去
+    function careThink(d) {
+      var bw = d.bowl;
+      if (!bw || bw.dead || !(bw.amount > 0) || !care.on) { d.bowl = null; return false; }
+      d.st = 'eat'; d.t = 0;
+      return true;
+    }
+    // ------------------------------------------------------------
+    //  每一步：期限；每半秒：问账本，挑该开演的那一件
+    // ------------------------------------------------------------
+    function careTick(dt) {
+      if (!care.on) return;
+      if (props.length) poopTick();
+      // 吃饭的狗被叫走 40 秒还不回来：那一碗算吃完
+      for (var i = 0; i < dogs.length; i++) {
+        var d = dogs[i], bw = d.bowl;
+        if (!bw) continue;
+        if (bw.dead) { d.bowl = null; continue; }
+        if (d.st === 'eat') bw.data.leftAt = 0; else if (!bw.data.leftAt) bw.data.leftAt = now; else if (now - bw.data.leftAt > 40) { bw.amount = 0; bw.state = 'empty'; d.bowl = null; }
+      }
+      if (now < care.at) return;
+      care.at = now + 0.5;
+      var t = wall(), sleeping = sleepyTime() || actors.some(function (a) { return a.hidden; }) || person.st === 'sleep';
+      var outNow = home.st === 'out' && entered && !sleeping;
+      var r = care.N.tick(t, { idle: her.idle, out: outNow });
+      care.r = r;
+      if (r.resumed) { careClearStage('resume', false); careLog('resume', { gap: 0 }); return; }
+      if (t - care.saveAt > 60000) careSave();
+      // 夜里 / 要回岛了 / 都在岛里：台上不能有照料的东西
+      if (home.st !== 'out' || sleeping) { if (careProps().length || careRunning()) careClearStage(home.st === 'out' ? 'sleep' : 'home', true); care.waiting = false; care.want = null; return; }
+      if (care.want && now > care.want.until) care.want = null;
+      // 饭碗还在，可开饭那段戏已经不在了、也没狗在吃：收走（算吃过了）
+      var bowls = careProps(), anyBowl = false;
+      for (i = 0; i < bowls.length; i++) if (/^bowl/.test(bowls[i].kind)) anyBowl = true;
+      if (anyBowl && !careRunning('meal') && !careRunning('water') && !dogs.some(function (q) { return q.st === 'eat'; })) {
+        if (!care.idleBowls) care.idleBowls = now;
+        else if (now - care.idleBowls > 3) {
+          for (i = 0; i < bowls.length; i++) if (/^bowl/.test(bowls[i].kind)) propRemove(bowls[i], true);
+          care.idleBowls = 0;
+          if (care.meal) CARE.mealDone();
+        }
+      } else care.idleBowls = 0;
+      // 今天头一回出来：等大家落地，来一段早安
+      if (care.morning && now >= care.morning) {
+        if (careStart('morning', [person, dax, gold], {}) || now > care.morning + 20 || !careDefs('morning').length) care.morning = 0;
+      }
+      var poops = careProps('poop'), waiting = false, sc;
+      // 1. 地上有便便：他一有空就去收
+      if (poops.length && !careRunning('cleanup') && !careRunning('herclean')) {
+        if (freeFor(person, CARE_DEF) && play.phase === 'rest' && !dragging() && (ball.st === 'hand' || ball.st === 'pocket')) {
+          var pp = poops[0];
+          for (i = 1; i < poops.length; i++) if (poops[i].data.deadline < pp.data.deadline) pp = poops[i];
+          careStart('cleanup', [person], { poop: pp, dog: pp.data.dog === 'gold' ? gold : dax, caught: cur.known && hyp(cur.x - pp.x, cur.y - pp.y) < 60 });
+        } else waiting = true;
+      }
+      var quiet = careQuiet(), budget = careBudgetLeft() > 0;
+      // 2. 她说开饭 / 到饭点了
+      var meal = care.want || (r.meal >= 0 ? { kind: 'full', slot: r.meal, by: 'auto' } : (r.biscuit ? { kind: 'biscuit', by: 'auto', slot: -1 } : null));
+      if (meal && !careRunning('meal') && !careRunning('biscuit') && !careRunning('fullgag')) {
+        if (meal.by !== 'her' && (now < care.breather || !budget)) meal = null;
+        if (meal && !(quiet && !careRunning())) { waiting = true; meal = null; }
+      }
+      if (meal) {
+        if (meal.kind === 'full' || meal.kind === 'snack') {
+          var spot = now >= care.mealAt ? findDiningSpot() : null;
+          if (spot) sc = careStart('meal', [person, dax, gold], { kind: meal.kind, slot: meal.slot, by: meal.by, spot: spot, early: !!meal.early });
+          else if (now >= care.mealAt) { care.mealAt = now + 20; if (++care.mealTry >= 3) sc = careStart('biscuit', [person, dax, gold], { kind: meal.kind, slot: meal.slot, by: meal.by, hand: true }); }
+          if (sc) { care.meal = { kind: meal.kind, slot: meal.slot, by: meal.by }; care.mealTry = 0; care.want = null; } else waiting = true;
+        } else if (meal.kind === 'biscuit' || meal.kind === 'midnight') {
+          if (careStart('biscuit', [person, dax, gold], { kind: 'biscuit', by: meal.by, sleepy: meal.kind === 'midnight' })) care.want = null; else waiting = true;
+        } else if (meal.kind === 'full_gag') {
+          if (careStart('fullgag', [person, dax, gold], { by: 'her' }) || !careDefs('fullgag').length) care.want = null; else waiting = true;
+        }
+        return void (care.waiting = waiting);
+      }
+      // 3. 想上厕所
+      for (i = 0; i < r.urge.length; i++) {
+        var nm = r.urge[i], dg = nm === 'gold' ? gold : dax;
+        if (poops.some(function (p) { return p.data.dog === nm; }) || careRunning('potty') || now < care.retryAt[nm]) continue;
+        if (!quiet || !freeDog(nm)) { waiting = true; continue; }
+        var ps = findPoopSpot(dg);
+        if (ps) { care.noSpot[nm] = 0; if (careStart('potty', [dg], { who: dg, dog: dg, spot: ps })) break; }
+        else {
+          if (!care.noSpot[nm]) care.noSpot[nm] = now;
+          care.retryAt[nm] = now + 20;
+          if (now - care.noSpot[nm] > 600 || care.aborts[nm] >= 3) {         // 10 分钟都找不到地方：回岛里解决，或者算了
+            care.noSpot[nm] = 0; care.aborts[nm] = 0;
+            if (!(opt.roam && islandOn() && careStart('pottyHome', [dg], { who: dg, dog: dg }))) { care.N.pottyGiveUp(nm, wall()); careLog('giveup', { dog: nm }); }
+          }
+        }
+      }
+      // 4. 渴了
+      if (r.thirsty && quiet && budget && now >= care.breather && !careRunning()) {
+        var td = care.N.state().dogs, first = td.gold.thirst >= td.dax.thirst ? gold : dax;
+        if (freeDog(first.kind)) careStart('water', [person, first], { who: first, dog: first }); else waiting = true;
+      }
+      care.waiting = waiting || !!care.want;
+    }
+    function careWaiting() { return care.on && care.waiting; }
+    // 她说"开饭"
+    function careFeedNow() {
+      if (!care.on) return;
+      var f = care.N.feedNow(wall());
+      careLog('feedNow', { kind: f.kind });
+      var running = careRunning('meal');
+      if (running) { running.ev.by = 'her'; running.ev.hurry = true; if (care.meal) care.meal.by = 'her'; return; }      // 正在开饭：他加快
+      if (home.st === 'in' || home.st === 'going') comeOut();
+      care.want = { kind: f.kind, slot: f.slot, early: !!f.early, by: 'her', until: now + 20 };
+      if (!person.hidden && !person.scene && person.st === 'idle') { emote('note', person, 0, 0.8); person.face = 1; }
+      care.at = 0;
+    }
+    function careStatus() {
+      if (!care.on) return null;
+      var s = care.N.state(), st = s ? s.stats : {}, c = care.N.cfg;
+      return { meal: careRunning('meal') ? 'serving' : ((care.r && care.r.meal >= 0) || care.want ? 'due' : 'idle'),
+               kind: care.meal ? care.meal.kind : (care.want ? care.want.kind : null),
+               meals: st.meals || 0, poops: st.poops || 0, fedByHer: st.fedByHer || 0, byHer: st.byHer || 0, lucky: !!st.lucky, feeding: !!c.feeding, potty: !!c.potty };
+    }
+    // 剧本里用的：S.care.*
+    var CARE = {
+      on: function () { return care.on; },
+      // 找地方：便便（狗站哪、屁股朝哪）/ 开饭（小人站哪、金毛在哪边）
+      poopSpot: function (d) { return care.on && d ? findPoopSpot(d) : null; },
+      diningSpot: function () { return care.on ? findDiningSpot() : null; },
+      rule: function (kind, x, y, d) { return kind === 'dining' ? diningRule(x, y, d || 1, careWorld(null)) : poopRule(kind, x, y, careWorld(kind === 'gold' ? gold : dax)); },
+      // 拉在这一点（狗屁股下面）→ 道具；不合规矩（夜里、被拎着、在空中）就是 null
+      poop: function (d, x, y) { return owns(d) ? poopSpawn(d, x, y) : null; },
+      // 一碗饭交给狗吃（它离开这段戏，自己吃到碗空）；rate = 每秒吃掉几分之一碗（不给按狗来）
+      eat: function (d, bowl, rate) { return (owns(d) || (d && !d.scene)) ? eatStart(d, bowl, rate) : false; },
+      eating: function (d) { return !!d && d.st === 'eat' && !!d.bowl; },
+      mealDone: function () { if (care.meal && care.N) { care.N.mealDone(wall(), care.meal.kind, care.meal.by, care.meal.slot); careLog('meal', { kind: care.meal.kind, by: care.meal.by }); if (care.meal.kind === 'full') calmUntil = now + CT.calmAfterMealMin * 60; care.meal = null; careSave(); } },
+      biscuitDone: function (by) { if (care.N) { care.N.mealDone(wall(), 'biscuit', by || 'auto', -1); careLog('biscuit', { by: by || 'auto' }); careSave(); } },
+      drank: function () { if (care.N) { care.N.drank(wall()); careLog('water'); careSave(); } },
+      cleaned: function (by) { if (care.N) { care.N.cleaned(by === 'her' ? 'her' : 'him'); careLog('cleaned', { by: by === 'her' ? 'her' : 'him' }); careSave(); } },
+      giveUp: function (d) { if (care.N && d) { care.N.pottyGiveUp(d.kind, wall()); careLog('giveup', { dog: d.kind }); } },
+      atHome: function (d) { if (care.N && d) { care.N.poopDone(d.kind, wall(), true); careLog('poop', { dog: d.kind, hidden: true }); careSave(); } },
+      abort: function (d) { if (d) { care.aborts[d.kind]++; care.retryAt[d.kind] = now + rand(60, 120); careLog('abort', { dog: d.kind }); } },
+      poops: function () { return careProps('poop'); },
+      lines: function () { return CFG.care && CFG.care.lines; },
+      state: function () { return care.N ? care.N.state() : null; },
+      EAT: EAT, REAR: REAR,
+    };
+    function careHooks() {
+      return {
+        state: function () { return { on: care.on, needs: care.N ? JSON.parse(care.N.save() || 'null') : null, want: care.want, meal: care.meal, waiting: care.waiting, r: care.r, status: careStatus() }; },
+        // 拨钟：ms = 从 1970 年起的毫秒；之后跟着引擎的时间往前走。null = 回到电脑的钟
+        // gap = true：当作电脑睡了一阵（下一步会补算、收拾舞台）
+        clock: function (ms, gap) { if (ms === null || ms === undefined) wallFix = null; else { wallFix = +ms; wallFixAt = now; } if (!gap) lastWall = wall(); clockAt = -9; readClock(); },
+        idle: function (s) { sense({ idle: s }); },
+        cursor: function (x, y) { sense({ cursor: x === null || x === undefined ? null : [x, y] }); },
+        // 马上来一件：'meal' 'snack' 'biscuit' 'water' 'poop:dax' 'poop:gold' 'lucky'（跳过账本的时间，演员得有空）
+        force: function (what) {
+          if (!care.on) return false;
+          var m = /^(poop|lucky):?(\w*)$/.exec(what);
+          if (what === 'meal' || what === 'snack') { var sp = findDiningSpot(); if (!sp) return false; care.meal = { kind: what === 'meal' ? 'full' : 'snack', slot: care.N.pendingSlot(wall()), by: 'auto' }; return !!careStart('meal', [person, dax, gold], { kind: care.meal.kind, slot: care.meal.slot, by: 'auto', spot: sp }) || (care.meal = null, false); }
+          if (what === 'biscuit') return !!careStart('biscuit', [person, dax, gold], { kind: 'biscuit', by: 'auto' });
+          if (what === 'water') return !!careStart('water', [person, gold], { who: gold, dog: gold });
+          if (m) {
+            var dg = m[2] === 'dax' ? dax : gold, ps = findPoopSpot(dg);
+            if (!ps) return false;
+            if (m[1] === 'lucky') care.forceLucky = true;
+            var sc = careStart('potty', [dg], { who: dg, dog: dg, spot: ps, forced: true });
+            return !!sc;
+          }
+          return false;
+        },
+        props: function () { return careProps().map(function (p) { return { id: p.id, kind: p.kind, state: p.state, x: p.x, y: p.y, age: now - p.born, live: p.live, hot: !!p.hot, deadline: p.data.deadline, dog: p.data.dog }; }); },
+        log: function () { return care.log.slice(); },
+        spotRule: function (kind, x, y) { return kind === 'dining' ? diningRule(x, y, 1, careWorld(null)) : poopRule(kind, x, y, careWorld(kind === 'gold' ? gold : dax)); },
+        findPoopSpot: function (kind) { return findPoopSpot(kind === 'gold' ? gold : dax); },
+        findDiningSpot: function () { return findDiningSpot(); },
+      };
+    }
+
     // 从岛里出来了（out）；今天头一回出来（first）
     var outDay = '';
     function cameOut() {
@@ -3569,7 +4203,7 @@
         }
       }
       else if (name === 'feed') { touchAll(); careFeedNow(); }
-      else if (name === 'tuck') { touchAll(); raise('tuck', {}); }
+      else if (name === 'tuck') { if (home.st === 'in') { world.mem.tucked = clk.day; worldDirty = true; } raise('tuck', { inside: home.st === 'in' }); }
     }
     // type: down | move | up | hover | leave；返回 true = 这一下落在球或者谁身上了（正在拖 / 拎的过程也算）
     function onPointer(type, x, y) {
@@ -3637,6 +4271,7 @@
           if (k === 'sceneAt') nextSceneAt = v; if (k === 'bfly') bfly.nextAt = v; if (k === 'touch') lastTouch = v;
           if (k === 'rigFps') { RIG_FPS = v; CALM_FPS = v; }      // 测试时可以让骨架每一帧都重画
           if (k === 'world') { world = v; if (!world.plays) world.plays = {}; if (!world.mem) world.mem = {}; if (!world.decals) world.decals = []; }
+          if (k === 'meter') { meter = typeof v === 'function' ? v : null; metered = 0; meterN = 0; }
         },
         // 指名演一段：普通的 scene 照常（演员得有空）；solo / react / care 也行（ev 是假装出了的那件事）
         scene: function (name, ev) { nextSceneAt = 1e9; return pickScene(name, ev); },
@@ -3662,6 +4297,8 @@
           actors.forEach(function (a) { o[a.name] = { renders: a.vis.n, changed: a.vis.ch }; });
           return o;
         },
+        // 导演（挑戏、跑剧本、鼠标手势、钟）+ 照料账本：平均每一步多少毫秒（要先 set('meter', fn)）
+        cost: function () { return { ms: meterN ? metered / meterN : 0, steps: meterN }; },
       },
     };
   }

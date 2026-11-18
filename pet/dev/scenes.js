@@ -55,6 +55,9 @@ const { execFileSync } = require('child_process');
       const run = (k) => { for (let i = 0; i < k; i++) { T.set('touch', T.state().now); T.step(1 / 60); } };
       run(30);
       if (n === 'fetch') { window.pet.command('throw'); return true; }
+      // 照料那一套：让账本"马上来一件"（喂饭、上厕所、喝水、饼干），收拾会接在上厕所后面
+      const CARE = { care_meal: 'meal', potty_dax: 'poop:dax', potty_gold: 'poop:gold', care_water: 'water', care_biscuit: 'biscuit', care_lucky: 'lucky' };
+      if (CARE[n] && T.care && T.care.force) { for (let k = 0; k < 60; k++) { if (T.care.force(CARE[n])) return true; run(6); } return false; }
       const s = T.state();
       // react：假装出了它等的那件事（落在小腊肠身上，鼠标在它头顶附近）
       for (let k = 0; k < 60; k++) { if (T.scene(n, { x: s.dax.x, y: s.dax.y - 10, zone: 'mid', power: 3 })) return true; run(6); }
@@ -63,7 +66,7 @@ const { execFileSync } = require('child_process');
     if (!ok) { console.log(name, 'could not start'); await page.close(); continue; }
     const files = [];
     for (let k = 0; k < 40; k++) {
-      const st = await page.evaluate((n) => { const T = window.pet._t; for (let i = 0; i < 27; i++) { T.set('touch', T.state().now); T.step(1 / 60); } T.draw(); const s = T.state(); s.playing = s.scripts.indexOf(n) >= 0; return s; }, name);
+      const st = await page.evaluate((n) => { const T = window.pet._t; for (let i = 0; i < 27; i++) { T.set('touch', T.state().now); T.step(1 / 60); } T.draw(); const s = T.state(); s.playing = s.scripts.indexOf(n) >= 0 || (/^(care_|potty_)/.test(n) && s.scripts.some(x => /^(care_|potty_|cleanup)/.test(x))); return s; }, name);
       const f = path.join(outDir, name + '_' + String(k).padStart(2, '0') + '.png');
       await page.screenshot({ path: f });
       files.push(f);

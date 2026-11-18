@@ -3,6 +3,8 @@
 // 他是送礼物的那个人：穿得很正式，有点害羞，对两只狗心软得一塌糊涂，没人看的时候偷偷调皮。
 // 每一段都照着 R5 第 1.B 节的卡片排：几秒做什么、摆什么姿势、冒什么表情。
 // 画的人还没画的姿势 / 画面，都用 ['新名字', '老名字'] 写，没有就退回老的，戏照样演得通。
+// 新的戏不是第一天就全有（R5 4.2"慢慢发现"）：短小的和最早那几段第一天就有，大一点的从第 1-4 天起陆续出现
+// （fromDay；设定 discovery: false 就第一天全有）。
 // 说明书在 pet.js 开头"怎么写一场戏"。
 (function (G) {
   'use strict';
@@ -589,7 +591,7 @@
   // ============================================================
   //  B12 三十公斤的"小狗"要坐腿上；然后被睡住了
   // ============================================================
-  add({ name: 'lap_trap', zh: '三十公斤的"小狗"要坐腿上；然后被睡住了', cast: 'man gold dax', weight: 1, cool: 900, tag: 'calm', mood: 'sleepy', family: 'sleep',
+  add({ name: 'lap_trap', zh: '三十公斤的"小狗"要坐腿上；然后被睡住了', cast: 'man gold dax', weight: 1, cool: 900, tag: 'calm', mood: 'sleepy', family: 'sleep', fromDay: 2,
     when: function (S) { return S.dist(S.gold, S.man) < 160; },
     run: function* (S) {
       var man = S.man, gold = S.gold, dax = S.dax, f = man.face, i;
@@ -656,7 +658,7 @@
   // ============================================================
   //  B13 梳毛：一身狗毛（藏青色西装对上金毛掉毛季）
   // ============================================================
-  add({ name: 'brushing_day', zh: '梳毛：一身狗毛', cast: 'man gold dax', cool: 3600, cap: 4, tag: 'calm', mood: 'funny',
+  add({ name: 'brushing_day', zh: '梳毛：一身狗毛', cast: 'man gold dax', cool: 3600, cap: 4, tag: 'calm', mood: 'funny', fromDay: 1,
     // 掉毛的季节（北半球 3-5 月、9-11 月）多梳几次
     weight: function (S) {
       var mo = +String(S.time.md).slice(0, 2), south = S.cfg.hemisphere === 'south';
@@ -672,8 +674,11 @@
       S.hold(man, ['p_pocket', 'p_hold']); S.item(man, 'brush'); S.face(man, 'focus');
       yield 0.6;
       S.hold(man, null);
-      yield S.go(man, S.manAt(gold, 16), 'stroll', null, 5);
-      S.faceTo(man, gold); s = man.face; gold.face = -s;
+      // 站到它身侧：满屏时站在它身后（背正好在他手边），只有底部一条时站在屁股那一头
+      var gx = S.roam ? gold.x - gold.face * 6 : gold.x - gold.face * (gold.half + 2);
+      yield S.go(man, cx(S, gx), gold.y + S.ry(-5), 'stroll', null, 5);
+      man.face = gold.face; s = man.face;
+      S.look(man, { x: gold.x + gold.face * 4, y: gold.y, z: 18 });
       // 2. 顺着背刷五下：每一下都扬起几撮毛，飘起来落在他西装上；金毛闭着眼，靠着刷子，一条后腿一抽一抽
       S.rig(gold, { eyes: 'closed' }); S.hold(gold, ['lean', 'stand']); gold.wag = 0.3;
       for (i = 0; i < 5; i++) {
@@ -727,7 +732,7 @@
   // ============================================================
   //  B14 自己叼牵引绳来；半路小狗死活不走
   // ============================================================
-  add({ name: 'leash_and_brakes', zh: '自己叼牵引绳来；半路小狗死活不走', cast: 'man gold dax', weight: 2, cool: 1200, tag: 'calm', mood: 'funny',
+  add({ name: 'leash_and_brakes', zh: '自己叼牵引绳来；半路小狗死活不走', cast: 'man gold dax', weight: 2, cool: 1200, tag: 'calm', mood: 'funny', fromDay: 1,
     when: function (S) { return S.gold.energy >= 0.45; },
     run: function* (S) {
       var man = S.man, gold = S.gold, dax = S.dax, I = S.island(), leash = null, i, dir;
@@ -812,7 +817,7 @@
   // ============================================================
   //  B15 叫你等着，偷偷往前蹭：每回头看一次，它就近了三步
   // ============================================================
-  add({ name: 'creeping_stay', zh: '叫你等着，偷偷往前蹭', cast: 'man dax gold', weight: 1, cool: 1500, cap: 3, tag: 'lively', mood: 'mischievous',
+  add({ name: 'creeping_stay', zh: '叫你等着，偷偷往前蹭', cast: 'man dax gold', weight: 1, cool: 1500, cap: 3, tag: 'lively', mood: 'mischievous', fromDay: 2,
     when: function (S) { var F = S.field; return (F.x1 - F.x0) > 220; },
     run: function* (S) {
       var man = S.man, dax = S.dax, gold = S.gold, dir = roomy(S, man), i;
@@ -874,7 +879,7 @@
   // ============================================================
   //  B16 捉迷藏：他躲进岛里，小腊肠顺着气味找过来
   // ============================================================
-  add({ name: 'hide_and_seek_island', zh: '捉迷藏：他躲进岛里', cast: 'man dax gold', weight: 2, cool: 10800, cap: 2, tag: 'lively', mood: 'playful', family: 'island',
+  add({ name: 'hide_and_seek_island', zh: '捉迷藏：他躲进岛里', cast: 'man dax gold', weight: 2, cool: 10800, cap: 2, tag: 'lively', mood: 'playful', family: 'island', fromDay: 4,
     when: function (S) {
       var I = S.island();
       return !!(I && I.on && S.roam) && !S.night() && S.time.h >= 8 && S.her.present && !S.her.engaged && S.quietFor() > 120 &&
@@ -945,7 +950,7 @@
   // ============================================================
   //  B17 午睡叠成一堆（她回来会想拍下来的那一幕）
   // ============================================================
-  add({ name: 'nap_pile', zh: '午睡叠成一堆', cast: 'man gold dax', weight: 3, cool: 7200, cap: 2, tag: 'calm', mood: 'sleepy', family: 'sleep', timeout: 74,
+  add({ name: 'nap_pile', zh: '午睡叠成一堆', cast: 'man gold dax', weight: 3, cool: 7200, cap: 2, tag: 'calm', mood: 'sleepy', family: 'sleep', timeout: 74, fromDay: 2,
     when: function (S) {
       var t = S.time.h * 60 + S.time.m;
       return ((t >= 13 * 60 && t < 15 * 60 + 30) || S.her.idle > 600) && !S.night();
@@ -966,7 +971,8 @@
       S.hold(man, ['p_lie', 'p_sit']); S.face(man, 'soft');
       yield 0.8;
       // 2. 金毛转一圈，挨着他躺下，头搁在他胸口；他的手落在它脖子上
-      yield S.go(gold, cx(S, man.x - f * 14), man.y + S.ry(1), S.spd(gold, 'walk') * 1.4, null, 5);
+      // （挨着他、在他身后一点躺：他躺着的样子露在前面，金毛的头朝着他的胸口）
+      yield S.go(gold, cx(S, man.x + f * 3), man.y + S.ry(-2), S.spd(gold, 'walk') * 1.4, null, 5);
       gold.face = -f; S.hold(gold, 'lie'); S.rig(gold, { chin: true, eyes: 'closed' }); gold.wag = 0.2;
       yield 1.2;
       // 3. 小腊肠爬上他的肚子，扒两下，转三圈，蜷成一个甜甜圈
@@ -1066,7 +1072,7 @@
   // ============================================================
   //  B19 口袋里的照片（我们从来看不到照片上是谁；她知道）
   // ============================================================
-  add({ name: 'pocket_photo', zh: '口袋里的照片', cast: 'man gold dax', cap: 1, tag: 'calm', mood: 'tender',
+  add({ name: 'pocket_photo', zh: '口袋里的照片', cast: 'man gold dax', cap: 1, tag: 'calm', mood: 'tender', fromDay: 3,
     weight: function (S) { return S.time.h >= 18 ? 2 : 0.5; },
     when: function (S) { return S.her.present && !S.her.engaged && S.dist(S.gold, S.man) < 180; },
     run: function* (S) {

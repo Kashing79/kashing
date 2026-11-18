@@ -284,6 +284,7 @@ function simulate(mode, minutes) {
   const eng = G.PET_ENGINE.create(host, cfg);
   eng.configure({ view: view, insets: insets });
   const T = eng._t;
+  if (T.set) T.set('meter', () => Number(process.hrtime.bigint()) / 1e6);      // 量一下导演 + 照料账本的开销
   const dt = 1 / 60, frames = Math.round(minutes * 60 * 60);
   const stats = { throws: 0, grabs: { dax: 0, gold: 0 }, tugs: 0, userThrows: 0, pets: 0, carries: 0, drops: 0, taps: 0, homes: 0, cmds: 0, resizes: 0, bubbles: 0, maxItems: 0, phases: {} };
   let prevSt = 'hand', stuckFor = 0, lastPhase = '', lastScene = null, lastSceneT = 0, bad = 0;
@@ -409,6 +410,7 @@ function simulate(mode, minutes) {
   const renders = Object.keys(perf).reduce((n, k) => n + perf[k].renders, 0), changed = Object.keys(perf).reduce((n, k) => n + perf[k].changed, 0);
   console.log(mode + ':', JSON.stringify(stats));
   console.log(mode + ': night routine:', night);
+  if (T.cost) { const c = T.cost(); console.log(mode + ': director + scripts + care: ' + c.ms.toFixed(4) + ' ms per step on average (' + c.steps + ' steps, ' + (T.list ? T.list().length : 0) + ' registered scenes)'); }
   console.log(mode + ': ' + (Number(spent) / 1e6 / frames).toFixed(3) + ' ms per step+compose (' + frames + ' frames = ' + minutes + ' simulated min); rig renders ' +
     (renders / simSec).toFixed(1) + ' per simulated second (' + Object.keys(perf).map(k => k + ' ' + (perf[k].renders / simSec).toFixed(1)).join(', ') +
     '); of those ' + (100 * changed / Math.max(1, renders)).toFixed(0) + '% changed pixels');

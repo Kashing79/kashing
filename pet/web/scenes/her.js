@@ -150,6 +150,7 @@
       }
       yield 0.6;
     },
+    end: function () { note.five = 0; },
   });
   // 金毛举着爪子的时候，她点了它：算击掌（只记一笔，不占演员；原来点狗的爱心照常）
   add({ name: 'high_five_tap', zh: '击掌：她拍到了', kind: 'react', on: 'click', cast: 'who', overlay: true, tag: 'hers',
@@ -658,7 +659,8 @@
   //  C16 你回来啦！离开越久，迎接越热烈（从不提她走了多久）
   // ============================================================
   add({ name: 'welcome_back', zh: '你回来啦！离开越久，迎接越热烈', kind: 'react', on: 'return', cast: 'man dax gold', mood: 'tender', keep: 6, timeout: 16,
-    when: function (S, ev) { return !(ev.tier >= 3 && (S.count('welcome_back') >= 2)); },
+    // 她回来时他们正在偷偷跳舞（B18 caught_dancing）：那一段就是这次的迎接，这里不再演
+    when: function (S, ev) { return !(ev.tier >= 3 && (S.count('welcome_back') >= 2)) && !S.playing('caught_dancing') && S.last('caught_dancing') > 30; },
     run: function* (S, ev) {
       var man = S.man, dax = S.dax, gold = S.gold, tier = ev ? (ev.tier || 1) : 1, i;
       // 她的鼠标在哪：知道就往那儿，不知道就朝前看

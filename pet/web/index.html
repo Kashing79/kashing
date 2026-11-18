@@ -65,6 +65,8 @@
   #island.open .isl-panel { opacity: 1; transition-delay: .08s; }
   .isl-title { font-size: 13px; color: #cfd6e4; text-align: center; padding: 2px 0 9px; }
   .isl-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .isl-btns.five { grid-template-columns: repeat(5, 1fr); gap: 5px; }
+  .isl-btn.off { display: none; }
   .isl-btn {
     padding: 9px 2px; text-align: center; white-space: nowrap; font-size: 12px; color: #fff;
     background: #20222b; border-radius: 11px; transition: background .12s, transform .12s;
@@ -116,6 +118,7 @@
         <div class="isl-btn" data-cmd="love">摸摸</div>
         <div class="isl-btn" data-cmd="gather">集合</div>
         <div class="isl-btn" data-cmd="home" id="isl-home">回岛睡觉</div>
+        <div class="isl-btn off" data-cmd="feed" id="isl-feed">喂饭</div>
       </div>
       <div class="isl-foot" id="isl-foot"></div>
     </div>

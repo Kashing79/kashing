@@ -112,6 +112,32 @@
       yield w;
     } });
 
+  // —— 看狗狗玩：眼睛跟着正在动的那一只，看到好玩的地方笑一下（他闲着的时候最常做的事）——
+  add({ name: 'man_watch_dogs', zh: '看狗狗玩', weight: 5, cool: 20, mood: 'tender',
+    run: function* (S) {
+      var m = S.man, end = S.rand(7, 12), smiled = false;
+      yield S.each(end, function () {
+        var d = S.dist(S.dax, m) < 220 && ((S.dax.sp || 0) >= (S.gold.sp || 0)) ? S.dax : S.gold;
+        S.look(m, d);
+        if (Math.abs(d.x - m.x) > 30) m.face = d.x > m.x ? 1 : -1;
+        if (!smiled && (d.z > 2 || (d.sp || 0) > 60)) { smiled = true; S.face(m, 'grin'); }
+        else if (!smiled) S.face(m, 'soft');
+      });
+      if (smiled && S.chance(0.4)) yield act(S, 'proud_nod', 1.2, null, 'smile');
+    } });
+  // —— 背着手慢慢踱几步，东看看西看看 ——
+  add({ name: 'man_amble', zh: '背着手踱几步', weight: 3, cool: 40,
+    run: function* (S) {
+      var m = S.man, F = S.field, dx = S.pick([-1, 1]) * S.rand(18, 36);
+      if (m.x + dx < F.x0 + 40 || m.x + dx > F.x1 - 40) dx = -dx;
+      S.ball.pocket(); S.face(m, 'soft');
+      yield S.go(m, m.x + dx, m.y + S.ry(S.rand(-8, 8)), 16, ['p_behind', 'p_walk0'], 4);
+      S.hold(m, ['p_behind', 'p_idle']); S.look(m, { x: m.x + m.face * 60, y: m.y, z: 30 });
+      yield S.rand(1.2, 2.2);
+      S.look(m, { x: m.x - m.face * 60, y: m.y, z: 20 });
+      yield S.rand(0.8, 1.4);
+    } });
+
   // ============================================================
   //  他一个人的时候（骨架的独角戏）
   // ============================================================
