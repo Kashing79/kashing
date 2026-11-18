@@ -169,14 +169,16 @@ for (const v of [24, 30, 46, 62, 80, 100]) {
 // ---------- 4. 颜色 ----------
 console.log('4. 颜色');
 (function () {
-  const seen = new Set();
+  const seen = new Set(); let most = 0, idle = 0;
   const all = [[{ frame: 'p_idle' }, false], [{ frame: 'p_front', face: 'laugh' }, false], [{ frame: 'p_crouch' }, true], [{ frame: 'p_walk0', moving: true, speed: 80 }, false], [{ frame: 'p_watch' }, false], [{ frame: 'p_front', face: 'oops' }, false]];
   for (const [inp, left] of all) {
-    const rig = P.create(cfg), im = settle(rig, inp, 0.8, left, 2);
-    for (let k = 0; k < im.data.length; k += 4) if (im.data[k + 3]) seen.add((im.data[k] << 16) | (im.data[k + 1] << 8) | im.data[k + 2]);
+    const rig = P.create(cfg), im = settle(rig, inp, 0.8, left, 2), one = new Set();
+    for (let k = 0; k < im.data.length; k += 4) if (im.data[k + 3]) { const c = (im.data[k] << 16) | (im.data[k + 1] << 8) | im.data[k + 2]; seen.add(c); one.add(c); }
+    most = Math.max(most, one.size); if (inp.frame === 'p_idle') idle = one.size;
   }
-  console.log('  这几张图里一共 ' + seen.size + ' 种颜色');
-  ok(seen.size <= 40, '颜色太多：' + seen.size);
+  console.log('  站姿一张图 ' + idle + ' 种颜色；最多的一张 ' + most + ' 种；这几张加起来 ' + seen.size + ' 种（含牙、舌头、汗、星星这些只在个别表情里出现的）');
+  ok(idle <= 32, '站姿用的颜色太多：' + idle);
+  ok(seen.size <= 46, '颜色太多：' + seen.size);
 })();
 
 console.log(fails ? '\n有 ' + fails + ' 项不过' : '\n全部通过');

@@ -111,7 +111,7 @@
     f[F_BROW] = hv[2] < 45 ? hair[4] : hair[2];
     f[F_MOUTH] = mouth;
     f[F_DEEP] = fromHsv(sk[0] - 46, Math.min(100, sk[1] + 28), sk[2] * 0.46);
-    f[F_TEETH] = [255, 250, 242];
+    f[F_TEETH] = list[SHIRT][4];
     f[F_TONGUE] = [242, 131, 153];
     f[F_BLUSH] = fromHsv(sk[0] - 16, Math.min(100, sk[1] + 20), sk[2] * 0.97);
     f[F_BLUSH2] = fromHsv(sk[0] - 10, Math.min(100, sk[1] + 9), sk[2] * 0.985);
@@ -413,7 +413,7 @@
     j: [SUIT, 3, 1], l: [SUIT, 2, 0], m: [SUIT, 2, 0], u: [SUIT, 2, 0], o: [SUIT, 4, 0],
     w: [SHIRT, 3, 0], c: [SHIRT, 4, 0], d: [SHIRT, 4, 0], p: [SHIRT, 4, 0],
     t: [TIE, 3, 0], T: [TIE, 4, 0], y: [TIE, 2, 0],
-    x: [SHOE, 3, 0], X: [SHOE, 5, 0], z: [SHOE, 2, 0],
+    x: [SHOE, 3, 0], X: [SHOE, 4, 0], z: [SHOE, 2, 0],
   };
   function drawPlate(pa, pb, w) {
     for (var i = 0; i < pa.length; i++) {

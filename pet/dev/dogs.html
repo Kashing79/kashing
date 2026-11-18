@@ -45,7 +45,7 @@
   if (bg !== 'lawn') document.body.classList.add(bg);
   var bones = !!q.get('bones');
   var RUN = gold ? 170 : 150, TROT = gold ? 62 : 64, WALK = gold ? 24 : 26, ACC = gold ? 340 : 760;
-  var HW = gold ? 30 : 26, UP = gold ? 30 : 25, DOWN = 4;       // 一格里画多大一块：左右各 HW、地面以上 UP、以下 DOWN（世界单位）
+  var HW = gold ? 30 : 26, UP = gold ? 30 : 27, DOWN = 4;       // 一格里画多大一块：左右各 HW、地面以上 UP、以下 DOWN（世界单位）
   var LINE = bg === 'lawn' ? '#4a8761' : (bg === 'white' ? '#d8dde3' : '#3a4048'), TICK = bg === 'lawn' ? '#3d7350' : (bg === 'white' ? '#c3c9d1' : '#4a515c');
   document.getElementById('help').textContent = 'kind=' + kind + ' coat=' + coat + ' set=' + set + ' R=' + R + '   （参数说明见本页源码开头）';
 
@@ -165,7 +165,7 @@
         var v = Math.min(RUN, ACC * (t - tz));
         return { pose: 'stand', speed: v, accel: v < RUN ? ACC : 0, left: true, turn: t - tz < 1 / 60 + 1e-6 };
       } },
-    jump: { name: '跳：先蹲 → 蹬出去 → 收腿 → 前腿找地 → 落地一沉 → 弹回来（剧本给了 crouch 和 vz）', pre: function () { return { pose: 'stand', speed: TROT }; }, dur: 1.1, every: 3, up: (gold ? 30 : 25) + 22,
+    jump: { name: '跳：先蹲 → 蹬出去 → 收腿 → 前腿找地 → 落地一沉 → 弹回来（剧本给了 crouch 和 vz）', pre: function () { return { pose: 'stand', speed: TROT }; }, dur: 1.1, every: 3, up: (gold ? 30 : 27) + 22,
       input: function (t) {
         var t0 = 0.25, T = 0.5, vz0 = 630 * T / 2;
         if (t < t0 - 0.12) return { pose: 'stand', speed: TROT };
@@ -173,9 +173,9 @@
         if (t < t0 + T) return { pose: 'stand', speed: TROT, air: 1, vz: vz0 - 630 * (t - t0), z: vz0 * (t - t0) - 315 * (t - t0) * (t - t0) };
         return { pose: 'stand', speed: Math.max(0, TROT - 200 * (t - t0 - T)), landing: Math.max(0, 1 - (t - t0 - T) * 4) };
       } },
-    hop: { name: '原地一跳（引擎现在的做法：不给 crouch、不给 vz）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 0.95, every: 3, up: (gold ? 30 : 25) + 14,
+    hop: { name: '原地一跳（引擎现在的做法：不给 crouch、不给 vz）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 0.95, every: 3, up: (gold ? 30 : 27) + 14,
       input: function (t) { var a = t > 0.1 && t < 0.5; return { pose: 'stand', speed: 0, air: a ? 1 : 0, z: a ? 190 * (t - 0.1) - 475 * (t - 0.1) * (t - 0.1) : 0 }; } },
-    held: { name: '被拎起来：四条腿垂着（pose=air 而且一直 air=1）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 1.3, every: 5, up: (gold ? 30 : 25) + 8,
+    held: { name: '被拎起来：四条腿垂着（pose=air 而且一直 air=1）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 1.3, every: 5, up: (gold ? 30 : 27) + 8,
       input: function (t) { return t > 0.1 ? { pose: 'air', air: 1, z: Math.min(6, (t - 0.1) * 30) } : { pose: 'stand' }; } },
     sit: { name: '站 → 坐', pre: function () { return { pose: 'stand' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'sit' : 'stand' }; } },
     lie: { name: '坐 → 趴', pre: function () { return { pose: 'sit' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'lie' : 'sit' }; } },
@@ -222,7 +222,7 @@
     var Z = +q.get('zoom') || 4, list = [['gold', 'gold'], ['dax', 'dax_red'], ['dax', 'dax_blacktan'], ['dax', 'dax_cream']];
     list.forEach(function (kc) {
       title(kc[1]);
-      var o = { zoom: Z, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 25 };
+      var o = { zoom: Z, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 27 };
       row([still({ pose: 'stand' }, o, false, kc[0], kc[1]), still({ pose: 'sit', wag: 0.5 }, o, true, kc[0], kc[1]), still({ pose: 'stand', speed: kc[0] === 'gold' ? 62 : 64 }, o, false, kc[0], kc[1]),
            still({ pose: 'lie' }, o, false, kc[0], kc[1]), still({ pose: 'bow', wag: 1 }, o, true, kc[0], kc[1])]);
     });
@@ -231,8 +231,8 @@
   function setRes() {
     title('R = 1、2、3、4（同样的实际大小）');
     [['gold', 'gold'], ['dax', 'dax_red']].forEach(function (kc) {
-      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'stand' }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 25 }, false, kc[0], kc[1]); }));
-      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'sit', happy: true }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 25 }, true, kc[0], kc[1]); }));
+      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'stand' }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 27 }, false, kc[0], kc[1]); }));
+      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'sit', happy: true }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 30 : 27 }, true, kc[0], kc[1]); }));
     });
   }
   // ---------- 实时 ----------
