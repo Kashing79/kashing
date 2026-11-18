@@ -201,7 +201,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         // 这台机器上 JavaScript 跑得快不快：慢的话角色少重画几次
-        jitMs = eng.speedProbe()
+        // 量两次取快的那次：刚启动时机器可能正忙（第一次也包含了"即时编译"热身的时间）
+        jitMs = min(eng.speedProbe(), eng.speedProbe())
         jitFast = jitMs < 60
 
         let pick = AppDelegate.pickScale(choice: defaults.integer(forKey: "scale"), backing: geo.backing, baseRes: eng.baseRes)
