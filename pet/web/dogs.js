@@ -1531,7 +1531,7 @@
       // 眉毛：眼睛上面空一行，一道比毛色深一点的短线；心情把它抬高、压低、歪过来
       if (st !== 'shut' || this.pw('sleep') < 0.5) {
         var by_ = top + 2 + bw2[0];
-        E(0, by_ - (bw2[1] < 0 ? 1 : 0), brM, brT);
+        E(0, by_ - (bw2[1] < 0 ? 1 : 0), brM, gold && !C.points ? 1 : brT);
         E(1, by_ - (bw2[1] > 0 ? 1 : 0), brM, brT);
         if (gold) E(-1, by_ - (bw2[1] < 0 ? 1 : 0) - (bw2[1] > 0 ? 0 : 0), brM, 3);
       }
