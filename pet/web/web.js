@@ -352,6 +352,9 @@
       props: eng._t.props,
       sceneErrors: eng._t.sceneErrors,
       care: eng._t.care,
+      ends: eng._t.ends,
+      beats: eng._t.beats,
+      stuck: eng._t.stuck,
       engine: eng,
     },
   };

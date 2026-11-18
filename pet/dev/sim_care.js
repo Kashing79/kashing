@@ -334,7 +334,7 @@ function enginePart() {
     C.clock(t0);
     T.set('touch', 0);
     const dt = 1 / 60, total = 2 * 3600;
-    let idle = 5, cx = null, cy = null, cursorSet = 0, sweep = null, restT = 0, meals0 = 0, jumpAt = 5400, jumped = false, quietUntil = -1, potOffAt = 3600;
+    let idle = 5, cx = null, cy = null, cursorSet = 0, sweep = null, restT = 0, meals0 = 0, jumpAt = 5400, jumped = false, quietUntil = -1, potOffAt = 3600; let prevExtra = 0;
     const seenPoop = new Map(), scriptSince = new Map();
     const stats = { meals: 0, poops: 0, hotShown: 0, clicks: 0, failsafe: 0, forced: 0, sweeps: 0 };
     let lastLog = 0;
@@ -405,9 +405,10 @@ function enginePart() {
       // T16：便便能点的范围只在鼠标停够 0.25 秒以后才出现；前四个永远是球、金毛、小人、小腊肠
       if (fr) {
         const poopIn = ps.filter(p => p.kind === 'poop' && cx !== null && Math.abs(cx - p.x) <= 4.5 && Math.abs(cy - (p.y - 3)) <= 5);
-        restT = poopIn.length && !sweep ? restT + 2 * dt : 0;
+        restT = !poopIn.length ? 0 : (sweep ? restT : restT + 2 * dt);   // 和引擎一样：在上面晃的时候不累计、也不清零，离开才清零
         const extra = fr.hot.length - ((T.boxes().ball ? 1 : 0) + ['dax', 'gold', 'person'].filter(k => !st[k === 'person' ? 'person' : k].hidden).length);
-        if (extra > 0) { stats.hotShown++; if (!poopIn.length && !ps.some(p => p.live)) note('T16: a prop rect is hot without the cursor on it'); if (sweep) note('T16: a sweeping cursor made a poop hot'); }
+        if (extra > 0) { stats.hotShown++; if (!poopIn.length && !ps.some(p => p.live)) note('T16: a prop rect is hot without the cursor on it'); if (sweep && !(prevExtra > 0)) note('T16: a sweeping cursor made a poop hot'); }
+        prevExtra = extra;   // 鼠标先停够、点亮了，再在上面晃：保持亮着是对的；只查"扫过去就亮了"
         if (extra > 0 && restT < 0.2) note('T16: a poop became hot after only ' + restT.toFixed(2) + ' s of dwell');
         // 停够了偶尔点一下（她自己收拾）
         if (extra > 0 && R() < 0.02) { eng.pointer('down', cx, cy); eng.pointer('up', 0, 0); stats.clicks++; }

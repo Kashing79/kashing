@@ -66,9 +66,9 @@
 //                         care（有喂饭那一套时才有）: { meal: 'idle' | 'due' | 'serving', kind, meals, poops, fedByHer, byHer, lucky, feeding, potty } }
 //   eng.busy()          0 没什么在动 / 1 鼠标在附近、有蝴蝶 / 2 正在动（外壳据此决定画得多勤）
 //   eng.den(R)          它们在岛里睡觉时，岛上那一小格里画什么 → { w, h, items }（坐标相对那一格的左上角；
-//                       id 是 den:gold / den:person / den:dax / den:z）
+//                       id 是 den:gold / den:person / den:dax / den:z / den:blanket）
 //   eng.setQuality(q)   0..1：机器吃力时调低，角色就少重画几次
-//   eng._t              给测试脚本用的（state boxes set scene endScene raise list events props sceneErrors care errors perf）
+//   eng._t              给测试脚本用的（state boxes set scene endScene raise list events ends beats stuck props sceneErrors sense care cost errors perf）
 //
 // ================================================================
 //  怎么写一场戏（写 scenes/*.js 的人只看这一节就够了）
@@ -200,7 +200,7 @@
 //   var p = S.prop.spawn('bowl', 'full', x, y, { z, face, cap: 秒, hot, obstacle: 半径, shadow, keep, sprite, click: '戏名', amount, care, data })
 //       hot: true 或 { w, h, dwell }：她可以点（鼠标在上面停 dwell 秒——默认 0.25——以后才算，点了出 click 事件，或者直接演 click 写的那段戏）
 //       obstacle：大家绕开它、跳过它，球也弹开；keep: true = 这段戏演完它还留着（到 cap 秒自己没）；默认戏完就收走
-//       flat: true = 平铺在地上（野餐垫、毯子）：画在所有角色和别的道具下面
+//       flat: true = 平铺在地上（野餐垫、毯子）：画在所有角色和别的道具下面；front: true = 永远画在最前面；a: 不透明度 0..1
 //   S.prop.set(p, 'empty')  换状态（换图）       S.prop.move(p, x, y, z)       S.prop.carry(p, who, 'mouth' | 'hand' | 'hand2' | 'arms'……)
 //   S.prop.drop(p[, x, y])  放到地上       S.prop.fling(p, vx, vy, vz)  扔出去 / 掉下来       S.prop.remove(p[, 冒烟?])
 //   S.prop.where(p) → { x, y, z }     S.prop.find('stick')  S.prop.all('poop')     S.prop.hot(p, true | false)     S.prop.keep(p)
@@ -672,6 +672,7 @@
     function anchorOf(b, name) {
       var q = b.vis.an[name];
       if (q && q.ok) return q;
+      if (name === 'tie' && b.vis.an.tieTip && b.vis.an.tieTip.ok) return b.vis.an.tieTip;
       var up = Math.max(4, b.y - 1 - b.z - b.lift - (b.top || b.y - 12)), f = b.face;
       if (b.isPerson) {
         if (name === 'hand' || name === 'hand2' || name === 'grip') {
@@ -1179,9 +1180,12 @@
     }
     // 一段戏结束（演完了，或者 cancelled = 被打断了）：先让它自己收尾，再把舞台收拾干净 ——
     // 角色放回去、它留下的道具拿走、球回到小人手里
+    var ends = {};               // 每一段戏是怎么结束的（给测试看）：{ 名字: { ok, cancel, timeout, error } }
     function endScript(sc, cancelled, why) {
       if (sc.dead) return;
       sc.dead = true;
+      var en = ends[sc.name] || (ends[sc.name] = { ok: 0, cancel: 0, timeout: 0, error: 0 });
+      if (!cancelled) en.ok++; else if (why === 'timeout') en.timeout++; else if (why === 'error') en.error++; else en.cancel++;
       var def = sc.def, i, a, prev = CUR;
       if (def.end) {
         CUR = sc;
@@ -1257,6 +1261,7 @@
         for (guard = 0; guard < 30 && !sc.dead; guard++) {
           if (sc.wait) { if (!sc.wait()) break; sc.wait = null; }
           r = sc.it.next();
+          sc.beats = (sc.beats || 0) + 1;
           if (sc.dead) break;
           if (r.done) { CUR = prev; endScript(sc, false); return; }
           sc.wait = waitOf(r.value);
@@ -2471,6 +2476,8 @@
         personWave(String(pick(CFG.messages)));
         return;
       }
+      // 登记的小动作多（十几个以上）：他几乎不干站着，隔 3-7 秒就找点事做；少的时候照老样子，一半时间站着
+      if (SOLO.person.length > 12) { person.next = now + rand(3, 7) / LIVELY; if (r >= 0.2) pickSolo(person); return; }
       if (SOLO.person.length) { if (r >= 0.44) pickSolo(person); return; }
       if (r < 0.20) {
         var p = randPt(30 * SK, person);
@@ -2992,7 +2999,10 @@
       pointer.x = x; pointer.y = y; pointer.down = true; pointer.inside = true; pointer.grab = null; pointer.prop = null;
       var sleepy = sleepyTime();
       touchAll();
-      if (ball.vis && ball.box && home.st === 'out' && ball.st !== 'pocket' && inBox(ball.box, x, y, 4)) {
+      // 他的领带歪着（S.wear 或者戏记下的 tie）的时候，点在领带上算点他，不算抓他手里的球
+      var tm = world.mem.tie, askew = wear.tie === 'askew' || wear.tie === 'loose' || (typeof tm === 'number' && wall() - tm < 600000);
+      var onTie = askew && !person.hidden && inBox(person.box, x, y, 1) && zoneOf(person, x, y) === 'tie';
+      if (!onTie && ball.vis && ball.box && home.st === 'out' && ball.st !== 'pocket' && inBox(ball.box, x, y, 4)) {
         // 抓住小球
         endScene(false, 'ball');
         if ((ball.st === 'mouth' || ball.st === 'tug') && ball.holder) {
@@ -3013,8 +3023,9 @@
         ptMove(x, y);
         return true;
       }
-      var hit = null;
-      if (!dax.hidden && inBox(dax.box, x, y, 1)) hit = dax;
+      var hit = onTie ? person : null;
+      if (hit) { /* 点在他的领带上 */ }
+      else if (!dax.hidden && inBox(dax.box, x, y, 1)) hit = dax;
       else if (!gold.hidden && inBox(gold.box, x, y, 1)) hit = gold;
       else if (!person.hidden && inBox(person.box, x, y, 1)) hit = person;
       if (hit) { pointer.grab = { a: hit, x: x, y: y, moved: false, sleepy: sleepy, t0: now, pressed: false }; return true; }
@@ -4285,6 +4296,21 @@
           });
         },
         events: function () { return evLog.slice(); },
+        ends: function () { return JSON.parse(JSON.stringify(ends)); },
+        // 正在演的那一段已经走了几拍（几次 yield）；没在演就是 -1
+        beats: function (name) { for (var i = 0; i < scripts.length; i++) if (!scripts[i].dead && scripts[i].name === name) return scripts[i].beats || 0; return -1; },
+        // 有没有角色"卡在戏里"：说在演戏、可那段戏已经没了
+        stuck: function () {
+          var o = [];
+          actors.forEach(function (a) {
+            if (a.scene && a.scene.dead) o.push(a.name + ' holds a dead scene ' + a.scene.name);
+            if (!a.isPerson && a.st === 'scene' && !a.scene) o.push(a.name + ' is in state scene without a scene');
+            if (a.att && !a.scene) o.push(a.name + ' is attached without a scene');
+          });
+          if (ball.owner && ball.owner.dead) o.push('the ball belongs to a dead scene ' + ball.owner.name);
+          props.forEach(function (p) { if (p.owner && p.owner.dead) o.push('prop ' + p.kind + ' belongs to a dead scene ' + p.owner.name); if (!p.owner && !p.cap && !p.care && now - p.born > 180) o.push('prop ' + p.kind + ' kept for ' + Math.round(now - p.born) + ' s without a cap'); });
+          return o;
+        },
         props: function () { return props.map(function (p) { return { id: p.id, kind: p.kind, state: p.state, x: p.x, y: p.y, z: p.z, held: p.holder ? p.holder.who.name : null, live: p.live, born: p.born, owner: p.owner ? p.owner.name : null }; }); },
         sceneErrors: function () { return sceneErrors.slice(); },
         sense: sense,

@@ -1,6 +1,7 @@
 // 开发用：看戏。
 //   node scenes.js list [web 目录]                 列出登记了的每一段戏：种类、谁演、什么时候演、weight、哪个戏包
-//   node scenes.js <输出目录> [名字,名字…] [roam=1|0]   把每一段单独演一遍，每隔一拍截一张图，拼成一张连环画（sheet_名字.png）
+//   node scenes.js <输出目录> [名字,名字…] [roam=1|0]   把每一段单独演一遍，每一拍（剧本里每一个 yield 等完）截一张图，
+//     拼成一张连环画（sheet_名字.png）；一拍很长（走路、等很久）的时候最多每 1.5 秒也截一张
 //     名字可以是任何一段（scene / solo / react / care 都行；react 会假装出了它等的那件事）；不给就演最早的十一段
 //   想拿另一份 web/ 来跑：PET_WEB=那个目录 node scenes.js ...
 const path = require('path');
@@ -66,7 +67,15 @@ const { execFileSync } = require('child_process');
     if (!ok) { console.log(name, 'could not start'); await page.close(); continue; }
     const files = [];
     for (let k = 0; k < 40; k++) {
-      const st = await page.evaluate((n) => { const T = window.pet._t; for (let i = 0; i < 27; i++) { T.set('touch', T.state().now); T.step(1 / 60); } T.draw(); const s = T.state(); s.playing = s.scripts.indexOf(n) >= 0 || (/^(care_|potty_)/.test(n) && s.scripts.some(x => /^(care_|potty_|cleanup)/.test(x))); return s; }, name);
+      const st = await page.evaluate((n) => {
+        const T = window.pet._t, b0 = T.beats ? T.beats(n) : -1;
+        // 走到这一段戏的下一拍（beats 变了），最多 1.5 秒；丢球这类没有剧本的就按 0.45 秒一张
+        for (let i = 0; i < 90; i++) {
+          T.set('touch', T.state().now); T.step(1 / 60);
+          if (b0 >= 0 ? (T.beats(n) !== b0 && i >= 6) : i >= 26) break;
+        }
+        T.draw(); const s = T.state(); s.playing = s.scripts.indexOf(n) >= 0 || (/^(care_|potty_)/.test(n) && s.scripts.some(x => /^(care_|potty_|cleanup)/.test(x))); return s;
+      }, name);
       const f = path.join(outDir, name + '_' + String(k).padStart(2, '0') + '.png');
       await page.screenshot({ path: f });
       files.push(f);
