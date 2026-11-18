@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """开发用：把 web/ 打包成一个单独的网页片段，方便在线预览（带草地背景）。
-用法：python3 make_preview.py <输出.html>"""
-import sys, pathlib, re
-web = pathlib.Path(__file__).resolve().parent.parent / 'web'
+用法：python3 make_preview.py <输出.html>
+     想拿另一份 web/ 来打包：PET_WEB=那个目录 python3 make_preview.py <输出.html>"""
+import sys, pathlib, re, os
+web = pathlib.Path(os.environ['PET_WEB']).resolve() if os.environ.get('PET_WEB') else pathlib.Path(__file__).resolve().parent.parent / 'web'
 js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script') if (web / n).exists() else ''
 index = (web / 'index.html').read_text(encoding='utf-8')
 style = re.search(r'<style>(.*?)</style>', index, re.S).group(1)
@@ -72,5 +73,9 @@ out = HEAD + style + EXTRA + island + TAIL
 for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), ('__FX__', 'fx.js'), ('__DOGS__', 'dogs.js'), ('__PERSON__', 'person.js'),
                    ('__LAWN__', 'lawn.js'), ('__ISLAND__', 'island.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
     out = out.replace(mark, js(name))
+# 保险：这几个文件要是有人正改到一半（里面还没把自己挂出来），打出来的页面会缺东西
+for name, glob in [('config.js', 'PET_CONFIG'), ('sprites.js', 'PET_SPRITES'), ('dogs.js', 'PET_DOGS'), ('pet.js', 'PET_ENGINE')]:
+    if not re.search(glob + r'\s*=', js(name)):
+        sys.exit('%s does not define %s (is someone still editing it?) - not building' % (name, glob))
 pathlib.Path(sys.argv[1]).write_text(out, encoding='utf-8')
 print('wrote', sys.argv[1], len(out), 'bytes')

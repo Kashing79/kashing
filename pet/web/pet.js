@@ -99,7 +99,7 @@
     var R = resOf(CFG.res);          // 一个世界单位画成几个像素
     var RIG_FPS = +CFG.rigFps > 0 ? +CFG.rigFps : 12;     // 角色在原地做动作的时候，每秒重画几次
     var CALM_FPS = 6;                                      // 只是呼吸、轻轻摇尾巴的时候，每秒重画几次
-    var STRIDE = 0.5;                                      // 在地上每走出这么远（世界单位）就重画一次，脚才不会打滑
+    var STRIDE = 0.5;                                      // 在地上每走出这么远（世界单位；再细不过一个像素）就重画一次，脚才不会打滑
     var quality = 1;
 
     var DOGS = G.PET_DOGS || null;
@@ -1588,13 +1588,15 @@
     //   · 在地上走出了半个世界单位（跑着的狗每一帧都重画，踩在地上的脚才不会打滑）
     //   · 在原地做动作，离上次画过了 1/rigFps 秒
     //   · 只是呼吸、轻轻摇尾巴，离上次画过了大约 1/6 秒
-    function shoot(a, left, RR, sig, cls, active) {
+    // sx：这张图的原点（脚下）会画在横向的哪里。把它落在像素格子里的零头告诉骨架，
+    // 骨架就能按整格子来画：踩在地上的脚不会跟着身体在两个像素之间来回跳（旧的画法不理会这个）
+    function shoot(a, left, RR, sig, cls, active, sx) {
       var v = a.vis, q = qual(), per = 1 / ((active ? RIG_FPS : CALM_FPS) * q);
       var el = now - v.seen;
       v.seen = now;
       v.acc += el > 0 ? (el > 1 ? 1 : el) : 0;
       var must = v.im.ver === 0 || sig !== v.sig || left !== v.left || RR !== v.R;
-      var moved = v.dist >= STRIDE / q;
+      var moved = v.dist >= Math.min(STRIDE, 1 / RR) / q;
       if (!must && !moved && v.acc < per - 1e-6) return v;
       if (must) {
         v.acc = v.ph * per;                                                      // 三个角色的节拍互相错开
@@ -1605,7 +1607,7 @@
       v.dist = 0;
       v.sig = sig; v.cls = cls; v.left = left; v.R = RR;
       v.n++;
-      adopt(a, a.rig.render(left, RR));
+      adopt(a, a.rig.render(left, RR, sx * RR - Math.floor(sx * RR)));
       return v;
     }
     // 这一步在地上走了多远（被拎着、躲在岛里的不算）
@@ -1668,7 +1670,7 @@
       var face = personFace(), x, y, hx = 0, hy = 0, has = false, half = 0;      // (hx, hy)：手心相对这张图左上角的位置
       if (a.rig) {
         var gy = a.y - 1 - a.z;
-        var v = shoot(a, face < 0, R, personSig(), PCLASS[a.ri.frame] || 0, personActive()), im = v.im, s = im.scale;
+        var v = shoot(a, face < 0, R, personSig(), PCLASS[a.ri.frame] || 0, personActive(), a.x), im = v.im, s = im.scale;
         x = a.x - im.ox / s; y = gy - im.oy / s;
         put(list, 'person', im, x, y, false);
         a.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; a.bpx = v.px;
@@ -1701,7 +1703,7 @@
     // 画一只狗；返回 true = 球画在它嘴里了
     function putDog(list, d) {
       if (!d.rig) return false;
-      var sig = dogSig(d), v = shoot(d, d.face < 0, R, sig, sig, dogActive(d)), im = v.im, s = im.scale;
+      var sig = dogSig(d), v = shoot(d, d.face < 0, R, sig, sig, dogActive(d), d.x), im = v.im, s = im.scale;
       var gy = d.y - 1 - d.z - d.lift, x = d.x - im.ox / s, y = gy - im.oy / s;
       put(list, d.name, im, x, y, false);
       d.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; d.bpx = v.px;
@@ -1813,7 +1815,7 @@
         var a = slots[i][0], cx = slots[i][1];
         if (!a.hidden) continue;
         if (a.rig) {
-          var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false), im = v.im;
+          var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false, cx), im = v.im;
           put(list, 'den:' + a.name, im, cx - im.ox / im.scale, h - im.oy / im.scale, false);
         } else if (a.isPerson) {
           var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着

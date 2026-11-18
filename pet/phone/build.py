@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """把 pet/web 里的像素画和玩法打包成 iPhone 用的网页 App，输出到仓库根目录的 docs/qiuqiu/。
-用法：python3 pet/phone/build.py        （图标需要先有 docs/qiuqiu/icon-*.png，见 dev/icon.js）"""
-import pathlib, json, hashlib
+用法：python3 pet/phone/build.py        （图标需要先有 docs/qiuqiu/icon-*.png，见 dev/icon.js）
+     想拿另一份 web/ 来打包：PET_WEB=那个目录 python3 pet/phone/build.py"""
+import pathlib, json, hashlib, os, re, sys
 here = pathlib.Path(__file__).resolve().parent
-web = here.parent / 'web'
+web = pathlib.Path(os.environ['PET_WEB']).resolve() if os.environ.get('PET_WEB') else here.parent / 'web'
 out = here.parent.parent / 'docs' / 'qiuqiu'
 out.mkdir(parents=True, exist_ok=True)
 js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script') if (web / n).exists() else ''
@@ -13,6 +14,10 @@ for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), (
                    ('__PERSON__', 'person.js'), ('__LAWN__', 'lawn.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
     assert mark in page, mark
     page = page.replace(mark, js(name))
+# 保险：这几个文件要是有人正改到一半（里面还没把自己挂出来），打出来的页面会缺东西，不如不打
+for name, glob in [('config.js', 'PET_CONFIG'), ('sprites.js', 'PET_SPRITES'), ('dogs.js', 'PET_DOGS'), ('pet.js', 'PET_ENGINE')]:
+    if not re.search(glob + r'\s*=', js(name)):
+        sys.exit('%s does not define %s (is someone still editing it?) - not building' % (name, glob))
 (out / 'index.html').write_text(page, encoding='utf-8')
 (out / 'manifest.webmanifest').write_text(json.dumps({
     "name": "球球", "short_name": "球球", "start_url": "./", "scope": "./", "display": "standalone",

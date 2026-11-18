@@ -1,14 +1,16 @@
 // 生成 iPhone 小组件脚本：小人和小道具取自 web/sprites.js，两只狗用 web/dogs.js 现画出几个姿势，
 // 一起填进 widget.template.js。
 // 用法：node pet/iphone/build.js [网页版网址]
+//   想拿另一份 web/ 来打包：PET_WEB=那个目录 node pet/iphone/build.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
-const root = path.resolve(__dirname, '..');
+const web = path.resolve(process.env.PET_WEB || path.join(__dirname, '../web'));
 // 这几个文件有的把自己挂在 window 上，有的挂在全局上：让 window 就是全局，两种写法都接得住
 const sandbox = {};
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['web/config.js', 'web/sprites.js', 'web/dogs.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), sandbox, { filename: f });
+for (const f of ['config.js', 'sprites.js', 'dogs.js']) vm.runInContext(fs.readFileSync(path.join(web, f), 'utf8'), sandbox, { filename: f });
 const W = sandbox, frames = {};
+if (!W.PET_DOGS || !W.PET_SPRITES || !W.PET_CONFIG) { console.error('web/ is incomplete (is someone still editing dogs.js?) - not building'); process.exit(1); }
 
 // 小人、小球、表情
 const want = ['p_front', 'p_front_blink', 'p_wave_a', 'p_hold', 'ball0', 'fx_heart', 'fx_z', 'fx_zs'];
