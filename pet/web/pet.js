@@ -97,7 +97,7 @@
   };
   var actors = [gold, person, dax];
   var ball = { x: 0, y: 0, z: BALL_R, vx: 0, vy: 0, vz: 0, st: 'hand', holder: null, other: null, rot: 0, sq: 0, box: null, freeT: 0, vis: true, tugEnd: 0 };
-  var play = { phase: 'rest', rounds: 0, nextAt: 9, throwAt: 0, fetcher: null, lastPlay: 0, faked: false };
+  var play = { phase: 'rest', rounds: 0, nextAt: 9, throwAt: 0, fetcher: null, lastPlay: 0, faked: false, want: 0 };
   var pointer = { x: -999, y: -999, inside: false, down: false, drag: false, hist: [], grab: null, gx: 0, gy: 0 };
   var emotes = [], parts = [], items = [];
   var bfly = { on: false, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, t: 0, until: 0, nextAt: rand(25, 60), color: 0, land: 0 };
@@ -1246,6 +1246,14 @@
   // ------------------------------------------------------------
   function updatePlay() {
     if (home.st !== 'out') return;
+    // 她按了"丢球"，但小人当时正忙（刚从岛里出来、正在摸狗……）：等他一有空就丢
+    if (play.want) {
+      if (now > play.want) play.want = 0;
+      else if (ball.st === 'hand' && !person.hidden && !person.carried && (play.phase === 'rest' || play.phase === 'ready') &&
+               (person.st === 'idle' || person.st === 'front' || person.st === 'wave' || person.st === 'walk' || person.st === 'act' || person.st === 'come')) {
+        play.want = 0; clickPerson();
+      }
+    }
     if (play.phase === 'rest') {
       if (opt.auto && !scene && !sleepyTime() && now >= play.nextAt && ball.st === 'hand' && !person.carried &&
           (person.st === 'idle' || person.st === 'front' || person.st === 'walk' || person.st === 'act')) {
@@ -1280,7 +1288,7 @@
   function clickPerson() {
     var p = person;
     if (p.scene) endScene(true);
-    if (ball.st === 'hand' && (p.st === 'idle' || p.st === 'front' || p.st === 'wave' || p.st === 'walk' || p.st === 'act')) {
+    if (ball.st === 'hand' && (p.st === 'idle' || p.st === 'front' || p.st === 'wave' || p.st === 'walk' || p.st === 'act' || p.st === 'come')) {
       personIdle();
       if (play.phase === 'rest') startSession(1);
       play.phase = 'ready'; play.throwAt = now + 0.05; play.faked = true;
@@ -1667,7 +1675,7 @@
       }
     },
     command: function (name) {
-      if (name === 'throw') { if (home.st === 'in') comeOut(); else { touchAll(); clickPerson(); } }
+      if (name === 'throw') { touchAll(); if (home.st === 'in' || home.st === 'going') comeOut(); play.want = now + 9; }
       else if (name === 'wave') { if (home.st === 'in') comeOut(); else { touchAll(); personWave(); } }
       else if (name === 'home') { home.auto = false; goHome(); home.inAt = now; }
       else if (name === 'out') comeOut();
@@ -1752,5 +1760,15 @@
     schedule();
   }, window.PET_ISLAND ? 500 : 1600);
   schedule();
-  if (NATIVE) { try { window.webkit.messageHandlers.pet.postMessage(JSON.stringify({ t: 'ready' })); } catch (e) {} }
+  // 画布到底能不能用：画一块红色再读回来。读不回来 = 这台机器上显卡画布是坏的，
+  // 告诉 Mac 外壳换一种画法重新载入（见 src/main.swift 的 makeWebView）。
+  function canvasOK() {
+    try {
+      var t = document.createElement('canvas'); t.width = 96; t.height = 64;
+      var x = t.getContext('2d'); x.fillStyle = '#f00'; x.fillRect(0, 0, 96, 64);
+      var d = x.getImageData(20, 20, 1, 1).data;
+      return d[3] === 255 && d[0] > 200;
+    } catch (e) { return false; }
+  }
+  if (NATIVE) { try { window.webkit.messageHandlers.pet.postMessage(JSON.stringify({ t: 'ready', canvas: canvasOK() })); } catch (e) {} }
 })();

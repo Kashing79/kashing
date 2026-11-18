@@ -1306,7 +1306,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
       cv: cv, cx: cx, id: cx.createImageData(DOGS.W, DOGS.H), img: null,
       x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, sp: 0, face: 1, lift: 0,
       st: 'idle', pose: 'stand', t: 0, dur: 0, wag: 0.3, energy: 1,
-      tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, way: null,
+      tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, sideAt: 0, way: null,
       pant: false, happy: 0, hype: 0, bark: 0, look: 0,
       box: null, top: 0, mx: kind === 'gold' ? 15 : 16, zAt: 0, dustAt: 0, lastSp: 0,
       scene: null, cmd: null, hidden: false, carried: false,
@@ -1323,7 +1323,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
   };
   var actors = [gold, person, dax];
   var ball = { x: 0, y: 0, z: BALL_R, vx: 0, vy: 0, vz: 0, st: 'hand', holder: null, other: null, rot: 0, sq: 0, box: null, freeT: 0, vis: true, tugEnd: 0 };
-  var play = { phase: 'rest', rounds: 0, nextAt: 9, throwAt: 0, fetcher: null, lastPlay: 0, faked: false };
+  var play = { phase: 'rest', rounds: 0, nextAt: 9, throwAt: 0, fetcher: null, lastPlay: 0, faked: false, want: 0 };
   var pointer = { x: -999, y: -999, inside: false, down: false, drag: false, hist: [], grab: null, gx: 0, gy: 0 };
   var emotes = [], parts = [], items = [];
   var bfly = { on: false, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, t: 0, until: 0, nextAt: rand(25, 60), color: 0, land: 0 };
@@ -1588,8 +1588,19 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     items.push({ spr: sprName, x0: fromX, y0: person.y, z0: fromZ, to: toEnt, t: 0, dur: dur, peak: peak, scene: true });
   }
 
+  // 狗狗之间的戏：主角要是正挤在小人身边，先小跑到旁边的空地上再演
+  function stage(a) {
+    if (person.hidden) return 0;
+    var dx = a.x - person.x, dy = a.y - person.y;
+    if (Math.abs(dx) > 44 || Math.abs(dy) > 24) return 0;
+    var s = dx >= 0 ? 1 : -1, far = rand(56, 84);
+    var tx = person.x + s * far;
+    if (tx < F.x0 + 44 || tx > F.x1 - 44) tx = person.x - s * far;
+    return go(a, tx, clamp(person.y + ry(rand(-8, 16)), F.y0, F.y1), spd(a, 'trot') * 1.2);
+  }
   // —— 狗狗和狗狗 ——
   function* scSniff() {      // 凑过去闻一闻
+    yield stage(gold);
     var s = dax.x < gold.x ? -1 : 1;
     hold(gold, 'alert'); faceTo(gold, dax.x); gold.wag = 0.6;
     yield go(dax, gold.x + s * (gold.mx + dax.mx + 7), gold.y + ry(1), spd(dax, 'trot'));
@@ -1624,11 +1635,14 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     c = go(gold, p.x, p.y, spd(gold, 'run') * 0.9);
     follow(dax, gold, 14, ry(-2), spd(dax, 'run'));
     yield c;
-    hold(gold, 'lie'); gold.pant = true; hold(dax, 'sit'); dax.pant = true; faceTo(dax, gold.x);
+    hold(gold, 'lie'); gold.pant = true;
+    yield go(dax, gold.x + gold.face * (gold.mx + dax.mx + 2), gold.y + ry(3), spd(dax, 'trot'));
+    hold(dax, 'sit'); dax.pant = true; faceTo(dax, gold.x);
     emote('note', dax);
     yield 2.4;
   }
   function* scCuddle() {     // 挤在一起睡
+    yield stage(gold);
     hold(gold, 'lie');
     yield 0.7;
     yield go(dax, gold.x + gold.face * 3, gold.y + ry(3), spd(dax, 'walk') * 1.6);
@@ -1642,6 +1656,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     yield 0.7;
   }
   function* scRide() {       // 小腊肠跳到金毛背上
+    yield stage(gold);
     hold(gold, 'lie'); gold.wag = 0.5;
     yield 0.6;
     yield go(dax, gold.x - gold.face * 22, gold.y + ry(1), spd(dax, 'trot'));
@@ -1658,6 +1673,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     yield 0.8;
   }
   function* scLick() {       // 金毛给小腊肠舔毛
+    yield stage(dax);
     hold(dax, 'sit'); dax.wag = 0.5;
     var s = gold.x < dax.x ? -1 : 1;
     yield go(gold, dax.x + s * (gold.mx + 6), dax.y + ry(-1), spd(gold, 'walk') * 1.6);
@@ -1844,6 +1860,21 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     }
   }
 
+  // 站在小人 / 另一只狗的正后方会被挡住（看起来像骑在人家头上）：返回挡住它的那个
+  function blocker(d) {
+    if (!person.hidden && !person.carried && Math.abs(d.x - person.x) < d.half * 0.7 + 7 && d.y <= person.y && d.y > person.y - 25) return person;
+    var o = other(d);
+    if (!o.hidden && !o.carried && !o.scene && o.z === 0 && Math.abs(d.x - o.x) < o.half * 0.75 &&
+        (d.y < o.y || (d.y === o.y && d === dax)) && d.y > o.y - 13) return o;
+    return null;
+  }
+  function sidestep(d, b) {
+    var s = d.x >= b.x ? 1 : -1, gap = (b.isPerson ? 9 : b.half) + d.half + rand(6, 14);
+    var tx = b.x + s * gap;
+    if (tx < F.x0 + d.half + 4 || tx > F.x1 - d.half - 4) tx = b.x - s * gap;
+    walkTo(d, tx, b.y + ry(rand(1, 7)), spd(d, 'trot'));
+  }
+
   function grab(d) {
     var o = other(d);
     ball.vx = ball.vy = ball.vz = 0;
@@ -1934,6 +1965,8 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
         } else {
           if (d.pose === 'dig' && Math.random() < dt * 14) bits(d.x + d.face * 10, d.y - 1, 1, ['#8a6a4a', '#6f5238', '#a98a62'], 26, 60);
           if (d.pose === 'roll' && CFG.grass && Math.random() < dt * 6) bits(d.x + rand(-8, 8), d.y - 2, 1, ['#9ad584', '#77b363'], 18, 40);
+          var blk = (d.t > 0.5 && d.z === 0 && now > d.sideAt) ? blocker(d) : null;
+          if (blk) { d.sideAt = now + 2.5; sidestep(d, blk); break; }
           if (d.t > d.dur) think(d);
         }
         break;
@@ -2439,6 +2472,14 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
   // ------------------------------------------------------------
   function updatePlay() {
     if (home.st !== 'out') return;
+    // 她按了"丢球"，但小人当时正忙（刚从岛里出来、正在摸狗……）：等他一有空就丢
+    if (play.want) {
+      if (now > play.want) play.want = 0;
+      else if (ball.st === 'hand' && !person.hidden && !person.carried && (play.phase === 'rest' || play.phase === 'ready') &&
+               (person.st === 'idle' || person.st === 'front' || person.st === 'wave' || person.st === 'walk' || person.st === 'act' || person.st === 'come')) {
+        play.want = 0; clickPerson();
+      }
+    }
     if (play.phase === 'rest') {
       if (opt.auto && !scene && !sleepyTime() && now >= play.nextAt && ball.st === 'hand' && !person.carried &&
           (person.st === 'idle' || person.st === 'front' || person.st === 'walk' || person.st === 'act')) {
@@ -2473,7 +2514,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
   function clickPerson() {
     var p = person;
     if (p.scene) endScene(true);
-    if (ball.st === 'hand' && (p.st === 'idle' || p.st === 'front' || p.st === 'wave' || p.st === 'walk' || p.st === 'act')) {
+    if (ball.st === 'hand' && (p.st === 'idle' || p.st === 'front' || p.st === 'wave' || p.st === 'walk' || p.st === 'act' || p.st === 'come')) {
       personIdle();
       if (play.phase === 'rest') startSession(1);
       play.phase = 'ready'; play.throwAt = now + 0.05; play.faked = true;
@@ -2567,6 +2608,14 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
       if (g.moved) {     // 放下
         a.carried = false; a.vz = 0;
         if (a.z <= 0) a.z = 0.01;
+        // 拎到灵动岛上放下 = 送它们回岛睡觉
+        var I = window.PET_ISLAND, ir = (I && I.rects && opt.roam) ? I.rects() : null;
+        var px = pointer.x * S + offX, py = pointer.y * S + offY;
+        if (ir && ir.length >= 4 && home.st === 'out' && px >= ir[0] - 12 && px <= ir[0] + ir[2] + 12 && py <= ir[1] + ir[3] + 30) {
+          if (a.isPerson) personIdle(); else { a.st = 'idle'; a.pose = 'stand'; a.t = 0; }
+          home.auto = false; goHome(); home.inAt = now;
+          return;
+        }
         if (home.st === 'going') { a.st = 'home'; a.t = 0; a.hq = false; a.react = 0.2; if (!a.isPerson) a.pose = 'stand'; }
         else if (a.isPerson) { personIdle(); }
         else { a.st = 'pose'; a.pose = 'sit'; a.t = 0; a.dur = 1.6; a.wag = 0.9; }
@@ -2749,7 +2798,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
       var a = sl[0];
       if (!a.hidden) return;
       if (a.isPerson) {
-        var s = SPR.p_front_blink;
+        var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着
         c.drawImage(s.img, Math.round(sl[1] - s.w / 2), h - s.h + 1);
       } else {
         var o = a.rig.render(sl[1] > w / 2);
@@ -2852,7 +2901,7 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
       }
     },
     command: function (name) {
-      if (name === 'throw') { if (home.st === 'in') comeOut(); else { touchAll(); clickPerson(); } }
+      if (name === 'throw') { touchAll(); if (home.st === 'in' || home.st === 'going') comeOut(); play.want = now + 9; }
       else if (name === 'wave') { if (home.st === 'in') comeOut(); else { touchAll(); personWave(); } }
       else if (name === 'home') { home.auto = false; goHome(); home.inAt = now; }
       else if (name === 'out') comeOut();
@@ -2877,7 +2926,9 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     // type: down | move | up | hover | leave ；坐标是页面里的 CSS 像素
     pointer: function (type, x, y) {
       var I = window.PET_ISLAND;
-      if (I && I.pointer && I.pointer(type, x, y)) { schedule(); return; }
+      // 手里正拖着球 / 拎着谁的时候，岛先不要展开挡住视线
+      var holding = pointer.drag || (pointer.grab && pointer.grab.moved);
+      if (I && I.pointer && !holding && I.pointer(type, x, y)) { schedule(); return; }
       var p = toL(x, y);
       if (type === 'down') ptDown(p[0], p[1]);
       else if (type === 'move') ptMove(p[0], p[1]);
@@ -2935,7 +2986,17 @@ window.PET_CONFIG.autoScale = function (vw) { return vw < 600 ? 2 : 3; };
     schedule();
   }, window.PET_ISLAND ? 500 : 1600);
   schedule();
-  if (NATIVE) { try { window.webkit.messageHandlers.pet.postMessage(JSON.stringify({ t: 'ready' })); } catch (e) {} }
+  // 画布到底能不能用：画一块红色再读回来。读不回来 = 这台机器上显卡画布是坏的，
+  // 告诉 Mac 外壳换一种画法重新载入（见 src/main.swift 的 makeWebView）。
+  function canvasOK() {
+    try {
+      var t = document.createElement('canvas'); t.width = 96; t.height = 64;
+      var x = t.getContext('2d'); x.fillStyle = '#f00'; x.fillRect(0, 0, 96, 64);
+      var d = x.getImageData(20, 20, 1, 1).data;
+      return d[3] === 255 && d[0] > 200;
+    } catch (e) { return false; }
+  }
+  if (NATIVE) { try { window.webkit.messageHandlers.pet.postMessage(JSON.stringify({ t: 'ready', canvas: canvasOK() })); } catch (e) {} }
 })();
 </script>
 </body>

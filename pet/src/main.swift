@@ -92,6 +92,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private var tickCount = 0
     private var hoverTicks = 0
     private var lastVisible = CGRect.zero
+    /// 画布不用显卡加速。平时是 false（跟系统默认走）；发现画布画不出东西时会自动改成 true。
+    private var softCanvas = false
+    private var forceGPUCanvas = false
+    private var selfTestScheduled = false
 
     private let defaults = UserDefaults.standard
     private let selfTestPath: String?
@@ -111,7 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     // MARK: 启动
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        defaults.register(defaults: ["scale": 3, "auto": true, "screen": 0, "roam": true, "island": true])
+        defaults.register(defaults: ["scale": 3, "auto": true, "screen": 0, "roam": true, "island": true, "softCanvas": false])
+        // 调试用：QIUQIU_GPU_CANVAS=0 一开始就不用显卡画布；=1 即使画不出来也不自动切换
+        let gpuEnv = ProcessInfo.processInfo.environment["QIUQIU_GPU_CANVAS"]
+        forceGPUCanvas = (gpuEnv == "1")
+        softCanvas = !forceGPUCanvas && (gpuEnv == "0" || defaults.bool(forKey: "softCanvas"))
         buildWindow()
         buildMenu()
         loadPage()
@@ -190,34 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let content = NSView(frame: CGRect(origin: .zero, size: f.size))
         content.autoresizingMask = [.width, .height]
 
-        let conf = WKWebViewConfiguration()
-        conf.userContentController.add(self, name: "pet")
-        // 让网页背景透明。这是 WebKit 的非公开开关，所以先确认它存在再用，免得哪天没有了会闪退。
-        if conf.responds(to: Selector(("_setDrawsBackground:"))) {
-            conf.setValue(false, forKey: "drawsBackground")
-        }
-        // 小人和狗狗都画在一块很小的画布上，用不着显卡加速。
-        // 在 macOS 27 的虚拟机上实测：开着加速时画布是一片空白（看得到岛，看不到小人和狗），关掉就正常。
-        // 这两个也是 WebKit 的非公开开关，同样先确认存在再用。设 QIUQIU_GPU_CANVAS=1 可以改回系统默认。
-        if ProcessInfo.processInfo.environment["QIUQIU_GPU_CANVAS"] != "1" {
-            let prefs = conf.preferences
-            if prefs.responds(to: Selector(("_setCanvasUsesAcceleratedDrawing:"))) {
-                prefs.setValue(false, forKey: "canvasUsesAcceleratedDrawing")
-            }
-            if prefs.responds(to: Selector(("_setAcceleratedDrawingEnabled:"))) {
-                prefs.setValue(false, forKey: "acceleratedDrawingEnabled")
-            }
-        }
-
-        web = PetWebView(frame: content.bounds, configuration: conf)
-        web.autoresizingMask = [.width, .height]
-        if web.responds(to: Selector(("_setDrawsBackground:"))) {
-            web.setValue(false, forKey: "drawsBackground")
-        }
-        if #available(macOS 12.0, *) {
-            web.underPageBackgroundColor = NSColor.clear
-        }
-        web.navigationDelegate = self
+        web = makeWebView(frame: content.bounds)
         content.addSubview(web)
 
         input = InputView(frame: content.bounds)
@@ -227,6 +208,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         panel.contentView = content
         panel.orderFrontRegardless()
+    }
+
+    private func makeWebView(frame: CGRect) -> PetWebView {
+        let conf = WKWebViewConfiguration()
+        conf.userContentController.add(self, name: "pet")
+        // 让网页背景透明。这是 WebKit 的非公开开关，所以先确认它存在再用，免得哪天没有了会闪退。
+        if conf.responds(to: Selector(("_setDrawsBackground:"))) {
+            conf.setValue(false, forKey: "drawsBackground")
+        }
+        // 小人和狗狗都画在一块画布上。系统默认用显卡画；在 macOS 27 的虚拟机上实测，
+        // 这样画布会是一片空白（看得到岛，看不到小人和狗），改成不用显卡就正常。
+        // 所以：先跟系统默认走，网页自己检查画布能不能用，不能用就回来走这里重建一次。
+        // 这两个同样是 WebKit 的非公开开关，先确认存在再用。
+        if softCanvas {
+            let prefs = conf.preferences
+            if prefs.responds(to: Selector(("_setCanvasUsesAcceleratedDrawing:"))) {
+                prefs.setValue(false, forKey: "canvasUsesAcceleratedDrawing")
+            }
+            if prefs.responds(to: Selector(("_setAcceleratedDrawingEnabled:"))) {
+                prefs.setValue(false, forKey: "acceleratedDrawingEnabled")
+            }
+        }
+        let w = PetWebView(frame: frame, configuration: conf)
+        w.autoresizingMask = [.width, .height]
+        if w.responds(to: Selector(("_setDrawsBackground:"))) {
+            w.setValue(false, forKey: "drawsBackground")
+        }
+        if #available(macOS 12.0, *) {
+            w.underPageBackgroundColor = NSColor.clear
+        }
+        w.navigationDelegate = self
+        return w
+    }
+
+    /// 画布画不出东西：换成不用显卡的画法，重新载入页面。
+    private func rebuildWebView() {
+        if let old = web {
+            old.configuration.userContentController.removeScriptMessageHandler(forName: "pet")
+            old.navigationDelegate = nil
+            old.removeFromSuperview()
+        }
+        guard let content = panel.contentView else { return }
+        web = makeWebView(frame: content.bounds)
+        content.addSubview(web, positioned: .below, relativeTo: input)
+        hot = []
+        loadPage()
+    }
+
+    private func scheduleSelfTest(after seconds: Double) {
+        guard let path = selfTestPath, !selfTestScheduled else { return }
+        selfTestScheduled = true
+        perform(#selector(runSelfTest(_:)), with: path, afterDelay: seconds)
     }
 
     private func loadPage() {
@@ -280,9 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         pushConfig()
-        if let path = selfTestPath {
-            perform(#selector(runSelfTest(_:)), with: path, afterDelay: 3.0)
-        }
+        scheduleSelfTest(after: 8.0)    // 保险：正常情况下页面说"准备好了"时就会安排自检
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -309,7 +340,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             if debug && dragging != jsDragging { print("JSDRAG \(dragging ? 1 : 0)"); fflush(stdout) }
             jsDragging = dragging
         } else if type == "ready" {
+            let canvasOK = (obj["canvas"] as? Bool) ?? true
+            if !canvasOK && !softCanvas && !forceGPUCanvas {
+                softCanvas = true
+                print("CANVAS the system-default canvas is not drawing; switching to the software canvas")
+                fflush(stdout)
+                rebuildWebView()
+                return
+            }
+            if debug || selfTestPath != nil { print("CANVAS \(softCanvas ? "software" : "gpu") ok=\(canvasOK)"); fflush(stdout) }
             pushConfig()
+            scheduleSelfTest(after: 3.0)
         }
     }
 
@@ -582,6 +623,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web.evaluateJavaScript("(function(){try{var c=document.getElementById('stage');var d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;var n=0;for(var i=3;i<d.length;i+=4){if(d[i]>0)n++;}return n;}catch(e){return -1;}})()") { result, _ in
             print("SELFTEST canvasPixels \((result as? NSNumber)?.intValue ?? -2)")
         }
+        print("SELFTEST canvas \(softCanvas ? "software" : "gpu")")
         print("SELFTEST hotRects \(hot.count) panel \(Int(panel.frame.width))x\(Int(panel.frame.height)) visible \(panel.isVisible) level \(panel.level.rawValue)")
         web.takeSnapshot(with: nil) { image, error in
             guard let image = image,

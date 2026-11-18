@@ -60,6 +60,7 @@ jobs:
           ls -d /Applications/QiuQiu.app "$HOME/Applications/QiuQiu.app" 2>/dev/null || true
           INST=/Applications/QiuQiu.app; [ -d "$INST" ] || INST="$HOME/Applications/QiuQiu.app"
           echo "quarantined files left inside the installed app: $(xattr -lr "$INST" 2>/dev/null | grep -c com.apple.quarantine || true)"
+          echo "Gatekeeper: $(spctl --status 2>&1 | head -1)"
           spctl --assess --type execute -v "$INST" 2>&1 | head -3 || true
           echo "---- LaunchAgent ----"
           cat "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
@@ -101,6 +102,8 @@ jobs:
             echo "-----END SNAP PNG-----"
           fi
           grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest.log"
+          echo "---- for information only: would the system-default (GPU) canvas alone have worked on this machine? ----"
+          QIUQIU_GPU_CANVAS=1 "$APP" --selftest "$RUNNER_TEMP/snap_gpu.png" 2>&1 | grep -E "^(CANVAS|SELFTEST (canvas|snapshot|PASS|FAIL))" | cut -c1-150 || true
 
       - name: Window level (the island must draw above the menu bar)
         run: |
@@ -187,7 +190,7 @@ jobs:
           echo "---- memory / cpu while roaming the whole screen ----"
           ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu|com.apple.WebKit" | grep -v grep | head -8 || true
           echo "---- app log (events) ----"
-          grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME|PANEL|GLOBAL|MARK)' "$LOG" | head -90 || true
+          grep -E '^(CANVAS|INTERACTIVE|MOUSE|JSDRAG|FRAME|PANEL|GLOBAL|MARK)' "$LOG" | head -90 || true
           kill $PID 2>/dev/null || true
           defaults delete local.qiuqiu.deskpet >/dev/null 2>&1 || true
           if [ "$OK" = "1" ] && grep -q '^MOUSE up' "$LOG"; then echo "MOUSE_DRAG_OK"; else echo "MOUSE_DRAG_NOT_CONFIRMED"; exit 1; fi
