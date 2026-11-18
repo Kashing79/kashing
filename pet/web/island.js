@@ -36,8 +36,8 @@
     var homey = st.home === 'in' || st.home === 'going';
     var wing = 46;
     var w0 = G.notchW > 0 ? G.notchW + wing * 2 : 132;
-    if (open) { W = 324; H = G.h + (homey ? 36 : 0) + 124; }
-    else if (homey) { W = Math.max(196, w0); H = G.h + 36; }
+    if (open) { W = 324; H = G.h + (homey ? 60 : 0) + 124; }
+    else if (homey) { W = Math.max(272, w0); H = G.h + 60; }
     else { W = w0; H = G.h; }
     box.style.width = W + 'px'; box.style.height = H + 'px';
     box.style.borderRadius = open ? '0 0 22px 22px' : '0 0 13px 13px';
@@ -69,7 +69,11 @@
     if (key === lastKey) return;
     lastKey = key;
     elN.textContent = st.fetch;
-    elR.textContent = cl.length ? cl[cl.length - 1].split(' ').pop() : (st.home === 'in' ? 'zzz' : '');
+    // 右边：设了时钟就显示时间；在岛里睡觉显示 zzz；否则显示今天被摸了几次
+    if (cl.length) elR.textContent = cl[cl.length - 1].split(' ').pop();
+    else if (st.home === 'in') elR.textContent = 'zzz';
+    else if (st.pets > 0) { elR.innerHTML = '<i>\u2665</i>'; elR.appendChild(document.createTextNode(String(st.pets))); }
+    else elR.textContent = '';
     elTitle.textContent = { out: TXT.outside, 'in': TXT.inside, going: TXT.going, leaving: TXT.leaving }[st.home] || '';
     var foot = [TXT.fetch.replace('#', st.fetch), TXT.pets.replace('#', st.pets)];
     var extra = cl.concat(daysText() ? [daysText()] : []);

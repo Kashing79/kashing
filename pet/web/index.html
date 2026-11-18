@@ -58,7 +58,8 @@
   .isl-dot { width: 9px; height: 9px; border-radius: 50%; background: #d6e645; box-shadow: inset -2px -2px 0 #9fb226; }
   .isl-gap { flex: none; }
   .isl-r { color: #9aa3b5; font-variant-numeric: tabular-nums; min-width: 12px; text-align: right; }
-  #isl-den { display: none; width: 170px; height: 32px; margin: 2px auto 2px; image-rendering: pixelated; }
+  .isl-r i { font-style: normal; color: #ff7a9a; margin-right: 3px; }
+  #isl-den { display: none; width: 248px; height: 56px; margin: 2px auto 2px; image-rendering: pixelated; }
   #island.homey #isl-den { display: block; }
   .isl-panel { opacity: 0; transition: opacity .2s; padding: 4px 14px 12px; width: 324px; box-sizing: border-box; margin-left: 50%; transform: translateX(-50%); }
   #island.open .isl-panel { opacity: 1; transition-delay: .08s; }
@@ -107,7 +108,7 @@
       <span class="isl-gap"></span>
       <span class="isl-r" id="isl-r"></span>
     </div>
-    <canvas id="isl-den" width="170" height="32"></canvas>
+    <canvas id="isl-den" width="124" height="28"></canvas>
     <div class="isl-panel">
       <div class="isl-title" id="isl-title"></div>
       <div class="isl-btns">

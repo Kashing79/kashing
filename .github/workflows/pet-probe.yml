@@ -1,0 +1,70 @@
+# 临时的排查用流程：查清楚 macOS 27 上"程序在跑但看不到东西"的原因。查完会删掉。
+name: pet-probe
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['pet/dev/ci_probe.swift', '.github/workflows/pet-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26, xcode-27]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe
+        run: |
+          sw_vers
+          spctl --status || true
+          system_profiler SPDisplaysDataType 2>/dev/null | head -30 || true
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_probe" pet/dev/ci_probe.swift
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_windows" pet/dev/ci_windows.swift
+          shot() {
+            screencapture -x -R"0,150,700,200" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+            sips -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            echo "-----BEGIN $1 JPG-----"
+            base64 -i "$RUNNER_TEMP/$1.jpg" | fold -w 120
+            echo "-----END $1 JPG-----"
+          }
+          run() {   # run 名字 层级 模式 [gpuoff]
+            NAME=$1; shift
+            "$RUNNER_TEMP/ci_probe" "$@" > "$RUNNER_TEMP/$NAME.log" 2>&1 &
+            PID=$!
+            sleep 5
+            echo "==== $NAME ($*)"
+            cat "$RUNNER_TEMP/$NAME.log" | head -12
+            "$RUNNER_TEMP/ci_windows" | grep -E "name=Probe|name=Menubar" | head -3 || true
+            shot "$NAME"
+            kill $PID 2>/dev/null || true
+            sleep 0.6
+          }
+          run native27 27 native
+          run native3 3 native
+          run web27 27 web
+          run web3 3 web
+          run webopaque3 3 webopaque
+          run webgpuoff27 27 web gpuoff
+      - name: Real app at two levels
+        run: |
+          bash pet/install.sh --build-only >/dev/null
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          for L in 3 27; do
+            QIUQIU_LEVEL=$L "$APP" > /dev/null 2>&1 &
+            PID=$!
+            sleep 6
+            screencapture -x -R"212,0,600,520" "$RUNNER_TEMP/app$L.png" || true
+            sips -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/app$L.png" --out "$RUNNER_TEMP/app$L.jpg" >/dev/null
+            echo "-----BEGIN app$L JPG-----"
+            base64 -i "$RUNNER_TEMP/app$L.jpg" | fold -w 120
+            echo "-----END app$L JPG-----"
+            kill $PID 2>/dev/null || true
+            sleep 0.7
+          done

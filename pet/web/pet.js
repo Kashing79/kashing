@@ -1564,7 +1564,7 @@
       var a = sl[0];
       if (!a.hidden) return;
       if (a.isPerson) {
-        var s = SPR.p_front_blink;
+        var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着
         c.drawImage(s.img, Math.round(sl[1] - s.w / 2), h - s.h + 1);
       } else {
         var o = a.rig.render(sl[1] > w / 2);
