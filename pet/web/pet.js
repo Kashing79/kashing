@@ -93,7 +93,7 @@
     function makeVis(phase) {
       return {
         im: { w: 0, h: 0, data: null, scale: 1, ox: 0, oy: 0, key: null, ver: 0 },
-        acc: phase, seen: 0, sig: -1, left: false, R: 0, late: false, hot: 0,
+        ph: phase, acc: 0, seen: 0, sig: -1, left: false, R: 0, hot: 0,
         bx0: 0, by0: 0, bx1: 0, by1: 0, px: 1, top: 0, mx: 0, my: 0, hand: false, holds: false, hx: 0, hy: 0,
         ry0: 0, ry1: 0, s8: null, s32: null, p32: null, n: 0, ch: 0,
       };
@@ -102,7 +102,7 @@
       return {
         kind: kind, name: kind, K: KIND[kind], half: KIND[kind].half,
         rig: DOGS ? DOGS.create(kind, kind === 'gold' ? 'gold' : 'dax_' + (CFG.dachshund || 'red')) : null,
-        vis: makeVis(kind === 'gold' ? 0 : 0.045), ri: {},
+        vis: makeVis(kind === 'gold' ? 0 : 0.66), ri: {},
         x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, sp: 0, face: 1, lift: 0,
         st: 'idle', pose: 'stand', t: 0, dur: 0, wag: 0.3, energy: 1,
         tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, sideAt: 0, way: null,
@@ -117,10 +117,10 @@
     var dogs = [gold, dax];
     function other(d) { return d === dax ? gold : dax; }
     var person = {
-      isPerson: true, name: 'person', half: 8, x: 0, y: 0, z: 0, vz: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, ty: 0, next: 4,
+      isPerson: true, name: 'person', half: 8, x: 0, y: 0, z: 0, vz: 0, lift: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, ty: 0, next: 4,
       msgAt: 0, waveCd: 0, hoverT: 0, box: null, bpx: 1, top: 0, zAt: 0, giveTo: null, spr: null, sprAt: 0, act: null, patSpr: null, item: null,
       scene: null, cmd: null, hidden: false, carried: false, moving: false, spd: 0,
-      rig: (PERSON && PERSON.create) ? PERSON.create(CFG) : null, vis: makeVis(0.022), ri: { frame: 'p_idle' },
+      rig: (PERSON && PERSON.create) ? PERSON.create(CFG) : null, vis: makeVis(0.33), ri: { frame: 'p_idle' },
     };
     var actors = [gold, person, dax];
     var ball = { x: 0, y: 0, z: BALL_R, vx: 0, vy: 0, vz: 0, st: 'hand', holder: null, other: null, rot: 0, sq: 0, box: null, bpx: 1, freeT: 0, vis: true, tugEnd: 0 };
@@ -1481,7 +1481,6 @@
     // ------------------------------------------------------------
     //  角色的图："一拍二"——骨架隔几帧才重画一次，中间只挪位置
     // ------------------------------------------------------------
-    var shots = 0;             // 这一帧已经重画了几个角色
     function qual() { return clamp(quality, 0.2, 1) * (opt.soft ? 0.56 : 1); }
     // 两张图在 [i0, i1) 这些像素上是不是一模一样
     function samePixels(v, src, i0, i1) {
@@ -1519,14 +1518,11 @@
       v.seen = now;
       v.acc += el > 0 ? (el > 1 ? 1 : el) : 0;
       var must = v.im.ver === 0 || sig !== v.sig || left !== v.left || RR !== v.R;
-      if (!must) {
-        if (v.acc < per - 1e-6) return v;
-        if (shots > 0 && !v.late) { v.late = true; return v; }     // 这一帧已经画过别人了：错开一帧，免得挤在一起
-      }
-      if (must) { v.acc = 0; v.hot = Math.max(v.hot, now + 0.6); }   // 姿势在过渡，这阵子画勤一点
+      if (!must && v.acc < per - 1e-6) return v;
+      if (must) { v.acc = v.ph * per; v.hot = Math.max(v.hot, now + 0.6); }   // 姿势在过渡，这阵子画勤一点；三个角色的节拍互相错开
       else v.acc = Math.min(v.acc - per, per * 0.5);
-      v.late = false; v.sig = sig; v.left = left; v.R = RR;
-      shots++; v.n++;
+      v.sig = sig; v.left = left; v.R = RR;
+      v.n++;
       adopt(a, a.rig.render(left, RR));
       return v;
     }
@@ -1640,7 +1636,6 @@
     function compose() {
       if (!booted) relayout();
       var list = [], i, a, shade = opt.grass ? 0.2 : 0.16;
-      shots = 0;
 
       // 贴着地面的：灰尘
       for (i = 0; i < parts.length; i++) {
