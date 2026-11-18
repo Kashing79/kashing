@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 OUT="${1:-.}"
 TMP="$(mktemp -d)"
 mkdir -p "${TMP}/qiuqiu-pet"
-cp -R CLAUDE.md README.md install.sh uninstall.sh web src assets dev iphone phone "${TMP}/qiuqiu-pet/"
+cp -R CLAUDE.md README.md SCENES.md install.sh uninstall.sh get.sh web src assets dev iphone phone "${TMP}/qiuqiu-pet/"
 rm -rf "${TMP}/qiuqiu-pet/dev/node_modules"
 (cd "${TMP}" && zip -qr qiuqiu-pet.zip qiuqiu-pet -x '*.DS_Store')
 mv "${TMP}/qiuqiu-pet.zip" "${OUT}/qiuqiu-pet.zip"

@@ -55,7 +55,7 @@ var PET_CONFIG = {
   quietHours: [],
   // 鼠标停在它们旁边时，它们会凑过来、跟着鼠标玩。不想要就写 false
   cursorPlay: true,
-  // 新的小剧场头几个星期每天放出几段（每天都有没见过的）。写 false = 第一天就全部都有
+  // 有几段小剧场头几天先不演，第 1–4 天陆续出现（每天有点新东西）。写 false = 第一天就全部都有
   discovery: true,
   // 睡过的地方第二天开小花这一类"留在草地上的小印子"。不想要就写 false
   lawnMemories: true,

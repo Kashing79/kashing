@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/Kashing79/kashing/main/pet/get.sh |
 | 几点开饭、每天一块饼干、要不要拉粑粑 | `care` |
 | 夜里几点到几点回岛睡觉 | `nightSleep` |
 | 它们有多闹；上班时间只演安静的 | `liveliness`、`quietHours` |
-| 新的小剧场要不要每天放出几段（头两个星期每天都有没见过的） | `discovery` |
+| 有 9 段小剧场头几天先不演、第 1–4 天陆续出现（每天有点新东西）；不想等就关掉 | `discovery` |
 
 ## 想先自己看看
 
