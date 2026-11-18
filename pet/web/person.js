@@ -106,7 +106,7 @@
     f[F_PUPIL] = dark;
     f[F_IRIS] = fromHsv(22, 52, 34);
     f[F_WHITE] = [255, 255, 255];
-    f[F_BROW] = hv[2] < 45 ? hair[3] : hair[2];
+    f[F_BROW] = hv[2] < 45 ? hair[4] : hair[2];
     f[F_MOUTH] = mouth;
     f[F_DEEP] = fromHsv(sk[0] - 46, Math.min(100, sk[1] + 28), sk[2] * 0.46);
     f[F_TEETH] = [255, 250, 242];
@@ -143,7 +143,7 @@
   var bx0 = 0, by0 = 0, bx1 = -1, by1 = -1;      // 这一帧画到的范围
 
   // 分组
-  var G_ARMF = 1, G_LEGF = 2, G_LEGN = 3, G_TORSO = 4, G_HEAD = 5, G_HAIR = 6, G_ARMN = 7, G_FEAT = 8;
+  var G_ARMF = 1, G_LEGF = 2, G_LEGN = 3, G_TORSO = 4, G_HEAD = 5, G_HAIR = 6, G_ARMN = 7, G_FEAT = 8, G_EAR = 9;
 
   function begin(c) {
     W = c.w; H = c.h; MAT = c.mat; TONE = c.tone; GRP = c.grp; ORD = c.ord;
@@ -235,11 +235,11 @@
   // 哪一块压在哪一块上面时，要在"被压住的那一边"留一条暗线：0 不要，1 暗一级，2 最暗
   var SEAM = new Uint8Array(16 * 16);
   (function () {
-    for (var a = 1; a < 9; a++) for (var b = 1; b < 9; b++) {
+    for (var a = 1; a < 10; a++) for (var b = 1; b < 10; b++) {
       if (a === b || a === G_FEAT || b === G_FEAT) continue;
       SEAM[a * 16 + b] = (b === G_ARMF || b === G_LEGF) ? 2 : 1;
     }
-    SEAM[G_HEAD * 16 + G_HAIR] = 0;       // 耳朵压着头发：不要线
+    SEAM[G_EAR * 16 + G_HAIR] = 0; SEAM[G_EAR * 16 + G_HEAD] = 0; SEAM[G_HEAD * 16 + G_EAR] = 0;      // 耳朵和脸、头发之间不要线
   })();
   var DARKM = new Uint8Array(16); DARKM[HAIR] = 1; DARKM[SUIT] = 1; DARKM[TROU] = 1; DARKM[SHOE] = 1;
 
@@ -255,7 +255,8 @@
       m = MAT[k]; SM[k] = 0;
       if (!m || m === FEAT) continue;
       g = GRP[k]; o = ORD[k]; s = 0;
-      n = k - 1; if (MAT[n] && ORD[n] > o && GRP[n] !== g) { e = SEAM[GRP[n] * 16 + g]; if (e > s) s = e; }
+      // 左边那块压着我：料子一样的话不加线（它自己背光的那条暗边已经把两块分开了）
+      n = k - 1; if (MAT[n] && ORD[n] > o && GRP[n] !== g && MAT[n] !== m) { e = SEAM[GRP[n] * 16 + g]; if (e > s) s = e; }
       n = k + 1; if (MAT[n] && ORD[n] > o && GRP[n] !== g) { e = SEAM[GRP[n] * 16 + g]; if (e > s) s = e; }
       n = k - W; if (MAT[n] && ORD[n] > o && GRP[n] !== g) { e = SEAM[GRP[n] * 16 + g]; if (e > s) s = e; }
       n = k + W; if (MAT[n] && ORD[n] > o && GRP[n] !== g) { e = SEAM[GRP[n] * 16 + g]; if (e > s) s = e; }
@@ -270,7 +271,7 @@
       // 2) 头发、西装、皮鞋这些深色的东西：顶上那一圈提亮一级，深色壁纸上才看得出轮廓
       else if (DARKM[m]) { if (!MAT[k - W] && TONE[k] < 4 && TONE[k] > 1) TONE[k]++; }
       // 3) 皮肤：背光（右边）的边暗一级
-      else if (m === SKIN) { if (!MAT[k + 1] && TONE[k] === 3) TONE[k] = 2; }
+      else if (m === SKIN) { if (!MAT[k + 1] && TONE[k] === 3 && GRP[k] !== G_EAR) TONE[k] = 2; }
     }
     // 4) 描边（在轮廓外面加一圈，颜色跟着它贴着的材质走）+ 上色
     x0--; y0--; x1++; y1++;
@@ -296,8 +297,28 @@
   // ============================================================
   // art 字符画；ox = 第几列是 x = 0；oy = 最下面一行的底边在 y 等于几（单位都是字符）
   // order = 'jnw…' 先画谁后画谁；span = { 字母: '也算在它这一段里的别的字母' }
-  function plate(art, ox, oy, order, span) {
+  function plate(art, ox, oy, order, span, multi) {
     var rows = art.length, pcs = [];
+    if (multi) {
+      // 叠加用的小片（高光、暗纹）：同一种字母一行可以有好几段，上下挨着的连成一片
+      for (var m = 0; m < order.length; m++) {
+        var open = [];
+        for (var rr = 0; rr < rows; rr++) {
+          var line = art[rr], xx = 0, next = [];
+          while (xx < line.length) {
+            if (line[xx] !== order[m]) { xx++; continue; }
+            var xa = xx; while (xx < line.length && line[xx] === order[m]) xx++;
+            var hit = null;
+            for (var oo = 0; oo < open.length; oo++) { var pc = open[oo]; if (!pc.used && pc.L[pc.n - 1] + ox < xx && pc.R[pc.n - 1] + ox > xa) { hit = pc; break; } }
+            if (!hit) { hit = { ch: order[m], n: 0, top: oy + rows - rr, L: [], R: [] }; pcs.push(hit); }
+            hit.L.push(xa - ox); hit.R.push(xx - ox); hit.n++; hit.used = true; next.push(hit);
+          }
+          for (oo = 0; oo < next.length; oo++) next[oo].used = false;
+          open = next;
+        }
+      }
+      return pcs;
+    }
     for (var q = 0; q < order.length; q++) {
       var ch = order[q], set = ch + ((span && span[ch]) || ''), r0 = -1, r1 = -1, L = [], Rr = [], r, x;
       for (r = 0; r < rows; r++) {
@@ -374,7 +395,7 @@
     s: [SKIN, 3, 0], e: [SKIN, 3, 0], f: [SKIN, 3, 0], E: [SKIN, 2, 0], n: [SKIN, 3, 0],
     h: [HAIR, 3, 0], g: [HAIR, 3, 0], b: [HAIR, 3, 0], r: [HAIR, 3, 0], q: [HAIR, 3, 0], k: [HAIR, 2, 0],
     H: [HAIR, 4, 0], L: [HAIR, 5, 0], K: [HAIR, 2, 0],
-    j: [SUIT, 3, 1], l: [SUIT, 2, 0], m: [SUIT, 2, 0], u: [SUIT, 2, 0], o: [SUIT, 5, 0],
+    j: [SUIT, 3, 1], l: [SUIT, 2, 0], m: [SUIT, 2, 0], u: [SUIT, 2, 0], o: [SUIT, 4, 0],
     w: [SHIRT, 3, 0], c: [SHIRT, 4, 0], d: [SHIRT, 4, 0], p: [SHIRT, 4, 0],
     t: [TIE, 3, 0], T: [TIE, 4, 0], y: [TIE, 2, 0],
     x: [SHOE, 3, 0], X: [SHOE, 5, 0], z: [SHOE, 2, 0],
@@ -392,100 +413,133 @@
   // ============================================================
   var DESIGN = {
     // —— 身材（世界单位）——
-    hip: 14,                  // 髋关节离地
-    thigh: 6.45, shin: 6.3,   // 大腿、小腿
+    hip: 15,                  // 髋关节离地
+    thigh: 6.8, shin: 6.7,    // 大腿、小腿（加起来正好是髋到脚踝：站着腿是直的）
     ankle: 1.5,               // 脚踝离地
     waist: 4,                 // 髋 → 腰（上身从这里弯）
     torso: 10,                // 髋 → 头的轴心（下巴底）
-    shY: 8.4, shZ: 4.9,       // 肩关节：比髋高多少、离中线多远
-    hipZ: 1.6,                // 髋关节离中线多远
+    shY: 8.1, shZ: 4.5,       // 肩关节：比髋高多少、离中线多远
+    hipZ: 1.25,               // 髋关节离中线多远
     armU: 5.2, armL: 5.0,     // 上臂、前臂
     rArm: [1.2, 1.05, 0.95],  // 手臂粗细（半径）：肩、肘、腕
     rLeg: [1.3, 1.2, 1.15],   // 腿：髋、膝、踝
     headX: 0.5,               // 侧面时头比脊柱靠前多少
     side: 0.25,               // 侧面时身体朝看的人这边偏多少（0 = 纯侧面）
-    headTop: 11,              // 下巴底 → 头顶（世界单位）
+    headTop: 12,              // 下巴底 → 头顶
 
     // —— 头：侧面（脸朝右的 3/4 视角）和正面 ——
-    //    s 皮肤  e/f 耳朵  h 头发（顶和后）  g 另一边的头发  b/r 鬓角  q 额前翘起来的那一撮
+    //    s 皮肤  e/f 耳朵  E 耳朵里的一点影子  h 头发（顶、后、近侧）  g 梳向另一边的刘海  b 刘海的一绺  r 鬓角
     head: {
-      ox: 10, oy: 0, order: 'sefhgbrq', span: { s: 'gbr' },
+      ox: 10, oy: 0, order: 'seEfhgbrq', span: { s: 'gbrE' },
       side: [
-        '..........qqqqqq....',
-        '.....hhhhhqqqqqqqq..',
+        '.............hhh....',
+        '.........hhhhhhhhh..',
+        '......hhhhhhhhhhhhh.',
+        '....hhhhhhhhhhhhhhh.',
         '...hhhhhhhhhhhhhhhh.',
-        '..hhhhhhhhhhhhhhhhhh',
-        '.hhhhhhhhhhhhhhhhhhh',
-        '.hhhhhhhhhhhhhhhhhhh',
-        'hhhhhhhhhhhhhhhhhhhh',
-        'hhhhhhhhhhhssssggggg',
-        'hhhhhhhhhsssssssgggg',
-        'hhhhhhhhsssssssssggg',
-        'hhhhhhhsssssssssssgg',
-        'hhhhhhbssssssssssss.',
-        'hhhhhhbssssssssssss.',
-        '.hhheebssssssssssss.',
-        '.hhheesssssssssssss.',
-        '.hhheesssssssssssss.',
-        '..hhessssssssssssss.',
-        '..hh.sssssssssssss..',
-        '...h..ssssssssssss..',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhhssggggggggg.',
+        '..hhhhhsssssggggggg.',
+        '..hhhhssssssssbbsgg.',
+        '..hhhhssssssssssssg.',
+        '..hhhrssssssssssss..',
+        '..hhhrssssssssssss..',
+        '...hhrssssssssssss..',
+        '..heErssssssssssss..',
+        '..heEsssssssssssss..',
+        '..heEssssssssssssss.',
+        '..hhessssssssssss...',
+        '...h..sssssssssss...',
         '.......ssssssssss...',
+        '........ssssssss....',
         '.........sssssss....',
         '...........ssss.....',
       ],
       front: [
-        '.........qqqqqqq....',
-        '.....hhhhqqqqqqqqq..',
-        '..hhhhhhhhhhhhhhhh..',
-        '.hhhhhhhhhhhhhhhhhh.',
-        '.hhhhhhhhhhhhhhhhhh.',
-        '.hhhhhhhhhhhhhhhhhh.',
-        '.hhhhhhhhhhhhhhhhhh.',
-        '.hhhhhhsssssggggggg.',
-        '.hhhhsssssssssggggg.',
-        '.hhhssssssssssssggg.',
-        '.hhssssssssssssssgg.',
-        '..bssssssssssssssr..',
-        '.ebssssssssssssssrf.',
-        '.eessssssssssssssff.',
-        '.eessssssssssssssff.',
-        '.eessssssssssssssff.',
-        '..essssssssssssssf..',
-        '...ssssssssssssss...',
+        '...........hhh......',
+        '.......hhhhhhhhh....',
+        '.....hhhhhhhhhhhhh..',
+        '....hhhhhhhhhhhhhhh.',
+        '...hhhhhhhhhhhhhhhh.',
+        '...hhhhhhhhhhhhhhhh.',
+        '...hhhhhhhhhhhhhhhh.',
+        '...hhhhhhhhhhhhhhhh.',
+        '...hhssgggggggggggg.',
+        '...hsssssgggggggggg.',
+        '...hssssssssbbsgggg.',
+        '...hssssssssssssggg.',
+        '...hssssssssssssgg..',
+        '...hssssssssssssg...',
+        '...hssssssssssssg...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '....ssssssssssss....',
         '....ssssssssssss....',
         '.....ssssssssss.....',
         '......ssssssss......',
-        '........ssss........',
+        '.......ssssss.......',
       ],
     },
-    // 头发上的高光：不跟着人左右翻（光一直从左上来），只画在头发上
+    // 头发上的亮纹（H 亮、L 高光）和暗纹（K）。只画在头发上。
+    // 光一直从左上来：人朝右用 side，朝左用 sideL（翻过去以后亮的还是左上）。
     shine: {
-      ox: 10, oy: 16, order: 'HL',
+      ox: 10, oy: 14, order: 'HLK',
       side: [
-        '.....LLL.LL.........',
-        '....HHHHHHHH........',
+        '....................',
+        '....................',
+        '.......LLL..........',
+        '.....HHHLLLL........',
+        '.......HHHHHHH......',
+        '...........HHHH.....',
+        '....................',
+        '....................',
+        '..............KKKKK.',
+        '....................',
+      ],
+      sideL: [
+        '....................',
+        '..............LL....',
+        '...........LLLLH....',
+        '.........HHHHHH.....',
+        '.......HHHH.........',
+        '....................',
+        '....................',
+        '....................',
+        '..............KKKKK.',
         '....................',
       ],
       front: [
-        '....LLL.LL..........',
-        '...HHHHHHHH.........',
+        '....................',
+        '....................',
+        '......LLL...........',
+        '....HHHLLLL.........',
+        '......HHHHHHH.......',
+        '..........HHHH......',
+        '....................',
+        '....................',
+        '.............KKKKKK.',
         '....................',
       ],
     },
     // 五官的位置（字符画里的格子，x 从轴心算、y 从下巴底往上）：[侧面, 正面]
     face: {
-      eyeN: [[-1, 10], [-4, 10]],      // 近侧的眼睛：左上角
+      eyeN: [[0, 10], [-4, 10]],       // 近侧的眼睛：左上角
       eyeF: [[5, 10], [2, 10]],        // 远侧的眼睛
       eyeW: [[2, 2], [2, 2]],          // 眼睛宽几格：[近, 远]
-      browN: [[-2, 12], [-5, 12]],     // 眉毛：左上角；宽见 browW
+      eyeH: 3,                         // 眼睛高几格
+      lash: 1,                         // 上眼线往眼尾多挑出 1 格
+      browN: [[-1, 12], [-5, 12]],     // 眉毛：左上角
       browF: [[5, 12], [2, 12]],
       browW: [[3, 2], [3, 3]],
-      nose: [[4, 6], [0, 6]],          // 鼻子的一点影子（侧面才画）
-      mouth: [[3, 3], [0, 3]],         // 嘴的中心（嘴的那一行的底边）
-      blushN: [[-3, 6], [-6, 6]],
-      blushF: [[7, 6], [4, 6]],
-      top: [[2, 22], [1, 22]],         // 头顶（放帽子）
+      nose: null,                      // 鼻子：侧面靠脸的轮廓凸出来的那一格；这里不另画
+      mouth: [[3, 3], [0, 3]],         // 嘴的中心
+      blushN: [[-2, 6], [-6, 6]],
+      blushF: [[6, 6], [4, 6]],
+      top: [[2, 24], [1, 24]],         // 头顶（放帽子）
     },
 
     // —— 上身：西装、衬衫领口、领带结、脖子 ——
@@ -493,65 +547,63 @@
     body: {
       ox: 8, oy: -5, order: 'jnwcdlmutpo',
       side: [
-        '......nnnn......',
-        '....jjcnndd.....',
-        '..jjjjjcttdjj...',
+        '.......nnnn.....',
+        '....jjccnndd....',
+        '..jjjjjccttdjj..',
         '..jjjjjlwttwjjj.',
         '..jjjjjjlwwwwjj.',
         '..jjjjjjlwwwwjj.',
         '..jjjjjjjlwwwjj.',
         '..jjjjjjjlwwwjj.',
         '..jjjjjjjjlwwjj.',
-        '..jjjjjjjjlwwjj.',
-        '..jjjjjjjjjlwjj.',
-        '...jjjjjjjjlwj..',
-        '...jjjjjjjjjoj..',
-        '...jjjjjjjjjjj..',
-        '...jjjjjjjjjjj..',
-        '...jjjjjjjjjjj..',
-        '...jjjjjjjjjjj..',
-        '...jjjjjjjjjjj..',
+        '..jjjjjjjjjlwj..',
         '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjjj..',
-        '..jjjjjjjjjjjjj.',
-        '..jjjjjjjjjjjjj.',
-        '..jjjjjjjjjjjjj.',
-        '..jjjjjjjjjjjjj.',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjj...',
+        '..jjjjjjjjjj....',
       ],
       fox: 10,
       front: [
         '........nnnn........',
         '......jjcnndjj......',
-        '...jjjjjcttdjjjjj...',
-        '..jjjjjlwttwmjjjjj..',
-        '..jjjjjlwwwwmjjjjj..',
-        '..jjjjjlwwwwmjjjjj..',
-        '..jjjjjjlwwmjjjppj..',
-        '..jjjjjjlwwmjjjjjj..',
-        '..jjjjjjlwwmjjjjjj..',
-        '..jjjjjjlwwmjjjjjj..',
-        '..jjjjjjjlmjjjjjjj..',
-        '...jjjjjjjojjjjjj...',
+        '.....jjccttddjj.....',
+        '...jjjjlwttwmjjjj...',
+        '...jjjjlwwwwmjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjppj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '....jjjjjlmjjjjj....',
+        '....jjjjjjojjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
         '...jjjjjjujjjjjjj...',
         '...jjjjjjujjjjjjj...',
         '...jjjjjjujjjjjjj...',
         '...jjjjjjujjjjjjj...',
         '...jjjjjjujjjjjjj...',
         '...jjjjjjujjjjjjj...',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
-        '..jjjjjjjujjjjjjjj..',
       ],
     },
-    // 领带垂下来的那一段：从领带结往下（会晃）。[x, y] = 这一段最上面那格的左上角：[侧面, 正面]
-    tie: { at: [[2, 16], [-1, 16]], len: 7, sway: [[0, 0, 0, 1, 1, 1, 2], [0, 0, 0, 0, 0, 0, 0]] },
+    // 领带垂下来的那一段（会晃）。at = 最上面那格的左上角：[侧面, 正面]；len = 几格长；sway = 每一格往前偏多少
+    tie: { at: [[2, 16], [-1, 16]], len: 5, sway: [[0, 0, 0, 1, 1, 1, 2], [0, 0, 0, 0, 0, 0, 0]] },
 
     // —— 鞋：原点在脚踝，底边在 -3 ——
     shoe: {
@@ -562,9 +614,9 @@
         'xxxxxxxxx',
       ],
       front: [
-        '.xxxx.',
-        'xxxxxX',
-        'xxxxxx',
+        '.xxxx....',
+        'xxxxXx...',
+        'xxxxxx...',
       ],
     },
   };
@@ -574,8 +626,9 @@
     var K = {};
     K.headS = plate(D.head.side, D.head.ox, D.head.oy, D.head.order, D.head.span);
     K.headF = plate(D.head.front, D.head.ox, D.head.oy, D.head.order, D.head.span);
-    K.shineS = plate(D.shine.side, D.shine.ox, D.shine.oy, D.shine.order);
-    K.shineF = plate(D.shine.front, D.shine.ox, D.shine.oy, D.shine.order);
+    K.shineS = plate(D.shine.side, D.shine.ox, D.shine.oy, D.shine.order, null, true);
+    K.shineL = plate(D.shine.sideL || D.shine.side, D.shine.ox, D.shine.oy, D.shine.order, null, true);
+    K.shineF = plate(D.shine.front, D.shine.ox, D.shine.oy, D.shine.order, null, true);
     K.bodyS = plate(D.body.side, D.body.ox, D.body.oy, D.body.order);
     K.bodyF = plate(D.body.front, D.body.fox === undefined ? D.body.ox : D.body.fox, D.body.oy, D.body.order);
     K.shoeS = plate(D.shoe.side, D.shoe.ox, D.shoe.oy, D.shoe.order);
@@ -643,7 +696,7 @@
   //    nh / fh  手型：'relax' 自然 | 'fist' 握拳 | 'open' 张开 | 'flat' 手心朝下 | 'grip' 抓着东西
   //    zn / zf  手臂画在第几层：2 = 最前，0.5 = 身前头后，-3 = 身后
   //  腿：
-  //    sn sf  站着时近脚、远脚想站的位置（差得多了会自己迈一步过去）
+  //    sn sf  站着时近脚、远脚想站的位置（差得多了会自己迈一步过去）；sw 两脚左右分开多少
   //    heel   踮脚（脚跟抬起的角度）
   //    fr     1 = 腿不踩地，脚踝直接去 ln / lf = [x, y, 脚背角度]（坐下、被拎起来）
   //  其它：
@@ -654,13 +707,13 @@
   // ============================================================
   var BASE = {
     q: 0, px: 0, py: 0, lean: 0, bend: 0, tilt: 0, hp: 0, hx: 0, hy: 0,
-    na1: 3, na2: 9, nz1: 0, nz2: 0, fa1: -3, fa2: 5, fz1: 0, fz2: 0,
-    sn: -1.0, sf: 1.3, heel: 0, fr: 0, lnx: 0, lny: 1.5, lnp: 0, lfx: 0, lfy: 1.5, lfp: 0,
+    na1: 3, na2: 9, nz1: 0, nz2: 0, fa1: -8, fa2: -3, fz1: 0, fz2: 0,
+    sn: 0, sf: 0.9, sw: 0.5, heel: 0, fr: 0, lnx: 0, lny: 1.5, lnp: 0, lfx: 0, lfy: 1.5, lfp: 0,
   };
   var PK = Object.keys(BASE);
   // 每一项跟着哪一拨动：身体先动，手臂慢半拍，头最后
   var PGRP = { q: 0, px: 0, py: 0, lean: 0, bend: 0, tilt: 0, hp: 2, hx: 2, hy: 2, na1: 1, na2: 1, nz1: 1, nz2: 1, fa1: 1, fa2: 1, fz1: 1, fz2: 1,
-               sn: 0, sf: 0, heel: 0, fr: 0, lnx: 0, lny: 0, lnp: 0, lfx: 0, lfy: 0, lfp: 0 };
+               sn: 0, sf: 0, sw: 0, heel: 0, fr: 0, lnx: 0, lny: 0, lnp: 0, lfx: 0, lfy: 0, lfp: 0 };
 
   var POSES = {
     // —— 站着（侧面）——
@@ -727,13 +780,13 @@
     p_watch: { face: 'neutral', tin: 0.24, na1: 28, na2: 118, nh: 'fist', hp: -11, hx: 0, lean: 2, watch: 1, gaze: [0, -1],
                held: { fa1: 10, fa2: 26, fh: 'grip', hold: 'F', zf: 0.5 } },
     // —— 正面站着 ——
-    p_front: { q: 1, face: 'smile', tin: 0.24, na1: 0, na2: 2, fa1: 0, fa2: 2, nz1: 90, nz2: 90, fz1: 90, fz2: 90, sn: -0.3, sf: 0.3,
-               held: { na1: 7, na2: 16, nh: 'grip', hold: 'N' } },
+    p_front: { q: 1, face: 'smile', tin: 0.24, na1: -5, na2: -3, fa1: -5, fa2: -3, nz1: 90, nz2: 90, fz1: 90, fz2: 90, sn: -0.3, sf: 0.3,
+               held: { na1: 4, na2: 14, nh: 'grip', hold: 'N' } },
     p_front2: 'p_front', p_front_blink: 'p_front',
     // —— 正面朝看的人挥手 ——
     p_wave_a: {
-      q: 1, face: 'grin', tin: 0.2, na1: 0, na2: 2, nz1: 90, nz2: 90, fa1: 128, fa2: 172, fz1: 90, fz2: 90, fh: 'open', sn: -0.3, sf: 0.3, tilt: 2, zf: 2,
-      held: { na1: 7, na2: 16, nh: 'grip', hold: 'N' },
+      q: 1, face: 'grin', tin: 0.2, na1: -5, na2: -3, nz1: 90, nz2: 90, fa1: 128, fa2: 172, fz1: 90, fz2: 90, fh: 'open', sn: -0.3, sf: 0.3, tilt: 2, zf: 2,
+      held: { na1: 4, na2: 14, nh: 'grip', hold: 'N' },
       anim: function (t, P) { var s = Math.sin(t * 2 * PI * 2.5); P.fa2 += s * 21; P.fa1 += s * 3; P.tilt += s * 0.8; },
     },
     p_wave_b: 'p_wave_a',
@@ -1160,7 +1213,7 @@
     } else this.bob = 0;
     if (fr < 0.5) {
       for (i = 0; i < 2; i++) if (f[i].on || f[i].st >= 0 || !this.walking) {
-        var ddx = ax[i] - hx, lim = L * L * 0.985 - ddx * ddx;
+        var ddx = ax[i] - hx, lim = L * L * 0.997 - ddx * ddx;
         var top = ay[i] + (lim > 0 ? Math.sqrt(lim) : 0);
         if (f[i].on && hy > top) hy = lerp(hy, top, 1 - fr * 2);
       }
@@ -1172,7 +1225,7 @@
       ik2(hx, hy, ax[i], ay[i], D.thigh, D.shin, 1);
       var lg = S.leg[i];
       lg.kx = IKX; lg.ky = IKY; lg.ax = IKAX; lg.ay = IKAY; lg.p = ap[i];
-      lg.z = (i ? -1 : 1) * D.hipZ;
+      lg.z = (i ? -1 : 1) * D.hipZ; lg.za = (i ? -1 : 1) * (D.hipZ + C.sw * (1 - fr));
     }
     // 上身：下半截、上半截各自的角度（正面时前倾看不出来，只看得出往一边歪）
     var lean = C.lean + (gw > 0 ? 0 : 0), lo = (lean - 0.35 * C.bend) * RAD, up = (lean + 0.65 * C.bend) * RAD;
@@ -1269,11 +1322,14 @@
   Rig.prototype.drawLeg = function (c, i) {
     var S = this.S, D = this.D, R = c.R, lg = S.leg[i], far = i === 1 && S.q < 0.5;
     cg = i ? G_LEGF : G_LEGN;
-    var off = -lg.z * S.pb;                               // 两条腿左右错开一点
+    var off = -lg.z * S.pb, offa = -lg.za * S.pb;         // 两条腿左右错开一点；脚比髋再分开一点
     function sx(v) { return Math.floor(v) + 0.5; }       // 对齐到像素中心：腿正好 5 格宽
     var hx = sx(this.X(c, S.hx * S.pa + off)), hy = Math.round(this.Y(c, S.hy));
-    var kx = sx(this.X(c, lg.kx * S.pa + off)), ky = Math.round(this.Y(c, lg.ky));
-    var ax = sx(this.X(c, lg.ax * S.pa + off)), ay = Math.round(this.Y(c, lg.ay));
+    var kx = sx(this.X(c, lg.kx * S.pa + (off + offa) / 2)), ky = Math.round(this.Y(c, lg.ky));
+    var ax = sx(this.X(c, lg.ax * S.pa + offa)), ay = Math.round(this.Y(c, lg.ay));
+    // 腿几乎是直的：膝盖就落在髋和脚踝的连线上，裤线才是一条直线
+    var mid = hx + (ax - hx) * (ky - hy) / ((ay - hy) || 1);
+    if (Math.abs(kx - mid) < 1.3) kx = hx === ax ? hx : mid;
     var r = D.rLeg;
     // 鞋（先画，裤脚盖在它上面）
     var w = S.wq;
@@ -1312,8 +1368,9 @@
     cap(bx, by, rad * R, bx + dx * len * R, by + dy * len * R, rad * R * 0.92, SKIN, far, false, fl);
     if (th > 0) {
       // 大拇指长在"朝前"的那一侧
-      var px = -dy, py = dx, sg = (px * this.dir > 0 || (px === 0 && py < 0)) ? 1 : -1;
-      if (shp === 'open') sg = -sg * (i ? -1 : 1) * (S.q > 0.5 ? 1 : -1);
+      var px = -dy, py = dx, want = S.q > 0.5 ? (i ? -1 : 1) : this.dir;        // 想让它朝屏幕的哪一边
+      if (shp === 'open' && S.q > 0.5) want = -want;
+      var sg = (px * want > 0 || (Math.abs(px) < 0.2 && py < 0)) ? 1 : -1;
       var tx = bx + dx * 0.55 * R + px * sg * rad * 0.7 * R, ty = by + dy * 0.55 * R + py * sg * rad * 0.7 * R;
       cap(tx, ty, 0.52 * R, tx + (px * sg * 0.6 + dx * 0.5) * th * R * 0.7, ty + (py * sg * 0.6 + dy * 0.5) * th * R * 0.7, 0.45 * R, SKIN, far, false, fl);
     }
@@ -1349,12 +1406,13 @@
     // 领带：从领带结垂下来，一格一格跟着晃
     var T = D.tie, tx = lerp(T.at[0][0], T.at[1][0], w), ty = lerp(T.at[0][1], T.at[1][1], w) + (this.tieUp ? 1 : 0);
     var sway = clamp(this.tieX, -3.2, 4.5);
-    for (i = 0; i < T.len; i++) {
-      var u = (i + 1) / T.len, off = lerp(T.sway[0][i], T.sway[1][i], w) + sway * u * u;
+    var tl = Math.round(T.len.length ? lerp(T.len[0], T.len[1], w) : T.len);
+    for (i = 0; i < tl; i++) {
+      var u = (i + 1) / tl, off = lerp(T.sway[0][i], T.sway[1][i], w) + sway * u * u;
       at(tx + off + 1, ty - i - 0.5);
       var cx = Math.round(LOCX - this.dir * 0 ), cy = Math.round(LOCY - 0.5 * k * 1);
       var x0 = Math.round(LOCX - k), y0 = Math.round(LOCY - k * 0.5), ww = Math.max(1, Math.round(2 * k)), hh = Math.max(1, Math.round(k + 0.01));
-      if (i === T.len - 1) { x0 += this.dir > 0 ? 0 : 0; ww = Math.max(1, ww - Math.round(k)); if (this.dir < 0) x0 += Math.round(k); }
+      if (i === tl - 1) { x0 += this.dir > 0 ? 0 : 0; ww = Math.max(1, ww - Math.round(k)); if (this.dir < 0) x0 += Math.round(k); }
       box(x0, y0, x0 + ww, y0 + hh, TIE, 3);
       // 背光的那一侧暗一级
       if (ww > 1) box(x0 + ww - Math.max(1, Math.round(k)), y0, x0 + ww, y0 + hh, TIE, 2);
@@ -1371,7 +1429,7 @@
     var hsx = Math.round(clamp(this.hairX, -1.6, 1.6)), hsy = Math.round(clamp(this.hairY, -1, 1.4));
     for (i = 0; i < K.headS.length; i++) {
       a = K.headS[i]; d = LET[a.ch];
-      cg = d[0] === HAIR ? G_HAIR : G_HEAD;
+      cg = d[0] === HAIR ? G_HAIR : ((a.ch === 'e' || a.ch === 'f') ? G_EAR : G_HEAD);
       if (a.ch === 'q' && (hsx || hsy)) {
         // 额前那一撮：顶上挪得多、根上不动
         shOn = true;
@@ -1380,11 +1438,11 @@
         shOn = false;
       } else piece(a, K.headF[i], w, d[0], d[1], d[2]);
     }
-    // 高光：光一直从左上来，所以这两片不跟着人翻
+    // 高光：光一直从左上来，所以朝右、朝左各有一张（朝左那张翻过去以后还是亮在左上）
     cg = G_HAIR; clipM = HAIR;
-    FD = 1;
-    for (i = 0; i < K.shineS.length; i++) { a = K.shineS[i]; d = LET[a.ch]; piece(a, K.shineF[i], w, d[0], d[1], d[2]); }
-    FD = this.dir; clipM = 0;
+    var sh = w >= 0.5 ? K.shineF : (this.dir > 0 ? K.shineS : K.shineL);
+    for (i = 0; i < sh.length; i++) { a = sh[i]; d = LET[a.ch]; piece(a, null, 0, d[0], d[1], d[2]); }
+    clipM = 0;
     this.drawFace(c, hx, hy, ang);
   };
 
@@ -1416,24 +1474,28 @@
       if (bl > 1) { this.fpt(F.blushN, w, 0, 0, 2); fc(-1, 0, 1, 1, F_BLUSH2, false); fc(2, 0, 1, 1, F_BLUSH2, false); }
     }
     // 鼻子：侧面时一点影子
-    if (w < 0.5) { this.fpt(F.nose, w, 0, 0, 1); box(FCX, FCY, FCX + Math.max(1, Math.round(FCK)), FCY + Math.max(1, Math.round(FCK)), SKIN, 2); }
+    if (F.nose && (w < 0.5 || F.noseF)) { this.fpt(F.nose, w, 0, 0, 1); box(FCX, FCY, FCX + Math.max(1, Math.round(FCK)), FCY + Math.max(1, Math.round(FCK)), SKIN, 2); }
     // 眼睛
     var eo = this.eo * (this.blink > 0 ? (this.blink > 0.1 || this.blink < 0.03 ? 0.5 : 0) : 1);
     for (i = 0; i < 2; i++) {
       var ew = F.eyeW[wi][i], open = eo, arc = this.arc;
       if (this.wink > 0.5 && i === 0) { open = 0; arc = 1; }
       this.fpt(i ? F.eyeF : F.eyeN, w, gx, gy, ew);
+      // 眼尾朝哪边（离鼻子远的那一边）
+      var outer = w >= 0.5 ? (i === 0 ? -1 : ew) : ((i === 0) === (FCD > 0) ? -1 : ew), lash = F.lash ? 1 : 0, eh = F.eyeH || 3, e1 = eh - 1;
       if (open < 0.25) {
-        if (arc) { fc(0, 1, ew, 1, F_LID, false); fc(-1, 2, 1, 1, F_LID, false); fc(ew, 2, 1, 1, F_LID, false); }      // 弯弯的
-        else fc(0, 2, ew, 1, F_LID, false);                                                                          // 闭着：一条线
+        if (arc) { fc(0, e1 - 1, ew, 1, F_LID, false); fc(-1, e1, 1, 1, F_LID, false); fc(ew, e1, 1, 1, F_LID, false); }   // 弯弯的
+        else { fc(0, e1, ew, 1, F_LID, false); if (lash) fc(outer, e1, 1, 1, F_LID, false); }                             // 闭着：一条线
       } else if (open < 0.65) {                 // 半闭
-        fc(0, 1, ew, 1, F_LID, false); fc(0, 2, ew, 1, F_PUPIL, false);
-      } else if (open < 0.9) {                  // 笑眯一点：下半截收上来
-        fc(0, 0, ew, 1, F_LID, false); fc(0, 1, ew, 1, F_PUPIL, false); fc(0, 1, 1, 1, F_WHITE, false);
+        fc(0, e1 - 1, ew, 1, F_LID, false); fc(0, e1, ew, 1, F_PUPIL, false); if (lash) fc(outer, e1 - 1, 1, 1, F_LID, false);
+      } else if (open < 0.9 && eh > 2) {        // 笑眯一点：下半截收上来
+        fc(0, 0, ew, 1, F_LID, false); fc(0, 1, ew, 1, F_PUPIL, false); fc(0, 1, 1, 1, F_WHITE, false); if (lash) fc(outer, 0, 1, 1, F_LID, false);
       } else if (open < 1.25) {                 // 睁着
-        fc(0, 0, ew, 1, F_LID, false); fc(0, 1, ew, 1, F_PUPIL, false); fc(0, 2, ew, 1, F_IRIS, false); fc(0, 1, 1, 1, F_WHITE, false);
+        fc(0, 0, ew, 1, F_LID, false); fc(0, 1, ew, e1 - 1 || 1, F_PUPIL, false); if (eh > 2) fc(0, e1, ew, 1, F_IRIS, false);
+        fc(0, 1, 1, 1, F_WHITE, false); if (lash) fc(outer, 0, 1, 1, F_LID, false);
       } else {                                  // 睁大
-        fc(0, -1, ew, 1, F_LID, false); fc(0, 0, ew, 2, F_PUPIL, false); fc(0, 2, ew, 1, F_IRIS, false); fc(0, 0, 1, 1, F_WHITE, false);
+        fc(0, -1, ew, 1, F_LID, false); fc(0, 0, ew, e1, F_PUPIL, false); if (eh > 2) fc(0, e1, ew, 1, F_IRIS, false);
+        fc(0, 0, 1, 1, F_WHITE, false); if (lash) fc(outer, -1, 1, 1, F_LID, false);
       }
     }
     // 眉毛

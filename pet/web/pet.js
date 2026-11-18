@@ -47,7 +47,8 @@
 //   eng.status()        { home: 'out' | 'going' | 'in' | 'leaving', fetch, pets, night, auto, roam, scene,
 //                         phase: 'day' | 'dusk' | 'night'（草地该用哪套颜色）, drag }
 //   eng.busy()          0 没什么在动 / 1 鼠标在附近、有蝴蝶 / 2 正在动（外壳据此决定画得多勤）
-//   eng.den(R)          它们在岛里睡觉时，岛上那一小格里画什么 → { w, h, items }（坐标相对那一格的左上角）
+//   eng.den(R)          它们在岛里睡觉时，岛上那一小格里画什么 → { w, h, items }（坐标相对那一格的左上角；
+//                       id 是 den:gold / den:person / den:dax / den:z）
 //   eng.setQuality(q)   0..1：机器吃力时调低，角色就少重画几次
 //   eng._t              给测试脚本用的
 (function (G) {
@@ -1508,9 +1509,20 @@
     function loadArt() {
       FXS = null;
       if (FXM && FXM.build) { try { FXS = FXM.build(CFG, R) || null; } catch (e) { artFail('fx.js build', e); } }
-      SD = {}; shCache = {}; pxCache = {};
+      SD = {}; shCache = {}; pxCache = {}; seqN = {};
       puffN = 0;
-      while (sd('puff' + puffN)) puffN++;
+      while (sd('puff' + puffN)) puffN++;      // 灰尘有几帧就用几帧（旧图 3 帧，新图多一帧）
+    }
+    // 表情用哪张图。新画法给有的表情多画了几帧，有就用上（旧图没有，还是原来那一张）：
+    //   名字_pop0 / _pop1 / _pop2   刚冒出来时"啵"的一下（小 → 涨大一圈 → 缩回来）
+    //   名字0 / 名字1 / ……          从头到尾轮着放一遍（小星星：刚亮 → 最亮 → 快灭）
+    var seqN = {};
+    function emoteArt(e) {
+      var base = 'fx_' + e.type, d = e.t < 0.21 ? sd(base + '_pop' + Math.floor(e.t / 0.07)) : null;
+      if (d) return d;
+      var n = seqN[base];
+      if (n === undefined) { n = 0; while (sd(base + n)) n++; seqN[base] = n; }
+      return n ? sd(base + Math.min(n - 1, Math.floor(e.t / e.life * n))) : sd(base);
     }
     // 旧图按整张来摆（和第二版一个像素不差）；新图四周留多少空白不一定，按"真正有像素"的范围来摆
     function boxed(im, tight) {
@@ -1797,13 +1809,14 @@
         put(list, 'px:' + pp.id, pd.im, pp.x - pd.l, pp.y - pd.t, false);
       }
       // 蝴蝶
-      if (bfly.on) {
-        var bs = sd((bfly.color ? 'bfly2_' : 'bfly_') + ((Math.floor(now * 9) % 2) ? 'a' : 'b'));
+      if (bfly.on) {       // 扇翅膀：旧图两帧 a b；新图多一帧"往下压"的 c，按 a b c b 轮
+        var bn = bfly.color ? 'bfly2_' : 'bfly_';
+        var bs = sd(bn + 'c') ? sd(bn + 'abcb'.charAt(Math.floor(now * 14) % 4)) : sd(bn + ((Math.floor(now * 9) % 2) ? 'a' : 'b'));
         if (bs) put(list, 'bfly', bs.im, bfly.x - (bs.l + bs.r) / 2, bfly.y - (bs.t + bs.b) / 2, false);
       }
       // 表情
       for (i = 0; i < emotes.length; i++) {
-        var e = emotes[i], es = sd('fx_' + e.type);
+        var e = emotes[i], es = emoteArt(e);
         if (!es || e.ent.hidden) continue;
         var kk = e.t / e.life;
         if (kk > 0.8 && Math.floor(e.t * 16) % 2) continue;   // 快消失时闪一闪
