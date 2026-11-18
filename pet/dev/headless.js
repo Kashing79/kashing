@@ -153,6 +153,11 @@ function checkVersions(run, items, deep) {
     const key = run + ':' + it.id, t = track[key] || (track[key] = { im: im, ver: -1, sum: 0, deepVer: -1 });
     if (t.im !== im) { fail(key + ': the image object changed identity'); t.im = im; t.deepVer = -1; }
     if (im.ver < t.ver) fail(key + ': ver went backwards');
+    // 认得"零头"的骨架（原点不在整像素上）：刚画好的那一帧，图应该正好落在像素格子上
+    if (im.ver !== t.ver && Math.abs(im.ox - Math.round(im.ox)) > 1e-6) {
+      const gx = it.x * im.scale;
+      if (Math.abs(gx - Math.round(gx)) > 1e-4) fail(key + ': freshly drawn image is not on the pixel grid (x*R = ' + gx.toFixed(4) + ')');
+    }
     if (deep) {
       const s = sum32(im);
       if (t.deepVer === im.ver && s !== t.sum) fail(key + ': pixels changed but ver did not (ver ' + im.ver + ')');
@@ -222,10 +227,11 @@ function contracts() {
     tell.push('person: ' + (M ? 'height ' + M.height + ', half ' + M.half + ', reach ' + M.reach : 'no METRICS (the engine assumes 26 / 8 / 6)'));
   }
   if (G.PET_DOGS) {
-    for (const [kind, coat] of [['gold', 'gold'], ['dax', 'dax_' + (cfg.dachshund || 'red')]]) {
-      const rig = G.PET_DOGS.create(kind, coat);
-      for (const pose of POSES) for (const left of [false, true]) {
-        for (let i = 0; i < 40; i++) rig.update(1 / 60, { pose: pose, speed: 0, air: pose === 'air' ? 1 : 0, wag: 0.5 });
+    for (const [kind, coat] of [['gold', 'gold'], ['dax', 'dax_' + (cfg.dachshund || 'red')]]) for (const left of [false, true]) {
+      const rig = G.PET_DOGS.create(kind, coat);      // 每个朝向用一只新的：有的骨架转身是慢慢转过去的，这里不查那个
+      rig.update(1 / 60, { pose: 'stand' }); rig.render(left, RES);
+      for (const pose of POSES) {
+        for (let i = 0; i < 60; i++) rig.update(1 / 60, { pose: pose, speed: 0, air: pose === 'air' ? 1 : 0, wag: 0.5 });
         const o = rig.render(left, RES), w = 'PET_DOGS ' + kind + ' ' + pose + (left ? ' (left)' : '');
         if (o.scale === undefined) { if (!o.data || o.data.length !== o.w * o.h * 4) fail(w + ': bad buffer'); }      // 旧的画法：没有 scale，一个像素一个世界单位
         else { checkImg(o, w); if (o.scale !== RES) warn(w + ': scale ' + o.scale + ' instead of ' + RES); }
@@ -262,7 +268,7 @@ function simulate(mode, minutes) {
     storage: { get: k => (k in store ? store[k] : null), set: (k, v) => { store[k] = String(v); } },
     haptic: k => { haptics[k] = (haptics[k] || 0) + 1; },
     island: { center: () => view.w / 2, visible: () => true, hit: (x, y) => y < 16 && Math.abs(x - view.w / 2) < 40 },
-    log: () => {},
+    log: m => { fail(mode + ': the engine reported: ' + m); },
   };
   // 满屏那一遍照 Mac 的样子配（点空地不归我们管）；底部一条那一遍照网页的样子配（点空地 = 往那儿丢球）
   const cfg = Object.assign({}, G.PET_CONFIG || {}, { roam: roam, res: RES, grass: !roam, lawnTap: !roam, entrance: true, messages: ['test', '你好'], messageMinutes: [0.5, 1] });
@@ -387,6 +393,7 @@ function simulate(mode, minutes) {
   vm.runInContext('__hour = 14', ctx);
 
   const e = T.state();
+  for (const m of T.errors()) fail(mode + ': a drawing module threw: ' + m);
   for (const k in stats.phases) stats.phases[k] = Math.round(stats.phases[k]);
   stats.scenes = e.scenes; stats.fetch = eng.status().fetch; stats.haptics = haptics;
   const renders = Object.keys(perf).reduce((n, k) => n + perf[k].renders, 0), changed = Object.keys(perf).reduce((n, k) => n + perf[k].changed, 0);

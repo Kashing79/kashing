@@ -211,7 +211,9 @@
         if (d2 > r * r) continue;
         var k = j * W + i;
         if (clipM && MAT[k] !== clipM) continue;
-        var nx = ex / r, ny = -ey / r, nz = Math.sqrt(1 - d2 / (r * r)) * (1 - f) + f;
+        // 只看"离轴线多远"：两头的圆帽也当圆柱来打光，关节那里才不会冒出一块亮斑
+        if (t === 0 || t === 1) { var al = L2 > 1e-6 ? (ex * dx + ey * dy) / L2 : 0; ex -= dx * al; ey -= dy * al; d2 = ex * ex + ey * ey; }
+        var nx = ex / r, ny = -ey / r, nz = Math.sqrt(Math.max(0, 1 - d2 / (r * r))) * (1 - f) + f;
         var s = (nx * LX + ny * LY + nz * LZ) / Math.sqrt(nx * nx + ny * ny + nz * nz);
         var tone = s > 0.92 ? 5 : (s > 0.62 ? 4 : (s > 0.18 ? 3 : (s > -0.28 ? 2 : 1)));
         if (far && tone > 1) tone--;
@@ -300,7 +302,7 @@
       var ch = order[q], set = ch + ((span && span[ch]) || ''), r0 = -1, r1 = -1, L = [], Rr = [], r, x;
       for (r = 0; r < rows; r++) {
         var a = -1, b = -1;
-        for (x = 0; x < art[r].length; x++) if (set.indexOf(art[r][x]) >= 0) { if (a < 0) a = x; b = x; }
+        if (art[r].indexOf(ch) >= 0) for (x = 0; x < art[r].length; x++) if (set.indexOf(art[r][x]) >= 0) { if (a < 0) a = x; b = x; }
         if (a < 0) { if (r0 >= 0 && r1 < 0) r1 = r - 1; continue; }
         if (r1 >= 0) throw new Error('person.js: 字母 "' + ch + '" 中间断开了（第 ' + r + ' 行）');
         if (r0 < 0) r0 = r;
@@ -434,7 +436,7 @@
       ],
       front: [
         '.........qqqqqqq....',
-        '.....hhhhqqqqqqqgg..',
+        '.....hhhhqqqqqqqqq..',
         '..hhhhhhhhhhhhhhhh..',
         '.hhhhhhhhhhhhhhhhhh.',
         '.hhhhhhhhhhhhhhhhhh.',
@@ -855,7 +857,7 @@
 
   Rig.prototype.update = function (dt, input) {
     input = input || {};
-    if (!(dt > 0)) dt = 0;
+    if (!(dt > 0)) dt = 1e-4;
     if (dt > 0.25) dt = 0.25;
     var n = Math.max(1, Math.ceil(dt / 0.01667)), h = dt / n;
     for (var i = 0; i < n; i++) this.step(h, input);

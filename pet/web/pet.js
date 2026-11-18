@@ -23,7 +23,7 @@
 //     haptic(kind)             'light' | 'soft'：手机上震一下
 //     island                   屏幕顶上有没有岛：{ center() 岛的中心在哪（世界单位的 x）, visible() 现在显示着吗,
 //                              hit(x, y) 把谁拎到这里放下算不算"放到岛上" }；没有岛就给 null
-//     log(msg)
+//     log(msg)                 画图的文件出了错时会说一声（引擎自己换旧的画法顶上，不会停）
 //   cfg：config.js 里的设定，外壳可以再加几样：
 //     res（R，默认 2）、rigFps（原地做动作时每秒重画几次，默认 12）、auto（自动丢球，默认开）、
 //     roam、grass（有草地：影子深一点，打滚会带起草屑）、
@@ -102,12 +102,23 @@
     var STRIDE = 0.5;                                      // 在地上每走出这么远（世界单位；再细不过一个像素）就重画一次，脚才不会打滑
     var quality = 1;
 
+    // 画图的文件要是出了错：记下来、告诉外壳（同样的话只说一次），然后用旧的画法顶上，玩法照常
+    var artErrors = [];
+    function artFail(what, e) {
+      var m = what + ': ' + ((e && e.message) || e);
+      if (artErrors.indexOf(m) >= 0 || artErrors.length >= 20) return;
+      artErrors.push(m);
+      if (host.log) { try { host.log(m); } catch (e2) {} }
+    }
+    function makeRig(what, fn) { try { return fn() || null; } catch (e) { artFail(what, e); return null; } }
+
     var DOGS = G.PET_DOGS || null;
     var FXM = G.PET_FX || null;          // 新的小道具画法（没有就用旧的手画图）
     var PERSON = G.PET_PERSON || null;   // 新的小人画法（同上）
     var SPR = (G.PET_SPRITES && G.PET_SPRITES.build) ? G.PET_SPRITES.build(CFG) : {};
+    var personRig = (PERSON && PERSON.create) ? makeRig('person.js create', function () { return PERSON.create(CFG); }) : null;
     // 新画法的小人比旧的高：多高、半个身子多宽、手能伸多远，听画的人的（没有就按旧图：26 高、半宽 8、手伸 6）
-    var PM = (PERSON && PERSON.METRICS) || null;
+    var PM = (personRig && PERSON.METRICS) || null;
     var P_H = PM && PM.height > 0 ? +PM.height : 26;
     var P_HALF = PM && PM.half > 0 ? +PM.half : 8;
     var P_REACH = PM && PM.reach > 0 ? +PM.reach : 6;
@@ -140,14 +151,14 @@
         im: { w: 0, h: 0, data: null, scale: 1, ox: 0, oy: 0, key: null, ver: 0 },
         ph: phase, acc: 0, seen: 0, sig: -1, cls: -1, left: false, R: 0, hot: 0, dist: 0, lx: 0, ly: 0,
         bx0: 0, by0: 0, bx1: 0, by1: 0, px: 1, top: 0, mx: 0, my: 0, hand: false, holds: false, hx: 0, hy: 0, seat: false, sx: 0, sy: 0,
-        ry0: 0, ry1: 0, s8: null, s32: null, p32: null, n: 0, ch: 0,
+        ry0: 0, ry1: 0, s8: null, s32: null, p32: null, n: 0, ch: 0, bad: 0,
       };
     }
     function makeDog(kind) {
       var m = DOGS && DOGS.METRICS && DOGS.METRICS[kind];
       return {
         kind: kind, name: kind, K: KIND[kind], half: m && m.half > 0 ? +m.half : KIND[kind].half,
-        rig: DOGS ? DOGS.create(kind, kind === 'gold' ? 'gold' : 'dax_' + (CFG.dachshund || 'red')) : null,
+        rig: (DOGS && DOGS.create) ? makeRig('dogs.js create ' + kind, function () { return DOGS.create(kind, kind === 'gold' ? 'gold' : 'dax_' + (CFG.dachshund || 'red')); }) : null,
         vis: makeVis(kind === 'gold' ? 0 : 0.66), ri: {},
         x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, sp: 0, face: 1, lift: 0,
         st: 'idle', pose: 'stand', t: 0, dur: 0, wag: 0.3, energy: 1,
@@ -166,7 +177,7 @@
       isPerson: true, name: 'person', half: P_HALF, x: 0, y: 0, z: 0, vz: 0, lift: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, ty: 0, next: 4,
       msgAt: 0, waveCd: 0, hoverT: 0, box: null, bpx: 1, top: 0, zAt: 0, giveTo: null, spr: null, sprAt: 0, act: null, patSpr: null, item: null,
       scene: null, cmd: null, hidden: false, carried: false, moving: false, spd: 0, la: null,
-      rig: (PERSON && PERSON.create) ? PERSON.create(CFG) : null, vis: makeVis(0.33), ri: { frame: 'p_idle' },
+      rig: personRig, vis: makeVis(0.33), ri: { frame: 'p_idle' },
     };
     var actors = [gold, person, dax];
     var ball = { x: 0, y: 0, z: BALL_R, vx: 0, vy: 0, vz: 0, st: 'hand', holder: null, other: null, rot: 0, sq: 0, box: null, bpx: 1, freeT: 0, vis: true, tugEnd: 0 };
@@ -1493,8 +1504,10 @@
     var FXS = null;            // 新小道具的图（按现在的 R 做出来的）
     var SD = {};               // 名字 → { im, l, t, r, b }：图，和"按哪个框来摆"（世界单位，相对图的左上角）
     var shCache = {}, pxCache = {}, puffN = 0;
+    var fxBall = !!(FXM && FXM.ball), fxShadow = !!(FXM && FXM.shadow), fxPx = !!(FXM && FXM.px);     // 新画法的这几样还能不能用
     function loadArt() {
-      FXS = (FXM && FXM.build) ? FXM.build(CFG, R) : null;
+      FXS = null;
+      if (FXM && FXM.build) { try { FXS = FXM.build(CFG, R) || null; } catch (e) { artFail('fx.js build', e); } }
       SD = {}; shCache = {}; pxCache = {};
       puffN = 0;
       while (sd('puff' + puffN)) puffN++;
@@ -1518,10 +1531,13 @@
     function shadowOf(w, al) {
       var key = w + '/' + al, s = shCache[key];
       if (s !== undefined) return s;
-      if (FXM && FXM.shadow) {
-        var im = FXM.shadow(w, al, R), k = im.scale || 1;
-        s = { im: im, cx: im.ox / k, cy: im.oy / k + 0.5 };
-      } else {
+      if (fxShadow) {
+        try {
+          var im = FXM.shadow(w, al, R), k = im.scale || 1;
+          s = { im: im, cx: im.ox / k, cy: im.oy / k + 0.5 };
+        } catch (e) { artFail('fx.js shadow', e); fxShadow = false; s = undefined; }
+      }
+      if (!s) {
         // 旧画法：三行，中间一行最宽
         var W = w * 2, d = new Uint8ClampedArray(W * 3 * 4), a8 = Math.round(al * 255);
         for (var j = 0; j < 3; j++) {
@@ -1537,8 +1553,8 @@
     function pxOf(color) {
       var s = pxCache[color];
       if (s !== undefined) return s;
-      if (FXM && FXM.px) s = boxed(FXM.px(color, R), true);
-      else {
+      if (fxPx) { try { s = boxed(FXM.px(color, R), true); } catch (e) { artFail('fx.js px', e); fxPx = false; s = undefined; } }
+      if (!s) {
         var c = rgbOf(color), d = new Uint8ClampedArray(4);
         d[0] = c[0]; d[1] = c[1]; d[2] = c[2]; d[3] = 255;
         s = boxed({ w: 1, h: 1, data: d, scale: 1, ox: 0.5, oy: 0.5, key: 'px_' + color + '@1', ver: 1 }, false);
@@ -1607,7 +1623,11 @@
       v.dist = 0;
       v.sig = sig; v.cls = cls; v.left = left; v.R = RR;
       v.n++;
-      adopt(a, a.rig.render(left, RR, sx * RR - Math.floor(sx * RR)));
+      try { adopt(a, a.rig.render(left, RR, sx * RR - Math.floor(sx * RR))); v.bad = 0; }
+      catch (e) {      // 画不出来：先接着用上一张；连着三次都不行，这个角色就不用新画法了
+        artFail((a.isPerson ? 'person.js' : 'dogs.js ' + a.name) + ' render', e);
+        if (++v.bad >= 3) a.rig = null;
+      }
       return v;
     }
     // 这一步在地上走了多远（被拎着、躲在岛里的不算）
@@ -1646,9 +1666,9 @@
     // 贴在别人身上（手里 / 嘴里）时多给 (px, py) = 那张图的左上角，这时 (cx, cy) 是球心相对它的位置，对齐到像素格子：
     // 这样不管外壳怎么取整，球和手 / 嘴之间都不会差出一个像素来回抖
     function putBall(list, cx, cy, px, py) {
-      var im, x, y, s;
-      if (FXM && FXM.ball) {
-        im = FXM.ball(ball.rot * Math.PI / 2, ball.sq > 0 ? clamp(ball.sq / 0.07, 0, 1) : 0, R);
+      var im = null, x, y, s;
+      if (fxBall) { try { im = FXM.ball(ball.rot * Math.PI / 2, ball.sq > 0 ? clamp(ball.sq / 0.07, 0, 1) : 0, R); } catch (e) { artFail('fx.js ball', e); fxBall = false; im = null; } }
+      if (im) {
         s = im.scale || 1;
         x = cx - im.ox / s; y = cy - im.oy / s;
         if (px !== undefined) { x = px + qz(x); y = py + qz(y); }
@@ -1668,9 +1688,9 @@
     // 画小人；返回 true = 球画在他手里了
     function putPerson(list, a) {
       var face = personFace(), x, y, hx = 0, hy = 0, has = false, half = 0;      // (hx, hy)：手心相对这张图左上角的位置
-      if (a.rig) {
-        var gy = a.y - 1 - a.z;
-        var v = shoot(a, face < 0, R, personSig(), PCLASS[a.ri.frame] || 0, personActive(), a.x), im = v.im, s = im.scale;
+      var v = a.rig ? shoot(a, face < 0, R, personSig(), PCLASS[a.ri.frame] || 0, personActive(), a.x) : null;
+      if (v && v.im.data) {
+        var gy = a.y - 1 - a.z, im = v.im, s = im.scale;
         x = a.x - im.ox / s; y = gy - im.oy / s;
         put(list, 'person', im, x, y, false);
         a.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; a.bpx = v.px;
@@ -1704,6 +1724,7 @@
     function putDog(list, d) {
       if (!d.rig) return false;
       var sig = dogSig(d), v = shoot(d, d.face < 0, R, sig, sig, dogActive(d), d.x), im = v.im, s = im.scale;
+      if (!im.data) return false;
       var gy = d.y - 1 - d.z - d.lift, x = d.x - im.ox / s, y = gy - im.oy / s;
       put(list, d.name, im, x, y, false);
       d.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; d.bpx = v.px;
@@ -1816,8 +1837,9 @@
         if (!a.hidden) continue;
         if (a.rig) {
           var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false, cx), im = v.im;
-          put(list, 'den:' + a.name, im, cx - im.ox / im.scale, h - im.oy / im.scale, false);
-        } else if (a.isPerson) {
+          if (im.data) put(list, 'den:' + a.name, im, cx - im.ox / im.scale, h - im.oy / im.scale, false);
+        }
+        if (a.isPerson && !(a.rig && a.vis.im.data)) {
           var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着
           if (s) put(list, 'den:person', s, cx - s.w / 2, h - s.h + 1, false);
         }
@@ -1852,8 +1874,8 @@
       updateBall(dt);
       updateBfly(dt);
       var i;
-      for (i = 0; i < dogs.length; i++) { var I = rigInput(dogs[i], dt); if (dogs[i].rig) dogs[i].rig.update(dt, I); }
-      if (person.rig) person.rig.update(dt, personInput());
+      for (i = 0; i < dogs.length; i++) feed(dogs[i], rigInput(dogs[i], dt), dt);
+      feed(person, personInput(), dt);
       for (i = 0; i < actors.length; i++) travelled(actors[i]);
       for (i = emotes.length - 1; i >= 0; i--) { emotes[i].t += dt; if (emotes[i].t >= emotes[i].life) emotes.splice(i, 1); }
       for (i = parts.length - 1; i >= 0; i--) {
@@ -1863,6 +1885,11 @@
         if (p.t >= p.life) parts.splice(i, 1);
       }
       for (i = items.length - 1; i >= 0; i--) { items[i].t += dt; if (items[i].t >= items[i].dur) items.splice(i, 1); }
+    }
+    function feed(a, I, dt) {
+      if (!a.rig) return;
+      try { a.rig.update(dt, I); }
+      catch (e) { artFail((a.isPerson ? 'person.js' : 'dogs.js ' + a.name) + ' update', e); if (++a.vis.bad >= 3) a.rig = null; }
     }
     // 现在有多"忙"：0 = 什么都不动，2 = 正在动（外壳据此决定画得多勤）
     function busy() {
@@ -1967,6 +1994,8 @@
         },
         scene: function (name) { nextSceneAt = 1e9; return pickScene(name); },
         endScene: function () { endScene(true); },
+        // 画图的文件出过什么错（没出过就是空的）
+        errors: function () { return artErrors.slice(); },
         // 每个角色的骨架一共重画了几次、其中几次像素真的变了
         perf: function () {
           var o = {};

@@ -109,6 +109,7 @@
   var bx0, by0, bx1, by1;       // 这一帧画过的范围
   var sZ = 0, sZb = 0, sMat = 1, sPart = 1, sFlat = 0, sBias = 0, sFlag = 0, sOver = 0;   // 现在的"画笔"
   var MINR = 0.71;              // 再细就会断成一粒一粒的
+  var gapA = -99, gapB = -99;   // 背上那道反光在这两列附近断开
   var F_LOCK = 1, F_SOFT = 2, F_CORE = 4, F_TUFT = 8, F_TOP = 16;
 
   function useScratch(R) {
@@ -121,7 +122,7 @@
     bP.fill(0);
     bx0 = bw; by0 = bh; bx1 = -1; by1 = -1;
   }
-  // 换画笔：z 远近（大的在前）、zb 鼓起来多少、材质、部位、flat 压扁程度（0 圆鼓鼓 … 1 一片平）、bias 整体调亮调暗
+  // 换画笔：z 远近（大的在前）、zb 鼓起来多少、材质、部位、flat 压扁程度（0 圆鼓鼓，明暗从最亮到最暗都有 … 1 一片平，只有本色）、bias 整体调亮调暗
   function brush(z, zb, mat, part, flat, bias) { sZ = z; sZb = zb; sMat = mat; sPart = part; sFlat = flat; sBias = bias || 0; sFlag = 0; sOver = 0; }
 
   // 一头粗一头细的"胶囊"
@@ -150,7 +151,7 @@
         if (bP[idx] !== 0) { if (bZ[idx] >= zz) continue; } else if (sOver) continue;
         if (sOver && bP[idx] !== sOver) continue;
         var nf = nz * f1 + sFlat;
-        var tone = ((ex * LX - ey * LY) / r + nf * LZ) / Math.sqrt(q + nf * nf) + sBias;
+        var tone = ((ex * LX - ey * LY) / r * f1 + nf * LZ) / Math.sqrt(q * f1 * f1 + nf * nf) + sBias;
         bT[idx] = tone > 0.62 ? (tone > 0.95 ? 5 : 4) : (tone > 0.18 ? 3 : (tone > -0.28 ? 2 : 1));
         bP[idx] = sPart; bM[idx] = sMat; bZ[idx] = zz; bF[idx] = sFlag;
       }
@@ -180,7 +181,7 @@
         if (bP[idx] !== 0) { if (bZ[idx] >= zz) continue; } else if (sOver) continue;
         if (sOver && bP[idx] !== sOver) continue;
         var nf = nz * f1 + sFlat;
-        var tone = ((u * cs - v * sn) * LX + (u * sn + v * cs) * LY + nf * LZ) / Math.sqrt(q + nf * nf) + sBias;
+        var tone = (((u * cs - v * sn) * LX + (u * sn + v * cs) * LY) * f1 + nf * LZ) / Math.sqrt(q * f1 * f1 + nf * nf) + sBias;
         bT[idx] = tone > 0.62 ? (tone > 0.95 ? 5 : 4) : (tone > 0.18 ? 3 : (tone > -0.28 ? 2 : 1));
         bP[idx] = sPart; bM[idx] = sMat; bZ[idx] = zz; bF[idx] = sFlag;
       }
@@ -276,7 +277,7 @@
           else if ((f & F_SOFT) && tt > 1) tt--;
           else if (!(f & F_LOCK) && !bP[idx - bw]) {
             // 上缘的那一行：短毛的反光（只在标了 F_TOP 的地方）；深色的毛留一道亮边
-            if (gloss && (f & F_TOP) && tt >= 3) tt = 5;
+            if (gloss && (f & F_TOP) && tt >= 3 && (i < gapA - 1 || i > gapA + 1) && (i < gapB - 1 || i > gapB + 1)) tt = 5;
             else if (rim && tt < 4 && bM[idx] === M_COAT) tt = 4;
           }
           d32[idx] = pal[bM[idx] * 8 + tt];
@@ -304,26 +305,26 @@
     gold: {
       a: 4.2, b: 6.6,                       // 脊柱两段：骨盆—腰、腰—胸
       T0: [4.0, 14.3],                      // 站着时胸腔中心
-      rib: [6.4, 5.3], pel: [4.3, 4.1], pelUp: 0.3,
-      loin: [0.8, 0.5, 3.7, -2.0, 0.1, 4.7],        // 腰：骨盆这头 (x, y, 半径)，胸腔那头 (x, y, 半径)
+      rib: [6.4, 5.5], pel: [4.3, 4.3], pelUp: 0.5,
+      loin: [0.8, 0.7, 3.9, -2.0, 0.3, 4.9],        // 腰：骨盆这头 (x, y, 半径)，胸腔那头 (x, y, 半径)
       wither: [2.0, 4.0, 2.6, 1.9],                 // 肩隆：位置和大小
       chest: [5.2, -1.0, 1.8, 2.8],                 // 前胸
       S0: [2.3, 3.9], N0: [3.6, 3.3],               // 胸腔上的点：肩胛骨顶端、脖子根
       HJ: [-0.8, -0.1], tailSet: [-3.4, 3.1],       // 骨盆上的点：髋关节、尾巴根
       ls: 5.16, lh: 5.80, lr: 5.81, lmc: 2.73, dF: -26.2,   // 前腿：肩胛骨、上臂、小臂、掌骨；肩胛骨和小臂"联动"的夹角
       lf: 6.28, lt: 6.72, lm: 2.93, dH: -14.6,              // 后腿：大腿、小腿、跖骨；大腿和跖骨"联动"的夹角
-      padY: 0.6, fpad: 6.4, hpad: -9.4,             // 站着时脚掌关节的高度、前后脚的位置
+      padY: 0.6, fpad: 6.4, hpad: -8.9,             // 站着时脚掌关节的高度、前后脚的位置
       farX: 1.2, farY: 0.4,                         // 远侧的腿：前腿再往前、后腿再往后这么多，整体抬高一点
-      shoulder: [3.6, 2.6], armR: [2.2, 1.35], foreR: [1.3, 1.05], pastR: 1.0, fpaw: [1.6, 1.0],
-      thigh: [4.0, 2.9], gaskR: [1.55, 0.95], metaR: 0.9, hock: 0.5, hpaw: [1.5, 0.95],
-      neck: 5.4, neckR0: 4.2, neckR1: 3.3, neckA: 47, headA: -12,
+      shoulder: [3.3, 2.3], armR: [2.4, 1.5], foreR: [1.45, 1.2], pastR: 1.1, fpaw: [1.8, 1.05],
+      thigh: [4.0, 2.9], gaskR: [2.0, 1.15], metaR: 1.05, hock: 0.5, hpaw: [1.7, 1.0],
+      neck: 6.0, neckR0: 4.2, neckR1: 3.4, neckA: 52, headA: -12,
       HL: 12.6,                                     // 头长：后脑勺到鼻尖
       skull: [0.30, 0.02, 0.32, 0.29],              // 头骨：中心 (u, v)、两个半轴（都是头长的几分之几）
       stop: [0.50, -0.03, 0.17, 0.16],              // 额头到鼻梁之间的那一块
-      muz: [0.56, -0.10, 0.145, 0.885, -0.105, 0.112],    // 上吻：起点 (u, v, 半径) → 终点 (u, v, 半径)
-      jaw: [0.48, -0.205, 0.09, 0.84, -0.215, 0.066], hinge: [0.28, -0.14],
-      nose: [0.975, -0.04, 0.072], eye: [0.50, 0.075], lip: -0.23,
-      earAt: [0.26, 0.13], earL: 0.42, earR: [0.135, 0.095], earRest: -78,
+      muz: [0.56, -0.06, 0.165, 0.84, -0.065, 0.14],      // 上吻：起点 (u, v, 半径) → 终点 (u, v, 半径)
+      jaw: [0.50, -0.215, 0.085, 0.82, -0.225, 0.075], hinge: [0.28, -0.14],
+      nose: [0.965, 0.01, 0.07], eye: [0.47, 0.085], lip: -0.225,
+      earAt: [0.24, 0.14], earL: 0.40, earR: [0.13, 0.085], earRest: -78,
       ball: [1.02, -0.36],
       tailL: 12.4, tailN: 7, tailR: [1.3, 0.55], tailA: -28, tailCurl: 0.3,
       reachF: 17.0, reachH: 16.2,                   // 一步里脚能扫过的最大距离（量出来的）
@@ -332,28 +333,28 @@
     dax: {
       a: 4.0, b: 6.2,
       T0: [3.6, 7.2],
-      rib: [5.2, 3.5], pel: [3.1, 2.8], pelUp: 0.4,
+      rib: [5.2, 3.7], pel: [3.1, 2.8], pelUp: 0.4,
       loin: [0.5, 0.45, 2.75, -2.0, 0.15, 3.3],
       wither: [1.9, 2.75, 2.1, 1.15],
-      chest: [4.7, 0.15, 1.55, 1.95],
+      chest: [4.9, -0.1, 1.7, 2.3],
       S0: [2.0, 2.7], N0: [3.2, 2.1],
       HJ: [-0.4, -0.3], tailSet: [-2.4, 2.4],
       ls: 3.61, lh: 3.75, lr: 3.14, lmc: 1.09, dF: -30.7,
       lf: 3.30, lt: 3.39, lm: 2.01, dH: -29.4,
       padY: 0.5, fpad: 6.1, hpad: -7.8,
       farX: 0.9, farY: 0.4,
-      shoulder: [2.5, 1.9], armR: [1.6, 1.1], foreR: [1.05, 0.95], pastR: 0.9, fpaw: [1.45, 0.85],
-      thigh: [2.6, 1.9], gaskR: [1.1, 0.85], metaR: 0.8, hock: 0.35, hpaw: [1.25, 0.8],
-      neck: 4.6, neckR0: 2.9, neckR1: 2.2, neckA: 55, headA: -10,
+      shoulder: [2.5, 1.9], armR: [1.6, 1.15], foreR: [1.1, 1.0], pastR: 0.95, fpaw: [1.5, 0.85],
+      thigh: [2.4, 1.7], gaskR: [1.3, 1.0], metaR: 0.95, hock: 0.15, hpaw: [1.3, 0.8],
+      neck: 5.6, neckR0: 2.9, neckR1: 2.3, neckA: 60, headA: -10,
       HL: 11.0,
-      skull: [0.26, 0.0, 0.27, 0.215],
-      stop: [0.43, -0.015, 0.14, 0.135],
-      muz: [0.46, -0.05, 0.112, 0.925, -0.085, 0.062],
-      jaw: [0.42, -0.135, 0.062, 0.865, -0.155, 0.045], hinge: [0.22, -0.12],
-      nose: [0.985, -0.08, 0.062], eye: [0.42, 0.05], lip: -0.14,
-      earAt: [0.19, 0.13], earL: 0.50, earR: [0.10, 0.145], earRest: -80,
+      skull: [0.27, 0.0, 0.28, 0.225],
+      stop: [0.44, -0.015, 0.14, 0.135],
+      muz: [0.46, -0.04, 0.125, 0.92, -0.075, 0.075],
+      jaw: [0.42, -0.13, 0.065, 0.86, -0.15, 0.05], hinge: [0.22, -0.12],
+      nose: [0.985, -0.065, 0.065], eye: [0.42, 0.055], lip: -0.145,
+      earAt: [0.13, 0.09], earL: 0.50, earR: [0.10, 0.145], earRest: -84,
       ball: [1.02, -0.40],
-      tailL: 10.5, tailN: 6, tailR: [0.85, 0.4], tailA: -8, tailCurl: 0.5,
+      tailL: 9.6, tailN: 6, tailR: [0.8, 0.4], tailA: -8, tailCurl: 0.5,
       reachF: 12.3, reachH: 11.0,
       accel: 760, seat: [-0.5, 10.7],
     },
@@ -454,8 +455,8 @@
   // ============================================================
   var POSE_DEF = {
     stand: {
-      gold: { x: 4.0, y: 14.3, neck: 47, head: -12, tail: -28, curl: 0.3 },
-      dax:  { x: 3.6, y: 7.2, neck: 55, head: -10, tail: -8, curl: 0.5 },
+      gold: { x: 4.0, y: 14.3, neck: 52, head: -12, tail: -28, curl: 0.3 },
+      dax:  { x: 3.6, y: 7.2, neck: 60, head: -10, tail: -8, curl: 0.5 },
     },
     alert: {
       gold: { x: 4.6, y: 14.7, thT: 1.5, neck: 59, head: -4, tail: 14, curl: 0.35, ear: -0.3 },
@@ -1169,15 +1170,15 @@
   // ---- 画一条腿、一只脚掌、一撮毛 ----
   function drawPaw(px, py, ma, sz, mat, z, part, pd) {
     var tx = -Math.sin(ma), ty = Math.cos(ma), lift = sz[1] - pd;
-    brush(z, 0.8, mat, part, 0.3, 0);
+    brush(z, 0.8, mat, part, 0.42, 0);
     ell(px + tx * sz[0] * 0.36 - Math.cos(ma) * lift, py + ty * sz[0] * 0.36 - Math.sin(ma) * lift, sz[0], sz[1], ma + PI / 2);
   }
   function drawHind(B, LG, k, jx, jy, far, bias) {
     var o = k * 10, kx = LG[o], ky = LG[o + 1], hx = LG[o + 2], hy = LG[o + 3], px = LG[o + 6], py = LG[o + 7], ma = LG[o + 8];
     var z = far ? -30 : 10, mat = far ? M_COATF : M_COAT, part = far ? P_FHIND : P_NHIND;
-    brush(z, 2, mat, part, 0.3, bias);
+    brush(z, 2, mat, part, 0.38, bias);
     ell((jx + kx) / 2, (jy + ky) / 2, B.thigh[0], B.thigh[1], Math.atan2(ky - jy, kx - jx));     // 大腿：一整块肌肉
-    brush(z, 1.2, mat, part, 0.3, bias);
+    brush(z, 1.2, mat, part, 0.48, bias);
     cap(kx, ky, B.gaskR[0], hx, hy, B.gaskR[1]);                                                  // 小腿
     cap(hx + B.hock * Math.sin(ma), hy - B.hock * Math.cos(ma), B.metaR * 0.95, hx, hy, B.metaR); // 飞节往后突出的那一点
     cap(hx, hy, B.metaR, px - Math.cos(ma) * 0.5, py - Math.sin(ma) * 0.5, B.metaR * 0.95);       // 跖骨
@@ -1186,10 +1187,10 @@
   function drawFore(B, LG, k, sx, sy, far, bias) {
     var o = k * 10, jx = LG[o], jy = LG[o + 1], ex = LG[o + 2], ey = LG[o + 3], cx = LG[o + 4], cy = LG[o + 5], px = LG[o + 6], py = LG[o + 7], ma = LG[o + 8];
     var z = far ? -29 : 14, mat = far ? M_COATF : M_COAT, part = far ? P_FFORE : P_NFORE;
-    brush(z, 2, mat, part, 0.3, bias);
+    brush(z, 2, mat, part, 0.4, bias);
     if (!far) ell((sx + jx) / 2, (sy + jy) / 2, B.shoulder[0], B.shoulder[1], Math.atan2(jy - sy, jx - sx));   // 肩：沿着肩胛骨的一块肌肉
     cap(jx, jy, B.armR[0], ex, ey, B.armR[1]);                                                    // 上臂
-    brush(z, 1.2, mat, part, 0.3, bias);
+    brush(z, 1.2, mat, part, 0.48, bias);
     cap(ex, ey, B.foreR[0], cx, cy, B.foreR[1]);                                                  // 小臂
     cap(cx, cy, B.pastR, px - Math.cos(ma) * 0.5, py - Math.sin(ma) * 0.5, B.pastR * 0.95);       // 掌骨
     drawPaw(px, py, ma, B.fpaw, far ? M_PAWF : M_PAW, z + 0.6, part, B.padY);
@@ -1239,8 +1240,8 @@
         var fx = TL[ti * 2] + (TL[ti * 2 + 2] - TL[ti * 2]) * tf, fy = TL[ti * 2 + 1] + (TL[ti * 2 + 3] - TL[ti * 2 + 1]) * tf;
         var ta = Math.atan2(TL[ti * 2 + 3] - TL[ti * 2 + 1], TL[ti * 2 + 2] - TL[ti * 2]);       // 这一节尾巴朝哪
         var fa = lerp(ta + PI * 0.5 + 0.45, -PI * 0.5 - 0.3, 0.45) + stream * 0.35 + 0.16 * RND[q + 3];
-        var fl = 3.9 * (0.4 + 0.6 * Math.sin(PI * Math.pow((q + 0.5) / 9, 0.85))) * (1 + 0.2 * RND[q + 20]);
-        cap(fx, fy - 0.3, 1.1, fx + Math.cos(fa) * fl, fy + Math.sin(fa) * fl, 0.3);
+        var fl = 4.5 * (0.4 + 0.6 * Math.sin(PI * Math.pow((q + 0.5) / 9, 0.85))) * (1 + 0.2 * RND[q + 20]);
+        cap(fx, fy - 0.3, 1.25, fx + Math.cos(fa) * fl, fy + Math.sin(fa) * fl, 0.3);
       }
     }
     brush(-12, 1, M_COAT, P_TAIL, 0.25, bias);
@@ -1259,16 +1260,20 @@
     var lbx = (J.Tx + lo[3] * cT - lo[4] * c * sT) * fF, lby = J.Ty + lo[3] * sT + lo[4] * c * cT;
     TC = 1;
     cap(lax, lay, lo[2], lbx, lby, lo[5]);
-    if (gold && c > 0) {      // 金毛肚子下面的一排毛
-      brush(-2, 0.4, M_CREAM, P_FUR, 0.55, 0); sFlag = F_TUFT;
-      tufts(lax + 1.2 * fR, lay - lo[2] + 0.5, lbx - 0.6 * fF, lby - lo[5] + 0.4, 6, 1.7, (-PI * 0.5 - 0.17 - stream * 0.3) * (fR < 0 ? -1 : 1) + (fR < 0 ? PI : 0), 0.9, 0.3, 30, true);
+    if (gold && c > 0) {      // 金毛肚子下面：一条浅色的长毛把收腹的那道弯填平，下缘是一排毛梢
+      var mirr = fR < 0, fa0 = -PI * 0.5 - 0.2 - stream * 0.3;
+      if (mirr) fa0 = PI - fa0;
+      brush(-2, 0.6, M_CREAM, P_FUR, 0.5, 0);
+      cap(lax + 2.2 * fR, lay - lo[2] + 1.0, 1.3, lbx - 0.5 * fF, lby - lo[5] + 1.0, 1.5);
+      sFlag = F_TUFT;
+      tufts(lax + 1.6 * fR, lay - lo[2] + 0.2, lbx - 0.2 * fF, lby - lo[5] + 0.1, 7, 2.0, fa0, 1.0, 0.3, 30, true);
     }
     TC = fR;
     // 近侧后腿（金毛大腿后面有"裤子"毛）
     if (gold && c > 0) {
       var kx = LG[20], ky = LG[21], hkx = LG[22], hky = LG[23];
       brush(8, 0.4, M_CREAM, P_NHIND, 0.55, 0); sFlag = F_TUFT;
-      tufts(J.HJx - B.thigh[1] * 0.9, J.HJy + 0.2, (kx + hkx) / 2 - 1.3, (ky + hky) / 2 + 0.4, 5, 2.5, -2.25 - stream * 0.3, 1.0, 0.3, 40, false);
+      tufts(J.HJx - B.thigh[1] * 1.0, J.HJy + 1.2, hkx - 0.2, hky + 2.2, 6, 3.0, -2.3 - stream * 0.3, 1.25, 0.3, 40, false);
     }
     drawHind(B, LG, 2, J.HJx, J.HJy, false, bias);
 
@@ -1294,11 +1299,11 @@
     if (gold) {
       // 胸口的浅色大毛领 + 下缘的毛梢
       var bxc = J.Tx + (cs[0] + 0.5) * cT - (cs[1] - 0.6) * c * sT, byc = J.Ty + (cs[0] + 0.5) * sT + (cs[1] - 0.6) * c * cT;
-      brush(3.2, 0.4, M_CREAM, P_FUR, 0.3, 0);
-      ell(bxc, byc, 2.3, 3.6, J.thT + 0.25);
+      brush(3.2, 0.4, M_CREAM, P_FUR, 0.4, 0);
+      ell(bxc - 0.3, byc - 0.4, 2.7, 4.3, J.thT + 0.3);
       if (c > 0) {
         brush(-1, 0.4, M_CREAM, P_FUR, 0.55, 0); sFlag = F_TUFT;
-        tufts(bxc + 1.6, byc - 0.5, bxc - 1.6, byc - 3.4, 5, 1.8, -1.9 - stream * 0.3, 0.9, 0.3, 50, false);
+        tufts(bxc + 2.2, byc + 1.5, bxc - 1.2, byc - 4.2, 6, 2.0, -1.75 - stream * 0.3, 1.0, 0.3, 50, false);
       }
     } else {
       // 腊肠：胸口一块浅色
@@ -1308,7 +1313,7 @@
     // 近侧前腿（金毛小臂后面有一排毛）
     if (gold && c > 0) {
       brush(13, 0.4, M_CREAM, P_NFORE, 0.55, 0); sFlag = F_TUFT;
-      tufts(LG[2] - 0.9, LG[3] - 0.3, LG[4] - 0.8, LG[5] + 1.6, 4, 1.8, -2.0 - stream * 0.3, 0.8, 0.3, 60, false);
+      tufts(LG[2] - 1.0, LG[3] + 0.2, LG[4] - 0.9, LG[5] + 1.4, 5, 2.1, -2.0 - stream * 0.3, 0.9, 0.3, 60, false);
     }
     drawFore(B, LG, 0, J.S0x, J.S0y, false, bias);
 
@@ -1318,7 +1323,7 @@
     var cn = Math.cos(J.neck), sn = Math.sin(J.neck), nr0 = B.neckR0, nr1 = B.neckR1;
     var nsx = J.N0x - 0.5 * cn - 0.2, nsy = J.N0y - 0.5 * sn - 0.5 * c;
     var nex = hx - 0.25 * nr1 * cn + 0.55 * nr1 * sn * vs, ney = hy - 0.25 * nr1 * sn - 0.55 * nr1 * cn * vs;
-    brush(4, 3, M_COAT, P_TRUNK, 0.15, bias);
+    brush(4, 3, M_COAT, P_TRUNK, 0.2, bias);
     cap(nsx, nsy, nr0, nex, ney, nr1);
     if (gold && c > 0) {       // 脖子前面的毛
       brush(3.6, 0.4, M_CREAM, P_FUR, 0.55, 0); sFlag = F_TUFT;
@@ -1327,7 +1332,7 @@
     // 项圈：横在脖子中间，只画在脖子上；下面挂一块小牌子
     var cmx = lerp(nsx, nex, 0.56), cmy = lerp(nsy, ney, 0.56), cr = lerp(nr0, nr1, 0.56) + 0.3;
     brush(7.5, 0.3, M_COLLAR, P_COLLAR, 0.5, 0); sOver = P_TRUNK;
-    cap(cmx + sn * cr, cmy - cn * cr, gold ? 0.66 : 0.55, cmx - sn * cr, cmy + cn * cr, gold ? 0.66 : 0.55);
+    cap(cmx + sn * cr, cmy - cn * cr, gold ? 0.55 : 0.5, cmx - sn * cr, cmy + cn * cr, gold ? 0.55 : 0.5);
     var tgi = PI_(cmx + sn * (cr - 0.5) * vs + 0.3), tgj = PJ_(cmy - cn * (cr - 0.5) * vs - 0.6), sk = RR === 1 ? 1 : Math.round(RR / 2);
     blk(tgi, tgj, 0, 0, sk, M_TAG, 3);
     if (RR > 1) blk(tgi, tgj, 0, 1, sk, M_TAG, 1);
@@ -1362,11 +1367,11 @@
     }
     // 头骨 + 上吻（同一个部位，中间没有接缝）
     var sk_ = B.skull;
-    brush(22, 2, M_COAT, P_HEAD, 0.15, bias);
+    brush(22, 2, M_COAT, P_HEAD, 0.22, bias);
     ell(hx + sk_[0] * ux + sk_[1] * vx, hy + sk_[0] * uy + sk_[1] * vy, sk_[2] * HL, sk_[3] * HL, hp);
     var sp_ = B.stop;
     ell(hx + sp_[0] * ux + sp_[1] * vx, hy + sp_[0] * uy + sp_[1] * vy, sp_[2] * HL, sp_[3] * HL, hp);
-    brush(22, 1.6, M_COAT, P_HEAD, 0.3, bias);
+    brush(22, 1.6, M_COAT, P_HEAD, 0.35, bias);
     cap(hx + mz[0] * ux + mz[1] * vx, hy + mz[0] * uy + mz[1] * vy, mz[2] * HL, hx + mz[3] * ux + mz[4] * vx, hy + mz[3] * uy + mz[4] * vy, mz[5] * HL);
     // 嘴唇一带颜色浅一点
     brush(22.5, 0.2, M_MUZ, P_HEAD, 0.5, 0); sOver = P_HEAD;
@@ -1386,7 +1391,7 @@
     var minE = er1 + 0.1;
     if (ety < minE) ety = minE;
     if (emy < minE) emy = minE;
-    brush(26, 1, M_EAR, P_EAR, 0.35, bias);
+    brush(26, 1, M_EAR, P_EAR, 0.5, bias);
     cap(ebx, eby, er0, emx, emy, lerp(er0, er1, 0.7));
     cap(emx, emy, lerp(er0, er1, 0.7), etx, ety, er1);
     if (C.points) {            // 黑棕色：耳朵前缘一道浅棕
@@ -1444,7 +1449,8 @@
     // 黑棕色：嘴边的浅棕已经画过了；再加四只爪子（爪子的材质本来就是浅棕）
 
     // 短毛的反光：背上的亮线在肩和胯的位置断开（不然就成了一条从头到尾的亮边）
-    J.gapA = PI_((J.Lx - 1.0) * 1) ; J.gapB = PI_(J.Tx + B.wither[0] - 1.5);
+    TS = 0; TO = 0; TC = fF;
+    gapA = PI_(J.Lx - 0.6); gapB = PI_(J.Tx + B.wither[0] - B.wither[2] * 0.9);
   };
 
   // 画出来。faceLeft：脸朝左；R：一个世界单位画成几个像素（默认 1）；

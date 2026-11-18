@@ -50,6 +50,7 @@
       set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
     },
     haptic: function (k) { if (NATIVE) send({ t: 'haptic', k: k }); },
+    log: function (m) { if (window.console) console.error('[pet] ' + m); },      // 画图的文件出了错
     island: ISL ? {
       center: function () { return ((ISL.center ? ISL.center() : window.innerWidth / 2) - offX) / S; },
       visible: function () { return !ISL.visible || ISL.visible(); },
