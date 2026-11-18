@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, macos-26]
+        os: [macos-15, macos-26, xcode-27]   # xcode-27 这个镜像的系统是 macOS 27
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -50,10 +50,17 @@ jobs:
 
       - name: Full install, run, autostart file, uninstall
         run: |
+          # 模拟"从网上下载 / AirDrop 收到的压缩包解压出来的文件夹"：
+          # 给每个文件都打上系统的隔离标记（Gatekeeper 就是看这个标记拦人的），再照常安装
+          xattr -rw com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;" pet || true
+          echo "quarantine on install.sh: $(xattr -p com.apple.quarantine pet/install.sh 2>/dev/null || echo none)"
           bash pet/install.sh --autostart
           sleep 4
           if pgrep -x QiuQiu >/dev/null; then echo "RUNNING_OK"; else echo "NOT RUNNING"; exit 1; fi
           ls -d /Applications/QiuQiu.app "$HOME/Applications/QiuQiu.app" 2>/dev/null || true
+          INST=/Applications/QiuQiu.app; [ -d "$INST" ] || INST="$HOME/Applications/QiuQiu.app"
+          echo "quarantined files left inside the installed app: $(xattr -lr "$INST" 2>/dev/null | grep -c com.apple.quarantine || true)"
+          spctl --assess --type execute -v "$INST" 2>&1 | head -3 || true
           echo "---- LaunchAgent ----"
           cat "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
           plutil -lint "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"

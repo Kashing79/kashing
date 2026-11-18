@@ -18,7 +18,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="QiuQiu"
 BUNDLE_ID="local.qiuqiu.deskpet"
-VERSION="1.0.0"
+VERSION="2.0.0"
 MIN_MACOS="11.0"
 
 BUILD_ONLY=0
@@ -54,7 +54,7 @@ EOF
   exit 3
 fi
 
-for f in src/main.swift web/index.html web/pet.js web/sprites.js web/config.js; do
+for f in src/main.swift web/index.html web/pet.js web/dogs.js web/island.js web/sprites.js web/config.js; do
   if [ ! -f "${f}" ]; then echo "缺少文件：${f} （请确认整个文件夹都拷过来了）"; exit 1; fi
 done
 
@@ -141,9 +141,11 @@ fi
 if [ "$NO_OPEN" = "0" ]; then
   open "$DEST/$APP_NAME.app"
   echo
-  echo "好了！看屏幕最下面：穿西装的小人、小腊肠和大金毛已经在那儿了。"
+  echo "好了！看屏幕最上面正中间：穿西装的小人、小腊肠和大金毛会从那颗黑色的小岛里跳出来，"
+  echo "然后在整个屏幕上到处跑。"
   echo "  · 拖住小球甩出去，狗狗会去追"
-  echo "  · 点小人，他会帮你丢球"
-  echo "  · 点小狗，摸摸它"
-  echo "  · 菜单栏右上角的 🎾 可以调大小、隐藏、退出"
+  echo "  · 点小人，他会帮你丢球；点小狗，摸摸它"
+  echo "  · 按住小人或小狗可以把它拎起来，放到别的地方"
+  echo "  · 鼠标移到顶上的小岛：丢球 / 摸摸 / 集合 / 回岛睡觉"
+  echo "  · 菜单栏右上角的 🎾 可以调大小、只在屏幕底部活动、隐藏、退出"
 fi
