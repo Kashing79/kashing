@@ -88,7 +88,7 @@ jobs:
           echo "selftest exit code: $CODE"
           if [ -f "$RUNNER_TEMP/snap.png" ]; then
             sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP/snap.png" | tail -2
-            sips -Z 1400 "$RUNNER_TEMP/snap.png" --out "$RUNNER_TEMP/snap_small.png" >/dev/null
+            sips -Z 1024 "$RUNNER_TEMP/snap.png" --out "$RUNNER_TEMP/snap_small.png" >/dev/null
             echo "-----BEGIN SNAP PNG-----"
             base64 -i "$RUNNER_TEMP/snap_small.png" | fold -w 120
             echo "-----END SNAP PNG-----"
@@ -104,24 +104,46 @@ jobs:
           defaults write local.qiuqiu.deskpet auto -bool false
           "$APP" --debug > "$LOG" 2>&1 &
           PID=$!
-          sleep 7
+          sleep 8
           FRAME=$(grep -m1 '^FRAME' "$LOG" || true)
           echo "frame: $FRAME"
           set -- $FRAME
           X=$2; Y=$3; W=$4; H=$5
+          # shot 名字 [x y w h]：不给范围就拍整块屏幕（缩小），给了就原样拍那一块
           shot() {
-            screencapture -x -R"$X,$Y,$W,$H" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
-            sips -s format jpeg -s formatOptions 55 -Z 1300 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            if [ -n "${2:-}" ]; then
+              screencapture -x -R"$2,$3,$4,$5" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+              sips -s format jpeg -s formatOptions 60 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            else
+              screencapture -x -R"$X,$Y,$W,$H" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+              sips -s format jpeg -s formatOptions 50 -Z 1024 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            fi
             echo "-----BEGIN $1 JPG-----"
             base64 -i "$RUNNER_TEMP/$1.jpg" | fold -w 120
             echo "-----END $1 JPG-----"
           }
           shot live1
+          # 可点区域的顺序：小球、金毛、小人、小腊肠、灵动岛
+          # 1) 鼠标移到灵动岛上：应该展开
+          HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
+          ISL=$(echo "$HOT" | awk '{print $NF}')
+          if [ -n "$ISL" ]; then
+            IX=$(echo "$ISL" | awk -F, '{print $1 + $3/2}'); IY=$(echo "$ISL" | awk -F, '{print $2 + 10}')
+            "$RUNNER_TEMP/ci_mouse" "$IX" "$IY" 0 0 hover || true
+            sleep 1.2
+            shot island "$(echo "$IX" | awk '{print int($1 - 260)}')" "$Y" 520 230
+            # 宠物们站的地方：原样拍一张，看清楚画得怎么样
+            PETS=$(grep '^HOT' "$LOG" | tail -1 | awk '{print $3}')
+            if [ -n "$PETS" ]; then
+              PX=$(echo "$PETS" | awk -F, '{v = int($1 - 260); if (v < 0) v = 0; print v}'); PY=$(echo "$PETS" | awk -F, '{v = int($2 - 150); if (v < 0) v = 0; print v}')
+              shot pets "$PX" "$PY" 640 330
+            fi
+          fi
           OK=0
-          for attempt in 1 2 3 4 5 6; do
+          for attempt in 1 2 3 4 5 6 7 8; do
             HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
-            # 前 3 次：单纯点一下金毛（第 3 个区域）；后 3 次：拖球（第 1 个区域）
-            if [ "$attempt" -le 3 ]; then TARGET=$(echo "$HOT" | awk '{print $4}'); DX=0; DY=0; else TARGET=$(echo "$HOT" | awk '{print $2}'); DX=-230; DY=-170; fi
+            # 前 3 次：单纯点一下金毛（第 2 个区域）；后面：拖球（第 1 个区域）
+            if [ "$attempt" -le 3 ]; then TARGET=$(echo "$HOT" | awk '{print $3}'); DX=0; DY=0; else TARGET=$(echo "$HOT" | awk '{print $2}'); DX=-230; DY=-170; fi
             echo "== attempt $attempt target=$TARGET hot: $HOT"
             echo "MARK attempt $attempt" >> "$LOG"
             if [ -z "$TARGET" ]; then sleep 1; continue; fi
@@ -135,6 +157,8 @@ jobs:
           shot live2
           sleep 2.5
           shot live3
+          echo "---- memory / cpu while roaming the whole screen ----"
+          ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu|com.apple.WebKit" | grep -v grep | head -8 || true
           echo "---- app log (events) ----"
           grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME|PANEL|GLOBAL|MARK)' "$LOG" | head -90 || true
           kill $PID 2>/dev/null || true

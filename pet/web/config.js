@@ -27,9 +27,16 @@ window.PET_CONFIG = {
   messageMinutes: [25, 60],
 
   // —— 小人自动丢球 ——  每隔多少秒玩一轮（最短, 最长）
-  autoPlaySeconds: [40, 110],
+  autoPlaySeconds: [35, 90],
 
-  // —— 夜里睡觉 ——  [几点开始, 几点结束]，这段时间大家都睡觉，不自动丢球。
-  // 点一下它们还是会醒来陪玩。不想要就写 null。
+  // —— 夜里睡觉 ——  [几点开始, 几点结束]，这段时间它们会回岛里睡觉，不自动丢球。
+  // 点一下灵动岛它们还是会出来陪玩。不想要就写 null。
   nightSleep: [0, 7],
+
+  // —— 灵动岛上显示两地的时间（可以留空）——
+  // 例：clock: [{ label: '台北', tz: 'Asia/Taipei' }, { label: '他那边', tz: 'America/Los_Angeles' }],
+  clock: null,
+
+  // —— 灵动岛上显示"还有几天见面"（可以留空）——  例：reunion: '2027-02-14',
+  reunion: null,
 };

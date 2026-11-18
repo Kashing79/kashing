@@ -13,7 +13,7 @@
 const PAGE_URL = "__PAGE_URL__";   // 点小组件时打开的网页版（可以丢球的那个）。留空 "" 就是点了不跳转。
 const NIGHT = [0, 7];               // 几点到几点睡觉
 
-// ---------- 像素画数据（由 pet/iphone/build.js 从 web/sprites.js 生成，不用手改）----------
+// ---------- 像素画数据（由 pet/iphone/build.js 从 web/sprites.js 和 web/dogs.js 生成，不用手改）----------
 const INK = "__INK__";
 const FRAMES = __FRAMES__;
 
@@ -38,9 +38,9 @@ function stamp(grid, name, x, footY, flip) {
   }
 }
 
-// 给所有有颜色的像素描一圈深色的边
+// 给所有有颜色的像素描一圈深色的边（狗狗的图自己带边，所以要在贴狗之前做）
 function outline(grid, groundY) {
-  const H = grid.length, W = grid[0].length, add = [];
+  const W = grid[0].length, add = [];
   for (let y = 0; y < groundY; y++) {
     for (let x = 0; x < W; x++) {
       if (grid[y][x]) continue;
@@ -53,7 +53,7 @@ function outline(grid, groundY) {
 
 function pick(arr, seed) { return arr[seed % arr.length]; }
 
-// 决定这次画什么场景
+// 决定这次画什么场景。每个场景：先贴小人 / 小球 / 表情（pre），描边，再贴狗（dogs）
 function scene(family, now) {
   const h = now.getHours();
   const seed = Math.floor(now.getTime() / (15 * 60 * 1000));   // 每 15 分钟换一次
@@ -63,33 +63,29 @@ function scene(family, now) {
   for (let y = 0; y < H; y++) grid.push(new Array(W).fill(null));
   const night = isNight(h);
   const mood = night ? "sleep" : pick(["play", "wave", "rest", "love", "play"], seed);
+  let pre = [], dogs = [];
 
   if (small) {
     // 小尺寸：小人 + 小腊肠
-    if (mood === "sleep") { stamp(grid, "p_front_blink", 3, ground, false); stamp(grid, "d_sleep", 18, ground, false); stamp(grid, "fx_zs", 14, ground - 27, false); }
-    else if (mood === "play") { stamp(grid, "p_hold", 3, ground, false); stamp(grid, "d_bow_a", 17, ground, true); stamp(grid, "ball0", 16, ground - 9, false); }
-    else if (mood === "wave") { stamp(grid, "p_wave_a", 3, ground, false); stamp(grid, "d_stand_b", 17, ground, true); }
-    else if (mood === "love") { stamp(grid, "p_front", 3, ground, false); stamp(grid, "d_sit_a", 17, ground, true); stamp(grid, "fx_heart", 25, ground - 22, false); }
-    else { stamp(grid, "p_front", 3, ground, false); stamp(grid, "d_lie", 17, ground, true); }
+    if (mood === "sleep") { dogs = [["d_sleep", 4, false]]; pre = [["fx_zs", 30, ground - 16]]; }
+    else if (mood === "play") { pre = [["p_hold", 3, ground], ["ball0", 16, ground - 9]]; dogs = [["d_beg", 27, true]]; }
+    else if (mood === "wave") { pre = [["p_wave_a", 3, ground]]; dogs = [["d_beg", 27, true]]; }
+    else if (mood === "love") { pre = [["p_front", 3, ground], ["fx_heart", 17, ground - 26]]; dogs = [["d_beg", 27, true]]; }
+    else { dogs = [["d_lie", 4, false]]; }
   } else {
     // 中 / 大尺寸：金毛 + 小人 + 小腊肠
-    if (mood === "sleep") {
-      stamp(grid, "g_sleep", 2, ground, false); stamp(grid, "p_front_blink", 44, ground, false); stamp(grid, "d_sleep", 68, ground, true);
-      stamp(grid, "fx_z", 60, ground - 29, false); stamp(grid, "fx_zs", 32, ground - 12, false);
-    } else if (mood === "play") {
-      stamp(grid, "g_sit_a", 2, ground, false); stamp(grid, "p_hold", 46, ground, false); stamp(grid, "ball0", 59, ground - 12, false); stamp(grid, "d_bow_a", 70, ground, true);
-    } else if (mood === "wave") {
-      stamp(grid, "g_stand_b", 2, ground, false); stamp(grid, "p_wave_a", 46, ground, false); stamp(grid, "d_stand_b", 70, ground, true);
-    } else if (mood === "love") {
-      stamp(grid, "g_sit_b", 2, ground, false); stamp(grid, "fx_heart", 32, ground - 28, false); stamp(grid, "p_front", 46, ground, false); stamp(grid, "d_sit_b", 70, ground, true);
-    } else {
-      stamp(grid, "g_lie", 2, ground, false); stamp(grid, "p_front", 46, ground, false); stamp(grid, "d_sit_a", 70, ground, true);
-    }
+    if (mood === "sleep") { pre = [["p_front_blink", 48, ground], ["fx_z", 62, ground - 30], ["fx_zs", 36, ground - 16]]; dogs = [["g_sleep", 1, false], ["d_sleep", 64, true]]; }
+    else if (mood === "play") { pre = [["p_hold", 43, ground], ["ball0", 56, ground - 12]]; dogs = [["g_sit", 0, false], ["d_bow", 65, true]]; }
+    else if (mood === "wave") { pre = [["p_wave_a", 45, ground]]; dogs = [["g_sit", 0, false], ["d_beg", 70, true]]; }
+    else if (mood === "love") { pre = [["p_front", 45, ground], ["fx_heart", 34, ground - 26], ["fx_heart", 74, ground - 16]]; dogs = [["g_sit", 0, false], ["d_roll", 61, true]]; }
+    else { pre = [["p_front", 46, ground]]; dogs = [["g_lie", 0, false], ["d_sit", 64, true]]; }
   }
+  for (const p of pre) stamp(grid, p[0], p[1], p[2], false);
   outline(grid, ground);
+  for (const d of dogs) stamp(grid, d[0], d[1], ground + 1, d[2]);
   // 草地
   const grass = night ? "#2f5a45" : "#9fd18b", grass2 = night ? "#244a39" : "#86bf74";
-  for (let y = ground; y < H; y++) for (let x = 0; x < W; x++) grid[y][x] = y === ground ? grass : grass2;
+  for (let y = ground; y < H; y++) for (let x = 0; x < W; x++) if (!grid[y][x]) grid[y][x] = y === ground ? grass : grass2;
   return { grid: grid, W: W, H: H, night: night, dusk: !night && (h >= 17 || h < 7) };
 }
 

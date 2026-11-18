@@ -1,8 +1,8 @@
 // 球球 · Mac 外壳
 //
-// 做的事情很少：开一个透明、没有边框、永远在最上层的窗口，贴在屏幕最下面，
-// 里面用系统自带的 WebKit 显示 web/ 文件夹里的像素小人和小狗。
-// 平时鼠标可以直接穿过这个窗口；只有移到小人、小狗、小球身上时才会被接住。
+// 做的事情很少：开一个透明、没有边框、永远在最上层、铺满整个屏幕的窗口，
+// 里面用系统自带的 WebKit 显示 web/ 文件夹里的像素小人和小狗，还有屏幕顶上的"灵动岛"。
+// 平时鼠标可以直接穿过这个窗口；只有移到小人、小狗、小球、灵动岛上时才会被接住。
 //
 // 不联网，不需要任何系统权限（不读屏幕、不读键盘）。
 
@@ -90,6 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private var hiddenByUser = false
     private var stuckTicks = 0
     private var tickCount = 0
+    private var hoverTicks = 0
+    private var lastVisible = CGRect.zero
 
     private let defaults = UserDefaults.standard
     private let selfTestPath: String?
@@ -109,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     // MARK: 启动
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        defaults.register(defaults: ["scale": 3, "auto": true, "screen": 0])
+        defaults.register(defaults: ["scale": 3, "auto": true, "screen": 0, "roam": true, "island": true])
         buildWindow()
         buildMenu()
         loadPage()
@@ -148,17 +150,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         return screens[min(max(i, 0), screens.count - 1)]
     }
 
-    /// 屏幕可用区域（不含 Dock 和菜单栏）最下面的一条。
+    /// 整块屏幕（连菜单栏那一条也盖住，这样才能在刘海旁边画"灵动岛"）。
     private func targetFrame() -> CGRect? {
         guard let screen = targetScreen() else { return nil }
-        let vf = screen.visibleFrame
-        let h = min(vf.height, min(380, max(240, vf.height * 0.42)))
-        return CGRect(x: vf.minX, y: vf.minY, width: vf.width, height: h)
+        return screen.frame
     }
 
     private func layoutWindow() {
         guard let f = targetFrame() else { return }
         if panel.frame != f { panel.setFrame(f, display: true) }
+        // 程序坞变大变小、菜单栏自动隐藏：可活动的范围变了，告诉网页
+        let v = targetScreen()?.visibleFrame ?? .zero
+        if v != lastVisible { lastVisible = v; pushConfig() }
     }
 
     @objc private func screensChanged() { layoutWindow() }
@@ -169,7 +172,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         panel.isOpaque = false
         panel.backgroundColor = NSColor.clear
         panel.hasShadow = false
-        panel.level = .floating
+        // 比菜单栏再高一点：这样灵动岛能画在刘海两边；系统的菜单、弹窗仍然在我们上面
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
@@ -234,9 +238,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     private func pushConfig() {
+        guard web != nil, panel != nil else { return }
         let scale = defaults.integer(forKey: "scale")
         let auto = defaults.bool(forKey: "auto")
-        js("window.pet&&window.pet.configure({scale:\(scale),auto:\(auto ? "true" : "false"),paused:\(hiddenByUser ? "true" : "false")});")
+        let roam = defaults.bool(forKey: "roam")
+        let island = defaults.bool(forKey: "island")
+        var top = 0.0, bottom = 0.0, left = 0.0, right = 0.0, notchW = 0.0, barH = 24.0
+        if let sc = targetScreen() {
+            let f = sc.frame, v = sc.visibleFrame
+            top = Double(f.maxY - v.maxY); bottom = Double(v.minY - f.minY)
+            left = Double(v.minX - f.minX); right = Double(f.maxX - v.maxX)
+            barH = max(22.0, top)
+            if #available(macOS 12.0, *) {
+                // 有刘海的屏幕：量出刘海多宽多高
+                if sc.safeAreaInsets.top > 0, let l = sc.auxiliaryTopLeftArea, let r = sc.auxiliaryTopRightArea {
+                    notchW = max(0.0, Double(f.width - l.width - r.width))
+                    barH = Double(sc.safeAreaInsets.top)
+                }
+            }
+        }
+        if top < 1 { top = 24 }
+        let cx = Double(panel.frame.width / 2)
+        js("window.PET_ISLAND&&window.PET_ISLAND.configure({cx:\(cx),notchW:\(notchW),h:\(barH),on:\(island)});")
+        js("window.pet&&window.pet.configure({scale:\(scale),auto:\(auto),roam:\(roam),insets:{top:\(top),bottom:\(bottom),left:\(left),right:\(right)},paused:\(hiddenByUser)});")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -285,11 +309,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let m = NSEvent.mouseLocation
         let f = panel.frame
         let local = CGPoint(x: m.x - f.minX, y: f.maxY - m.y)
-        let inside = local.x >= -30 && local.x <= f.width + 30 && local.y >= -30 && local.y <= f.height + 4
-
+        // 窗口铺满了屏幕，所以只在鼠标靠近小人 / 小狗 / 小球 / 灵动岛时才把位置告诉网页
         var over = false
-        if inside {
-            for r in hot where r.contains(local) { over = true; break }
+        var inside = false
+        for r in hot {
+            if r.contains(local) { over = true; inside = true; break }
+            if r.insetBy(dx: -130, dy: -130).contains(local) { inside = true }
         }
         let buttons = NSEvent.pressedMouseButtons
 
@@ -322,7 +347,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
         if !mouseDownInside {
             if inside {
-                if !hoverInside || abs(local.x - lastHover.x) > 0.5 || abs(local.y - lastHover.y) > 0.5 {
+                hoverTicks += 1
+                if !hoverInside || abs(local.x - lastHover.x) > 0.5 || abs(local.y - lastHover.y) > 0.5 || hoverTicks % 9 == 0 {
                     hoverInside = true
                     lastHover = local
                     js("window.pet&&window.pet.pointer('hover',\(Int(local.x)),\(Int(local.y)))")
@@ -339,7 +365,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let h = panel.contentView?.bounds.height ?? panel.frame.height
         let x = Int(p.x.rounded())
         let y = Int((h - p.y).rounded())
-        if type == "down" { mouseDownInside = true }
+        if type == "down" {
+            // 窗口铺满了整个屏幕：只有真的点在小人 / 小狗 / 小球 / 灵动岛上才算数，
+            // 其他地方的点击一律不理（免得鼠标刚离开它们的那一瞬间误触发）。
+            let pt = CGPoint(x: CGFloat(x), y: CGFloat(y))
+            var hit = false
+            for r in hot where r.insetBy(dx: -8, dy: -8).contains(pt) { hit = true; break }
+            if !hit {
+                if debug { print("MOUSE miss \(x) \(y)"); fflush(stdout) }
+                return
+            }
+            mouseDownInside = true
+        } else if !mouseDownInside && !jsDragging {
+            return
+        }
         if type == "up" { mouseDownInside = false }
         if debug && type != "move" { print("MOUSE \(type) \(x) \(y)"); fflush(stdout) }
         js("window.pet&&window.pet.pointer('\(type)',\(x),\(y))")
@@ -385,10 +424,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         menu.removeAllItems()
         addItem(L10n.t("丟球球！", "丢球球！", "Throw the ball!"), #selector(throwBall), to: menu)
         addItem(L10n.t("打個招呼", "打个招呼", "Say hi"), #selector(sayHi), to: menu)
+        addItem(L10n.t("回島睡覺 / 出來玩", "回岛睡觉 / 出来玩", "Nap at home / Come out"), #selector(toggleHome), to: menu)
         menu.addItem(NSMenuItem.separator())
 
         let auto = addItem(L10n.t("小人自動丟球", "小人自动丢球", "Auto-play"), #selector(toggleAuto), to: menu)
         auto.state = defaults.bool(forKey: "auto") ? .on : .off
+        let roam = addItem(L10n.t("滿螢幕到處跑", "满屏幕到处跑", "Roam the whole screen"), #selector(toggleRoam), to: menu)
+        roam.state = defaults.bool(forKey: "roam") ? .on : .off
+        let isl = addItem(L10n.t("顯示靈動島", "显示灵动岛", "Show the island"), #selector(toggleIsland), to: menu)
+        isl.state = defaults.bool(forKey: "island") ? .on : .off
 
         let sizeItem = NSMenuItem(title: L10n.t("大小", "大小", "Size"), action: nil, keyEquivalent: "")
         let sizeMenu = NSMenu()
@@ -437,6 +481,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     @objc private func toggleAuto() {
         defaults.set(!defaults.bool(forKey: "auto"), forKey: "auto")
         pushConfig()
+    }
+
+    @objc private func toggleRoam() {
+        defaults.set(!defaults.bool(forKey: "roam"), forKey: "roam")
+        pushConfig()
+    }
+
+    @objc private func toggleIsland() {
+        defaults.set(!defaults.bool(forKey: "island"), forKey: "island")
+        pushConfig()
+    }
+
+    @objc private func toggleHome() {
+        if hiddenByUser { toggleHidden() }
+        js("window.pet&&window.pet.command('toggleHome')")
     }
 
     @objc private func setSize(_ sender: NSMenuItem) {

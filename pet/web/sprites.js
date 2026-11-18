@@ -196,241 +196,78 @@
     return r;
   }
 
-  // ============================================================
-  //  小腊肠（32x15）
-  // ============================================================
-  var D_BODY = [
-    '................................',
-    '................................',
-    '.......................rrrr.....',
-    '......................rrrrrr....',
-    '.....................rrrrnrrr...',
-    '.....................rrrrrrrrrn.',
-    '.....................rrrrrrrrqq.',
-    '....rrrrrrrrrrrrrrrrrrrrrrrqq...',
-    '...rrrrrrrrrrrrrrrrrrrrrrr......',
-    '...rrrrrrrrrrrrrrrrrrrrrrr......',
-    '...rrrrrrrrrrrrrrrrrrrrrr.......',
-    '....rRRRRRRRRRRRRRRRRrrr........',
-    '................................',
-    '................................',
-    '................................',
-  ];
-  var D_EAR = {
-    down: cat(run(21, 22, 4, 'E'), run(21, 22, 5, 'E'), run(21, 23, 6, 'E'), run(21, 23, 7, 'E'), run(22, 23, 8, 'E')),
-    back: cat(run(21, 22, 4, 'E'), run(18, 22, 5, 'E'), run(17, 21, 6, 'E')),
-    up:   cat(run(21, 22, 4, 'E'), run(19, 22, 3, 'E'), run(18, 20, 2, 'E')),
-  };
-  var D_TAIL = {
-    a:   [[3, 7, 't'], [2, 6, 't'], [2, 5, 't'], [1, 4, 't']],
-    b:   [[3, 7, 't'], [3, 6, 't'], [4, 5, 't'], [4, 4, 't']],
-    run: [[3, 7, 't'], [2, 7, 't'], [1, 6, 't'], [0, 6, 't']],
-  };
-  var D_LEGS = {
-    stand:   cat(run(5, 7, 12, 'r'), run(6, 7, 13, 'r'), run(6, 7, 14, 'r'), [[8, 14, 'q']],
-                 run(20, 22, 12, 'r'), run(21, 22, 13, 'r'), run(21, 22, 14, 'r'), [[23, 14, 'q']]),
-    stretch: cat(run(3, 6, 12, 'r'), run(1, 3, 13, 'r'), [[0, 13, 'q']],
-                 run(21, 24, 12, 'r'), run(24, 26, 13, 'r'), [[27, 13, 'q']]),
-    gather:  cat(run(7, 9, 12, 'r'), run(9, 10, 13, 'r'), run(10, 11, 14, 'r'), [[12, 14, 'q']],
-                 run(18, 20, 12, 'r'), run(17, 18, 13, 'r'), run(16, 17, 14, 'r'), [[15, 14, 'q']]),
-  };
-  function dStand(ear, tail, legs, lift) {
-    var r = put(D_BODY, cat(D_LEGS[legs], D_EAR[ear], D_TAIL[tail]));
-    return lift ? up(r, 1) : r;
+  // ---- 更多动作 ----
+  var B20 = blank(20);
+  // 蹲下（摸小腊肠、揉肚子）
+  function pCrouch(v) {
+    var r = [B20, B20, B20, B20, B20, B20, B20].concat(P_SIDE.slice(0, 17));
+    r.push('....pppppppppp......');
+    r.push('.....bbbb.bbbb......');
+    var arm = v === 2
+      ? cat(run(7, 8, 21, 'J'), run(9, 10, 21, 'J'), run(11, 12, 22, 'J'), run(13, 14, 22, 'J'), run(15, 16, 22, 's'))
+      : cat(run(7, 8, 21, 'J'), run(9, 10, 22, 'J'), run(11, 12, 23, 'J'), run(13, 14, 23, 'J'), run(15, 16, 24, 's'));
+    return put(r, arm);
   }
-  var D_SIT = [
-    '................................',
-    '......................rrrr......',
-    '.....................rrrrrr.....',
-    '....................EErrnrrr....',
-    '....................EErrrrrrrn..',
-    '....................EEErrrrrqq..',
-    '...................rEEErrrqq....',
-    '..................rrrEErrr......',
-    '.................rrrrrrrrr......',
-    '...............rrrrrrrrrrr......',
-    '.............rrrrrrrrrrrrr......',
-    '...........rrrrrrrrrrrr.rr......',
-    '.........rrrrrrrrrrrrr..rr......',
-    '........rrrrRRrrrrrrr...rr......',
-    '........rrrrrrrrrrrqq...rrq.....',
-  ];
-  var D_SIT_TAIL = {
-    a: [[8, 12, 't'], [7, 11, 't'], [6, 10, 't'], [6, 9, 't']],
-    b: [[7, 13, 't'], [6, 12, 't'], [5, 12, 't'], [4, 11, 't']],
-  };
-  var D_BOW = [
-    '................................',
-    '................................',
-    '................................',
-    '....rrrr........................',
-    '...rrrrrrr......................',
-    '...rrrrrrrrrr...................',
-    '...rrrrrrrrrrrrr......rrrr......',
-    '....rrrrrrrrrrrrrrr..rrrrrr.....',
-    '....rr.rrrrrrrrrrrrrEErrnrrr....',
-    '....rr...rrrrrrrrrrrEErrrrrrrn..',
-    '....rr.....rrrrrrrrrEEErrrrrqq..',
-    '....rr.......rrrrrrrrEErrrqq....',
-    '....rr.........rrrrrrrrr........',
-    '....rr..........rrrrrrrrrrrr....',
-    '....rrq...........rrrrrrrrrrq...',
-  ];
-  var D_BOW_TAIL = {
-    a: [[3, 3, 't'], [2, 2, 't'], [2, 1, 't'], [1, 0, 't']],
-    b: [[4, 2, 't'], [4, 1, 't'], [5, 0, 't']],
-  };
-  var D_LIE = padTop([
-    '......rrrrrrrrrrrrrrr...........',
-    '....rrrrrrrrrrrrrrrrrrEE........',
-    '...rrrrrrrrrrrrrrrrrrrEEErrr....',
-    '..rrrrrrrrrrrrrrrrrrrrEEErrrrr..',
-    '..rrrrrrrrrrrrrrrrrrrrrEErnrrrn.',
-    '..rrRRRRRRRRRRRRRRrrrrrrrrrrqq..',
-    '.tttrrq..........qqrrrrrrqq.....',
-  ], 15);
-  var D_SLEEP = put(D_LIE, [[26, 12, 'R']]);
-  var D_SLEEP2 = sink(D_SLEEP, 8);
+  // 坐在草地上
+  function pSit() {
+    var r = [B20, B20, B20, B20, B20, B20].concat(P_SIDE.slice(0, 18));
+    r.push('.....jjjjjppppppp.b.');
+    r.push('.....pppppppppppppb.');
+    return put(r, cat(run(6, 7, 20, 'J'), run(7, 8, 21, 'J'), run(8, 9, 22, 'J'), run(10, 10, 23, 'J'), run(11, 12, 23, 's')));
+  }
+  // 举起双手（欢呼 / 伸懒腰）
+  var P_CHEER = put(P_SIDE, cat(
+    [[6, 14, 'J'], [5, 13, 'J'], [5, 12, 'J'], [4, 11, 'J'], [4, 10, 'J'], [3, 9, 's'], [3, 8, 's'], [4, 8, 's']],
+    [[14, 14, 'j'], [15, 13, 'j'], [16, 12, 'j'], [17, 11, 'j'], [17, 10, 'j'], [18, 9, 's'], [18, 8, 's'], [17, 8, 's']],
+    [[13, 10, 'm'], [14, 10, 'm'], [13, 11, 'm'], [14, 11, 'm']]
+  ));
+  // 整理领带
+  var P_TIE_A = put(P_SIDE, cat(run(6, 7, 14, 'J'), run(6, 7, 15, 'J'), run(7, 8, 16, 'J'), run(8, 9, 15, 'J'), [[10, 14, 's'], [10, 13, 's']]));
+  var P_TIE_B = put(P_SIDE, cat(run(6, 7, 14, 'J'), run(6, 7, 15, 'J'), run(7, 8, 16, 'J'), run(8, 9, 16, 'J'), [[10, 15, 's'], [10, 14, 's']]));
+  // 看手表
+  var P_WATCH = put(P_SIDE, cat(run(6, 7, 14, 'J'), run(6, 7, 15, 'J'), run(7, 9, 16, 'J'), [[10, 16, 'w'], [11, 16, 's'], [12, 16, 's']],
+    [[10, 7, 's'], [15, 7, 's'], [10, 8, 'e'], [15, 8, 'e']]));
 
   // ============================================================
-  //  大金毛（40x24）
+  //  小道具
   // ============================================================
-  // 头（站立时的位置）。gHead(dx, dy, opt) 可以把头挪到别的位置。
-  var G_HEAD_ROWS = [
-    // [y, x0, 字符串]
-    [1, 29, 'gggggg'],
-    [2, 28, 'gggggggg'],
-    [3, 27, 'DDggggngggg'],
-    [4, 27, 'DDDgggggggggn'],
-    [5, 27, 'DDDgggggglll'],
-    [6, 27, 'DDDgggggg'],
-    [7, 28, 'DDgggggg'],
+  var BONE = [
+    'ww...ww',
+    'wwwwwww',
+    'ww...ww',
   ];
-  function gHead(dx, dy, opt) {
-    opt = opt || {};
-    var px = [];
-    G_HEAD_ROWS.forEach(function (r) {
-      for (var i = 0; i < r[2].length; i++) px.push([r[1] + i + dx, r[0] + dy, r[2][i]]);
-    });
-    if (opt.tongue) { px.push([36 + dx, 6 + dy, 'k']); px.push([37 + dx, 6 + dy, 'k']); px.push([36 + dx, 7 + dy, 'k']); }
-    if (opt.closed) { px.push([33 + dx, 3 + dy, 'g']); px.push([32 + dx, 4 + dy, 'G']); px.push([33 + dx, 4 + dy, 'G']); }
-    return px;
-  }
-  // 身体（不含头、腿、尾巴）
-  var G_BODY = [
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '......................ggggggggggggl.....',
-    '.......ggggggggggggggggggggggggggll.....',
-    '.....ggggggggggggggggggggggggggglll.....',
-    '....gggggggggggggggggggggggggggglll.....',
-    '....ggggggggggggggggggggggggggggll......',
-    '....gggggggggggggggggggggggggggll.......',
-    '.....ggglllllllGGGGGGgggggggggll........',
-    '...............gllllllggggggggl.........',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
+  var BALL_SQ = [      // 落地那一下被压扁
+    '.yYYYYy.',
+    'yYYywyyy',
+    'yywyyyvv',
+    '.yvvvvv.',
   ];
-  // 画一条腿：从 (hipX, topY) 往下 len 行，每行往 slope 方向偏移；thick = 顶部加粗几行
-  function leg(hipX, topY, len, slope, width, ch, thick) {
-    var px = [];
-    for (var i = 0; i < len; i++) {
-      var x = Math.round(hipX + slope * i);
-      var extra = (thick && i < thick) ? (thick - i) : 0;
-      for (var k = -extra; k < width; k++) px.push([x + k, topY + i, ch]);
-      if (i === len - 1) px.push([x + width, topY + i, ch]);
-    }
-    return px;
-  }
-  var G_TAIL = {
-    mid:  cat(run(2, 4, 10, 'g'), run(1, 3, 11, 'g'), run(0, 2, 12, 'g'),
-              [[3, 12, 'l'], [1, 13, 'l'], [2, 13, 'l'], [0, 13, 'l'], [1, 14, 'l']]),
-    up:   cat(run(3, 4, 9, 'g'), run(3, 4, 8, 'g'), run(2, 4, 7, 'g'), run(2, 3, 6, 'g'), run(1, 3, 5, 'g'), run(1, 2, 4, 'g'),
-              [[1, 7, 'l'], [1, 6, 'l'], [0, 5, 'l'], [0, 4, 'l'], [0, 3, 'l'], [1, 3, 'l'], [2, 8, 'l']]),
-  };
-  var G_FEATHER = [[6, 19, 'l'], [6, 20, 'l'], [24, 18, 'l'], [24, 19, 'l'], [24, 20, 'l']];
-  var G_LEGS = {
-    // 远侧腿（G，深色）先画，近侧腿（g）后画
-    stand: cat(
-      leg(11, 15, 9, 0, 2, 'G'), leg(21, 16, 8, 0, 2, 'G'),
-      leg(7, 15, 9, 0, 2, 'g', 3), leg(25, 16, 8, 0, 2, 'g', 1), G_FEATHER
-    ),
-    trotA: cat(
-      leg(11, 15, 9, 0.3, 2, 'G'), leg(21, 16, 8, -0.3, 2, 'G'),
-      leg(7, 15, 9, -0.3, 2, 'g', 3), leg(25, 16, 8, 0.3, 2, 'g', 1)
-    ),
-    trotB: cat(
-      leg(11, 15, 9, -0.3, 2, 'G'), leg(21, 16, 8, 0.3, 2, 'G'),
-      leg(7, 15, 9, 0.3, 2, 'g', 3), leg(25, 16, 8, -0.3, 2, 'g', 1)
-    ),
-    stretch: cat(
-      leg(10, 15, 7, -1.0, 3, 'G'), leg(23, 16, 6, 1.0, 3, 'G'),
-      leg(6, 15, 7, -1.1, 3, 'g', 3), leg(26, 16, 6, 1.1, 3, 'g', 1)
-    ),
-    gather: cat(
-      leg(11, 15, 9, 0.4, 2, 'G'), leg(22, 16, 8, -0.4, 2, 'G'),
-      leg(8, 15, 9, 0.45, 2, 'g', 3), leg(25, 16, 8, -0.45, 2, 'g', 1)
-    ),
-  };
-  function gStand(tail, legs, lift, tongue) {
-    var r = put(G_BODY, cat(G_LEGS[legs], G_TAIL[tail], gHead(0, 0, { tongue: tongue !== false })));
-    return lift ? up(r, 1) : r;
-  }
-  var G_SIT_BODY = [
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '........................................',
-    '..........................ggggggggl.....',
-    '.........................ggggggggll.....',
-    '.......................ggggggggglll.....',
-    '.....................ggggggggggglll.....',
-    '...................gggggggggggggll......',
-    '.................ggggggggggggggll.......',
-    '...............ggggggggggggggggl........',
-    '..............ggggggggggggggggg.........',
-    '.............ggggggggggggg.ggg..........',
-    '............gggggggggggggg.ggg..........',
-    '...........ggggggggggggggg.ggg..........',
-    '...........gggggggggggggg.lgg...........',
-    '..........ggggggGGgggggg.GGgg...........',
-    '..........gggggGGggggggg.GGgg...........',
-    '..........ggggGGgggggggg.GGgg...........',
-    '..........gggggggggggglllGGggg..........',
+  var BFLY_A = [
+    'p...p',
+    'pp.pp',
+    '.pkp.',
+    '..k..',
   ];
-  var G_SIT = put(G_SIT_BODY, gHead(0, 0, { tongue: true }));
-  var G_SIT_TAIL = {
-    a: cat(run(6, 9, 23, 'g'), run(3, 5, 23, 'l'), run(5, 8, 22, 'l')),
-    b: cat(run(8, 9, 22, 'g'), run(7, 8, 21, 'g'), run(6, 7, 20, 'g'), run(5, 6, 19, 'g'), [[5, 21, 'l'], [4, 20, 'l'], [4, 19, 'l'], [4, 18, 'l'], [5, 18, 'g']]),
-  };
-  var G_LIE_BODY = padTop([
-    '.......ggggggggggggggggggggggggggll.....',
-    '.....ggggggggggggggggggggggggggggll.....',
-    '....gggggggggggggggggggggggggggggl......',
-    '....gggggggggggggggggggggggggggggggggl..',
-    '.lllgggGGGGGGGGGGGGGGGGGggggglllggggggl.',
-  ], 24);
-  var G_NECK = cat(run(23, 33, 18, 'g'), run(26, 29, 17, 'g'), [[34, 18, 'l']]);
-  var G_LIE = put(G_LIE_BODY, cat(G_NECK, gHead(0, 10, { tongue: true })));
-  var G_LIE2 = put(G_LIE_BODY, cat(G_NECK, gHead(0, 10, {})));
-  var G_SLEEP = put(G_LIE_BODY, gHead(0, 16, { closed: true }));
-  var G_SLEEP2 = sink(G_SLEEP, 20);
+  var BFLY_B = [
+    '.....',
+    'ppkpp',
+    '.pkp.',
+    '..k..',
+  ];
+  var PUFF = [
+    ['.dd.',
+     'dddd',
+     '.dd.'],
+    ['.d.dd.',
+     'dd..dd',
+     'd....d',
+     '.dd.d.'],
+    ['d..d..d',
+     '.......',
+     'd.....d',
+     '.......',
+     '.d..d..'],
+  ];
 
   // ============================================================
   //  表情小图标
@@ -473,6 +310,42 @@
     'zzzz',
   ];
 
+  var QMARK = [
+    '.yyy.',
+    'y...y',
+    '...yy',
+    '..y..',
+    '.....',
+    '..y..',
+  ];
+  var SPARK = [
+    '..y..',
+    '..y..',
+    'yywyy',
+    '..y..',
+    '..y..',
+  ];
+  var SWEAT = [
+    '.b.',
+    'bbb',
+    'bbb',
+    '.b.',
+  ];
+  var WOOF = [
+    'y..',
+    '.y.',
+    '...',
+    'yyy',
+    '...',
+    '.y.',
+    'y..',
+  ];
+  var HEART_S = [
+    'r.r',
+    'rrr',
+    '.r.',
+  ];
+
   // ============================================================
   //  调色盘
   // ============================================================
@@ -490,24 +363,19 @@
   }
   var INK = '#2a1f2d';
 
-  var DAX_COLORS = {
-    red:      { r: '#b8632b', R: '#8f4519', q: '#dfa063', E: '#7a3a16', t: '#8f4519' },
-    blacktan: { r: '#3d3539', R: '#2b2528', q: '#c98a4b', E: '#2b2528', t: '#2b2528' },
-    cream:    { r: '#e9c995', R: '#cba56a', q: '#f7e6c4', E: '#c39a5e', t: '#cba56a' },
-  };
-
   function palettes(cfg) {
     var p = Object.assign({ hair: '#2b2530', skin: '#f3c9a5', suit: '#3a4c7a', shirt: '#f6f4ef', tie: '#d0353f', shoes: '#2a2024' }, (cfg && cfg.person) || {});
-    var dax = DAX_COLORS[(cfg && cfg.dachshund) || 'red'] || DAX_COLORS.red;
     return {
       person: {
         h: p.hair, s: p.skin, d: mix(p.skin, '#e8747c', 0.38), e: INK, m: '#b4524e',
         w: p.shirt, t: p.tie, j: p.suit, J: mix(p.suit, '#000000', 0.28), p: mix(p.suit, '#000000', 0.14), b: p.shoes,
       },
-      dax: Object.assign({ n: INK, k: '#f08a9a' }, dax),
-      gold: { g: '#e6ad4c', G: '#c08a2e', l: '#f8dc9c', D: '#b97c24', n: INK, k: '#f08a9a' },
       ball: { y: '#d6e645', Y: '#f4f9ae', v: '#9fb226', w: '#ffffff' },
       fx: { r: '#f0506e', w: '#ffd0da', y: '#ffc93c', b: '#6fb7ff', z: '#bcd8ff' },
+      item: { w: '#f7ecd0' },
+      bfly: { p: '#ff8fb3', k: '#3a2a3a' },
+      bfly2: { p: '#8fc8ff', k: '#3a2a3a' },
+      puff: { d: '#efe9dc' },
     };
   }
 
@@ -564,9 +432,9 @@
   function build(cfg, collect) {
     var pal = palettes(cfg);
     var S = {};
-    function add(name, rows, p, extra) {
+    function add(name, rows, p, extra, outline) {
       if (collect) { collect(name, rows, p, extra); return; }
-      var s = render(rows, p);
+      var s = render(rows, p, outline);
       if (extra) for (var k in extra) s[k] = extra[k];
       S[name] = s;
     }
@@ -594,48 +462,35 @@
     add('p_follow', pSide('follow'), pal.person);
     add('p_pat', pSide('pat'), pal.person);
 
-    // 小腊肠。mouth = 叼球时球心的位置
-    var dm = { mouth: [30, 7] };
-    add('d_stand_a', dStand('down', 'a', 'stand'), pal.dax, dm);
-    add('d_stand_b', dStand('down', 'b', 'stand'), pal.dax, dm);
-    add('d_run0', dStand('back', 'run', 'stretch', true), pal.dax, { mouth: [30, 6] });
-    add('d_run1', dStand('up', 'a', 'stand'), pal.dax, dm);
-    add('d_run2', dStand('down', 'b', 'gather'), pal.dax, dm);
-    add('d_run3', dStand('up', 'a', 'stand'), pal.dax, dm);
-    add('d_jump', dStand('back', 'run', 'stretch'), pal.dax, dm);
-    add('d_sit_a', put(D_SIT, D_SIT_TAIL.a), pal.dax, { mouth: [29, 6] });
-    add('d_sit_b', put(D_SIT, D_SIT_TAIL.b), pal.dax, { mouth: [29, 6] });
-    add('d_bow_a', put(D_BOW, D_BOW_TAIL.a), pal.dax, { mouth: [29, 11] });
-    add('d_bow_b', put(D_BOW, D_BOW_TAIL.b), pal.dax, { mouth: [29, 11] });
-    add('d_lie', D_LIE, pal.dax, { mouth: [30, 13] });
-    add('d_sleep', D_SLEEP, pal.dax);
-    add('d_sleep2', D_SLEEP2, pal.dax);
+    add('p_cheer', P_CHEER, pal.person);
+    add('p_cheer2', up(P_CHEER, 1), pal.person);
+    add('p_crouch', pCrouch(1), pal.person);
+    add('p_crouch2', pCrouch(2), pal.person);
+    add('p_sit', pSit(), pal.person);
+    add('p_tie_a', P_TIE_A, pal.person);
+    add('p_tie_b', P_TIE_B, pal.person);
+    add('p_watch', P_WATCH, pal.person);
 
-    // 大金毛
-    var gm = { mouth: [39, 6] };
-    add('g_stand_a', gStand('mid', 'stand'), pal.gold, gm);
-    add('g_stand_b', gStand('up', 'stand'), pal.gold, gm);
-    add('g_trot0', gStand('mid', 'trotA'), pal.gold, gm);
-    add('g_trot1', gStand('up', 'stand', true), pal.gold, { mouth: [39, 5] });
-    add('g_trot2', gStand('mid', 'trotB'), pal.gold, gm);
-    add('g_trot3', gStand('up', 'stand', true), pal.gold, { mouth: [39, 5] });
-    add('g_run0', gStand('mid', 'stretch', true), pal.gold, { mouth: [39, 5] });
-    add('g_run1', gStand('up', 'stand'), pal.gold, gm);
-    add('g_run2', gStand('mid', 'gather'), pal.gold, gm);
-    add('g_run3', gStand('up', 'stand'), pal.gold, gm);
-    add('g_sit_a', put(G_SIT, G_SIT_TAIL.a), pal.gold, gm);
-    add('g_sit_b', put(G_SIT, G_SIT_TAIL.b), pal.gold, gm);
-    add('g_lie', G_LIE, pal.gold, { mouth: [39, 16] });
-    add('g_lie2', G_LIE2, pal.gold, { mouth: [39, 16] });
-    add('g_sleep', G_SLEEP, pal.gold);
-    add('g_sleep2', G_SLEEP2, pal.gold);
+    // 小道具
+    add('bone', BONE, pal.item);
+    add('ball_sq', BALL_SQ, pal.ball);
+    add('bfly_a', BFLY_A, pal.bfly, null, false);
+    add('bfly_b', BFLY_B, pal.bfly, null, false);
+    add('bfly2_a', BFLY_A, pal.bfly2, null, false);
+    add('bfly2_b', BFLY_B, pal.bfly2, null, false);
+    PUFF.forEach(function (r, i) { add('puff' + i, r, pal.puff, null, false); });
 
     // 表情
     add('fx_heart', HEART, pal.fx);
+    add('fx_hs', HEART_S, pal.fx);
     add('fx_bang', BANG, pal.fx);
     add('fx_note', NOTE, pal.fx);
     add('fx_z', ZED, pal.fx);
     add('fx_zs', ZED_S, pal.fx);
+    add('fx_q', QMARK, pal.fx);
+    add('fx_spark', SPARK, pal.fx);
+    add('fx_sweat', SWEAT, pal.fx);
+    add('fx_woof', WOOF, pal.fx);
     return S;
   }
 

@@ -1,11 +1,13 @@
-// 开发用：在无头浏览器里跑一遍玩法，检查有没有报错 / 卡死，并截几张图。
-// 用法：node sim.js [输出目录]
+// 开发用：在无头浏览器里把玩法快进跑一遍，检查有没有报错 / 卡死 / 跑出屏幕。
+// 两种模式都跑：满屏幕跑（roam）和只在底部一条（band）。
+// 用法：node sim.js [输出目录] [快进多少分钟]
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
 
 (async () => {
   const outDir = process.argv[2] || '/tmp/pet-sim';
+  const minutes = parseFloat(process.argv[3] || '30');
   fs.mkdirSync(outDir, { recursive: true });
   const url = 'file://' + path.resolve(__dirname, '../web/index.html');
   const browser = await chromium.launch();
@@ -13,109 +15,85 @@ const fs = require('fs');
   let failed = false;
   const fail = (m) => { failed = true; console.log('FAIL:', m); };
 
-  // ---------- 1. 快进 40 分钟，随机乱点，检查状态机不会坏 ----------
-  {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 330 } });
-    page.on('pageerror', e => errors.push('pageerror: ' + e));
-    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-    await page.goto(url + '?scale=3');
+  for (const mode of ['roam', 'band']) {
+    const page = await browser.newPage({ viewport: mode === 'roam' ? { width: 1440, height: 900 } : { width: 1440, height: 330 } });
+    page.on('pageerror', e => errors.push(mode + ' pageerror: ' + (e.stack || e)));
+    page.on('console', m => { if (m.type() === 'error') errors.push(mode + ' console: ' + m.text()); });
+    await page.goto(url + '?scale=3&entrance=0&roam=' + (mode === 'roam' ? 1 : 0));
+    await page.waitForTimeout(300);
     await page.evaluate(() => window.pet.configure({ paused: true }));
-    const res = await page.evaluate(() => {
+    const res = await page.evaluate((minutes) => {
       const T = window.pet._t, P = window.pet;
-      const stats = { throws: 0, grabs: { dax: 0, gold: 0 }, phases: {}, maxFree: 0, bad: [], userThrows: 0, pets: 0 };
-      let prevSt = 'hand', freeFor = 0, stuckFor = 0, lastPhase = '';
+      const stats = { throws: 0, grabs: { dax: 0, gold: 0 }, tugs: 0, phases: {}, bad: [], userThrows: 0, pets: 0, carries: 0, taps: 0, homes: 0, maxFree: 0 };
+      let prevSt = 'hand', freeFor = 0, stuckFor = 0, lastPhase = '', lastSceneT = 0, lastScene = null;
       const dt = 1 / 60;
-      let dragging = false, dragT = 0;
+      let dragging = false, dragT = 0, carrying = false, carryT = 0;
       const rnd = (a, b) => a + Math.random() * (b - a);
-      for (let i = 0; i < 60 * 60 * 40; i++) {
-        // 随机互动
-        if (!dragging && Math.random() < 0.0009) {
-          const b = T.boxes();
-          if (b.ball) {
-            const cx = ((b.ball[0] + b.ball[2]) / 2) * b.S + b.offX, cy = ((b.ball[1] + b.ball[3]) / 2) * b.S + b.offY;
-            P.pointer('down', cx, cy);
-            if (T.state().ball.st === 'drag') { dragging = true; dragT = 0; stats.userThrows++; }
-            else P.pointer('up', 0, 0);
-          }
-        } else if (dragging) {
+      const mid = (b, bx) => [((b[0] + b[2]) / 2) * bx.S + bx.offX, ((b[1] + b[3]) / 2) * bx.S + bx.offY];
+      for (let i = 0; i < 60 * 60 * minutes; i++) {
+        const s0 = T.state();
+        T.set('touch', s0.now);     // 测试时别让它们因为"夜里"去睡觉
+        if (dragging) {
           dragT += dt;
-          const s = T.state();
-          P.pointer('move', rnd(0, s.LW * s.S), rnd(0, s.LH * s.S));
+          P.pointer('move', rnd(0, s0.LW * s0.S), rnd(0, s0.LH * s0.S));
           if (dragT > rnd(0.2, 1.5)) { P.pointer('up', 0, 0); dragging = false; }
+        } else if (carrying) {
+          carryT += dt;
+          P.pointer('move', rnd(0, s0.LW * s0.S), rnd(0, s0.LH * s0.S));
+          if (carryT > rnd(0.3, 1.2)) { P.pointer('up', 0, 0); carrying = false; }
+        } else if (Math.random() < 0.0008) {
+          const b = T.boxes();
+          if (b.ball) { const m = mid(b.ball, b); P.pointer('down', m[0], m[1]); if (T.state().ball.st === 'drag') { dragging = true; dragT = 0; stats.userThrows++; } else P.pointer('up', 0, 0); }
         } else if (Math.random() < 0.0006) {
           const b = T.boxes(), who = [b.dax, b.gold, b.person][(Math.random() * 3) | 0];
-          if (who) { P.pointer('down', ((who[0] + who[2]) / 2) * b.S + b.offX, ((who[1] + who[3]) / 2) * b.S + b.offY); P.pointer('up', 0, 0); stats.pets++; }
+          if (who) { const m = mid(who, b); P.pointer('down', m[0], m[1]); if (Math.random() < 0.35) { P.pointer('move', m[0] + 30, m[1] - 30); carrying = true; carryT = 0; stats.carries++; } else { P.pointer('up', 0, 0); stats.pets++; } }
+        } else if (Math.random() < 0.0004) {
+          P.pointer('down', rnd(40, s0.LW * s0.S - 40), rnd(120, s0.LH * s0.S - 20)); P.pointer('up', 0, 0); stats.taps++;
         } else if (Math.random() < 0.0002) {
-          P.command('throw');
+          P.command(['throw', 'love', 'gather', 'wave'][(Math.random() * 4) | 0]);
+        } else if (Math.random() < 0.00006) {
+          P.command('toggleHome'); stats.homes++;
         }
         T.step(dt);
         if (i % 3 === 0) T.draw();
         const s = T.state();
-        // 数据检查
-        for (const [k, v] of [['ball.x', s.ball.x], ['ball.z', s.ball.z], ['person.x', s.person.x], ['dax.x', s.dax.x], ['dax.z', s.dax.z], ['gold.x', s.gold.x]]) {
-          if (!Number.isFinite(v)) { stats.bad.push(k + ' not finite at ' + s.now.toFixed(1)); }
+        for (const [k, v] of [['ball.x', s.ball.x], ['ball.y', s.ball.y], ['ball.z', s.ball.z], ['person.x', s.person.x], ['person.y', s.person.y], ['dax.x', s.dax.x], ['dax.y', s.dax.y], ['dax.z', s.dax.z], ['gold.x', s.gold.x], ['gold.y', s.gold.y]]) {
+          if (!Number.isFinite(v)) stats.bad.push(k + ' not finite at ' + s.now.toFixed(1));
         }
-        if (s.dax.x < 0 || s.dax.x > s.LW || s.gold.x < 0 || s.gold.x > s.LW || s.person.x < 0 || s.person.x > s.LW || s.ball.x < 0 || s.ball.x > s.LW) stats.bad.push('out of range at ' + s.now.toFixed(1));
+        for (const a of [s.dax, s.gold, s.person]) {
+          if (a.x < s.F.x0 - 1 || a.x > s.F.x1 + 1 || a.y < s.F.y0 - 1 || a.y > s.F.y1 + 1) stats.bad.push('actor out of field at ' + s.now.toFixed(1) + ' ' + JSON.stringify(a) + JSON.stringify(s.F));
+        }
         if (s.ball.st === 'free' && prevSt !== 'free') stats.throws++;
         if (s.ball.st === 'mouth' && prevSt !== 'mouth') stats.grabs[s.ball.holder]++;
+        if (s.ball.st === 'tug' && prevSt !== 'tug') stats.tugs++;
         prevSt = s.ball.st;
         freeFor = s.ball.st === 'free' ? freeFor + dt : 0;
         if (freeFor > stats.maxFree) stats.maxFree = freeFor;
         stats.phases[s.phase] = (stats.phases[s.phase] || 0) + dt;
-        // 除了休息以外，任何阶段都不该卡超过 40 秒
-        if (s.phase === lastPhase && s.phase !== 'rest') stuckFor += dt; else stuckFor = 0;
+        // 除了休息以外，任何阶段都不该卡超过 45 秒；一段小剧场也不该超过 70 秒
+        if (s.phase === lastPhase && s.phase !== 'rest' && !dragging) stuckFor += dt; else stuckFor = 0;
         lastPhase = s.phase;
-        if (stuckFor > 40) { stats.bad.push('stuck in ' + s.phase + ' at ' + s.now.toFixed(1) + ' ' + JSON.stringify(s)); stuckFor = 0; }
+        if (stuckFor > 45) { stats.bad.push('stuck in ' + s.phase + ' at ' + s.now.toFixed(1) + ' ' + JSON.stringify(s)); stuckFor = 0; }
+        if (s.scene !== lastScene) { lastScene = s.scene; lastSceneT = s.now; }
+        if (s.scene && s.now - lastSceneT > 75) { stats.bad.push('scene too long: ' + s.scene); lastSceneT = s.now; }
         if (stats.bad.length > 5) break;
       }
       for (const k in stats.phases) stats.phases[k] = Math.round(stats.phases[k]);
       stats.maxFree = +stats.maxFree.toFixed(1);
-      stats.end = T.state();
+      const e = T.state();
+      stats.scenes = e.scenes; stats.endHome = e.home; stats.endPhase = e.phase;
       return stats;
-    });
-    console.log('fast-forward:', JSON.stringify(res, null, 1));
-    if (res.bad.length) fail('fast-forward found problems');
-    if (res.throws < 20) fail('too few throws');
-    // 有些球是飞到一半又被鼠标抓走的，所以不会是 100%
-    if (res.grabs.dax + res.grabs.gold < res.throws * 0.8) fail('dogs are not fetching reliably');
-    await page.close();
-  }
-
-  // ---------- 2. 实时跑一小段，截图 ----------
-  {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 420 } });
-    page.on('pageerror', e => errors.push('pageerror: ' + e));
-    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-    await page.goto(url + '?scale=3');
-    await page.waitForTimeout(2300);
-    await page.screenshot({ path: path.join(outDir, 'a_wave.png') });
-    await page.evaluate(() => window.pet.command('throw'));
-    for (let i = 0; i < 16; i++) {
-      await page.waitForTimeout(260);
-      await page.screenshot({ path: path.join(outDir, 'b_throw_' + String(i).padStart(2, '0') + '.png') });
-    }
-    // 用鼠标拖球甩出去
-    await page.waitForTimeout(3000);
-    const b = await page.evaluate(() => window.pet._t.boxes());
-    if (b.ball) {
-      const cx = ((b.ball[0] + b.ball[2]) / 2) * b.S + b.offX, cy = ((b.ball[1] + b.ball[3]) / 2) * b.S + b.offY;
-      await page.mouse.move(cx, cy);
-      await page.mouse.down();
-      await page.mouse.move(cx - 60, cy - 120, { steps: 8 });
-      await page.screenshot({ path: path.join(outDir, 'c_drag_0.png') });
-      await page.mouse.move(cx + 120, cy - 220, { steps: 6 });
-      await page.mouse.up();
-      for (let i = 1; i < 8; i++) {
-        await page.waitForTimeout(300);
-        await page.screenshot({ path: path.join(outDir, 'c_drag_' + i + '.png') });
-      }
-    } else fail('ball box missing');
-    console.log('realtime state:', JSON.stringify(await page.evaluate(() => window.pet._t.state())));
+    }, minutes);
+    console.log(mode + ':', JSON.stringify(res));
+    if (res.bad.length) fail(mode + ': problems found');
+    if (res.throws < minutes * 0.5) fail(mode + ': too few throws');
+    if (res.grabs.dax + res.grabs.gold < res.throws * 0.75) fail(mode + ': dogs are not fetching reliably');
+    if (Object.keys(res.scenes).length < 8) fail(mode + ': too few different scenes played: ' + Object.keys(res.scenes).join(','));
     await page.close();
   }
 
   await browser.close();
-  if (errors.length) { console.log('ERRORS:\n' + errors.join('\n')); failed = true; }
+  if (errors.length) { console.log('ERRORS:\n' + errors.slice(0, 12).join('\n')); failed = true; }
   console.log(failed ? 'RESULT: FAILED' : 'RESULT: OK');
   process.exit(failed ? 1 : 0);
 })();

@@ -8,7 +8,7 @@ out = here.parent.parent / 'docs' / 'qiuqiu'
 out.mkdir(parents=True, exist_ok=True)
 js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script')
 page = (here / 'template.html').read_text(encoding='utf-8')
-page = page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__PET__', js('pet.js'))
+page = page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__DOGS__', js('dogs.js')).replace('__PET__', js('pet.js'))
 (out / 'index.html').write_text(page, encoding='utf-8')
 (out / 'manifest.webmanifest').write_text(json.dumps({
     "name": "球球", "short_name": "球球", "start_url": "./", "scope": "./", "display": "standalone",

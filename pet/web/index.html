@@ -42,6 +42,36 @@
     transform: rotate(45deg);
   }
 
+  /* —— 屏幕顶上的"灵动岛" —— */
+  #island {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 5;
+    color: #fff; pointer-events: none;
+    font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  .isl-box {
+    width: 132px; height: 30px; margin: 0 auto; overflow: hidden;
+    background: #000; border-radius: 0 0 13px 13px;
+    transition: width .28s cubic-bezier(.2, .9, .3, 1.12), height .28s cubic-bezier(.2, .9, .3, 1.12), border-radius .28s;
+  }
+  .isl-bar { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 12px; box-sizing: border-box; white-space: nowrap; }
+  .isl-l { display: flex; align-items: center; gap: 5px; }
+  .isl-dot { width: 9px; height: 9px; border-radius: 50%; background: #d6e645; box-shadow: inset -2px -2px 0 #9fb226; }
+  .isl-gap { flex: none; }
+  .isl-r { color: #9aa3b5; font-variant-numeric: tabular-nums; min-width: 12px; text-align: right; }
+  #isl-den { display: none; width: 170px; height: 32px; margin: 2px auto 2px; image-rendering: pixelated; }
+  #island.homey #isl-den { display: block; }
+  .isl-panel { opacity: 0; transition: opacity .2s; padding: 4px 14px 12px; width: 324px; box-sizing: border-box; margin-left: 50%; transform: translateX(-50%); }
+  #island.open .isl-panel { opacity: 1; transition-delay: .08s; }
+  .isl-title { font-size: 13px; color: #cfd6e4; text-align: center; padding: 2px 0 9px; }
+  .isl-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .isl-btn {
+    padding: 9px 2px; text-align: center; white-space: nowrap; font-size: 12px; color: #fff;
+    background: #20222b; border-radius: 11px; transition: background .12s, transform .12s;
+  }
+  .isl-btn.hot { background: #34384a; }
+  .isl-btn.down { background: #d6e645; color: #20222b; transform: scale(.96); }
+  .isl-foot { padding-top: 10px; color: #8c95a8; font-size: 11px; line-height: 1.6; text-align: center; font-weight: 500; font-variant-numeric: tabular-nums; }
+
   /* —— 只在浏览器里预览时才有的背景和提示（装成桌宠后是完全透明的） —— */
   body.preview {
     background: linear-gradient(#dfeaf5 0%, #eef3f8 62%, #cfd9e4 62%, #c3cfdc 100%);
@@ -51,7 +81,7 @@
   }
   #hint {
     display: none;
-    position: absolute; left: 0; right: 0; top: 18px;
+    position: absolute; left: 0; right: 0; top: 52px;
     text-align: center;
     font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Helvetica Neue", sans-serif;
     color: #4a5565;
@@ -65,13 +95,43 @@
 </head>
 <body>
 <div id="hint">
-  <b>预览</b>（装到 Mac 上以后背景是透明的，它们站在屏幕最下面）<br>
-  拖住小球甩出去 · 点小人让他丢球 · 点小狗摸摸它
+  <b>预览</b>（装到 Mac 上以后背景是透明的，它们直接在她的屏幕上跑）<br>
+  拖住小球甩出去 · 点小人让他丢球 · 点小狗摸摸它 · 也可以把它们拎起来
 </div>
 <canvas id="stage"></canvas>
 <div id="bubbles"></div>
+<div id="island">
+  <div class="isl-box">
+    <div class="isl-bar">
+      <span class="isl-l"><i class="isl-dot"></i><b id="isl-n">0</b></span>
+      <span class="isl-gap"></span>
+      <span class="isl-r" id="isl-r"></span>
+    </div>
+    <canvas id="isl-den" width="170" height="32"></canvas>
+    <div class="isl-panel">
+      <div class="isl-title" id="isl-title"></div>
+      <div class="isl-btns">
+        <div class="isl-btn" data-cmd="throw">丢球</div>
+        <div class="isl-btn" data-cmd="love">摸摸</div>
+        <div class="isl-btn" data-cmd="gather">集合</div>
+        <div class="isl-btn" data-cmd="home" id="isl-home">回岛睡觉</div>
+      </div>
+      <div class="isl-foot" id="isl-foot"></div>
+    </div>
+  </div>
+</div>
+<script>
+  // 直接用浏览器打开（不在 Mac 外壳里）时：加上预览用的背景和提示
+  if (!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.pet)) {
+    document.body.classList.add('preview');
+    if (/[?&]dark=1/.test(location.search)) document.body.classList.add('dark');
+    if (/[?&]bare=1/.test(location.search)) document.body.classList.remove('preview');
+  }
+</script>
 <script src="config.js"></script>
 <script src="sprites.js"></script>
+<script src="dogs.js"></script>
+<script src="island.js"></script>
 <script src="pet.js"></script>
 </body>
 </html>

@@ -1,79 +1,52 @@
 #!/usr/bin/env python3
-"""开发用：把 web/ 里的三个脚本塞进一个单独的网页，方便在线预览。
+"""开发用：把 web/ 打包成一个单独的网页片段，方便在线预览（带草地背景）。
 用法：python3 make_preview.py <输出.html>"""
-import sys, pathlib
+import sys, pathlib, re
 web = pathlib.Path(__file__).resolve().parent.parent / 'web'
 js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script')
-page = r'''<title>球球桌宠</title>
+index = (web / 'index.html').read_text(encoding='utf-8')
+style = re.search(r'<style>(.*?)</style>', index, re.S).group(1)
+island = re.search(r'(<div id="island">.*?</div>\n  </div>\n</div>)', index, re.S).group(1)
+HEAD = """<title>球球桌宠</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Silkscreen&display=swap">
 <style>
-  /* 版面：上面一小段说明，下面整块是"桌面"，小人和狗狗站在最底下 */
-  :root {
-    --wall: #dde8f3; --wall-2: #eef4fa; --floor: #c3d0de; --floor-2: #b3c2d2;
-    --ink: #223040; --muted: #57687c; --chip: #ffffffb3; --line: #22304026; --ball: #7d9412;
-    --font-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-    --font-label: "Silkscreen", ui-monospace, "SF Mono", Menlo, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --wall: #1a2230; --wall-2: #212b3b; --floor: #121924; --floor-2: #0d131c;
-      --ink: #e8eef6; --muted: #96a5b9; --chip: #ffffff14; --line: #ffffff24; --ball: #d6e645;
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --wall: #1a2230; --wall-2: #212b3b; --floor: #121924; --floor-2: #0d131c;
-    --ink: #e8eef6; --muted: #96a5b9; --chip: #ffffff14; --line: #ffffff24; --ball: #d6e645;
-    color-scheme: dark;
-  }
+  :root { --lawn: #8fca78; --ink: #183222; --chip: #ffffffd9; color-scheme: light; }
   html, body { height: 100%; }
-  body {
-    display: flex; flex-direction: column; overflow: hidden;
-    background: var(--wall); color: var(--ink); font-family: var(--font-body);
-    -webkit-user-select: none; user-select: none; touch-action: none; cursor: default;
+"""
+EXTRA = """
+  body { background: var(--lawn); position: relative; }
+  #hint2 {
+    position: absolute; left: 0; right: 0; top: 46px; z-index: 2; pointer-events: none;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Microsoft YaHei", sans-serif; color: var(--ink);
+    transition: opacity .6s;
   }
-  header {
-    display: flex; flex-direction: column; gap: 10px;
-    padding-block: 22px 14px;
-    padding-left: max(16px, env(safe-area-inset-left, 0px));
-    padding-right: max(16px, env(safe-area-inset-right, 0px));
-  }
-  .label { font: 12px/1 var(--font-label); letter-spacing: .08em; color: var(--ball); }
-  h1 { margin: 0; font-size: 26px; line-height: 1.2; font-weight: 700; text-wrap: balance; }
-  header p { margin: 0; max-width: 34em; font-size: 14px; line-height: 1.6; color: var(--muted); }
-  .how { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 0; padding: 0; list-style: none; }
-  .how li { padding: 6px 11px; font-size: 13px; line-height: 1.3; background: var(--chip); border: 1px solid var(--line); border-radius: 999px; }
-  #world {
-    position: relative; flex: 1; min-height: 150px; overflow: hidden;
-    background: linear-gradient(var(--wall) 0, var(--wall-2) calc(100% - 76px), var(--floor) calc(100% - 76px), var(--floor-2) 100%);
-  }
-  #stage { position: absolute; left: 0; bottom: 0; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges; image-rendering: pixelated; }
-  #bubbles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-  .bubble {
-    position: absolute; transform: translate(-50%, -100%); max-width: 240px; padding: 6px 10px;
-    font: 600 13px/1.35 var(--font-body); color: #2a1f2d; background: #fffdf7;
-    border: 2px solid #2a1f2d; border-radius: 9px; white-space: pre-wrap; text-align: center;
-    opacity: 0; transition: opacity .25s;
-  }
-  .bubble.on { opacity: 1; }
-  @media (max-height: 520px) { header p { display: none; } h1 { font-size: 20px; } header { padding-block: 12px 8px; } }
+  #hint2.quiet { opacity: 0; }
+  #hint2 p { margin: 0; padding: 6px 12px; background: var(--chip); border-radius: 12px; text-align: center; max-width: 34em; }
+  #hint2 ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  #hint2 li { padding: 5px 10px; background: var(--chip); border-radius: 999px; }
 </style>
-<header>
-  <span class="label">QIUQIU · PREVIEW</span>
-  <h1>球球：小人、小腊肠、大金毛和一颗球</h1>
-  <p>这是在线预览。装到 MacBook 上以后没有这块背景，它们直接站在屏幕最下面。</p>
-  <ul class="how">
-    <li>拖住小球甩出去</li>
-    <li>点小人，他帮你丢球</li>
-    <li>点小狗，摸摸它</li>
-  </ul>
-</header>
-<div id="world"><canvas id="stage"></canvas><div id="bubbles"></div></div>
-<script>__CONFIG__</script>
+<div id="hint2">
+  <p>这是在线预览，草地是为了看得清楚。装到 MacBook 上以后背景是透明的，它们直接在屏幕上跑；顶上那颗黑色的就是"灵动岛"。</p>
+  <ul><li>点草地：把球丢到那里</li><li>拖住小球甩出去</li><li>点小狗摸摸它</li><li>把它们拎起来</li><li>鼠标移到顶上的岛</li></ul>
+</div>
+<canvas id="stage"></canvas>
+<div id="bubbles"></div>
+"""
+TAIL = """
+<script>__CONFIG__
+window.PET_CONFIG.grass = true;
+window.PET_CONFIG.roam = true;
+(function () { var n = 0, h = document.getElementById('hint2'); window.addEventListener('pointerdown', function () { if (++n >= 3) h.classList.add('quiet'); }); })();
+</script>
 <script>__SPRITES__</script>
+<script>__DOGS__</script>
+<script>__ISLAND__</script>
 <script>__PET__</script>
-'''
-out = page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__PET__', js('pet.js'))
+"""
+page = HEAD + style + EXTRA + island + TAIL
+out = (page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__DOGS__', js('dogs.js'))
+           .replace('__ISLAND__', js('island.js')).replace('__PET__', js('pet.js')))
 pathlib.Path(sys.argv[1]).write_text(out, encoding='utf-8')
 print('wrote', sys.argv[1], len(out), 'bytes')

@@ -1,0 +1,57 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>dog rig gallery (dev)</title>
+<style>
+  body { margin: 10px; font: 11px/1.2 monospace; background: #e9edf2; color: #333; }
+  body.dark { background: #20242b; color: #ccc; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .cell { text-align: center; }
+  canvas { image-rendering: pixelated; display: block; }
+  #err { color: #c00; white-space: pre-wrap; font-size: 14px; }
+</style></head>
+<body>
+<div id="err"></div><div id="out"></div>
+<script src="../web/dogs.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var scale = parseInt(q.get('scale') || '5', 10), kind = q.get('kind') || 'gold', coat = q.get('coat') || (kind === 'gold' ? 'gold' : 'dax_red');
+  if (q.get('dark')) document.body.classList.add('dark');
+  var D = window.PET_DOGS, out = document.getElementById('out');
+  function shot(label, input, settle, left) {
+    var rig = D.create(kind, coat);
+    rig.blinkAt = 99;
+    var n = Math.round((settle === undefined ? 1.2 : settle) * 60);
+    for (var i = 0; i < n; i++) rig.update(1 / 60, input);
+    var o = rig.render(!!left);
+    var cv = document.createElement('canvas'); cv.width = o.w; cv.height = o.h;
+    cv.style.width = o.w * scale + 'px'; cv.style.height = o.h * scale + 'px';
+    var ctx = cv.getContext('2d'), img = ctx.createImageData(o.w, o.h);
+    img.data.set(o.data); ctx.putImageData(img, 0, 0);
+    var cell = document.createElement('div'); cell.className = 'cell'; cell.appendChild(cv); cell.appendChild(document.createTextNode(label));
+    return cell;
+  }
+  function row(cells) { var r = document.createElement('div'); r.className = 'row'; cells.forEach(function (c) { r.appendChild(c); }); out.appendChild(r); }
+  try {
+    var set = q.get('set') || 'poses';
+    if (set === 'poses') {
+      row(['stand', 'alert', 'sit', 'paw', 'scratch'].map(function (p) { return shot(p, { pose: p, wag: 0.3 }); }));
+      row(['lie', 'sleep', 'bow', 'dig', 'sniff'].map(function (p) { return shot(p, { pose: p, wag: 0.5 }); }));
+      row(['beg', 'roll', 'tug', 'lick', 'air'].map(function (p) { return shot(p, { pose: p, wag: 0.6, air: p === 'air' ? 1 : 0 }); }));
+      row([shot('pant', { pose: 'stand', pant: true, wag: 0.9 }), shot('carry', { pose: 'stand', carry: true }), shot('happy', { pose: 'sit', happy: true, wag: 1 }),
+           shot('look up', { pose: 'sit', look: 1 }), shot('left', { pose: 'stand', wag: 0.4 }, 1.2, true)]);
+    } else if (set === 'show') {
+      row([shot('stand', { pose: 'stand', wag: 0.3 }), shot('pant', { pose: 'stand', pant: true, wag: 0.9 }), shot('sit', { pose: 'sit', wag: 0.5 }), shot('bow', { pose: 'bow', wag: 1 })]);
+      row([shot('lie', { pose: 'lie' }), shot('sleep', { pose: 'sleep' }), shot('beg', { pose: 'beg', wag: 0.8 }), shot('roll', { pose: 'roll' })]);
+      var sp1 = kind === 'gold' ? 55 : 40, sp2 = kind === 'gold' ? 150 : 135, c1 = [], c2 = [];
+      for (var k = 0; k < 4; k++) c1.push(shot('trot ' + k, { pose: 'stand', speed: sp1, wag: 0.4 }, 1.0 + k * (kind === 'gold' ? 0.1 : 0.055)));
+      for (k = 0; k < 4; k++) c2.push(shot('gallop ' + k, { pose: 'stand', speed: sp2, wag: 0.4, pant: true }, 1.0 + k * (kind === 'gold' ? 0.06 : 0.027)));
+      row(c1); row(c2);
+    } else {
+      var sp = set === 'trot' ? (kind === 'gold' ? 55 : 40) : (kind === 'gold' ? 150 : 135);
+      var cells = [];
+      for (var k2 = 0; k2 < 10; k2++) cells.push(shot(set + ' ' + k2, { pose: 'stand', speed: sp, wag: 0.4 }, 1.0 + k2 * (kind === 'gold' ? 0.035 : 0.022)));
+      row(cells.slice(0, 5)); row(cells.slice(5));
+    }
+  } catch (e) { document.getElementById('err').textContent = String(e && e.stack || e); }
+})();
+</script></body></html>

@@ -1,5 +1,5 @@
 // 离线缓存：第一次打开时把页面存下来，之后没有网络也能玩。有网络时会顺便更新。
-var CACHE = 'qiuqiu-7508f50940';
+var CACHE = 'qiuqiu-19aa1c3635';
 var FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
