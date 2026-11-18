@@ -1,0 +1,310 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>两只狗的画廊（开发用）</title>
+<style>
+  body { margin: 10px; font: 11px/1.3 monospace; background: #599966; color: #f7f5e9; }
+  body.white { background: #ffffff; color: #333; }
+  body.dark { background: #20242b; color: #ccc; }
+  body.night { background: #213836; color: #cdd; }
+  body.black { background: #000; color: #aaa; }
+  h3 { margin: 14px 0 4px; font: bold 12px monospace; }
+  .row { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+  .cell { text-align: center; }
+  canvas { image-rendering: pixelated; display: block; }
+  #err { color: #fdd; background: #a00; white-space: pre-wrap; font-size: 14px; }
+  #help { opacity: 0.75; margin-bottom: 6px; }
+</style></head>
+<body>
+<div id="help"></div><div id="err"></div><div id="out"></div>
+<script src="../web/dogs.js"></script>
+<script>
+// 两只狗的画廊：把骨架摆成各种姿势、各种步态，一格一格画出来，给人看。
+// 地址栏参数：
+//   kind=gold|dax        哪只狗
+//   coat=gold|dax_red|dax_blacktan|dax_cream
+//   set=poses            所有姿势（默认）
+//       gaits            慢走、小跑、飞奔各两种速度，每种把一整步分成 16 格（也可以单独写 walk / trot / gallop）
+//       moves            起步、急停、掉头、跳（也可以单独写 start / stop / turn / jump）
+//       trans            换姿势：站→坐、坐→趴、趴→打滚、站→鞠躬
+//       face             脸：平常、眨眼、每种心情、喘气、叼球……放大看
+//       coats            所有毛色
+//       res              R = 1、2、3、4 画出来的样子（同样的实际大小）
+//       live             实时动起来（speed=速度 pose=姿势 mood=心情）
+//       care             吃喝拉撒的新姿势（R6）：站定的样子 + 站 → 姿势 → 站 的过程
+//       r5               互动的新姿势（R5）：同上
+//       acts             一次性的动作（yawn、shakeoff……）从头到尾一条
+//       micro            狗自己的小行为（R5 第 2 节，act 名字）从头到尾一条
+//       family           全家福：每个姿势一格
+//   R=2                  一个世界单位画成几个像素
+//   zoom=4               放大几倍
+//   bg=lawn|white|dark|night|black   背景（dark=1 也行）
+//   bones=1              在步态图上标出关节
+(function () {
+  'use strict';
+  var q = new URLSearchParams(location.search);
+  var D = window.PET_DOGS, out = document.getElementById('out');
+  var kind = q.get('kind') === 'dax' ? 'dax' : 'gold', gold = kind === 'gold';
+  var coat = q.get('coat') || (gold ? 'gold' : 'dax_red');
+  var set = q.get('set') || 'poses';
+  var R = Math.max(1, Math.min(4, parseInt(q.get('R') || '2', 10)));
+  var bg = q.get('dark') ? 'dark' : (q.get('bg') || 'lawn');
+  if (bg !== 'lawn') document.body.classList.add(bg);
+  var bones = !!q.get('bones');
+  var RUN = gold ? 170 : 150, TROT = gold ? 62 : 64, WALK = gold ? 24 : 26, ACC = gold ? 340 : 760;
+  var HW = gold ? 30 : 26, UP = gold ? 34 : 27, DOWN = 4;       // 一格里画多大一块：左右各 HW、地面以上 UP、以下 DOWN（世界单位）
+  var LINE = bg === 'lawn' ? '#4a8761' : (bg === 'white' ? '#d8dde3' : '#3a4048'), TICK = bg === 'lawn' ? '#3d7350' : (bg === 'white' ? '#c3c9d1' : '#4a515c');
+  document.getElementById('help').textContent = 'kind=' + kind + ' coat=' + coat + ' set=' + set + ' R=' + R + '   （参数说明见本页源码开头）';
+
+  function mk(k, c, seed) { var rig = D.create(k || kind, c || (k && k !== kind ? (k === 'gold' ? 'gold' : 'dax_red') : coat), seed || 5); rig.blinkAt = 99; return rig; }
+  function run(rig, inp, sec) { var n = Math.round(sec * 60); for (var i = 0; i < n; i++) rig.update(1 / 60, inp); return rig; }
+  // 把刚画好的一帧抄下来（骨架下一次画会把缓冲覆盖掉）
+  function snap(o) {
+    return { w: o.w, h: o.h, data: new Uint8ClampedArray(o.data), ox: o.ox, oy: o.oy, scale: o.scale, mouth: [o.mouth[0], o.mouth[1]], headX: o.headX, headY: o.headY, top: o.top, box: o.box.slice() };
+  }
+  // 一格：从图里切出"原点左右 hw、上 up、下 down"的一块，放大 zoom 倍
+  //   opt: { zoom, hw, up, down, label, ball（在嘴上画个假球）, lift（整只狗抬高多少世界单位）, S（地上的记号滚到哪了）, feet（脚印记号）, cx, cy（切图中心另算）, joints }
+  function cell(f, opt) {
+    opt = opt || {};
+    var s = f.scale, zoom = opt.zoom || 4, hw = opt.hw || HW, up = opt.up || UP, down = opt.down === undefined ? DOWN : opt.down;
+    var cw = Math.round(hw * 2 * s), chh = Math.round((up + down) * s);
+    var cv = document.createElement('canvas'); cv.width = cw; cv.height = chh;
+    cv.style.width = cw * zoom + 'px'; cv.style.height = chh * zoom + 'px';
+    var ctx = cv.getContext('2d'), gy = Math.round(up * s), cx = cw / 2;
+    var ox = opt.cx === undefined ? f.ox : opt.cx, oy = opt.cy === undefined ? f.oy : opt.cy;
+    if (opt.cx === undefined) {
+      ctx.fillStyle = LINE; ctx.fillRect(0, gy, cw, 1);
+      if (opt.S !== undefined) {      // 地上每 10 个单位一个记号，跟着地面往后走：脚踩实的时候应该和记号一起走
+        ctx.fillStyle = TICK;
+        var off = ((opt.S % 10) + 10) % 10;
+        for (var m = -4; m <= 4; m++) { var gx = Math.round(cx + (m * 10 - off) * s); if (gx >= 0 && gx < cw) ctx.fillRect(gx, gy + 1, 1, 2); }
+      }
+      if (opt.feet) opt.feet.forEach(function (ft, k) { if (ft.down) { ctx.fillStyle = k & 1 ? '#213836' : '#f7f5e9'; ctx.fillRect(Math.round(cx + ft.x * s) - 1, gy + 3, 3, 1); } });
+    }
+    var tmp = document.createElement('canvas'); tmp.width = f.w; tmp.height = f.h;
+    var id = new ImageData(f.data, f.w, f.h); tmp.getContext('2d').putImageData(id, 0, 0);
+    var lift = Math.round((opt.lift || 0) * s);
+    var dx = Math.round(cx - ox), dy = (opt.cx === undefined ? gy : chh / 2) - Math.round(oy) - lift;
+    ctx.drawImage(tmp, dx, dy);
+    if (opt.ball) {                  // 假的网球：半径 3.5 个单位，画在嘴的锚点上（真的球由引擎画在这里）
+      var bx = dx + f.ox + f.mouth[0] * s, by = dy + f.oy - f.mouth[1] * s, r = 3.5 * s;
+      for (var j = -Math.ceil(r); j <= r; j++) for (var i = -Math.ceil(r); i <= r; i++) {
+        var d2 = (i + 0.5) * (i + 0.5) + (j + 0.5) * (j + 0.5);
+        if (d2 > r * r) continue;
+        ctx.fillStyle = d2 > (r - 1) * (r - 1) ? '#314c1d' : ((i + r * 0.3) * (i + r * 0.3) + (j + r * 0.3) * (j + r * 0.3) < r * r * 0.25 ? '#ebf768' : (i + j > r * 0.6 ? '#95bd2a' : '#cfe63c'));
+        ctx.fillRect(Math.round(bx + i), Math.round(by + j), 1, 1);
+      }
+    }
+    if (opt.joints) opt.joints.forEach(function (p) { ctx.fillStyle = p[2]; ctx.fillRect(Math.round(dx + f.ox + p[0] * s), Math.round(dy + f.oy - p[1] * s), 1, 1); });
+    var div = document.createElement('div'); div.className = 'cell'; div.appendChild(cv);
+    if (opt.label !== undefined) div.appendChild(document.createTextNode(opt.label));
+    return div;
+  }
+  function title(t) { var h = document.createElement('h3'); h.textContent = t; out.appendChild(h); }
+  function row(cells) { var r = document.createElement('div'); r.className = 'row'; cells.forEach(function (c) { r.appendChild(c); }); out.appendChild(r); }
+  function still(inp, opt, left, k, c) {
+    var rig = run(mk(k, c), inp, 2.5);
+    if (opt && opt.blink) rig.blink = 0.05;
+    return cell(snap(rig.render(!!left, (opt && opt.R) || R)), opt);
+  }
+  function jointsOf(rig) {
+    var LG = rig.LG, J = rig.J, a = [], k, n;
+    for (k = 0; k < 4; k++) for (n = 0; n < 4; n++) a.push([LG[k * 10 + n * 2], LG[k * 10 + n * 2 + 1], k & 1 ? '#3a4d99' : '#d64945']);
+    a.push([J.S0x, J.S0y, '#fff'], [J.HJx, J.HJy, '#fff'], [J.Tx, J.Ty, '#000'], [J.Lx, J.Ly, '#000'], [J.Px, J.Py, '#000']);
+    return a;
+  }
+
+  // ---------- 所有姿势 ----------
+  function setPoses() {
+    var Z = +q.get('zoom') || 4;
+    title('所有姿势（' + D.POSES.length + ' 个）');
+    row(D.POSES.map(function (p) { return still({ pose: p, wag: p === 'bow' ? 0.8 : 0.3 }, { zoom: Z, label: p }); }));
+    title('状态');
+    row([
+      still({ pose: 'stand', pant: true, wag: 0.9 }, { zoom: Z, label: '喘气 pant' }),
+      still({ pose: 'stand', carry: true }, { zoom: Z, label: '叼球 carry', ball: true }),
+      still({ pose: 'sit', happy: true, wag: 1 }, { zoom: Z, label: '开心 happy' }),
+      still({ pose: 'sit', look: 1 }, { zoom: Z, label: '抬头 look=1' }),
+      still({ pose: 'stand', look: -1 }, { zoom: Z, label: '低头 look=-1' }),
+      still({ pose: 'stand', bark: true }, { zoom: Z, label: '叫 bark' }),
+      still({ pose: 'stand', wag: 0.4 }, { zoom: Z, label: '朝左（光还是从左上来）' }, true),
+      still({ pose: 'nosuchpose' }, { zoom: Z, label: '不认识的姿势 → stand' }),
+    ]);
+    title('心情（叠在站姿和坐姿上）');
+    row(D.MOODS.map(function (m) { return still({ pose: 'stand', mood: m, wag: 0.3 }, { zoom: Z, label: m }); }));
+    row(D.MOODS.map(function (m) { return still({ pose: 'sit', mood: m, wag: 0.3 }, { zoom: Z, label: m }); }));
+  }
+
+  // ---------- 步态：一整步分成 N 格 ----------
+  function gaitStrip(speed, N, Z) {
+    var rig = mk(null, null, 99), inp = { pose: 'stand', speed: speed, wag: 0.3 }, dt = 1 / 480, i, n, last, cells = [];
+    for (i = 0; i < 480 * 4; i++) rig.update(dt, inp);
+    last = rig.phase;
+    for (i = 0; i < 480 * 2; i++) { rig.update(dt, inp); if (rig.phase < last - 0.5) break; last = rig.phase; }
+    var S0 = rig.S;
+    for (n = 0; n < N; n++) {
+      var guard = 0;
+      while (rig.phase < n / N - 1e-9 && guard++ < 5000) { var p = rig.phase; rig.update(dt, inp); if (rig.phase < p - 0.5) break; }
+      var f = snap(rig.render(false, R)), pr = rig.probe();
+      cells.push(cell(f, { zoom: Z, label: String(n), S: rig.S - S0, feet: pr.feet, joints: bones ? jointsOf(rig) : null, up: gold ? 28 : 19 }));
+    }
+    title((speed < (gold ? 46 : 38) ? '慢走' : (speed < (gold ? 116 : 108) ? '小跑' : '飞奔')) + '  ' + speed + ' 单位/秒   步频 ' + rig.fq.toFixed(2) + ' Hz   步幅 ' + rig.lam.toFixed(1) +
+      '   （地上的小竖线跟着地面走；白/黑短横 = 近侧/远侧的脚正踩在地上）');
+    row(cells);
+  }
+  function setGaits(which) {
+    var Z = +q.get('zoom') || 3;
+    var sp = { walk: gold ? [14, 28] : [14, 28], trot: gold ? [62, 95] : [60, 100], gallop: gold ? [136, 170] : [125, 150] };
+    (which ? [which] : ['walk', 'trot', 'gallop']).forEach(function (g) { sp[g].forEach(function (v) { gaitStrip(v, 16, Z); }); });
+  }
+
+  // ---------- 一段"剧本"：按时间给输入，隔几帧截一格 ----------
+  var SCRIPTS = {
+    start: { name: '起步：从站着猛地跑起来', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 0.85, every: gold ? 3 : 2,
+      input: function (t) { var v = Math.min(RUN, ACC * Math.max(0, t - 0.1)); return { pose: 'stand', speed: v, accel: t > 0.1 && v < RUN ? ACC : 0 }; } },
+    stop: { name: '急停：前腿撑住，屁股往下坐', pre: function () { return { pose: 'stand', speed: RUN, pant: true }; }, dur: 0.95, every: gold ? 3 : 2,
+      input: function (t) { var v = Math.max(0, RUN - ACC * Math.max(0, t - 0.1)); return { pose: 'stand', speed: v, accel: t > 0.1 && v > 0 ? -ACC : 0, pant: true }; } },
+    turn: { name: '掉头：刹住 → 头先转过去 → 前半身 → 后半身 → 往回跑', pre: function () { return { pose: 'stand', speed: RUN }; }, dur: 0.1 + RUN / ACC + 0.55, every: 2, from: 0.1 + RUN / ACC - 0.12,
+      input: function (t) {
+        var t0 = 0.1, tz = t0 + RUN / ACC;
+        if (t < t0) return { pose: 'stand', speed: RUN };
+        if (t < tz) return { pose: 'stand', speed: RUN - ACC * (t - t0), accel: -ACC };
+        var v = Math.min(RUN, ACC * (t - tz));
+        return { pose: 'stand', speed: v, accel: v < RUN ? ACC : 0, left: true, turn: t - tz < 1 / 60 + 1e-6 };
+      } },
+    jump: { name: '跳：先蹲 → 蹬出去 → 收腿 → 前腿找地 → 落地一沉 → 弹回来（剧本给了 crouch 和 vz）', pre: function () { return { pose: 'stand', speed: TROT }; }, dur: 1.1, every: 3, up: (gold ? 34 : 27) + 22,
+      input: function (t) {
+        var t0 = 0.25, T = 0.5, vz0 = 630 * T / 2;
+        if (t < t0 - 0.12) return { pose: 'stand', speed: TROT };
+        if (t < t0) return { pose: 'stand', speed: TROT, crouch: 1 };
+        if (t < t0 + T) return { pose: 'stand', speed: TROT, air: 1, vz: vz0 - 630 * (t - t0), z: vz0 * (t - t0) - 315 * (t - t0) * (t - t0) };
+        return { pose: 'stand', speed: Math.max(0, TROT - 200 * (t - t0 - T)), landing: Math.max(0, 1 - (t - t0 - T) * 4) };
+      } },
+    hop: { name: '原地一跳（引擎现在的做法：不给 crouch、不给 vz）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 0.95, every: 3, up: (gold ? 34 : 27) + 14,
+      input: function (t) { var a = t > 0.1 && t < 0.5; return { pose: 'stand', speed: 0, air: a ? 1 : 0, z: a ? 190 * (t - 0.1) - 475 * (t - 0.1) * (t - 0.1) : 0 }; } },
+    held: { name: '被拎起来：四条腿垂着（pose=air 而且一直 air=1）', pre: function () { return { pose: 'stand', speed: 0 }; }, dur: 1.3, every: 5, up: (gold ? 34 : 27) + 8,
+      input: function (t) { return t > 0.1 ? { pose: 'air', air: 1, z: Math.min(6, (t - 0.1) * 30) } : { pose: 'stand' }; } },
+    sit: { name: '站 → 坐', pre: function () { return { pose: 'stand' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'sit' : 'stand' }; } },
+    lie: { name: '坐 → 趴', pre: function () { return { pose: 'sit' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'lie' : 'sit' }; } },
+    roll: { name: '趴 → 打滚', pre: function () { return { pose: 'lie' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'roll' : 'lie' }; } },
+    bow: { name: '站 → 鞠躬（邀请玩）', pre: function () { return { pose: 'stand' }; }, dur: 0.9, every: 3, input: function (t) { return { pose: t > 0.1 ? 'bow' : 'stand', wag: 0.9 }; } },
+    gaitup: { name: '慢走 → 小跑 → 飞奔：步态之间是慢慢换的', pre: function () { return { pose: 'stand', speed: WALK }; }, dur: 2.4, every: 6,
+      input: function (t) { return { pose: 'stand', speed: Math.min(RUN, WALK + (RUN - WALK) * t / 2.0) }; } },
+  };
+  function scriptStrip(key, Z) {
+    var sc = SCRIPTS[key], rig = mk(null, null, 4242), cells = [], steps = Math.round(sc.dur * 60), i;
+    run(rig, sc.pre(), 3);
+    var S0 = rig.S;
+    for (i = 0; i <= steps; i++) {
+      var inp = sc.input(i / 60);
+      rig.update(1 / 60, inp);
+      if (i % sc.every === 0 && i / 60 >= (sc.from || 0) - 1e-9) {
+        var f = snap(rig.render(!!inp.left, R));
+        cells.push(cell(f, { zoom: Z, label: (i / 60).toFixed(2) + 's', S: (rig.S - S0) * (inp.left ? -1 : 1), lift: inp.z || 0, up: sc.up }));
+      }
+    }
+    title(sc.name);
+    row(cells);
+  }
+  function setScripts(keys) { var Z = +q.get('zoom') || 3; keys.forEach(function (k) { scriptStrip(k, Z); }); }
+
+  // ---------- 脸 ----------
+  function setFace() {
+    var Z = +q.get('zoom') || 8, hw = gold ? 13 : 12;
+    function face(label, inp, extra) {
+      var rig = run(mk(), Object.assign({ pose: 'stand', wag: 0 }, inp), 2.5), left = extra && extra.left;
+      if (extra && extra.blink) rig.blink = 0.05;
+      var f = snap(rig.render(!!left, R));
+      return cell(f, { zoom: Z, hw: hw, up: hw, down: hw, label: label, ball: extra && extra.ball,
+        cx: Math.round(f.ox + f.headX * R + (left ? -3 : 3) * R), cy: Math.round(f.oy - f.headY * R + 2 * R) });
+    }
+    title('脸（放大 ' + Z + ' 倍）');
+    row([face('平常', {}), face('眨眼', {}, { blink: 1 }), face('开心 happy=true', { happy: true }), face('喘气 pant', { pant: true }), face('叼球 carry', { carry: true }, { ball: 1 }), face('叫 bark', { bark: true })]);
+    row(D.MOODS.map(function (m) { return face('mood=' + m, { mood: m }); }));
+    row([face('抬头 look=1', { look: 1 }), face('低头 look=-1', { look: -1 }), face('困 sleepy=1', { sleepy: 1 }), face('舔 lick', { pose: 'lick' }), face('看上面 lookAt', { lookAt: [30, 40] }), face('朝左', {}, { left: 1 }), face('朝左叼球', { carry: true }, { left: 1, ball: 1 })]);
+  }
+
+  // ---------- 毛色 ----------
+  function setCoats() {
+    var Z = +q.get('zoom') || 4, list = [['gold', 'gold'], ['dax', 'dax_red'], ['dax', 'dax_blacktan'], ['dax', 'dax_cream']];
+    list.forEach(function (kc) {
+      title(kc[1]);
+      var o = { zoom: Z, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 34 : 27 };
+      row([still({ pose: 'stand' }, o, false, kc[0], kc[1]), still({ pose: 'sit', wag: 0.5 }, o, true, kc[0], kc[1]), still({ pose: 'stand', speed: kc[0] === 'gold' ? 62 : 64 }, o, false, kc[0], kc[1]),
+           still({ pose: 'lie' }, o, false, kc[0], kc[1]), still({ pose: 'bow', wag: 1 }, o, true, kc[0], kc[1])]);
+    });
+  }
+  // ---------- 分辨率 ----------
+  function setRes() {
+    title('R = 1、2、3、4（同样的实际大小）');
+    [['gold', 'gold'], ['dax', 'dax_red']].forEach(function (kc) {
+      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'stand' }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 34 : 27 }, false, kc[0], kc[1]); }));
+      row([1, 2, 3, 4].map(function (r) { return still({ pose: 'sit', happy: true }, { zoom: 12 / r, R: r, label: 'R=' + r, hw: kc[0] === 'gold' ? 30 : 26, up: kc[0] === 'gold' ? 34 : 27 }, true, kc[0], kc[1]); }));
+    });
+  }
+  // ---------- 实时 ----------
+  function setLive() {
+    var Z = +q.get('zoom') || 4, rig = mk(), inp = { pose: q.get('pose') || 'stand', speed: +q.get('speed') || 0, wag: q.get('wag') === null ? 0.4 : +q.get('wag'), mood: q.get('mood') || undefined, pant: !!q.get('pant'), carry: !!q.get('carry') };
+    var holder = document.createElement('div'); out.appendChild(holder);
+    var last = performance.now(), S0 = 0;
+    function tick(now) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now;
+      rig.update(dt, inp);
+      var c = cell(snap(rig.render(!!q.get('left'), R)), { zoom: Z, S: rig.S - S0, feet: rig.probe().feet, ball: inp.carry });
+      holder.replaceChildren(c);
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- 新姿势：站定 + 进出 ----------
+  function setNew(list, head) {
+    var Z = +q.get('zoom') || 3, o = { zoom: Z, up: UP + 10, down: 7 };
+    title(head + '：站定以后');
+    row(list.map(function (p) { return still({ pose: p, wag: 0.4 }, Object.assign({ label: p }, o)); }));
+    list.forEach(function (p) {
+      var rig = mk(null, null, 77), cells = [], i;
+      run(rig, { pose: 'stand', wag: 0.4 }, 2);
+      for (i = 0; i <= 156; i++) {
+        rig.update(1 / 60, { pose: i >= 6 && i < 96 ? p : 'stand', wag: 0.4 });
+        if (i % 12 === 0) cells.push(cell(snap(rig.render(false, R)), Object.assign({ label: (i / 60).toFixed(2) + 's' }, o)));
+      }
+      title(p + '：站 → ' + p + '（0.1 秒起）→ 站（1.6 秒起）'); row(cells);
+    });
+  }
+  // ---------- 一次性的动作 / 小行为：从头到尾 ----------
+  function setActs(list) {
+    var Z = +q.get('zoom') || 3, o = { zoom: Z, up: UP + 10, down: 7 };
+    list.forEach(function (a) {
+      var T = D.ACT_TIME[a][gold ? 0 : 1], rig = mk(null, null, 78), cells = [], i, steps = Math.round(T * 60) + 3, every = Math.max(1, Math.round(steps / 9));
+      var base = /^(tail_thump|sleepy_ack|dream_bubble)$/.test(a) ? 'sleep' : 'stand';
+      run(rig, { pose: base }, 2);
+      for (i = 0; i <= steps; i++) {
+        rig.update(1 / 60, { pose: base, act: a, wag: 0.3 });
+        if (i % every === 0) cells.push(cell(snap(rig.render(false, R)), Object.assign({ label: (i / 60).toFixed(2) + 's' }, o)));
+      }
+      title('act=' + a + '（' + T + ' 秒，基础姿势 ' + base + '）'); row(cells);
+    });
+  }
+  var R6_POSES = ['eat', 'lickbowl', 'drink', 'taps', 'circle', 'squat', 'kick'];
+  var R5_POSES = ['rear', 'lean', 'flop', 'stalk', 'cradle', 'held'];
+  var PRIMS = ['yawn', 'lickchops', 'stretch', 'shakeoff', 'sneeze', 'nudge', 'kick'];
+
+  try {
+    if (set === 'poses') setPoses();
+    else if (set === 'care') setNew(R6_POSES, '吃喝拉撒（R6）');
+    else if (set === 'r5') setNew(R5_POSES, '互动（R5）');
+    else if (set === 'acts') setActs(PRIMS);
+    else if (set === 'micro') setActs(D.ACTS.filter(function (a) { return PRIMS.indexOf(a) < 0; }));
+    else if (set === 'family') { var Zf = +q.get('zoom') || 3; title('全家福：' + D.POSES.length + ' 个姿势'); row(D.POSES.map(function (p) { return still({ pose: p, wag: 0.4 }, { zoom: Zf, label: p, up: UP + 10, down: 7 }); })); }
+    else if (set === 'gaits') setGaits();
+    else if (set === 'walk' || set === 'trot' || set === 'gallop') setGaits(set);
+    else if (set === 'moves') setScripts(['start', 'stop', 'turn', 'jump', 'hop', 'held', 'gaitup']);
+    else if (set === 'trans') setScripts(['sit', 'lie', 'roll', 'bow']);
+    else if (SCRIPTS[set]) setScripts([set]);
+    else if (set === 'face') setFace();
+    else if (set === 'coats') setCoats();
+    else if (set === 'res') setRes();
+    else if (set === 'live') setLive();
+    else document.getElementById('err').textContent = '没有这个 set：' + set;
+  } catch (e) { document.getElementById('err').textContent = String(e && e.stack || e); }
+})();
+</script></body></html>

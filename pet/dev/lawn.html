@@ -1,0 +1,74 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>lawn gallery (dev)</title>
+<!--
+  开发用：把 web/lawn.js 画的草地摆出来看。
+  网址里可以加：?res=2（一个世界单位画几个像素）&w=504&h=327（多大，世界单位）&seed=123
+               &phase=day（只看一个时段；不写就三个都看）&part=full|strip|zoom|kit（只看一部分）
+  整片草地按"一个像素 = 1.5 个 CSS 像素"显示（R = 2 时就是 Mac 上默认的大小）。
+-->
+<style>
+  body { margin: 10px; font: 11px/1.3 monospace; background: #17181c; color: #c8c8cf; }
+  h2 { font: bold 13px monospace; margin: 18px 0 6px; color: #fff; }
+  .note { color: #8d8f99; margin: 0 0 6px; }
+  canvas { image-rendering: pixelated; display: block; margin-bottom: 8px; }
+  .photo { background: linear-gradient(160deg, #3c5aa0 0%, #6f7fb8 38%, #c08fa0 70%, #f0b98a 100%); display: inline-block; }
+  .photo.dark { background: linear-gradient(160deg, #0f1220 0%, #1c2238 60%, #2d2a44 100%); }
+  .photo.light { background: linear-gradient(160deg, #f4f5f8 0%, #e3e6ee 100%); }
+  .photo canvas { margin: 0; }
+  #err { color: #f66; white-space: pre-wrap; font-size: 14px; }
+</style></head>
+<body>
+<div id="err"></div><div id="out"></div>
+<script src="../web/lawn.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var R = Math.max(1, Math.min(4, parseInt(q.get('res') || '2', 10)));
+  var WU = parseFloat(q.get('w') || '504'), HU = parseFloat(q.get('h') || '327');
+  var seed = q.has('seed') ? parseInt(q.get('seed'), 10) : undefined;
+  var only = q.get('phase'), part = q.get('part');
+  var out = document.getElementById('out'), L = window.PET_LAWN;
+  var CSS = 3 / R;                    // 一个像素显示成几个 CSS 像素（R = 2 → 1.5）
+  try {
+    function h2(t, note) {
+      var h = document.createElement('h2'); h.textContent = t; out.appendChild(h);
+      if (note) { var p = document.createElement('div'); p.className = 'note'; p.textContent = note; out.appendChild(p); }
+    }
+    function show(im, scale, parent, crop) {
+      var c = document.createElement('canvas'), x = crop ? crop[0] : 0, y = crop ? crop[1] : 0, w = crop ? crop[2] : im.w, h = crop ? crop[3] : im.h;
+      c.width = w; c.height = h; c.style.width = w * scale + 'px'; c.style.height = h * scale + 'px';
+      var src = document.createElement('canvas'); src.width = im.w; src.height = im.h;
+      var id = src.getContext('2d').createImageData(im.w, im.h); id.data.set(im.data); src.getContext('2d').putImageData(id, 0, 0);
+      c.getContext('2d').drawImage(src, -x, -y);
+      (parent || out).appendChild(c);
+      return c;
+    }
+    function timed(fn) { var t0 = performance.now(), im = fn(); return [im, performance.now() - t0]; }
+    (only ? [only] : L.PHASES).forEach(function (ph) {
+      var r, im, ms, pal = L.palette(ph);
+      if (!part || part === 'full' || part === 'zoom') {
+        r = timed(function () { return L.render(WU, HU, ph, R, { mode: 'full', seed: seed }); }); im = r[0]; ms = r[1];
+        if (part !== 'zoom') {
+          h2(ph + ' · full · ' + WU + ' x ' + HU + ' wu · R = ' + R + ' · ' + im.w + ' x ' + im.h + ' px · ' + ms.toFixed(0) + ' ms',
+             '底色 ' + pal.base + '，暗 ' + pal.dark + '，亮 ' + pal.light + '，叶尖 ' + pal.tip + '；草屑用 ' + pal.bits.join(' '));
+          show(im, CSS);
+        }
+        if (!part || part === 'zoom') {
+          h2(ph + ' · 局部放大 4 倍（左上 / 中间 / 右下各一块）');
+          [[0.06, 0.08], [0.42, 0.45], [0.74, 0.72]].forEach(function (c) { show(im, 4, null, [Math.round(im.w * c[0]), Math.round(im.h * c[1]), 110 * R, 52 * R]); });
+        }
+      }
+      if (!part || part === 'strip') {
+        r = timed(function () { return L.render(WU, 60, ph, R, { mode: 'strip', seed: seed }); }); im = r[0]; ms = r[1];
+        h2(ph + ' · strip · ' + WU + ' x 60 wu · ' + ms.toFixed(0) + ' ms', '只画最下面一条（约 26 个世界单位高），上沿是参差的草叶，其余全透明；这里垫在一张"照片壁纸"上。');
+        ['', ' dark', ' light'].forEach(function (cls) {
+          var d = document.createElement('div'); d.className = 'photo' + cls; d.style.marginBottom = '8px'; show(im, CSS, d); out.appendChild(d); out.appendChild(document.createElement('br'));
+        });
+        h2(ph + ' · strip · 上沿放大 4 倍');
+        var d2 = document.createElement('div'); d2.className = 'photo'; show(im, 4, d2, [Math.round(im.w * 0.3), im.h - 44 * R, 150 * R, 44 * R]); out.appendChild(d2);
+      }
+      if (part === 'kit') { h2(ph + ' · 所有的小图案（放大 6 倍）'); show(L.render(110, 30, ph, R, { mode: 'kit', seed: seed }), 6); }
+    });
+  } catch (e) { document.getElementById('err').textContent = String(e && e.stack || e); }
+})();
+</script></body></html>

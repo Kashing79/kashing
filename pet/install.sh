@@ -1,0 +1,174 @@
+#!/bin/bash
+# 球球 · 安装脚本
+#
+# 这个脚本做的事（不联网、不用 sudo、不改系统设置）：
+#   1. 用这台 Mac 自带的 swiftc，把 src/ 里的几个 Swift 文件编译成一个小程序
+#   2. 把 web/ 里的像素画和玩法放进去，组成 QiuQiu.app
+#   3. 放到 /Applications（没有写入权限就放到 ~/Applications）
+#   4. 打开它
+#
+# 用法：
+#   bash install.sh               编译 + 安装 + 打开
+#   bash install.sh --autostart   同上，并设成开机自动启动
+#   bash install.sh --build-only  只编译到 build/，不安装
+#   bash install.sh --no-open     安装但不打开
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+APP_NAME="QiuQiu"
+BUNDLE_ID="local.qiuqiu.deskpet"
+VERSION="3.0.0"
+MIN_MACOS="11.0"
+
+BUILD_ONLY=0
+AUTOSTART=0
+NO_OPEN=0
+# 注意：Mac 自带的 bash 很老（3.2），变量后面紧跟中文时必须写成 ${变量}，否则会被读错。
+for arg in ${1+"$@"}; do
+  case "${arg}" in
+    --build-only) BUILD_ONLY=1 ;;
+    --autostart)  AUTOSTART=1 ;;
+    --no-open)    NO_OPEN=1 ;;
+    -h|--help)    sed -n '2,16p' "$0"; exit 0 ;;
+    *) echo "不认识的参数：${arg}"; exit 2 ;;
+  esac
+done
+
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "这个脚本只能在 Mac 上运行。"
+  exit 1
+fi
+
+# ---- 1. 检查编译器 ----
+if ! xcode-select -p >/dev/null 2>&1 || ! xcrun --find swiftc >/dev/null 2>&1; then
+  cat <<'EOF'
+找不到 Swift 编译器（swiftc）。它包含在苹果免费的 "Command Line Tools" 里。
+
+请先运行下面这行，在弹出的窗口里点「安装」，等它装完（要几分钟）：
+
+    xcode-select --install
+
+装好之后再运行一次： bash install.sh
+EOF
+  exit 3
+fi
+
+for f in src/main.swift src/App.swift src/Engine.swift src/Glue.swift src/Frame.swift src/Stage.swift \
+         src/Loop.swift src/Input.swift src/Island.swift src/IslandParts.swift src/Lawn.swift src/Menu.swift \
+         src/Sense.swift src/SelfTest.swift \
+         web/config.js web/sprites.js web/fx.js web/dogs.js web/person.js web/lawn.js web/pet.js; do
+  if [ ! -f "${f}" ]; then echo "缺少文件：${f} （请确认整个文件夹都拷过来了）"; exit 1; fi
+done
+
+# ---- 2. 编译 ----
+BUILD="build"
+APP="$BUILD/$APP_NAME.app"
+ARCH="$(uname -m)"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+
+echo "正在编译 (${ARCH}) ……"
+xcrun swiftc -O \
+  -target "${ARCH}-apple-macos${MIN_MACOS}" \
+  -o "$APP/Contents/MacOS/$APP_NAME" \
+  src/*.swift
+
+cp -R web "$APP/Contents/Resources/web"
+if [ -f assets/AppIcon.icns ]; then cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"; fi
+
+cat > "$APP/Contents/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>$APP_NAME</string>
+  <key>CFBundleDisplayName</key><string>球球</string>
+  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleExecutable</key><string>$APP_NAME</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Made with love.</string>
+</dict>
+</plist>
+EOF
+printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# 玩法是 JavaScript，由系统自带的引擎来跑。签名时带上这一条许可，引擎才会用"即时编译"，
+# 不然会慢十倍左右（也能玩，只是它们动得没那么细）。这条许可只管这个 App 自己，不碰系统设置。
+ENT="$BUILD/$APP_NAME.entitlements"
+cat > "$ENT" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+</dict>
+</plist>
+EOF
+
+# 本机签名（带上面那条许可）；万一带不上，就做不带许可的本机签名
+sign_app() {
+  codesign --force --sign - --entitlements "$ENT" "$1" >/dev/null 2>&1 \
+    || codesign --force --sign - "$1" >/dev/null 2>&1 \
+    || true
+}
+
+# 这是在本机刚编译出来的程序：清掉拷贝文件时带过来的附加属性，再做一个本机签名
+xattr -cr "$APP" 2>/dev/null || true
+sign_app "$APP"
+
+echo "编译完成： $(pwd)/${APP}"
+if [ "$BUILD_ONLY" = "1" ]; then exit 0; fi
+
+# ---- 3. 安装 ----
+DEST="/Applications"
+if [ ! -w "$DEST" ]; then DEST="$HOME/Applications"; mkdir -p "$DEST"; fi
+
+pkill -x "$APP_NAME" 2>/dev/null || true
+sleep 0.5
+rm -rf "$DEST/$APP_NAME.app"
+ditto "$APP" "$DEST/$APP_NAME.app"
+xattr -cr "$DEST/$APP_NAME.app" 2>/dev/null || true
+sign_app "$DEST/$APP_NAME.app"
+echo "已安装到： ${DEST}/${APP_NAME}.app"
+
+# ---- 开机自动启动（可选）----
+AGENT="$HOME/Library/LaunchAgents/$BUNDLE_ID.plist"
+if [ "$AUTOSTART" = "1" ] || [ -f "$AGENT" ]; then
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$AGENT" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$BUNDLE_ID</string>
+  <key>ProgramArguments</key>
+  <array><string>$DEST/$APP_NAME.app/Contents/MacOS/$APP_NAME</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+</dict>
+</plist>
+EOF
+  echo "已设成开机自动启动（菜单栏 🎾 里可以随时关掉）。"
+fi
+
+# ---- 4. 打开 ----
+if [ "$NO_OPEN" = "0" ]; then
+  open "$DEST/$APP_NAME.app"
+  echo
+  echo "好了！看屏幕最上面正中间：穿西装的小人、小腊肠和大金毛会从那颗黑色的小岛里跳出来，"
+  echo "然后在整个屏幕上到处跑。桌面上还会多一片像素草地。"
+  echo "  · 拖住小球甩出去，狗狗会去追"
+  echo "  · 点小人，他会帮你丢球；点小狗，摸摸它"
+  echo "  · 按住小人或小狗可以把它拎起来，放到别的地方"
+  echo "  · 鼠标移到顶上的小岛：丢球 / 摸摸 / 集合 / 回岛睡觉"
+  echo "  · 菜单栏右上角的 🎾 可以调大小、换草地（整个桌面 / 只在底部 / 不要）、只在屏幕底部活动、隐藏、退出"
+fi

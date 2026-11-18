@@ -1,0 +1,260 @@
+# 在 GitHub 的云端 Mac 上编译"球球"桌宠，并做几项自检。
+# 只在 pet/ 有改动时才跑。不想要的话，直接删掉这个文件即可，不影响桌宠本身。
+name: pet-mac
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['pet/**', '.github/workflows/pet-mac.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26, xcode-27]   # xcode-27 这个镜像的系统是 macOS 27
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          uname -m
+          xcode-select -p
+          xcrun swiftc --version
+          ls /Library/Developer/CommandLineTools 2>/dev/null | head -5 || true
+
+      - name: Build with Command Line Tools only (what most people have)
+        run: |
+          if [ -d /Library/Developer/CommandLineTools/usr/bin ]; then
+            DEVELOPER_DIR=/Library/Developer/CommandLineTools xcrun swiftc --version
+            DEVELOPER_DIR=/Library/Developer/CommandLineTools bash pet/install.sh --build-only
+            echo "CLT_BUILD_OK"
+          else
+            echo "CLT_NOT_PRESENT (skipped)"
+          fi
+
+      - name: Build (default toolchain)
+        run: |
+          bash pet/install.sh --build-only
+          ls -la pet/build/QiuQiu.app/Contents pet/build/QiuQiu.app/Contents/MacOS pet/build/QiuQiu.app/Contents/Resources pet/build/QiuQiu.app/Contents/Resources/web
+          file pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          codesign -dv pet/build/QiuQiu.app 2>&1 | head -8 || true
+          du -sh pet/build/QiuQiu.app
+          # 玩法是 JavaScript：签名里要带着"允许即时编译"那一条，不然会慢十倍
+          echo "---- entitlements ----"
+          codesign -d --entitlements - pet/build/QiuQiu.app 2>&1 | head -12 || true
+          if codesign -d --entitlements - pet/build/QiuQiu.app 2>&1 | grep -q "allow-jit"; then echo "JIT_ENTITLEMENT_OK"; else echo "JIT_ENTITLEMENT_MISSING"; exit 1; fi
+
+      - name: Full install, run, autostart file, uninstall
+        run: |
+          # 模拟"从网上下载 / AirDrop 收到的压缩包解压出来的文件夹"：
+          # 给每个文件都打上系统的隔离标记（Gatekeeper 就是看这个标记拦人的），再照常安装
+          xattr -rw com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;" pet || true
+          echo "quarantine on install.sh: $(xattr -p com.apple.quarantine pet/install.sh 2>/dev/null || echo none)"
+          bash pet/install.sh --autostart
+          sleep 4
+          if pgrep -x QiuQiu >/dev/null; then echo "RUNNING_OK"; else echo "NOT RUNNING"; exit 1; fi
+          ls -d /Applications/QiuQiu.app "$HOME/Applications/QiuQiu.app" 2>/dev/null || true
+          INST=/Applications/QiuQiu.app; [ -d "$INST" ] || INST="$HOME/Applications/QiuQiu.app"
+          echo "quarantined files left inside the installed app: $(xattr -lr "$INST" 2>/dev/null | grep -c com.apple.quarantine || true)"
+          echo "JIT entitlement on the installed app: $(codesign -d --entitlements - "$INST" 2>&1 | grep -c allow-jit || true)"
+          echo "Gatekeeper: $(spctl --status 2>&1 | head -1)"
+          spctl --assess --type execute -v "$INST" 2>&1 | head -3 || true
+          echo "---- LaunchAgent ----"
+          cat "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
+          plutil -lint "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
+          plutil -lint /Applications/QiuQiu.app/Contents/Info.plist 2>/dev/null || plutil -lint "$HOME/Applications/QiuQiu.app/Contents/Info.plist"
+          echo "---- second launch must not create a second copy ----"
+          open -n /Applications/QiuQiu.app 2>/dev/null || open -n "$HOME/Applications/QiuQiu.app"
+          sleep 3
+          echo "instances: $(pgrep -x QiuQiu | wc -l | tr -d ' ')"
+          echo "---- memory (KB) / cpu after a few seconds ----"
+          ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu" | grep -v grep | head -8 || true
+          echo "---- everything this app has left under ~/Library so far ----"
+          find "$HOME/Library" -maxdepth 3 -iname '*qiuqiu*' 2>/dev/null | sed "s|$HOME|~|" | head -20 || true
+          echo "---- uninstall ----"
+          bash pet/uninstall.sh
+          sleep 1
+          if pgrep -x QiuQiu >/dev/null; then echo "STILL RUNNING"; exit 1; fi
+          if [ -e /Applications/QiuQiu.app ] || [ -e "$HOME/Applications/QiuQiu.app" ] || [ -e "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist" ]; then echo "LEFTOVERS"; exit 1; fi
+          LEFT=$(find "$HOME/Library" -maxdepth 3 -iname '*qiuqiu*' 2>/dev/null | grep -v '/Preferences/' | sed "s|$HOME|~|" | head -20 || true)
+          if [ -n "$LEFT" ]; then echo "LEFTOVERS in ~/Library:"; echo "$LEFT"; exit 1; fi
+          echo "UNINSTALL_OK"
+          echo "---- no-argument path of the script (old bash + set -u) ----"
+          bash pet/install.sh --no-open && bash pet/uninstall.sh
+
+      - name: One-line install from GitHub (curl | bash), then uninstall
+        run: |
+          # 和 README 里给她的那一行一样，只是钉在这一次提交上（main 上还没有 pet/）
+          REF="${{ github.sha }}"
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${REF}/pet/get.sh" \
+            | QIUQIU_REF="${REF}" QIUQIU_DIR="$RUNNER_TEMP/qq" bash -s -- --no-open
+          INST=/Applications/QiuQiu.app; [ -d "$INST" ] || INST="$HOME/Applications/QiuQiu.app"
+          if [ -x "$INST/Contents/MacOS/QiuQiu" ]; then echo "GET_SH_INSTALL_OK"; else echo "GET_SH_INSTALL_FAILED"; exit 1; fi
+          ls "$RUNNER_TEMP/qq" | head -20
+          bash "$RUNNER_TEMP/qq/uninstall.sh"
+          if [ -e /Applications/QiuQiu.app ] || [ -e "$HOME/Applications/QiuQiu.app" ]; then echo "LEFTOVERS"; exit 1; fi
+          echo "GET_SH_UNINSTALL_OK"
+
+      - name: Self-test (the characters are drawn, the background is transparent)
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          # 跑一次自检，最多等 40 秒。用法：selftest <程序> <图存到哪> <输出存到哪>
+          selftest() {
+            "$1" --selftest "$2" > "$3" 2>&1 &
+            local pid=$!
+            for i in $(seq 1 40); do
+              if ! kill -0 $pid 2>/dev/null; then break; fi
+              sleep 1
+            done
+            if kill -0 $pid 2>/dev/null; then echo "SELFTEST TIMEOUT"; kill $pid; fi
+            local code=0
+            wait $pid || code=$?
+            return $code
+          }
+          CODE=0
+          selftest "$APP" "$RUNNER_TEMP/snap.png" "$RUNNER_TEMP/selftest.log" || CODE=$?
+          cat "$RUNNER_TEMP/selftest.log"
+          echo "selftest exit code: $CODE"
+          if [ -f "$RUNNER_TEMP/snap.png" ]; then
+            sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP/snap.png" | tail -2
+            sips -Z 1024 "$RUNNER_TEMP/snap.png" --out "$RUNNER_TEMP/snap_small.png" >/dev/null
+            echo "-----BEGIN SNAP PNG-----"
+            base64 -i "$RUNNER_TEMP/snap_small.png" | fold -w 120
+            echo "-----END SNAP PNG-----"
+          fi
+          grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest.log"
+          grep -E "^SELFTEST (render|msPerFrame|jit|lawn)" "$RUNNER_TEMP/selftest.log" | cut -c1-200
+          echo "---- the same test without the JIT entitlement: it must still pass, only slower ----"
+          rm -rf "$RUNNER_TEMP/nojit"
+          mkdir -p "$RUNNER_TEMP/nojit"
+          cp -R pet/build/QiuQiu.app "$RUNNER_TEMP/nojit/QiuQiu.app"
+          codesign --force --sign - "$RUNNER_TEMP/nojit/QiuQiu.app" >/dev/null 2>&1 || true
+          echo "JIT entitlement on this copy: $(codesign -d --entitlements - "$RUNNER_TEMP/nojit/QiuQiu.app" 2>&1 | grep -c allow-jit || true)"
+          selftest "$RUNNER_TEMP/nojit/QiuQiu.app/Contents/MacOS/QiuQiu" "$RUNNER_TEMP/snap_nojit.png" "$RUNNER_TEMP/selftest_nojit.log" || true
+          grep -E "^(SELFTEST (msPerFrame|jit|lawn|snapshot|jsExceptions|PASS|FAIL)|JS EXCEPTION)" "$RUNNER_TEMP/selftest_nojit.log" | cut -c1-200 || true
+          if grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest_nojit.log"; then echo "NOJIT_SELFTEST_OK"; else echo "NOJIT_SELFTEST_FAILED"; exit 1; fi
+
+      - name: Window levels (the island above the menu bar, the lawn below the desktop icons)
+        if: ${{ !cancelled() }}
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_windows" pet/dev/ci_windows.swift
+          "$APP" > /dev/null 2>&1 &
+          PID=$!
+          sleep 5
+          "$RUNNER_TEMP/ci_windows" > "$RUNNER_TEMP/windows.txt" || true
+          head -70 "$RUNNER_TEMP/windows.txt"
+          # jpg 名字 [最宽多少]：把 $RUNNER_TEMP/名字.png 变成 JPG 打印出来
+          jpg() {
+            if [ ! -f "$RUNNER_TEMP/$1.png" ]; then echo "no $1.png"; return 0; fi
+            if [ -n "${2:-}" ]; then
+              sips -s format jpeg -s formatOptions 50 -Z "$2" "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            else
+              sips -s format jpeg -s formatOptions 60 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            fi
+            echo "-----BEGIN $1 JPG-----"
+            base64 -i "$RUNNER_TEMP/$1.jpg" | fold -w 120
+            echo "-----END $1 JPG-----"
+          }
+          # 屏幕顶上那一条：岛要画在菜单栏上面
+          screencapture -x -R"212,0,600,90" "$RUNNER_TEMP/top.png" || true
+          jpg top
+          # 整个屏幕：桌面上的草地（在桌面图标下面）、岛、小人和狗狗。SUMMARY 那一行的 appWindows 是这时屏幕上有几个 App 窗口
+          screencapture -x "$RUNNER_TEMP/desk.png" || true
+          jpg desk 1024
+          # 只拍草地那一个窗口（不管它上面盖着什么）
+          LAWN_ID=$(grep '^SUMMARY' "$RUNNER_TEMP/windows.txt" | sed -E 's/.*lawnId=([0-9]+).*/\1/' || true)
+          if [ -n "$LAWN_ID" ] && [ "$LAWN_ID" != "0" ]; then
+            screencapture -x -o -l "$LAWN_ID" "$RUNNER_TEMP/lawn.png" || true
+            jpg lawn 1024
+          fi
+          kill $PID 2>/dev/null || true
+          MINE=$(grep 'name=QiuQiu ' "$RUNNER_TEMP/windows.txt" | head -1 | sed -E 's/.*layer=(-?[0-9]+).*/\1/' || true)
+          BAR=$(grep 'name=Menubar ' "$RUNNER_TEMP/windows.txt" | head -1 | sed -E 's/.*layer=(-?[0-9]+).*/\1/' || true)
+          echo "pet window layer: ${MINE:-?}   menu bar layer: ${BAR:-?}"
+          grep -E '^(SUMMARY|OVERLAY_|LAWN_)' "$RUNNER_TEMP/windows.txt" || true
+          if grep -q '^OVERLAY_ABOVE_MENU_BAR_OK' "$RUNNER_TEMP/windows.txt"; then echo "LEVEL_OK"; else echo "LEVEL_NOT_ABOVE_MENU_BAR"; exit 1; fi
+          if grep -q '^LAWN_LEVEL_OK' "$RUNNER_TEMP/windows.txt"; then echo "LAWN_OK"; else echo "LAWN_NOT_BETWEEN_WALLPAPER_AND_ICONS"; exit 1; fi
+          sleep 0.7
+
+      - name: Live run (real screen, mouse drag, click-through)
+        if: ${{ !cancelled() }}
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          LOG="$RUNNER_TEMP/app.log"
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_mouse" pet/dev/ci_mouse.swift
+          # 关掉自动丢球，让画面基本静止，鼠标测试才对得准
+          defaults write local.qiuqiu.deskpet auto -bool false
+          "$APP" --debug > "$LOG" 2>&1 &
+          PID=$!
+          sleep 8
+          FRAME=$(grep -m1 '^FRAME' "$LOG" || true)
+          echo "frame: $FRAME"
+          set -- $FRAME
+          X=$2; Y=$3; W=$4; H=$5
+          # shot 名字 [x y w h]：不给范围就拍整块屏幕（缩小），给了就原样拍那一块
+          shot() {
+            if [ -n "${2:-}" ]; then
+              screencapture -x -R"$2,$3,$4,$5" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+              sips -s format jpeg -s formatOptions 60 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            else
+              screencapture -x -R"$X,$Y,$W,$H" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+              sips -s format jpeg -s formatOptions 50 -Z 1024 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            fi
+            echo "-----BEGIN $1 JPG-----"
+            base64 -i "$RUNNER_TEMP/$1.jpg" | fold -w 120
+            echo "-----END $1 JPG-----"
+          }
+          shot live1
+          # 可点区域的顺序：小球、金毛、小人、小腊肠……岛在最后
+          # 1) 鼠标移到岛上：应该弹开
+          HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
+          ISL=$(echo "$HOT" | awk '{print $NF}')
+          if [ -n "$ISL" ]; then
+            IX=$(echo "$ISL" | awk -F, '{print $1 + $3/2}'); IY=$(echo "$ISL" | awk -F, '{print $2 + 10}')
+            "$RUNNER_TEMP/ci_mouse" "$IX" "$IY" 0 0 hover || true
+            sleep 1.2
+            shot island "$(echo "$IX" | awk '{print int($1 - 260)}')" "$Y" 520 230
+            # 宠物们站的地方：原样拍一张，看清楚画得怎么样
+            PETS=$(grep '^HOT' "$LOG" | tail -1 | awk '{print $3}')
+            if [ -n "$PETS" ]; then
+              PX=$(echo "$PETS" | awk -F, '{v = int($1 - 260); if (v < 0) v = 0; print v}'); PY=$(echo "$PETS" | awk -F, '{v = int($2 - 150); if (v < 0) v = 0; print v}')
+              shot pets "$PX" "$PY" 640 330
+            fi
+          fi
+          OK=0
+          for attempt in 1 2 3 4 5 6 7 8; do
+            HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
+            # 前 3 次：单纯点一下金毛（第 2 个区域）；后面：拖球（第 1 个区域）
+            if [ "$attempt" -le 3 ]; then TARGET=$(echo "$HOT" | awk '{print $3}'); DX=0; DY=0; else TARGET=$(echo "$HOT" | awk '{print $2}'); DX=-230; DY=-170; fi
+            echo "== attempt $attempt target=$TARGET hot: $HOT"
+            echo "MARK attempt $attempt" >> "$LOG"
+            if [ -z "$TARGET" ]; then sleep 1; continue; fi
+            BX=$(echo "$TARGET" | awk -F, '{print $1 + $3/2}')
+            BY=$(echo "$TARGET" | awk -F, '{print $2 + $4/2}')
+            "$RUNNER_TEMP/ci_mouse" "$BX" "$BY" "$DX" "$DY" || true
+            sleep 0.5
+            if [ "$attempt" -ge 4 ] && grep -q '^JSDRAG 1' "$LOG"; then OK=1; break; fi
+            sleep 1.5
+          done
+          shot live2
+          sleep 2.5
+          shot live3
+          echo "---- memory (KB) / cpu while roaming the whole screen ----"
+          ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu" | grep -v grep | head -8 || true
+          echo "---- app log (start-up) ----"
+          grep -E '^(ENGINE|LAYOUT|LAWN|SENSE|ACTIVE|PERF|LINK|JS )' "$LOG" | head -40 | cut -c1-260 || true
+          echo "---- app log (events) ----"
+          grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME|PANEL|GLOBAL|MARK)' "$LOG" | head -90 || true
+          kill $PID 2>/dev/null || true
+          defaults delete local.qiuqiu.deskpet >/dev/null 2>&1 || true
+          if grep -q '^JS EXCEPTION' "$LOG"; then echo "JS_EXCEPTIONS_IN_LIVE_RUN"; grep -c '^JS EXCEPTION' "$LOG" || true; fi
+          if [ "$OK" = "1" ] && grep -q '^MOUSE up' "$LOG"; then echo "MOUSE_DRAG_OK"; else echo "MOUSE_DRAG_NOT_CONFIRMED"; exit 1; fi

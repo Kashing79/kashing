@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>sprite gallery (dev)</title>
+<style>
+  body { margin: 12px; font: 11px/1.2 monospace; color: #333; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; padding: 10px; }
+  .light { background: #e9edf2; }
+  .dark { background: #20242b; color: #ccc; }
+  .mid { background: #7fa9c9; }
+  .cell { text-align: center; }
+  canvas { image-rendering: pixelated; display: block; margin: 0 auto 2px; }
+  #err { color: #c00; font-size: 14px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="err"></div>
+<div id="out"></div>
+<script src="../web/config.js"></script>
+<script src="../web/sprites.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var scale = parseInt(q.get('scale') || '6', 10);
+  var filter = q.get('f') || '';
+  var bgs = (q.get('bg') || 'light,dark').split(',');
+  try {
+    var cfg = Object.assign({}, window.PET_CONFIG);
+    if (q.get('dax')) cfg.dachshund = q.get('dax');
+    var S = window.PET_SPRITES.build(cfg);
+    bgs.forEach(function (bg) {
+      var row = document.createElement('div');
+      row.className = 'row ' + bg;
+      Object.keys(S).forEach(function (name) {
+        if (filter && name.indexOf(filter) !== 0) return;
+        var s = S[name];
+        var cell = document.createElement('div');
+        cell.className = 'cell';
+        // 每张图是一块 RGBA 像素（s.data），贴到一张小画布上放大了看
+        var cv = document.createElement('canvas');
+        cv.width = s.w; cv.height = s.h;
+        cv.style.width = (s.w * scale) + 'px';
+        cv.style.height = (s.h * scale) + 'px';
+        var c2 = cv.getContext('2d'), id = c2.createImageData(s.w, s.h);
+        id.data.set(s.data);
+        c2.putImageData(id, 0, 0);
+        cell.appendChild(cv);
+        cell.appendChild(document.createTextNode(name));
+        row.appendChild(cell);
+      });
+      document.getElementById('out').appendChild(row);
+    });
+  } catch (e) {
+    document.getElementById('err').textContent = String(e && e.stack || e);
+  }
+})();
+</script>
+</body>
+</html>

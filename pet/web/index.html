@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>球球</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: transparent;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    cursor: default;
+  }
+  #stage {
+    position: absolute; left: 0; bottom: 0;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+  }
+  #bubbles { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; overflow: hidden; }
+  .bubble {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    max-width: 240px;
+    padding: 6px 10px;
+    font: 600 13px/1.35 -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Helvetica Neue", sans-serif;
+    color: #2a1f2d;
+    background: #fffdf7;
+    border: 2px solid #2a1f2d;
+    border-radius: 9px;
+    box-shadow: 2px 2px 0 rgba(42, 31, 45, .25);
+    white-space: pre-wrap; text-align: center;
+    opacity: 0; transition: opacity .25s;
+  }
+  .bubble.on { opacity: 1; }
+  .bubble::after {
+    content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -5px;
+    width: 8px; height: 8px; background: #fffdf7;
+    border-right: 2px solid #2a1f2d; border-bottom: 2px solid #2a1f2d;
+    transform: rotate(45deg);
+  }
+
+  /* —— 屏幕顶上的"灵动岛" —— */
+  #island {
+    position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 5;
+    color: #fff; pointer-events: none;
+    font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  .isl-box {
+    width: 132px; height: 30px; margin: 0 auto; overflow: hidden;
+    background: #000; border-radius: 0 0 13px 13px;
+    transition: width .28s cubic-bezier(.2, .9, .3, 1.12), height .28s cubic-bezier(.2, .9, .3, 1.12), border-radius .28s;
+  }
+  .isl-bar { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 12px; box-sizing: border-box; white-space: nowrap; }
+  .isl-l { display: flex; align-items: center; gap: 5px; }
+  .isl-dot { width: 9px; height: 9px; border-radius: 50%; background: #d6e645; box-shadow: inset -2px -2px 0 #9fb226; }
+  .isl-gap { flex: none; }
+  .isl-r { color: #9aa3b5; font-variant-numeric: tabular-nums; min-width: 12px; text-align: right; }
+  .isl-r i { font-style: normal; color: #ff7a9a; margin-right: 3px; }
+  #isl-den { display: none; width: 248px; height: 56px; margin: 2px auto 2px; image-rendering: pixelated; }
+  #island.homey #isl-den { display: block; }
+  .isl-panel { opacity: 0; transition: opacity .2s; padding: 4px 14px 12px; width: 324px; box-sizing: border-box; margin-left: 50%; transform: translateX(-50%); }
+  #island.open .isl-panel { opacity: 1; transition-delay: .08s; }
+  .isl-title { font-size: 13px; color: #cfd6e4; text-align: center; padding: 2px 0 9px; }
+  .isl-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .isl-btns.five { grid-template-columns: repeat(5, 1fr); gap: 5px; }
+  .isl-btn.off { display: none; }
+  .isl-btn {
+    padding: 9px 2px; text-align: center; white-space: nowrap; font-size: 12px; color: #fff;
+    background: #20222b; border-radius: 11px; transition: background .12s, transform .12s;
+  }
+  .isl-btn.hot { background: #34384a; }
+  .isl-btn.down { background: #d6e645; color: #20222b; transform: scale(.96); }
+  .isl-foot { padding-top: 10px; color: #8c95a8; font-size: 11px; line-height: 1.6; text-align: center; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* —— 只在浏览器里预览时才有的背景和提示（装成桌宠后是完全透明的） —— */
+  body.preview {
+    background: linear-gradient(#dfeaf5 0%, #eef3f8 62%, #cfd9e4 62%, #c3cfdc 100%);
+  }
+  body.preview.dark {
+    background: linear-gradient(#1d2430 0%, #252d3a 62%, #171c25 62%, #12161d 100%);
+  }
+  #hint {
+    display: none;
+    position: absolute; left: 0; right: 0; top: 52px;
+    text-align: center;
+    font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Helvetica Neue", sans-serif;
+    color: #4a5565;
+    pointer-events: none;
+  }
+  body.preview #hint { display: block; }
+  body.preview.dark #hint { color: #9aa6b8; }
+  #hint b { color: #2a1f2d; }
+  body.preview.dark #hint b { color: #e8edf5; }
+</style>
+</head>
+<body>
+<div id="hint">
+  <b>预览</b>（装到 Mac 上以后背景是透明的，它们直接在她的屏幕上跑）<br>
+  拖住小球甩出去 · 点小人让他丢球 · 点小狗摸摸它 · 也可以把它们拎起来
+</div>
+<canvas id="stage"></canvas>
+<div id="bubbles"></div>
+<div id="island">
+  <div class="isl-box">
+    <div class="isl-bar">
+      <span class="isl-l"><i class="isl-dot"></i><b id="isl-n">0</b></span>
+      <span class="isl-gap"></span>
+      <span class="isl-r" id="isl-r"></span>
+    </div>
+    <canvas id="isl-den" width="124" height="28"></canvas>
+    <div class="isl-panel">
+      <div class="isl-title" id="isl-title"></div>
+      <div class="isl-btns">
+        <div class="isl-btn" data-cmd="throw">丢球</div>
+        <div class="isl-btn" data-cmd="love">摸摸</div>
+        <div class="isl-btn" data-cmd="gather">集合</div>
+        <div class="isl-btn" data-cmd="home" id="isl-home">回岛睡觉</div>
+        <div class="isl-btn off" data-cmd="feed" id="isl-feed">喂饭</div>
+      </div>
+      <div class="isl-foot" id="isl-foot"></div>
+    </div>
+  </div>
+</div>
+<script>
+  // 直接用浏览器打开（不在 Mac 外壳里）时：加上预览用的背景和提示
+  if (!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.pet)) {
+    document.body.classList.add('preview');
+    if (/[?&]dark=1/.test(location.search)) document.body.classList.add('dark');
+    if (/[?&]bare=1/.test(location.search)) document.body.classList.remove('preview');
+  }
+</script>
+<script src="config.js"></script>
+<script src="sprites.js"></script>
+<script src="fx.js"></script>
+<script src="dogs.js"></script>
+<script src="person.js"></script>
+<script src="lawn.js"></script>
+<script src="island.js"></script>
+<script src="needs.js"></script>
+<script src="pet.js"></script>
+<!-- 戏包：scenes/ 下面每个文件放一行，按文件名排（缺了的文件跳过，不影响别的）。新加一个戏包就在这里加一行 -->
+<script src="scenes/care.js"></script>
+<script src="scenes/classic.js"></script>
+<script src="scenes/dogs.js"></script>
+<script src="scenes/examples.js"></script>
+<script src="scenes/her.js"></script>
+<script src="scenes/man.js"></script>
+<script src="scenes/micro_dogs.js"></script>
+<script src="scenes/micro_man.js"></script>
+<script src="scenes/place.js"></script>
+<script src="scenes/time.js"></script>
+<script src="web.js"></script>
+</body>
+</html>

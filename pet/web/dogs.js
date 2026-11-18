@@ -1,0 +1,2094 @@
+// 两只狗的"骨架 + 渲染器"（第三版）
+//
+// 不是一帧一帧画死的图：每次都按当前的姿势，把骨架现算出来，再现画成像素。
+// 所以怎么迈步、怎么喘气、怎么摇尾巴都是连续的，姿势之间也会平滑过渡。
+//
+// 用法：
+//   var rig = PET_DOGS.create('gold' | 'dax', 毛色名);
+//   rig.update(dt, { pose, speed, air, wag, pant, carry, look, happy, shake, bark,
+//                    mood, lookAt, vx, vy, accel, landing, turn, sleepy, vz, crouch });      // 每一步都调，很便宜
+//   var img = rig.render(faceLeft, R, sub);   // 要画的时候才调。R = 一个世界单位画成几个像素（默认 1）
+//
+// render 给回来的东西：{ w, h, data(RGBA), scale, ox, oy, key: null, ver, box, mouth, nose, back, seat, headX, headY, top, half }
+//   box 是像素；别的锚点都是世界单位，[横向离原点多远（脸朝左时已经翻好）, 离地多高]。
+//   mouth = 叼着的球的球心（球由引擎画）· seat = 别人骑在背上时坐在哪 · top = 最高的像素离地多高
+//   sub（可以不给）= 原点要画在屏幕像素格子里的零头（0..1）。给了，踩在地上的脚就落在固定的像素上，不会跟着身体来回跳一格。
+// 另外：PET_DOGS.POSES 所有姿势名 · MOODS 所有心情名 · METRICS 两只狗的尺寸 · rig.probe() 四只脚现在在哪（检查步态用）
+//
+// 这个文件从上到下分成几块，想加东西先看这里：
+//   1. 颜色        RAMP（色阶）、COATS（每种毛色用哪些色阶）
+//   2. 画像素      cap / ell / pix 往草稿上画，finish 收尾（去杂点、接缝、描边）
+//   3. 体型        BREED：两种狗的骨头长短、粗细、头上各个点的位置
+//   4. 骨架        trunkPts / foreIK / hindIK：由"躯干摆在哪、脚踩在哪"算出每个关节
+//   5. 姿势表      POSE_DEF：一个姿势名 → 躯干和四只脚的目标（只有这一处）
+//   6. 心情表      MOODS：眼睛、眉毛、耳朵、尾巴怎么变（和姿势互不相干，可以叠在任何姿势上）
+//   7. 步态表      GAIT：速度 → 步频、着地时间、抬脚高度……；FOOTFALL：四只脚落地的先后
+//   8. Rig         update（每一步都调，很便宜）→ solve（算骨架）→ draw（画）→ render（收尾、给出锚点）
+//
+// 坐标：身体自己的坐标里 x 朝前、y 朝上，原点在身体中心正下方的地面上；单位是"世界单位"。
+// 光永远从屏幕左上方来。狗转身时是把骨架左右翻过来重新打光，不是把画好的图翻过来。
+//
+// 想加东西的话：
+//   · 加一个姿势：在 POSE_DEF 里加一条（两只狗各写一份目标），把名字写进 POSES。
+//     能边摆边走的再写进 WALKS，动作大的写进 BIG。姿势只管"摆成什么样"，怎么过渡是自动的。
+//   · 姿势自己的小动作（刨、挠、蹬……）：加在 solve() 里标着"小动作"的那一段，用 this.pw('名字') 当权重。
+//   · 加一种心情：在 MOODS 里加一行。心情只动脸、耳朵、尾巴、头的高低，不碰身体。
+//   · 加一个部位：在 draw() 里用 brush() 定好远近和材质，再 cap() / ell() 画；
+//     新的部位编号要在 GRP（和谁算一整块）和 SEAM（被压住时怎么描缝）里各添一格。
+//   · 改完跑一下：node pet/dev/gaitcheck.js（脚打不打滑）、node pet/dev/dogbench.js（画一帧多久）、
+//     再打开 pet/dev/dogs.html 看图。
+(function (root) {
+  'use strict';
+
+  // ============================================================
+  //  0. 常量和小工具
+  // ============================================================
+  var W = 80, H = 48;          // 每只狗自己那张小画布（世界单位）
+  var OX = 40, GY = 42;        // 原点（身体中心正下方的地面）在画布里的位置
+  var PI = Math.PI, TAU = PI * 2, D2R = PI / 180;
+  // 数学函数先取出来放在手边：在某些环境里（比如 Node 的隔离环境）每次去全局里找 Math 很慢，画像素的循环里要调几万次
+  var abs = Math.abs, acos = Math.acos, atan2 = Math.atan2, ceil = Math.ceil, cos = Math.cos, exp = Math.exp, floor = Math.floor,
+      max = Math.max, min = Math.min, pow = Math.pow, round = Math.round, sin = Math.sin, sqrt = Math.sqrt;
+  var LX = -0.3808, LY = 0.8016, LZ = 0.4609;   // 光的方向（x 右、y 上、z 朝观众）
+
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function smooth(t) { t = t < 0 ? 0 : (t > 1 ? 1 : t); return t * t * (3 - 2 * t); }
+  function frac(v) { return v - floor(v); }
+  // 慢慢靠过去；差得很少了就直接到位（不然会没完没了地挪一点点，画面上的像素跟着乱跳）
+  function approach(cur, target, rate, dt) {
+    var d = target - cur;
+    if (d < 0.0015 && d > -0.0015) return target;
+    return cur + d * (1 - exp(-rate * dt));
+  }
+  // 在一圈（周期 1）上从 a 走到 b，走近的那一边
+  function arcLerp(a, b, t) { var d = b - a; d -= round(d); return frac(a + d * t); }
+
+  // ============================================================
+  //  1. 颜色
+  //  每种材质一条 6 级的色阶：0 描边 · 1 最暗 · 2 暗部 · 3 本色 · 4 亮部 · 5 高光
+  //  暗的一头往紫红偏，亮的一头往黄偏（不是同一个颜色加黑加白）
+  // ============================================================
+  var RAMP = {
+    gold:    ['#4a221e', '#854728', '#b87133', '#e6a94e', '#fad378', '#ffeea8'],   // 金毛
+    cream:   ['#61342b', '#ad7753', '#d6a774', '#f2d29b', '#ffefc2', '#fffae0'],   // 金毛的浅色饰毛
+    red:     ['#3d181c', '#66261d', '#8f3f22', '#b86230', '#d98c4e', '#f2be7e'],   // 红棕腊肠
+    tan:     ['#52221f', '#7a3925', '#a86239', '#d18e54', '#edbc7b', '#fce2ac'],   // 腊肠的浅棕（嘴边、胸口、爪子）
+    black:   ['#17111a', '#211a26', '#2d2536', '#3c3547', '#535066', '#75778f'],   // 黑棕腊肠的黑
+    dcream:  ['#5c342e', '#945e47', '#c29269', '#ebcc96', '#fae9bb', '#fffae0'],   // 奶油腊肠
+    nose:    ['#150f17', '#291f29', '#291f29', '#291f29', '#49404c', '#736c7a'],
+    tongue:  ['#7a3351', '#b25074', '#b25074', '#f28399', '#f28399', '#ffb2b9'],
+    collarR: ['#572133', '#992e40', '#992e40', '#d64945', '#d64945', '#f5806e'],
+    collarB: ['#29224c', '#3a4d99', '#3a4d99', '#4981d6', '#4981d6', '#7ac0f5'],
+    tag:     ['#804219', '#eb972a', '#eb972a', '#ffd342', '#ffd342', '#fff08c'],
+    eye:     ['#150f17', '#150f17', '#3d2318', '#664227', '#b8cbe0', '#ffffff'],   // 1 瞳孔 · 2/3 棕色 · 5 眼神光
+    dirt:    ['#2b1d16', '#3f2b1f', '#56392a', '#6e4a35', '#8a6247', '#a37c5c'],   // 刨完土的鼻头
+  };
+  // 材质编号（草稿上每个像素记一个）
+  var M_COAT = 1, M_COATF = 2, M_CREAM = 3, M_CREAMF = 4, M_EAR = 5, M_MUZ = 6, M_NOSE = 7, M_TONGUE = 8,
+      M_MOUTH = 9, M_COLLAR = 10, M_TAG = 11, M_EYE = 12, M_PAW = 13, M_PAWF = 14, M_TAN = 15, M_DIRT = 16, M_N = 17;
+
+  // 每种毛色：各个部位用哪条色阶、往暗里挪几级。far（远侧的腿）= 同一条色阶整体暗一级
+  //   gloss 短毛的反光 · bias 整体压暗（黑狗） · rim 暗色的毛在上缘留一道亮边（深色壁纸上才看得见轮廓）
+  var COATS = {
+    gold:         { coat: 'gold',   cream: 'cream',  ear: ['gold', -1],   muz: 'cream',  paw: 'cream',  tan: 'cream', collar: 'collarR', gloss: 0, bias: 0, rim: 0, points: 0 },
+    dax_red:      { coat: 'red',    cream: 'tan',    ear: ['red', -1],    muz: 'tan',    paw: 'tan',    tan: 'tan',   collar: 'collarB', gloss: 1, bias: 0, rim: 0, points: 0 },
+    dax_blacktan: { coat: 'black',  cream: 'tan',    ear: ['black', 0],   muz: 'tan',    paw: 'tan',    tan: 'tan',   collar: 'collarR', gloss: 1, bias: -0.22, rim: 1, points: 1 },
+    dax_cream:    { coat: 'dcream', cream: 'dcream', ear: ['dcream', -1], muz: 'dcream', paw: 'dcream', tan: 'dcream', collar: 'collarB', gloss: 1, bias: 0, rim: 0, points: 0 },
+  };
+
+  var LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;   // 这台机器是不是低位在前
+  function pack(hex) {
+    var h = hex.replace('#', ''), r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+    return LE ? ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0 : ((r << 24) | (g << 16) | (b << 8) | 255) >>> 0;
+  }
+  // 调色盘：pal[材质 * 8 + 明暗级别]
+  function buildPal(C) {
+    var pal = new Uint32Array(M_N * 8);
+    function set(m, name, shift) {
+      var r = RAMP[name];
+      pal[m * 8] = pack(r[0]);
+      for (var t = 1; t <= 5; t++) pal[m * 8 + t] = pack(r[clamp(t + (shift || 0), 1, 5)]);
+    }
+    set(M_COAT, C.coat, 0); set(M_COATF, C.coat, -1);
+    set(M_CREAM, C.cream, 0); set(M_CREAMF, C.cream, -1);
+    set(M_EAR, C.ear[0], C.ear[1]);
+    set(M_MUZ, C.muz, 0); set(M_PAW, C.paw, 0); set(M_PAWF, C.paw, -1); set(M_TAN, C.tan, 0);
+    set(M_NOSE, 'nose', 0); set(M_TONGUE, 'tongue', 0); set(M_COLLAR, C.collar, 0); set(M_TAG, 'tag', 0); set(M_EYE, 'eye', 0); set(M_DIRT, 'dirt', 0);
+    // 嘴里：一整块暗红；它的描边跟着毛色走
+    for (var t = 1; t <= 5; t++) pal[M_MOUTH * 8 + t] = pack(RAMP.tongue[0]);
+    pal[M_MOUTH * 8] = pack(RAMP[C.muz][0]);
+    return pal;
+  }
+
+  // ============================================================
+  //  2. 画像素
+  //  先往"草稿"上画：每个像素记下 属于哪个部位 P、什么材质 M、明暗级别 T、远近 Z、标记 F。
+  //  全部画完以后 finish() 再统一：去杂点 → 部位之间的接缝 → 描边 → 填成真正的颜色。
+  // ============================================================
+  var SCR = {};                 // 每种分辨率一套草稿，所有狗共用
+  var bw = 0, bh = 0, bP, bM, bT, bF, bZ;
+  var RR = 1;                   // 现在是按几倍画的
+  var X0 = OX, Y0 = GY;         // 原点（世界单位；X0 里带着"不到一个像素的零头"）
+  var TS = 0, TO = 0, TC = 1;   // 横向的变换：屏幕 x = TO + (x − TS) × TC。TC = −1 就是脸朝左
+  var bx0, by0, bx1, by1;       // 这一帧画过的范围
+  var sZ = 0, sZb = 0, sMat = 1, sPart = 1, sFlat = 0, sBias = 0, sFlag = 0, sOver = 0;   // 现在的"画笔"
+  var MINR = 0.71;              // 再细就会断成一粒一粒的
+  var gapA = -99, gapB = -99;   // 背上那道反光在这两列附近断开
+  var limbEdge = 0;             // 1 = 近处的腿抬起来压在身上（挠痒、作揖……）：四周都留一道暗边，不然和身体糊成一片
+  var F_LOCK = 1, F_SOFT = 2, F_CORE = 4, F_TOP = 16;     // 像素上的标记：点上去的（不再处理）· 接缝暗一级 · 接缝最暗 · 背上可以有反光
+
+  function useScratch(R) {
+    var s = SCR[R];
+    if (!s) {
+      var n = W * R * H * R;
+      s = SCR[R] = { P: new Uint8Array(n), M: new Uint8Array(n), T: new Uint8Array(n), F: new Uint8Array(n), Z: new Float32Array(n) };
+    }
+    RR = R; bw = W * R; bh = H * R; bP = s.P; bM = s.M; bT = s.T; bF = s.F; bZ = s.Z;
+    bP.fill(0);
+    bx0 = bw; by0 = bh; bx1 = -1; by1 = -1;
+  }
+  // 换画笔：z 远近（大的在前）、zb 鼓起来多少、材质、部位、flat 压扁程度（0 圆鼓鼓，明暗从最亮到最暗都有 … 1 一片平，只有本色）、bias 整体调亮调暗
+  function brush(z, zb, mat, part, flat, bias) { sZ = z; sZb = zb; sMat = mat; sPart = part; sFlat = flat; sBias = bias || 0; sFlag = 0; sOver = 0; }
+
+  // 一头粗一头细的"胶囊"
+  function cap(x0, y0, r0, x1, y1, r1) {
+    var ax = (TO + (x0 - TS) * TC + X0) * RR, ay = (Y0 - y0) * RR, bx = (TO + (x1 - TS) * TC + X0) * RR, by = (Y0 - y1) * RR;
+    var ra = r0 * RR, rb = r1 * RR;
+    if (ra < MINR) ra = MINR;
+    if (rb < MINR) rb = MINR;
+    var rm = ra > rb ? ra : rb;
+    var i0 = floor((ax < bx ? ax : bx) - rm), i1 = ceil((ax > bx ? ax : bx) + rm);
+    var j0 = floor((ay < by ? ay : by) - rm), j1 = ceil((ay > by ? ay : by) + rm);
+    if (i0 < 1) i0 = 1; if (j0 < 1) j0 = 1; if (i1 > bw - 2) i1 = bw - 2; if (j1 > bh - 2) j1 = bh - 2;
+    if (i0 > i1 || j0 > j1) return;
+    if (i0 < bx0) bx0 = i0; if (i1 > bx1) bx1 = i1; if (j0 < by0) by0 = j0; if (j1 > by1) by1 = j1;
+    var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy, inv = L2 > 1e-9 ? 1 / L2 : 0, dr = rb - ra;
+    var f1 = 1 - sFlat, i, j;
+    for (j = j0; j <= j1; j++) {
+      var py = j + 0.5 - ay, row = j * bw;
+      for (i = i0; i <= i1; i++) {
+        var px = i + 0.5 - ax;
+        var t = (px * dx + py * dy) * inv;
+        if (t < 0) t = 0; else if (t > 1) t = 1;
+        var ex = px - dx * t, ey = py - dy * t, r = ra + dr * t, q = (ex * ex + ey * ey) / (r * r);
+        if (q > 1) continue;
+        var idx = row + i, nz = sqrt(1 - q), zz = sZ + nz * sZb;
+        if (bP[idx] !== 0) { if (bZ[idx] >= zz) continue; } else if (sOver) continue;
+        if (sOver && bP[idx] !== sOver) continue;
+        var nf = nz * f1 + sFlat;
+        var tone = ((ex * LX - ey * LY) / r * f1 + nf * LZ) / sqrt(q * f1 * f1 + nf * nf) + sBias;
+        bT[idx] = tone > 0.62 ? (tone > 0.95 ? 5 : 4) : (tone > 0.18 ? 3 : (tone > -0.28 ? 2 : 1));
+        bP[idx] = sPart; bM[idx] = sMat; bZ[idx] = zz; bF[idx] = sFlag;
+      }
+    }
+  }
+  // 椭圆（可以转一个角度）
+  function ell(cx, cy, rx, ry, rot) {
+    var px0 = (TO + (cx - TS) * TC + X0) * RR, py0 = (Y0 - cy) * RR;
+    var cs = cos(rot) * TC, sn = sin(rot);
+    if (TC !== 1 && TC !== -1) { var nn = sqrt(cs * cs + sn * sn) || 1; cs /= nn; sn /= nn; }
+    var ra = rx * RR, rb = ry * RR;
+    if (ra < MINR) ra = MINR;
+    if (rb < MINR) rb = MINR;
+    var rm = ra > rb ? ra : rb;
+    var i0 = floor(px0 - rm), i1 = ceil(px0 + rm), j0 = floor(py0 - rm), j1 = ceil(py0 + rm);
+    if (i0 < 1) i0 = 1; if (j0 < 1) j0 = 1; if (i1 > bw - 2) i1 = bw - 2; if (j1 > bh - 2) j1 = bh - 2;
+    if (i0 > i1 || j0 > j1) return;
+    if (i0 < bx0) bx0 = i0; if (i1 > bx1) bx1 = i1; if (j0 < by0) by0 = j0; if (j1 > by1) by1 = j1;
+    var ia = 1 / ra, ib = 1 / rb, f1 = 1 - sFlat, i, j;
+    for (j = j0; j <= j1; j++) {
+      var py = py0 - (j + 0.5), row = j * bw;         // 朝上为正
+      for (i = i0; i <= i1; i++) {
+        var px = i + 0.5 - px0;
+        var u = (px * cs + py * sn) * ia, v = (py * cs - px * sn) * ib, q = u * u + v * v;
+        if (q > 1) continue;
+        var idx = row + i, nz = sqrt(1 - q), zz = sZ + nz * sZb;
+        if (bP[idx] !== 0) { if (bZ[idx] >= zz) continue; } else if (sOver) continue;
+        if (sOver && bP[idx] !== sOver) continue;
+        var nf = nz * f1 + sFlat;
+        var tone = (((u * cs - v * sn) * LX + (u * sn + v * cs) * LY) * f1 + nf * LZ) / sqrt(q * f1 * f1 + nf * nf) + sBias;
+        bT[idx] = tone > 0.62 ? (tone > 0.95 ? 5 : 4) : (tone > 0.18 ? 3 : (tone > -0.28 ? 2 : 1));
+        bP[idx] = sPart; bM[idx] = sMat; bZ[idx] = zz; bF[idx] = sFlag;
+      }
+    }
+  }
+  // 世界坐标 → 像素格子
+  function PI_(x) { return floor((TO + (x - TS) * TC + X0) * RR); }
+  function PJ_(y) { return floor((Y0 - y) * RR); }
+  // 点一个像素（只盖在已经画了东西的地方；点上去的不再参加去杂点和接缝）
+  function pix(i, j, mat, tone) {
+    if (i < 1 || j < 1 || i >= bw - 1 || j >= bh - 1) return;
+    var idx = j * bw + i;
+    if (!bP[idx]) return;
+    bM[idx] = mat; bT[idx] = tone; bF[idx] |= F_LOCK;
+  }
+  // 一像素宽的线（两头是世界坐标）
+  function seg(x0, y0, x1, y1, mat, tone) {
+    var i0 = PI_(x0), j0 = PJ_(y0), i1 = PI_(x1), j1 = PJ_(y1);
+    var dx = abs(i1 - i0), dy = abs(j1 - j0), sx = i0 < i1 ? 1 : -1, sy = j0 < j1 ? 1 : -1, err = dx - dy;
+    for (var n = 0; n < 200; n++) {
+      pix(i0, j0, mat, tone);
+      if (i0 === i1 && j0 === j1) break;
+      var e2 = err * 2;
+      if (e2 > -dy) { err -= dy; i0 += sx; }
+      if (e2 < dx) { err += dx; j0 += sy; }
+    }
+  }
+
+  // 部位编号。GRP = 哪些部位算"一整块"（之间不画接缝）；SEAM = 被别的部位压住时，交界处怎么处理
+  //   0 不管 · 1 在背光的那一侧暗一级（近处的腿压在身上、头压在脖子上） · 2 一道最暗的线（远侧的腿、尾巴根）
+  var P_TRUNK = 1, P_FHIND = 2, P_FFORE = 3, P_TAIL = 4, P_NHIND = 5, P_NFORE = 6, P_HEAD = 7, P_JAW = 8,
+      P_TONGUE = 9, P_EAR = 10, P_NOSE = 11, P_COLLAR = 12, P_FUR = 13, P_MOUTH = 14, P_FEAR = 15, P_BELLY = 16;
+  var GRP = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 7, 12, 1, 14, 15, 1]);
+  var SEAM = new Uint8Array([0, 1, 2, 2, 2, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 2, 1]);
+
+  // 收尾：把草稿变成真正的图
+  //   d32   这只狗自己的输出（Uint32Array，一格一个像素）
+  //   pal   调色盘
+  //   C     毛色（反光、亮边要用）
+  //   box   量出来的包围盒 [x0, y0, x1, y1]
+  function finish(d32, pal, C, box) {
+    var x0 = bx0, y0 = by0, x1 = bx1, y1 = by1, i, j, idx, pass;
+    if (x1 < x0) { box[0] = box[1] = 0; box[2] = box[3] = -1; return; }
+
+    // (1) 去杂点：明暗级别和四邻（同一个部位里的）都不一样的孤点，跟着邻居走。两遍。
+    for (pass = 0; pass < 2; pass++) {
+      for (j = y0; j <= y1; j++) {
+        idx = j * bw + x0;
+        for (i = x0; i <= x1; i++, idx++) {
+          var p = bP[idx];
+          if (!p || (bF[idx] & F_LOCK)) continue;
+          var t = bT[idx];
+          var a = bP[idx - 1] === p ? bT[idx - 1] : 0, b = bP[idx + 1] === p ? bT[idx + 1] : 0;
+          var c = bP[idx - bw] === p ? bT[idx - bw] : 0, d = bP[idx + bw] === p ? bT[idx + bw] : 0;
+          if (a === t || b === t || c === t || d === t) continue;
+          var n = (a && (a === b || a === c || a === d)) ? a : ((b && (b === c || b === d)) ? b : ((c && c === d) ? c : (a || b || c || d)));
+          if (n) bT[idx] = n;
+        }
+      }
+    }
+
+    // (2) 接缝：两个部位挨着的地方，在"被压住的那个"上做记号
+    for (j = y0; j <= y1; j++) {
+      idx = j * bw + x0;
+      for (i = x0; i <= x1; i++, idx++) {
+        var p1 = bP[idx];
+        if (!p1) continue;
+        var g1 = GRP[p1], q1, k;
+        q1 = bP[idx + 1];
+        if (q1 && GRP[q1] !== g1) {
+          if (bZ[idx] > bZ[idx + 1]) { k = SEAM[q1]; if (k && !(bF[idx + 1] & F_LOCK)) bF[idx + 1] |= k === 2 ? F_CORE : F_SOFT; }   // 被压的在右边：背光侧
+          else { k = SEAM[p1]; if (!(bF[idx] & F_LOCK)) { if (k === 2) bF[idx] |= F_CORE; else if (limbEdge && k && (q1 === P_NHIND || q1 === P_NFORE)) bF[idx] |= F_SOFT; } }
+        }
+        q1 = bP[idx + bw];
+        if (q1 && GRP[q1] !== g1) {
+          if (bZ[idx] > bZ[idx + bw]) { k = SEAM[q1]; if (k && !(bF[idx + bw] & F_LOCK)) bF[idx + bw] |= k === 2 ? F_CORE : F_SOFT; }   // 被压的在下面：背光侧
+          else { k = SEAM[p1]; if (!(bF[idx] & F_LOCK)) { if (k === 2) bF[idx] |= F_CORE; else if (limbEdge && k && (q1 === P_NHIND || q1 === P_NFORE)) bF[idx] |= F_SOFT; } }
+        }
+      }
+    }
+
+    // (3) 填颜色 + 最外面描一圈边（四邻里有实心的空格子 → 用最靠前那个邻居的"描边色"）
+    var gloss = C.gloss, rim = C.rim;
+    var tx0 = bw, ty0 = bh, tx1 = -1, ty1 = -1;
+    var X0c = x0 - 1, X1c = x1 + 1, Y0c = y0 - 1, Y1c = y1 + 1;
+    for (j = Y0c; j <= Y1c; j++) {
+      idx = j * bw + X0c;
+      for (i = X0c; i <= X1c; i++, idx++) {
+        var pp = bP[idx];
+        if (pp) {
+          var tt = bT[idx], f = bF[idx];
+          if (f & F_CORE) tt = 1;
+          else if ((f & F_SOFT) && tt > 1) tt--;
+          else if (!(f & F_LOCK) && !bP[idx - bw]) {
+            // 上缘的那一行：短毛的反光（只在标了 F_TOP 的地方）；深色的毛留一道亮边
+            if (gloss && (f & F_TOP) && tt >= 3 && (i < gapA - 1 || i > gapA + 1) && (i < gapB - 1 || i > gapB + 1)) tt = 5;
+            else if (rim && tt < 4 && bM[idx] === M_COAT) tt = 4;
+          }
+          d32[idx] = pal[bM[idx] * 8 + tt];
+        } else if (bP[idx - 1] && bP[idx + 1] && bP[idx - bw] && bP[idx + bw]) {
+          d32[idx] = pal[bM[idx - 1] * 8 + bT[idx - 1]];          // 针眼（四面都是实心）：补上，不然会变成身上的一个黑点
+        } else {
+          var best = -1e9, m = 0;
+          if (bP[idx - 1] && bZ[idx - 1] > best) { best = bZ[idx - 1]; m = bM[idx - 1]; }
+          if (bP[idx + 1] && bZ[idx + 1] > best) { best = bZ[idx + 1]; m = bM[idx + 1]; }
+          if (j > 0 && bP[idx - bw] && bZ[idx - bw] > best) { best = bZ[idx - bw]; m = bM[idx - bw]; }
+          if (j < bh - 1 && bP[idx + bw] && bZ[idx + bw] > best) { best = bZ[idx + bw]; m = bM[idx + bw]; }
+          if (!m) continue;
+          d32[idx] = pal[m * 8];
+        }
+        if (i < tx0) tx0 = i; if (i > tx1) tx1 = i; if (j < ty0) ty0 = j; if (j > ty1) ty1 = j;
+      }
+    }
+    // (4) 描边围出来的单个小洞（比如腿和肚子之间只漏一格的缝）也补上，不然是一粒闪来闪去的杂点
+    for (j = ty0 + 1; j < ty1; j++) {
+      idx = j * bw + tx0 + 1;
+      for (i = tx0 + 1; i < tx1; i++, idx++) {
+        if (d32[idx] === 0 && d32[idx - 1] !== 0 && d32[idx + 1] !== 0 && d32[idx - bw] !== 0 && d32[idx + bw] !== 0) d32[idx] = d32[idx - 1];
+      }
+    }
+    box[0] = tx0; box[1] = ty0; box[2] = tx1; box[3] = ty1;
+  }
+
+  // ============================================================
+  //  3. 体型（世界单位；角度是"度"，用的时候再换算）
+  //  数字来自两个品种的标准比例：金毛近似方形、胸深到肘、背线平；腊肠身长是肩高的 1.75 倍、
+  //  胸骨往前突、离地只有肩高的三分之一。
+  // ============================================================
+  var BREED = {
+    gold: {
+      a: 4.2, b: 6.6,                       // 脊柱两段：骨盆—腰、腰—胸
+      T0: [4.0, 14.3],                      // 站着时胸腔中心
+      rib: [6.4, 5.5], pel: [4.3, 4.3], pelUp: 0.8,
+      loin: [0.8, 0.9, 4.0, -2.0, 0.3, 4.9],        // 腰：骨盆这头 (x, y, 半径)，胸腔那头 (x, y, 半径)
+      wither: [2.0, 4.0, 2.6, 1.9],                 // 肩隆：位置和大小
+      chest: [5.2, -1.0, 1.8, 2.8],                 // 前胸
+      S0: [2.3, 3.9], N0: [3.6, 3.3],               // 胸腔上的点：肩胛骨顶端、脖子根
+      HJ: [-0.8, -0.1], tailSet: [-3.4, 3.1],       // 骨盆上的点：髋关节、尾巴根
+      ls: 5.16, lh: 5.80, lr: 5.81, lmc: 2.73, dF: -26.2,   // 前腿：肩胛骨、上臂、小臂、掌骨；肩胛骨和小臂"联动"的夹角
+      lf: 6.05, lt: 5.48, lm: 4.65, dH: -13.6,              // 后腿：大腿、小腿、跖骨；大腿和跖骨"联动"的夹角
+      padY: 0.6, fpad: 6.4, hpad: -8.9,             // 站着时脚掌关节的高度、前后脚的位置
+      farX: 1.2, farY: 0.4,                         // 远侧的腿：前腿再往前、后腿再往后这么多，整体抬高一点
+      shoulder: [3.3, 2.3], armR: [2.4, 1.5], foreR: [1.45, 1.2], pastR: 1.1, fpaw: [1.8, 1.05],
+      thigh: [3.7, 2.7], gaskR: [2.0, 1.2], metaR: 1.1, hock: 0.45, hpaw: [1.7, 1.0],
+      neck: 6.0, neckR0: 4.2, neckR1: 3.4, neckA: 52, headA: -12,
+      HL: 12.6,                                     // 头长：后脑勺到鼻尖
+      skull: [0.31, 0.02, 0.33, 0.30],              // 头骨：中心 (u, v)、两个半轴（都是头长的几分之几）
+      stop: [0.52, -0.02, 0.17, 0.17],              // 额头到鼻梁之间的那一块
+      muz: [0.58, -0.06, 0.168, 0.815, -0.07, 0.155],     // 上吻：起点 (u, v, 半径) → 终点 (u, v, 半径)
+      jaw: [0.52, -0.215, 0.085, 0.80, -0.228, 0.08], hinge: [0.30, -0.14],
+      nose: [0.95, 0.02, 0.078], eye: [0.49, 0.09], lip: -0.228,
+      earAt: [0.25, 0.14], earL: 0.39, earR: [0.125, 0.085], earRest: -78,
+      ball: [1.02, -0.36],
+      tailL: 12.4, tailN: 7, tailR: [1.3, 0.55], tailA: -28, tailCurl: 0.3,
+      accel: 340, seat: [-0.5, 19.4],
+    },
+    dax: {
+      a: 4.0, b: 6.2,
+      T0: [3.6, 7.2],
+      rib: [5.2, 3.7], pel: [3.1, 2.8], pelUp: 0.4,
+      loin: [0.5, 0.45, 2.75, -2.0, 0.15, 3.3],
+      wither: [1.9, 2.75, 2.1, 1.15],
+      chest: [4.9, -0.1, 1.7, 2.3],
+      S0: [2.0, 2.7], N0: [3.2, 2.1],
+      HJ: [-0.4, -0.3], tailSet: [-2.4, 2.4],
+      ls: 3.61, lh: 3.75, lr: 3.14, lmc: 1.09, dF: -30.7,
+      lf: 3.30, lt: 3.39, lm: 2.01, dH: -29.4,
+      padY: 0.5, fpad: 6.1, hpad: -8.1,
+      farX: 0.9, farY: 0.4,
+      shoulder: [2.5, 1.9], armR: [1.6, 1.15], foreR: [1.1, 1.0], pastR: 0.95, fpaw: [1.5, 0.85],
+      thigh: [2.4, 1.7], gaskR: [1.3, 1.0], metaR: 0.95, hock: 0.15, hpaw: [1.3, 0.8],
+      neck: 5.6, neckR0: 2.9, neckR1: 2.3, neckA: 60, headA: -10,
+      HL: 11.6,
+      skull: [0.27, 0.0, 0.28, 0.225],
+      stop: [0.44, -0.015, 0.14, 0.135],
+      muz: [0.46, -0.04, 0.125, 0.92, -0.075, 0.075],
+      jaw: [0.42, -0.13, 0.065, 0.86, -0.15, 0.05], hinge: [0.22, -0.12],
+      nose: [0.985, -0.065, 0.065], eye: [0.47, 0.035], lip: -0.145,
+      earAt: [0.13, 0.09], earL: 0.50, earR: [0.10, 0.145], earRest: -84,
+      ball: [1.02, -0.40],
+      tailL: 9.6, tailN: 6, tailR: [0.8, 0.4], tailA: -8, tailCurl: 0.5,
+      accel: 760, seat: [-0.5, 10.7],
+    },
+  };
+  // 把角度换成弧度，算出几样常用的量
+  (function () {
+    for (var k in BREED) {
+      var B = BREED[k];
+      B.kind = k;
+      B.dF *= D2R; B.dH *= D2R; B.neckA *= D2R; B.headA *= D2R; B.earRest *= D2R; B.tailA *= D2R;
+      B.L = B.a + B.b;
+      // 前腿、后腿完全伸直时有多长（从腿的根到脚掌）
+      B.RmF = sqrt(B.ls * B.ls + (B.lr + B.lmc) * (B.lr + B.lmc) + 2 * B.ls * (B.lr + B.lmc) * cos(B.dF)) + B.lh;
+      B.RmH = sqrt(B.lf * B.lf + B.lm * B.lm + 2 * B.lf * B.lm * cos(B.dH)) + B.lt;
+    }
+  })();
+
+  // ============================================================
+  //  4. 骨架
+  // ============================================================
+  // 躯干：胸腔中心 (tx, ty)、胸段和腰段的俯仰 thT / thP（弧度，头高为正）、len 拉长缩短、c 翻身（1 正着 … −1 肚皮朝天）
+  function trunkPts(J, B, tx, ty, thT, thP, len, c) {
+    var cT = cos(thT), sT = sin(thT), cP = cos(thP), sP = sin(thP);
+    J.Tx = tx; J.Ty = ty; J.cT = cT; J.sT = sT; J.cP = cP; J.sP = sP; J.c = c; J.thT = thT; J.thP = thP;
+    J.Lx = tx - B.b * len * cT; J.Ly = ty - B.b * len * sT;
+    J.Px = J.Lx - B.a * len * cP; J.Py = J.Ly - B.a * len * sP;
+    J.S0x = tx + B.S0[0] * cT - B.S0[1] * c * sT; J.S0y = ty + B.S0[0] * sT + B.S0[1] * c * cT;
+    J.N0x = tx + B.N0[0] * cT - B.N0[1] * c * sT; J.N0y = ty + B.N0[0] * sT + B.N0[1] * c * cT;
+    J.HJx = J.Px + B.HJ[0] * cP - B.HJ[1] * c * sP; J.HJy = J.Py + B.HJ[0] * sP + B.HJ[1] * c * cP;
+    J.TSx = J.Px + B.tailSet[0] * cP - B.tailSet[1] * c * sP; J.TSy = J.Py + B.tailSet[0] * sP + B.tailSet[1] * c * cP;
+  }
+
+  // 两节骨头：从 (jx, jy) 去够 (fx, fy)，第一节长 A、第二节长 Bn。返回第一节的角度（关节往前鼓的那个解）。
+  // 够不着的时候不会一下子绷直：超过 97% 以后越来越难伸，永远到不了 100%。
+  var ikD = 0, ikBase = 0, ikReach = 0, ikLim = 0.97;
+  function twoBone(jx, jy, fx, fy, A, Bn) {
+    var dx = fx - jx, dy = fy - jy, d = sqrt(dx * dx + dy * dy), mx = A + Bn, mn = abs(A - Bn) + 0.02;
+    var r = d / mx;
+    ikReach = r;
+    if (r > ikLim) { r = ikLim + 0.025 * (1 - exp(-(r - ikLim) / 0.025)); d = r * mx; }
+    if (d < mn) d = mn;
+    var ca = (A * A + d * d - Bn * Bn) / (2 * A * d);
+    if (ca > 1) ca = 1; else if (ca < -1) ca = -1;
+    ikD = d; ikBase = atan2(dy, dx);
+    return ikBase + acos(ca);
+  }
+  // 前腿：肩胛骨顶端 (sx, sy) → 肩关节 → 肘 → 腕 → 脚掌 (fx, fy)。
+  //   del 肩胛骨和小臂的夹角（"联动"：走路时两者几乎平行着摆）· kap 腕关节往后折多少 · up = −1 表示肚皮朝天
+  // 结果写进 o[k..k+9]：肩关节、肘、腕、脚掌的 x y，再加掌骨的方向
+  function foreIK(o, k, sx, sy, fx, fy, B, del, kap, up) {
+    if (up < 0) fy = 2 * sy - fy;
+    var qx = B.lr + B.lmc * cos(kap), qy = -B.lmc * sin(kap), lq = sqrt(qx * qx + qy * qy), dq = del + atan2(qy, qx);
+    var vx = B.ls + lq * cos(dq), vy = lq * sin(dq), eps = atan2(vy, vx);
+    var u = twoBone(sx, sy, fx, fy, sqrt(vx * vx + vy * vy), B.lh) - eps, a = u + del;
+    var px = sx + ikD * cos(ikBase), py = sy + ikD * sin(ikBase);
+    var ex = px - lq * cos(u + dq), ey = py - lq * sin(u + dq);
+    o[k] = sx + B.ls * cos(u); o[k + 1] = sy + B.ls * sin(u);
+    o[k + 2] = ex; o[k + 3] = ey;
+    o[k + 4] = ex + B.lr * cos(a); o[k + 5] = ey + B.lr * sin(a);
+    o[k + 6] = px; o[k + 7] = py;
+    o[k + 8] = a - kap;
+    if (up < 0) { o[k + 1] = 2 * sy - o[k + 1]; o[k + 3] = 2 * sy - o[k + 3]; o[k + 5] = 2 * sy - o[k + 5]; o[k + 7] = 2 * sy - o[k + 7]; o[k + 8] = -o[k + 8]; }
+    o[k + 9] = ikReach;
+  }
+  // 后腿：髋 (hx, hy) → 膝 → 飞节 → 脚掌 (fx, fy)。del 大腿和跖骨的夹角
+  // 结果写进 o[k..k+9]：膝、飞节的 x y，（空两格），脚掌的 x y，跖骨的方向
+  function hindIK(o, k, hx, hy, fx, fy, B, del, up) {
+    if (up < 0) fy = 2 * hy - fy;
+    var vx = B.lf + B.lm * cos(del), vy = B.lm * sin(del), eps = atan2(vy, vx);
+    var u = twoBone(hx, hy, fx, fy, sqrt(vx * vx + vy * vy), B.lt) - eps, a = u + del;
+    var px = hx + ikD * cos(ikBase), py = hy + ikD * sin(ikBase);
+    o[k] = hx + B.lf * cos(u); o[k + 1] = hy + B.lf * sin(u);
+    o[k + 2] = px - B.lm * cos(a); o[k + 3] = py - B.lm * sin(a);
+    o[k + 4] = o[k + 2]; o[k + 5] = o[k + 3];
+    o[k + 6] = px; o[k + 7] = py;
+    o[k + 8] = a;
+    if (up < 0) { o[k + 1] = 2 * hy - o[k + 1]; o[k + 3] = 2 * hy - o[k + 3]; o[k + 5] = o[k + 3]; o[k + 7] = 2 * hy - o[k + 7]; o[k + 8] = -o[k + 8]; }
+    o[k + 9] = ikReach;
+  }
+
+  // ============================================================
+  //  5. 姿势表 —— 一个姿势名对应的"目标"只写在这里
+  //  每个姿势只写和"站着"不一样的地方：
+  //    at / x / y   躯干摆在哪。at 说 (x, y) 指的是哪个点：
+  //                 'T' 胸腔中心（默认）· 'S' 肩胛骨顶端 · 'P' 骨盆 · 'H' 髋关节
+  //    thT / thP    胸段、腰段抬起多少度（头高为正）
+  //    roll         1 = 翻过来肚皮朝天
+  //    len          身体拉长（>1）或缩短（<1）
+  //    neck / head  脖子、头（后脑勺→鼻尖）的方向，度，相对水平线
+  //    tail / curl  尾巴根翘起多少度、往上卷多少
+  //    jaw / tongue 嘴张多大（0..1）、舌头伸多长
+  //    ear          耳朵往后甩多少（弧度；负的 = 往前竖）
+  //    fn ff hn hf  近侧前脚、远侧前脚、近侧后脚、远侧后脚：
+  //                 [x, 离地高度, 夹角, 腕关节]      踩在地上的脚（身体晃的时候它不动）
+  //                 { r: [dx, dy], d: 夹角, k: 腕关节 }  悬空的脚：相对肩胛骨顶端 / 髋关节（跟着身体走）
+  //                 { a: [x, y],   d: 夹角, k: 腕关节 }  悬空的脚：直接写位置
+  //                 夹角 = 肩胛骨和小臂（大腿和跖骨）之间差多少度；不写就是走路时的"联动"角度。
+  //                 远侧的脚也按近侧的位置写，画的时候会自动往旁边错开。
+  //  名字以 _ 开头的是内部用的（起跳、落地、急停……），不对外公开。
+  //  加新姿势：在这里加一条，再把名字写进 POSES；如果它有自己的小动作，去 solve() 里的"小动作"那一段加。
+  // ============================================================
+  var POSE_DEF = {
+    // 站着：前腿的小臂竖直（肘在肩隆正下方），只有掌骨往前斜一点 —— 真狗站着就是这样，不往前撑
+    stand: {
+      gold: { x: 4.0, y: 14.3, neck: 52, head: -12, tail: -28, curl: 0.3, fn: [6.5, 0, -33, -16], ff: [6.5, 0, -33, -16] },
+      dax:  { x: 3.6, y: 7.2, neck: 60, head: -10, tail: -8, curl: 0.5, fn: [5.4, 0, -41.5, -16], ff: [5.4, 0, -41.5, -16] },
+    },
+    alert: {
+      gold: { x: 4.6, y: 14.7, thT: 1.5, neck: 59, head: -4, tail: 14, curl: 0.35, ear: -0.3, fn: [7.0, 0, -28, -16], ff: [7.0, 0, -28, -16] },
+      dax:  { x: 4.2, y: 7.45, thT: 1.5, neck: 67, head: -2, tail: 24, curl: 0.5, ear: -0.25, fn: [5.9, 0, -38, -16], ff: [5.9, 0, -38, -16] },
+    },
+    sit: {
+      gold: { at: 'S', x: 2.5, y: 18.0, thT: 44, thP: 74, neck: 66, head: -8, tail: -6, curl: 0.05, fn: [3.0, 0], ff: [3.0, 0], hn: [2.0, 0], hf: [2.4, 0] },
+      dax:  { at: 'S', x: 6.4, y: 10.9, thT: 32, thP: 46, len: 0.9, neck: 76, head: -6, tail: -4, curl: 0.05, fn: [6.8, 0, -38, -14], ff: [6.8, 0, -38, -14], hn: [1.0, 0], hf: [1.4, 0] },
+    },
+    paw: {
+      gold: { at: 'S', x: 2.5, y: 18.0, thT: 44, thP: 74, neck: 64, head: -4, tail: -6, curl: 0.05, fn: { a: [13.5, 10.8], d: 5, k: 35 }, ff: [3.0, 0], hn: [2.0, 0], hf: [2.4, 0] },
+      dax:  { at: 'S', x: 6.4, y: 10.9, thT: 32, thP: 46, len: 0.9, neck: 72, head: -2, tail: -4, curl: 0.05, fn: { a: [12.0, 6.4], d: 5, k: 30 }, ff: [6.8, 0, -38, -14], hn: [1.0, 0], hf: [1.4, 0] },
+    },
+    scratch: {
+      gold: { at: 'S', x: 2.5, y: 17.4, thT: 40, thP: 76, neck: 30, head: -35, tail: -6, curl: 0, ear: 0.3, fn: [3.0, 0], ff: [3.0, 0], hn: { a: [7.0, 14.0] }, hf: [2.0, 0] },
+      dax:  { at: 'S', x: 6.6, y: 9.7, thT: 12, thP: 46, neck: 40, head: -22, tail: -4, curl: 0, ear: 0.3, fn: [7.0, 0], ff: [7.0, 0], hn: { a: [3.2, 5.2] }, hf: [-0.4, 0] },
+    },
+    lie: {
+      gold: { x: 4.0, y: 5.7, thT: 3, thP: 12, neck: 55, head: -8, tail: -5, curl: 0, fn: [13.2, 0.5, 60], ff: [12.6, 0.5, 60], hn: [-3.2, 0], hf: [-2.6, 0] },
+      dax:  { x: 3.6, y: 3.85, thT: 2, thP: 8, neck: 60, head: -6, tail: -4, curl: 0.1, fn: [10.4, 0.35, 48], ff: [10.0, 0.35, 48], hn: [-3.4, 0], hf: [-3.0, 0] },
+    },
+    sleep: {
+      gold: { x: 4.0, y: 5.6, thT: 2, thP: 12, neck: -37, head: -6, tail: -5, curl: 0, ear: 0.2, fn: [13.2, 0.5, 60], ff: [12.6, 0.5, 60], hn: [-3.2, 0], hf: [-2.6, 0] },
+      dax:  { x: 3.6, y: 3.9, thT: 4, thP: 22, neck: -15, head: -8, tail: -4, curl: 0.1, ear: 0.2, fn: [10.4, 0.35, 48], ff: [10.0, 0.35, 48], hn: [-2.6, 0], hf: [-2.2, 0] },
+    },
+    bow: {
+      gold: { at: 'P', x: -6.8, y: 14.5, thT: -45, thP: -40, neck: 20, head: 12, tail: 62, curl: 0.4, fn: [12.8, 0.5, 50], ff: [12.2, 0.5, 50] },
+      dax:  { at: 'P', x: -6.6, y: 8.0, thT: -28, thP: -22, neck: 35, head: 15, tail: 52, curl: 0.5, fn: [10.4, 0.35, 30], ff: [10.0, 0.35, 30] },
+    },
+    dig: {
+      gold: { x: 4.6, y: 10.2, thT: -20, thP: -10, neck: -30, head: -42, tail: 55, curl: 0.3, fn: [11.0, 0], ff: [11.0, 0] },
+      dax:  { x: 3.9, y: 5.5, thT: -12, thP: -6, neck: -15, head: -28, tail: 45, curl: 0.4, fn: [7.8, 0], ff: [7.8, 0] },
+    },
+    beg: {
+      gold: { at: 'H', x: -1.0, y: 3.9, thT: 58, thP: 80, neck: 75, head: 10, tail: -4, curl: 0, fn: { r: [8.3, -5.0], d: -20, k: 70 }, ff: { r: [7.8, -5.8], d: -20, k: 70 }, hn: [3.2, 0], hf: [3.6, 0] },
+      dax:  { at: 'H', x: -1.0, y: 2.2, thT: 78, thP: 86, neck: 72, head: 20, tail: -4, curl: 0, fn: { r: [7.1, -2.7], d: -20, k: 70 }, ff: { r: [6.7, -3.3], d: -20, k: 70 }, hn: [1.4, 0], hf: [1.8, 0] },
+    },
+    roll: {
+      gold: { x: 4.0, y: 5.4, thT: 2, thP: -2, roll: 1, neck: 8, head: 10, tail: -5, curl: 0.1, jaw: 0.5, tongue: 0.9, ear: 0.2,
+              fn: { r: [2.5, -8.5], d: -10, k: 80 }, ff: { r: [1.0, -8.0], d: -10, k: 80 }, hn: { r: [2.2, -7.5] }, hf: { r: [1.0, -7.0] } },
+      dax:  { x: 3.6, y: 3.7, thT: 2, thP: -2, roll: 1, neck: 10, head: 12, tail: -4, curl: 0.1, jaw: 0.5, tongue: 0.9, ear: 0.2,
+              fn: { r: [1.8, -4.8], d: -10, k: 80 }, ff: { r: [0.8, -4.5], d: -10, k: 80 }, hn: { r: [1.6, -4.2] }, hf: { r: [0.8, -4.0] } },
+    },
+    sniff: {
+      gold: { x: 4.2, y: 12.7, thT: -8, thP: -4, neck: -40, head: -62, tail: -5, curl: 0.2, fn: [6.9, 0], ff: [6.9, 0] },
+      dax:  { x: 3.8, y: 6.7, thT: -5, thP: -2, neck: -25, head: -33, tail: 30, curl: 0.4, fn: [6.4, 0], ff: [6.4, 0] },
+    },
+    tug: {
+      gold: { x: 2.6, y: 10.6, thT: -6, thP: 12, neck: -48, head: -12, tail: 40, curl: 0.3, jaw: 0.45, fn: [9.4, 0], ff: [9.4, 0], hn: [-7.9, 0], hf: [-7.9, 0] },
+      dax:  { x: 2.6, y: 6.0, thT: 2, thP: 12, neck: 8, head: -4, tail: 35, curl: 0.4, jaw: 0.45, fn: [8.0, 0], ff: [8.0, 0], hn: [-6.6, 0], hf: [-6.6, 0] },
+    },
+    lick: {
+      gold: { x: 4.2, y: 13.6, thT: -4, thP: -1, neck: -5, head: -30, tail: 20, curl: 0.35, jaw: 0.35, tongue: 1 },
+      dax:  { x: 3.6, y: 7.2, neck: 45, head: 15, tail: 25, curl: 0.5, jaw: 0.35, tongue: 1 },
+    },
+    air: {
+      gold: { x: 4.0, y: 14.0, thT: 13, thP: 5, len: 1.07, neck: 34, head: -4, tail: -12, curl: 0, ear: 0.6,
+              fn: { r: [12.5, -8.5], d: -12 }, ff: { r: [13.5, -7.2], d: -12 }, hn: { r: [-11.0, -9.0] }, hf: { r: [-12.2, -7.8] } },
+      dax:  { x: 3.6, y: 7.0, thT: 12, thP: 3, len: 1.07, neck: 44, head: -3, tail: -8, curl: 0, ear: 0.6,
+              fn: { r: [8.4, -4.4], d: -18 }, ff: { r: [9.0, -3.6], d: -18 }, hn: { r: [-6.8, -4.2] }, hf: { r: [-7.5, -3.5] } },
+    },
+    // —— 吃喝拉撒（自动喂食、便便）——
+    // 埋头吃：金毛斯斯文文地嚼；腊肠一头扎进去，屁股扭、后脚轮流踩。给了 lookAt 就把鼻尖伸到那一点（碗里）
+    eat: {
+      gold: { x: 4.1, y: 13.6, thT: -5, thP: -2, neck: -28, head: -55, tail: -10, curl: 0.25, ear: -0.15, fn: [7.0, 0, -33, -16], ff: [7.0, 0, -33, -16] },
+      dax:  { x: 3.0, y: 7.0, thT: -3, thP: -1, neck: 10, head: -42, tail: 25, curl: 0.45, ear: -0.1, fn: [5.2, 0, -41.5, -16], ff: [5.2, 0, -41.5, -16] },
+    },
+    lickbowl: {    // 舔碗底：鼻子再低一点、再往前一点，舌头一下一下往前推
+      gold: { x: 4.4, y: 13.4, thT: -6, thP: -2, neck: -32, head: -62, tail: -5, curl: 0.3, ear: -0.1, fn: [7.0, 0, -33, -16], ff: [7.0, 0, -33, -16] },
+      dax:  { x: 3.3, y: 6.9, thT: -4, thP: -1, neck: 6, head: -50, tail: 30, curl: 0.45, ear: -0.1, fn: [5.4, 0, -41.5, -16], ff: [5.4, 0, -41.5, -16] },
+    },
+    drink: {       // 喝水：鼻尖停在水面上，舌头往后卷着舔水，头几乎不动
+      gold: { x: 4.1, y: 13.6, thT: -5, thP: -2, neck: -26, head: -52, jaw: 0.25, tail: -15, curl: 0.2, ear: -0.15, fn: [7.0, 0, -33, -16], ff: [7.0, 0, -33, -16] },
+      dax:  { x: 3.0, y: 7.0, thT: -3, thP: -1, neck: 14, head: -38, jaw: 0.25, tail: 10, curl: 0.4, ear: -0.35, fn: [5.2, 0, -41.5, -16], ff: [5.2, 0, -41.5, -16] },
+    },
+    taps: {        // 等开饭：金毛坐着，两只前爪轮流踩；腊肠站着踢踏，屁股跟着扭
+      gold: { at: 'S', x: 2.5, y: 18.0, thT: 44, thP: 74, neck: 66, head: 0, tail: -4, curl: 0.05, ear: -0.15, fn: [3.0, 0], ff: [3.0, 0], hn: [2.0, 0], hf: [2.4, 0] },
+      dax:  { x: 3.9, y: 7.4, thT: 2, neck: 66, head: 5, jaw: 0.4, tongue: 0.3, ear: -0.45, tail: 30, curl: 0.5, fn: [5.6, 0, -40, -16], ff: [5.6, 0, -40, -16] },
+    },
+    circle: {      // 便便前转圈：低着头闻，小碎步（转身由引擎翻朝向，骨架自己演转身）
+      gold: { x: 4.2, y: 12.9, thT: -8, thP: -4, neck: -30, head: -55, tail: -10, curl: 0.2, fn: [6.9, 0], ff: [6.9, 0] },
+      dax:  { x: 3.8, y: 6.7, thT: -5, thP: -2, neck: -15, head: -30, tail: 35, curl: 0.4, ear: 0.3, fn: [6.0, 0], ff: [6.0, 0] },
+    },
+    squat: {       // 便便：轻松、体面，不使劲。背拱起来、骨盆往下收、两只后脚往前收到身子下面、尾巴翘起来
+      gold: { x: 4.0, y: 14.0, thT: 8, thP: 48, neck: 60, head: -6, tail: 50, curl: 0.35, ear: 0.15, fn: [6.9, 0, -30, -14], ff: [6.9, 0, -30, -14], hn: [-4.0, 0], hf: [-4.0, 0] },
+      dax:  { x: 3.6, y: 7.0, thT: 6, thP: 32, neck: 40, head: -6, tail: 70, curl: 0.4, ear: 0.4, fn: [6.4, 0, -41.5, -16], ff: [6.4, 0, -41.5, -16], hn: [-4.2, 0], hf: [-4.2, 0] },
+    },
+    kick: {        // 便完往后蹬草：前腿撑住，两条后腿轮流往后扫、往上一甩
+      gold: { x: 4.6, y: 14.4, thT: 3, neck: 60, head: -5, jaw: 0.3, ear: -0.25, tail: 40, curl: 0.1, fn: [7.6, 0, -30, -16], ff: [7.6, 0, -30, -16] },
+      dax:  { x: 4.0, y: 7.3, thT: 3, neck: 66, head: -2, jaw: 0.3, ear: -0.2, tail: 60, curl: 0.3, fn: [6.4, 0, -40, -16], ff: [6.4, 0, -40, -16] },
+    },
+    // —— 互动 ——
+    rear: {        // 后腿站起来：骨盆在后脚正上方，身子立起来，两只前爪搭在 pawAt 那一点上（没给就往前伸着）
+      gold: { at: 'H', x: -1.6, y: 12.2, thT: 64, thP: 70, neck: 78, head: 2, tail: -18, curl: 0.15, ear: 0.1, fn: { r: [6.0, -3.6], d: -12, k: 55 }, ff: { r: [5.4, -4.4], d: -12, k: 55 }, hn: [-0.6, 0, -6], hf: [0.2, 0, -6] },
+      dax:  { at: 'H', x: -1.0, y: 6.6, thT: 68, thP: 74, neck: 72, head: 8, tail: -10, curl: 0.2, ear: 0.1, fn: { r: [4.4, -2.4], d: -12, k: 55 }, ff: { r: [4.0, -3.0], d: -12, k: 55 }, hn: [-0.6, 0, -12], hf: [0.0, 0, -12] },
+    },
+    lean: {        // 靠在人 / 另一只狗身上：重心往旁边一歪、身子矮一格，近侧的腿撑开，头往后仰着找对方的脸
+      gold: { x: 3.2, y: 13.1, thT: 4, thP: 2, neck: 70, head: 14, tail: -20, curl: 0.2, ear: 0.35, fn: [7.6, 0, -24, -14], ff: [5.6, 0, -33, -16], hn: [-10.4, 0], hf: [-8.0, 0] },
+      dax:  { x: 3.0, y: 6.6, thT: 4, thP: 2, neck: 72, head: 16, tail: 0, curl: 0.4, ear: 0.35, fn: [6.4, 0, -36, -14], ff: [4.8, 0, -41.5, -16], hn: [-9.4, 0], hf: [-7.4, 0] },
+    },
+    flop: {        // 侧躺摊平：身子贴地，四条腿往前伸出去，头平放在草上
+      gold: { x: 4.0, y: 4.6, thT: 0, thP: 4, len: 1.04, neck: 12, head: -4, tail: -2, curl: 0, ear: 0.9,
+              fn: { a: [15.0, 2.6], d: 5, k: -5 }, ff: { a: [13.4, 3.4], d: 5, k: -5 }, hn: { a: [-2.4, 2.2] }, hf: { a: [-4.0, 3.0] } },
+      dax:  { x: 3.6, y: 3.2, thT: 0, thP: 3, len: 1.03, neck: 10, head: -2, tail: -2, curl: 0, ear: 0.9,
+              fn: { a: [11.0, 1.7], d: 5, k: -5 }, ff: { a: [9.8, 2.3], d: 5, k: -5 }, hn: { a: [-2.6, 1.6] }, hf: { a: [-3.6, 2.2] } },
+    },
+    stalk: {       // 潜行：身子压低三分之一，脊背平，脖子往前探，鼻子贴着地，尾巴直直地伸着不动
+      gold: { x: 4.4, y: 10.4, thT: 0, thP: 1, neck: -26, head: -16, tail: -2, curl: 0, ear: -0.45, fn: [7.6, 0, -40, -10], ff: [7.6, 0, -40, -10], hn: [-9.6, 0, -24], hf: [-9.6, 0, -24] },
+      dax:  { x: 3.8, y: 5.4, thT: 0, thP: 1, neck: -8, head: -18, tail: 0, curl: 0, ear: -0.4, fn: [6.6, 0, -50, -10], ff: [6.6, 0, -50, -10], hn: [-8.6, 0, -40], hf: [-8.6, 0, -40] },
+    },
+    cradle: {      // 被他横抱在小臂上：原点 = 托着的地方。身子平、中间塌一点，四条腿松松地垂着，头抬着
+      gold: { x: 3.4, y: 5.4, thT: 4, thP: -6, neck: 40, head: -10, tail: -60, curl: -0.1, ear: 0.1,
+              fn: { r: [1.2, -9.5], d: -10, k: 20 }, ff: { r: [2.2, -9.0], d: -10, k: 15 }, hn: { r: [1.0, -8.0] }, hf: { r: [0.0, -7.6] } },
+      dax:  { x: 3.0, y: 3.7, thT: 4, thP: -6, neck: 48, head: -8, tail: -62, curl: -0.1, ear: 0.1,
+              fn: { r: [0.8, -5.0], d: -14, k: 20 }, ff: { r: [1.4, -4.7], d: -14, k: 15 }, hn: { r: [0.8, -4.4] }, hf: { r: [0.1, -4.1] } },
+    },
+    held: {        // 被拎着 / 抱起来：胸口那里托着，身子斜着，四条腿和尾巴往下垂
+      gold: { x: 4.0, y: 17.0, thT: 24, thP: 30, neck: 44, head: -14, tail: -78, curl: -0.1, ear: 0.15,
+              fn: { r: [1.6, -12.0], d: -14, k: 18 }, ff: { r: [2.6, -11.6], d: -14, k: 14 }, hn: { r: [1.2, -12.6] }, hf: { r: [0.3, -12.2] } },
+      dax:  { x: 3.6, y: 9.8, thT: 22, thP: 28, neck: 50, head: -12, tail: -75, curl: -0.1, ear: 0.15,
+              fn: { r: [1.1, -7.0], d: -16, k: 18 }, ff: { r: [1.8, -6.7], d: -16, k: 14 }, hn: { r: [0.9, -6.8] }, hf: { r: [0.2, -6.5] } },
+    },
+    // —— 下面是内部用的 ——
+    _stretchF: {   // 伸懒腰第一段：前腿往前伸到头、胸口贴地、屁股翘得高高的
+      gold: { at: 'P', x: -7.6, y: 14.2, thT: -36, thP: -28, neck: 18, head: 14, tail: 34, curl: 0.3, ear: 0.45, fn: [15.6, 0.4, 62], ff: [15.0, 0.4, 62] },
+      dax:  { at: 'P', x: -7.0, y: 8.0, thT: -24, thP: -18, neck: 26, head: 16, tail: 40, curl: 0.5, ear: 0.4, fn: [11.6, 0.3, 40], ff: [11.2, 0.3, 40] },
+    },
+    _trailN: {     // 伸懒腰第二段：往前走一步，近侧的后腿笔直地拖在后面
+      gold: { x: 5.8, y: 14.0, thT: 3, thP: 6, neck: 46, head: -8, tail: -14, curl: 0.2, fn: [8.4, 0, -30, -16], ff: [8.4, 0, -30, -16], hn: [-15.6, 0.2, 14], hf: [-8.6, 0] },
+      dax:  { x: 4.6, y: 7.1, thT: 3, thP: 6, neck: 56, head: -8, tail: 0, curl: 0.4, fn: [6.6, 0, -40, -16], ff: [6.6, 0, -40, -16], hn: [-12.4, 0.15, 14], hf: [-7.8, 0] },
+    },
+    _trailF: {     // ……再换远侧那条
+      gold: { x: 6.6, y: 14.1, thT: 2, thP: 5, neck: 48, head: -9, tail: -16, curl: 0.25, fn: [9.2, 0, -30, -16], ff: [9.2, 0, -30, -16], hn: [-7.6, 0], hf: [-15.0, 0.2, 14] },
+      dax:  { x: 5.2, y: 7.15, thT: 2, thP: 5, neck: 58, head: -9, tail: 2, curl: 0.4, fn: [7.2, 0, -40, -16], ff: [7.2, 0, -40, -16], hn: [-7.2, 0], hf: [-11.8, 0.15, 14] },
+    },
+    _brace4: {     // 甩毛：四条腿叉开撑稳
+      gold: { x: 4.0, y: 13.9, neck: 48, head: -8, tail: -18, curl: 0.2, fn: [7.8, 0, -28, -14], ff: [7.8, 0, -28, -14], hn: [-10.0, 0], hf: [-10.0, 0] },
+      dax:  { x: 3.6, y: 7.05, neck: 58, head: -8, tail: 0, curl: 0.4, fn: [6.6, 0, -38, -14], ff: [6.6, 0, -38, -14], hn: [-9.0, 0], hf: [-9.0, 0] },
+    },
+    _stiff: {      // 被举过头顶（held + stiff）：腊肠绷成一根棍，竖着，鼻子朝天，前腿收着
+      gold: { x: 4.0, y: 14.0, thT: 70, thP: 74, neck: 80, head: 30, tail: -84, curl: 0, ear: 0.3,
+              fn: { r: [2.6, -5.0], d: -30, k: 90 }, ff: { r: [3.0, -5.6], d: -30, k: 85 }, hn: { r: [0.2, -12.8] }, hf: { r: [-0.6, -12.4] } },
+      dax:  { x: 3.6, y: 7.0, thT: 82, thP: 84, neck: 84, head: 40, tail: -86, curl: 0, ear: 0.3,
+              fn: { r: [1.8, -2.8], d: -30, k: 95 }, ff: { r: [2.1, -3.2], d: -30, k: 90 }, hn: { r: [0.1, -7.6] }, hf: { r: [-0.4, -7.3] } },
+    },
+    _sploot: {     // 青蛙趴（腊肠）：后腿直直地往后伸出去，肚皮贴地
+      gold: { x: 4.0, y: 5.5, thT: 2, thP: 6, neck: 55, head: -8, tail: -5, curl: 0, fn: [13.2, 0.5, 60], ff: [12.6, 0.5, 60], hn: { a: [-15.0, 1.4], d: 30 }, hf: { a: [-14.0, 1.8], d: 30 } },
+      dax:  { x: 3.6, y: 3.7, thT: 1, thP: 4, neck: 58, head: -4, tail: -4, curl: 0.1, fn: [10.4, 0.35, 48], ff: [10.0, 0.35, 48], hn: { a: [-11.8, 1.0], d: 30 }, hf: { a: [-11.0, 1.3], d: 30 } },
+    },
+    _crouch: {   // 起跳前往下一蹲
+      gold: { x: 3.6, y: 11.1, thT: -3, thP: 4, neck: 40, head: -10, tail: -20, curl: 0.2, ear: 0.3 },
+      dax:  { x: 3.3, y: 5.9, thT: -3, thP: 5, neck: 48, head: -8, tail: -5, curl: 0.3, ear: 0.3 },
+    },
+    _tuck: {     // 跳到最高点：四条腿收在肚子下面
+      gold: { x: 4.0, y: 14.2, thT: 2, thP: 6, len: 0.96, neck: 36, head: -10, tail: 4, curl: 0.1, ear: 0.1,
+              fn: { r: [3.5, -8.0], d: -30, k: 95 }, ff: { r: [4.6, -7.4], d: -30, k: 85 }, hn: { r: [3.2, -7.2] }, hf: { r: [2.2, -6.6] } },
+      dax:  { x: 3.6, y: 7.1, thT: 2, thP: 8, len: 0.95, neck: 46, head: -8, tail: 6, curl: 0.2, ear: 0.1,
+              fn: { r: [2.6, -4.4], d: -30, k: 95 }, ff: { r: [3.3, -4.0], d: -30, k: 85 }, hn: { r: [2.0, -3.4] }, hf: { r: [1.4, -3.0] } },
+    },
+    _reach: {    // 往下落：前腿伸出去找地面
+      gold: { x: 4.0, y: 13.8, thT: -13, thP: -6, len: 1.03, neck: 40, head: -16, tail: 26, curl: 0.1, ear: -0.5,
+              fn: { r: [7.5, -14.5], d: -22 }, ff: { r: [9.0, -13.8], d: -22 }, hn: { r: [-3.0, -8.0] }, hf: { r: [-4.5, -7.4] } },
+      dax:  { x: 3.6, y: 6.9, thT: -12, thP: -5, len: 1.03, neck: 46, head: -14, tail: 30, curl: 0.1, ear: -0.5,
+              fn: { r: [5.0, -8.6], d: -26 }, ff: { r: [6.0, -8.2], d: -26 }, hn: { r: [-2.0, -4.4] }, hf: { r: [-2.8, -4.0] } },
+    },
+    _dangle: {   // 被拎在半空：四条腿垂着
+      gold: { x: 4.0, y: 14.0, thT: 16, thP: 26, neck: 30, head: -22, tail: -70, curl: -0.1, ear: 0.1,
+              fn: { r: [2.5, -15.5], d: -20, k: 35 }, ff: { r: [3.6, -15.0], d: -20, k: 30 }, hn: { r: [1.5, -13.0] }, hf: { r: [0.6, -12.6] } },
+      dax:  { x: 3.6, y: 7.0, thT: 14, thP: 24, neck: 38, head: -18, tail: -65, curl: -0.1, ear: 0.1,
+              fn: { r: [1.8, -9.2], d: -24, k: 35 }, ff: { r: [2.5, -8.9], d: -24, k: 30 }, hn: { r: [1.2, -7.0] }, hf: { r: [0.6, -6.7] } },
+    },
+    _brace: {    // 急停：前腿撑在前面，屁股往下坐
+      gold: { x: 3.2, y: 12.6, thT: 6, thP: 16, neck: 62, head: -2, tail: 10, curl: 0.2, ear: -0.6, fn: [10.2, 0], ff: [10.2, 0], hn: [-6.6, 0], hf: [-6.6, 0] },
+      dax:  { x: 3.0, y: 6.5, thT: 5, thP: 15, neck: 68, head: 0, tail: 20, curl: 0.3, ear: -0.6, fn: [8.3, 0], ff: [8.3, 0], hn: [-5.8, 0], hf: [-5.8, 0] },
+    },
+  };
+  // 对外公开的姿势名
+  var POSES = ['stand', 'alert', 'sit', 'paw', 'scratch', 'lie', 'sleep', 'bow', 'dig', 'beg', 'roll', 'sniff', 'tug', 'lick', 'air',
+               // 吃喝拉撒（R6）
+               'eat', 'lickbowl', 'lickchops', 'drink', 'taps', 'circle', 'squat', 'kick', 'stretch', 'shakeoff', 'yawn',
+               // 互动（R5）
+               'rear', 'lean', 'flop', 'stalk', 'cradle', 'held', 'sneeze', 'nudge'];
+  // 这几个名字是"一次性的动作"：写在 pose 里也行，就在原来的姿势上做一遍（做完 render() 给出 actDone）
+  var ACT_ONLY = { lickchops: 1, stretch: 1, shakeoff: 1, yawn: 1, sneeze: 1, nudge: 1 };
+
+  // 姿势的"通道"：名字 + 哪一拨动（0 躯干 · 1 脖子和头，慢一拍 · 2 耳朵尾巴，慢两拍 · 3 脚，不做预备和过冲）
+  var CH = [
+    ['tx', 0], ['ty', 0], ['thT', 0], ['thP', 0], ['roll', 0], ['len', 0], ['belly', 0],
+    ['neck', 1], ['head', 1], ['jaw', 1], ['tongue', 1],
+    ['ear', 2], ['tail', 2], ['curl', 2],
+    ['fnx', 3], ['fny', 3], ['fnd', 3], ['fnk', 3], ['fnp', 3],
+    ['ffx', 3], ['ffy', 3], ['ffd', 3], ['ffk', 3], ['ffp', 3],
+    ['hnx', 3], ['hny', 3], ['hnd', 3], ['hnp', 3],
+    ['hfx', 3], ['hfy', 3], ['hfd', 3], ['hfp', 3],
+  ];
+  var NCH = CH.length;
+  var LEGS = ['fn', 'ff', 'hn', 'hf'];
+  var LX_ = ['fnx', 'ffx', 'hnx', 'hfx'], LY_ = ['fny', 'ffy', 'hny', 'hfy'], LD_ = ['fnd', 'ffd', 'hnd', 'hfd'], LP_ = ['fnp', 'ffp', 'hnp', 'hfp'], LK_ = ['fnk', 'ffk'];
+
+  // 把一条姿势定义换成一组通道值（只在一开始算一次）
+  var tmpJ = {};
+  function buildPose(B, def) {
+    var P = {}, c = def.roll ? -1 : 1;
+    P.thT = (def.thT || 0) * D2R; P.thP = (def.thP || 0) * D2R; P.roll = def.roll || 0; P.len = def.len || 1; P.belly = def.roll ? 1 : 0;
+    var x = def.x, y = def.y, at = def.at || 'T';
+    var cT = cos(P.thT), sT = sin(P.thT), cP = cos(P.thP), sP = sin(P.thP);
+    if (at === 'S') { x -= B.S0[0] * cT - B.S0[1] * c * sT; y -= B.S0[0] * sT + B.S0[1] * c * cT; }
+    else if (at === 'P' || at === 'H') {
+      if (at === 'H') { x -= B.HJ[0] * cP - B.HJ[1] * c * sP; y -= B.HJ[0] * sP + B.HJ[1] * c * cP; }
+      x += B.a * cP + B.b * cT; y += B.a * sP + B.b * sT;
+    }
+    P.tx = x; P.ty = y;
+    P.neck = (def.neck === undefined ? B.neckA / D2R : def.neck) * D2R;
+    P.head = (def.head === undefined ? B.headA / D2R : def.head) * D2R;
+    P.tail = (def.tail === undefined ? B.tailA / D2R : def.tail) * D2R;
+    P.curl = def.curl === undefined ? B.tailCurl : def.curl;
+    P.jaw = def.jaw || 0; P.tongue = def.tongue || 0; P.ear = def.ear || 0;
+    trunkPts(tmpJ, B, P.tx, P.ty, P.thT, P.thP, P.len, c);
+    for (var n = 0; n < 4; n++) {
+      var k = LEGS[n], fore = n < 2, s = def[k], jx = fore ? tmpJ.S0x : tmpJ.HJx, jy = fore ? tmpJ.S0y : tmpJ.HJy;
+      var px, py, d = fore ? B.dF : B.dH, kap = 0, plant = 1;
+      if (!s) { px = fore ? B.fpad : B.hpad; py = B.padY; }
+      else if (s.length) { px = s[0]; py = s[1] + B.padY; if (s[2] !== undefined) d = s[2] * D2R; if (s[3] !== undefined) kap = s[3] * D2R; }
+      else {
+        if (s.r) { px = jx + s.r[0]; py = jy + s.r[1] * c; } else { px = s.a[0]; py = s.a[1]; }
+        if (s.d !== undefined) d = s.d * D2R;
+        if (s.k !== undefined) kap = s.k * D2R;
+        plant = 0;
+      }
+      P[k + 'x'] = px; P[k + 'y'] = py; P[k + 'd'] = d; P[k + 'p'] = plant;
+      if (fore) P[k + 'k'] = kap;
+    }
+    return P;
+  }
+  var TARGET = { gold: {}, dax: {} };
+  (function () {
+    for (var name in POSE_DEF) for (var kind in BREED) TARGET[kind][name] = buildPose(BREED[kind], POSE_DEF[name][kind]);
+  })();
+  var IS_POSE = {};
+  POSES.forEach(function (p) { IS_POSE[p] = 1; });
+  // 这些姿势是"站着的"：走起来的时候脖子、尾巴跟着速度变
+  var UPRIGHT = { stand: 1, alert: 1, lick: 0.5, lean: 0.5 };
+  // 这些姿势可以边摆边走（别的姿势一有速度就先站起来）
+  var WALKS = { stand: 1, alert: 1, sniff: 1, lick: 1, tug: 1, air: 1, stalk: 1, circle: 1, held: 1, cradle: 1, _stiff: 1 };
+  // 这些姿势换起来动作大，过渡慢一点
+  var BIG = { sit: 1, paw: 1, scratch: 1, lie: 1, sleep: 1, beg: 1, roll: 1, bow: 1, squat: 1, taps: 1, flop: 1, rear: 1, _sploot: 1 };
+
+  function copyCh(dst, src) { for (var n = 0; n < NCH; n++) { var k = CH[n][0]; dst[k] = src[k]; } return dst; }
+  function mixCh(dst, target, w) { if (w <= 0) return; for (var n = 0; n < NCH; n++) { var k = CH[n][0]; dst[k] += (target[k] - dst[k]) * w; } }
+  // 换姿势时的走法：先往反方向让一点点（预备）→ 中间快两头慢 → 冲过头一点 → 回来
+  function easePose(u) {
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    var s = smooth((u - 0.1) / 0.66);
+    var ant = u < 0.2 ? -0.06 * sin(PI * u / 0.2) : 0;
+    var ov = u > 0.62 ? 0.055 * sin(PI * (u - 0.62) / 0.38) : 0;
+    return s + ant + ov;
+  }
+
+  // ============================================================
+  //  6. 心情表 —— 只改脸、耳朵和尾巴，不改身体的姿势，可以叠在任何姿势上
+  //    eye   眼睛的样子：open 睁着 · happy 笑眯眯 · sleepy 半闭 · wide 睁大 · soft 眼皮放松
+  //    brow  眉毛：[抬高几格, 倾斜]，倾斜 1 = 眉头往下压（专注），−1 = 眉尾往下掉（委屈）
+  //    ear   耳朵往后贴多少（弧度；负的往前竖）· earUp 耳根抬高
+  //    tail  尾巴根再翘多少（弧度）· neck / head 脖子和头再抬多少（弧度）· wag 摇尾巴的幅度乘几
+  //    smile 嘴角再翘一格
+  // ============================================================
+  var MOODS = {
+    none:    { eye: 'open',   brow: [0, 0],  ear: 0,     earUp: 0,    tail: 0,     neck: 0,     head: 0,     wag: 1,   smile: 0 },
+    happy:   { eye: 'happy',  brow: [0, 0],  ear: 0.05,  earUp: 0,    tail: 0.3,   neck: 0.04,  head: 0.05,  wag: 1.3, smile: 1 },
+    sleepy:  { eye: 'sleepy', brow: [-1, 0], ear: 0.18,  earUp: -0.2, tail: -0.35, neck: -0.12, head: -0.1,  wag: 0.3, smile: 0 },
+    guilty:  { eye: 'open',   brow: [0, -1], ear: 0.5,   earUp: -0.3, tail: -1.0,  neck: -0.35, head: -0.2,  wag: 0.2, smile: 0 },
+    curious: { eye: 'wide',   brow: [1, 0],  ear: -0.4,  earUp: 0.3,  tail: 0.15,  neck: 0.08,  head: 0.14,  wag: 0.8, smile: 0 },
+    proud:   { eye: 'soft',   brow: [0, 0],  ear: -0.1,  earUp: 0.1,  tail: 0.6,   neck: 0.16,  head: 0.12,  wag: 1,   smile: 1 },
+    worried: { eye: 'open',   brow: [1, -1], ear: 0.35,  earUp: -0.2, tail: -0.5,  neck: -0.1,  head: -0.04, wag: 0.3, smile: 0 },
+    focused: { eye: 'open',   brow: [0, 1],  ear: -0.3,  earUp: 0.2,  tail: 0.1,   neck: -0.1,  head: -0.06, wag: 0.4, smile: 0 },
+  };
+  var MOOD_KEYS = ['ear', 'earUp', 'tail', 'neck', 'head', 'wag', 'smile'];
+  var BROW_UP = [1, 0];
+
+  // ============================================================
+  //  6b. 一次性的动作（act）和小剧本
+  //  rig.update(dt, { act: 名字 }) → 骨架自己按时间演一遍（引擎只要一直传着这个名字；换一个名字或者先传空再传同一个，就再演一遍）
+  //  演完以后下一次 render() 的结果里 actDone = 这个名字（只给一次）；正在演的时候 act = 名字、actT = 0..1。
+  //  ACT_PRIM：基本动作，叠在当前的姿势上 —— [金毛几秒, 腊肠几秒]
+  //  ACT_SEQ ：小剧本（一只狗自己的小行为），一段一段接起来：
+  //            [金毛几秒, 腊肠几秒, 这一段的姿势(0 = 不变), 这一段叠的基本动作(0 = 没有), 这一段改哪些输入]
+  //            某一只狗的秒数写 0 = 它跳过这一段（两只狗演法不一样）
+  // ============================================================
+  var ACT_PRIM = {
+    yawn: [1.6, 1.0], lickchops: [0.8, 0.5], stretch: [2.2, 1.3], shakeoff: [1.4, 0.85], sneeze: [0.5, 0.5], nudge: [0.5, 0.5], kick: [0.8, 0.8],
+    thump: [1.0, 0.8], snap: [0.15, 0.12], hop: [0.45, 0.35], sigh: [0.7, 0.5],
+  };
+  var ACT_SEQ = {
+    // R5 第 2 节：狗自己的小行为（走路、气泡、表情符号这些由引擎做；这里只演身上的部分）
+    shake_off:      [[1.4, 0.85, 0, 'shakeoff']],
+    wake_stretch:   [[2.2, 1.3, 'stand', 'stretch'], [1.4, 0.85, 'stand', 'shakeoff']],
+    nest_circle:    [[0, 1.0, 'dig'], [1.2, 0.4, 'circle', 0, { flip: 1 }], [1.2, 0.4, 'circle', 0, { flip: 1 }], [0, 0.4, 'circle', 0, { flip: 1 }], [0, 0.4, 'circle', 0, { flip: 1 }],
+                     [0.9, 0.5, 'lie'], [0.7, 0.5, 'lie', 'sigh', { chin: 1 }]],
+    flump_sigh:     [[0.8, 0.5, 'lie'], [0.7, 0.4, 'lie', 0, { chin: 1 }], [0.7, 0.5, 'lie', 'sigh', { chin: 1 }], [1.8, 1.0, 'lie', 0, { chin: 1 }]],
+    head_tilt:      [[0.3, 0.25, 0, 0, { ears: 1 }], [0.5, 0.4, 0, 0, { tilt: 1, ears: 1 }], [0.5, 0.4, 0, 0, { tilt: -1, ears: 1 }], [0.3, 0.25, 0, 0, { wag: 0.8 }]],
+    look_back_wait: [[0.8, 0.6, 0, 0, { lookBack: true }], [1.0, 0.8, 0, 0, { lookBack: true, tilt: 0.6 }], [0.5, 0.4, 0, 0, { wag: 0.7 }]],
+    tail_thump:     [[0.3, 0.3, 0, 0, { eyes: 'slit' }], [1.0, 0.8, 0, 'thump', { eyes: 'slit' }], [0.3, 0.3, 0, 0, { eyes: 'closed' }]],
+    sleepy_ack:     [[0.3, 0.25, 0, 0, { earFlick: 1 }], [0.6, 0.5, 0, 0, { eyes: 'slit' }], [0.8, 0.6, 0, 'thump', { eyes: 'slit' }], [0.5, 0.5, 0, 'sigh', { eyes: 'closed' }]],
+    dream_bubble:   [[1.0, 0.8, 0, 0, { dream: 0.5 }], [2.5, 2.2, 0, 0, { dream: 1 }]],
+    periscope:      [[0.6, 0.6, 'beg'], [0.8, 0.8, 'beg', 0, { lookAt: [-40, 14], scent: true }], [0.8, 0.8, 'beg', 0, { lookAt: [40, 14], scent: true }], [0.4, 0.4, 'beg', 0, { wobble: 1 }], [0.6, 0.6, 'stand']],
+    sploot_rest:    [[1.0, 1.0, '_sploot'], [3.0, 3.0, '_sploot', 0, { pant: true, wag: 0.45 }], [1.0, 1.0, '_sploot', 0, { chin: true }]],
+    mole_pounce:    [[1.0, 1.0, 'alert', 0, { look: -0.7, mood: 'focused' }], [0.5, 0.5, 'alert', 0, { look: -0.7, tilt: 1 }], [0.5, 0.5, 'alert', 0, { look: -0.7, tilt: -1 }],
+                     [0.4, 0.4, '_crouch', 0, { look: -0.4 }], [0.5, 0.45, 'air', 'hop', { hopH: 7 }], [0.8, 0.8, 'dig', 0, { dirty: true }], [0.5, 0.5, 'stand', 'sneeze', { dirty: true }]],
+    fly_snap:       [[1.2, 1.0, 0, 0, { track: 1 }], [0.2, 0.15, 0, 'snap'], [0.8, 0.6, 0, 0, { track: 1 }], [0.2, 0.15, 0, 'snap'], [0.8, 0.5, 0, 'lickchops']],
+    scent_track:    [[1.0, 1.0, 0, 0, { look: 0.8, scent: true }], [3.0, 3.0, 'sniff', 0, { scent: true }], [0.5, 0.5, 'sniff', 'nudge'], [0.5, 0.5, 'stand', 'sneeze']],
+    carry_parade:   [[1.0, 1.0, 'sniff', 0, { jaw: 0.5 }], [3.0, 3.0, 'alert', 0, { carry: true, wag: 0.9, look: 0.4 }], [1.0, 1.0, 'lie', 0, { carry: true, chin: true }]],
+    sunbathe:       [[0.6, 0.6, 'sit', 0, { look: 0.9, eyes: 'closed', ears: -1 }], [3.5, 3.5, 'sit', 0, { look: 0.9, eyes: 'closed', ears: -1, scent: 0.3 }], [1.9, 1.9, 'flop', 0, { eyes: 'closed' }]],
+    dead_bug:       [[2.0, 2.0, 'roll', 0, { wag: 1 }], [1.0, 1.0, 'roll', 0, { still: true }], [6.0, 6.0, 'roll', 0, { still: true, eyes: 'closed', sink: true }], [0.8, 0.8, 'roll', 'sneeze', { still: true }], [0.8, 0.6, 'lie', 0, { lookAt: [-30, 12] }]],
+    contagion:      [[0.6, 0.6, 0, 0, { tilt: 1 }], [1.6, 1.0, 0, 'yawn']],
+    flyby_startle:  [[0.25, 0, 0, 0, { earFlick: 1 }], [0.8, 0, 0, 0, { lookAt: [-40, 20] }], [0.4, 0, 0, 0, { eyes: 'closed' }], [0.5, 0, 0, 0, {}],
+                     [0, 0.35, 'air', 'hop', { hopH: 4, eyes: 'wide', ears: 1 }], [0, 0.9, 'alert', 0, { pawUp: true, eyes: 'wide' }], [0, 0.4, 'alert', 'hop', { hopH: 1, bark: true }], [0, 0.4, 'alert', 'hop', { hopH: 1, bark: true }],
+                     [0, 0.8, 'sniff'], [0, 0.85, 'stand', 'shakeoff'], [0, 0.4, 'stand', 0, { wag: 0.9 }]],
+    sniff_hello:    [[0.6, 0.5, 0, 0, { ears: 1 }], [1.6, 1.2, 0, 0, { scent: true, reach: 1 }], [1.2, 1.0, 0, 0, { eyes: 'happy', wag: 0.7, ears: -0.5 }], [0.5, 0.5, 0, 'nudge'], [0.6, 0.5, 0, 0, { eyes: 'happy', wag: 0.7 }]],
+    kick_scuff:     [[0.8, 0.8, 'kick', 'kick'], [0.7, 0.5, 'alert', 0, { look: 0.5, tailSet: 70 }]],
+    wait_fidget:    [[1.0, 0, 'sit', 0, { look: 0.4 }], [0.8, 0, 'sit', 'lickchops'], [1.2, 0, 'taps'],
+                     [0, 1.0, 'taps', 'hop', { hopH: 1.5 }], [0, 1.0, 'taps', 'hop', { hopH: 1.5, bark: true }], [0, 1.0, 'taps', 'hop', { hopH: 1.5 }]],
+  };
+  var ACTS = Object.keys(ACT_PRIM).filter(function (k) { return k !== 'thump' && k !== 'snap' && k !== 'hop' && k !== 'sigh'; }).concat(Object.keys(ACT_SEQ));
+  // 每个动作大概多长（秒），给引擎排时间用：{ 名字: [金毛, 腊肠] }
+  var ACT_TIME = {};
+  ACTS.forEach(function (k) {
+    var q = ACT_SEQ[k] || [[ACT_PRIM[k][0], ACT_PRIM[k][1]]], a = 0, b = 0;
+    q.forEach(function (sg) { a += sg[0]; b += sg[1]; });
+    ACT_TIME[k] = [+a.toFixed(2), +b.toFixed(2)];
+  });
+  // 鼓包：u 从 a 到 b 之间从 0 升到 1 再落回 0（两头平滑）
+  function bump(u, a, b) { if (u <= a || u >= b) return 0; var x = (u - a) / (b - a); return sin(PI * x); }
+  function ramp(u, a, b) { return smooth((u - a) / (b - a)); }
+
+  // ============================================================
+  //  7. 步态
+  //  GAIT：速度（世界单位/秒）→ 步频 f（每秒迈几个完整的步）、D（一步里脚踩在地上的时间占几成）、
+  //        前/后脚抬多高、肩/胯上下颠多少、脊柱一弓一伸的幅度（弧度）、脖子/头/尾巴的角度（度）。
+  //        行与行之间平滑过渡。步幅 = 速度 ÷ 步频，是算出来的，不是定死的。
+  //  小狗的腿短，同样的步态下步子迈得快得多（大约是金毛的 1.7 倍）。
+  // ============================================================
+  var GAIT = {
+    //      速度   f     D     抬前  抬后  颠肩  颠胯  脊柱  脖子 头   尾巴
+    gold: [[0,    0.97, 0.72, 1.7,  1.4,  0.3,  0.3,  0,    47, -12, -28],
+           [12,   1.05, 0.70, 1.7,  1.5,  0.3,  0.3,  0,    44, -12, -24],
+           [24,   1.21, 0.66, 1.9,  1.6,  0.4,  0.4,  0,    42, -12, -20],
+           [42,   1.37, 0.62, 2.1,  1.7,  0.45, 0.45, 0,    40, -13, -16],
+           [62,   1.99, 0.47, 2.7,  2.3,  0.8,  0.8,  0.02, 33, -16, -8],
+           [90,   2.24, 0.41, 3.1,  2.6,  1.0,  1.0,  0.03, 30, -16, -5],
+           [112,  2.39, 0.38, 3.3,  2.8,  1.1,  1.1,  0.03, 28, -15, -4],
+           [136,  2.53, 0.35, 4.2,  3.7,  1.4,  1.5,  0.18, 27, -14, -3],
+           [153,  2.56, 0.35, 4.4,  3.9,  1.4,  1.5,  0.20, 27, -14, -3],
+           [170,  2.63, 0.33, 4.5,  4.1,  1.5,  1.6,  0.23, 26, -13, -2],
+           [237,  2.95, 0.27, 5.3,  5.0,  1.6,  1.9,  0.34, 24, -10, 0]],
+    dax:  [[0,    1.64, 0.72, 0.85, 0.7,  0,    0,    0,    55, -10, -8],
+           [14,   1.87, 0.69, 0.9,  0.75, 0,    0,    0,    54, -10, -6],
+           [26,   2.19, 0.64, 1.0,  0.8,  0,    0,    0,    52, -9,  -3],
+           [36,   2.33, 0.62, 1.05, 0.85, 0,    0,    0,    50, -9,  0],
+           [51,   3.36, 0.47, 1.4,  1.2,  0.4,  0.4,  0.02, 47, -10, 5],
+           [64,   3.51, 0.45, 1.45, 1.25, 0.45, 0.45, 0.03, 45, -10, 8],
+           [96,   4.05, 0.38, 1.7,  1.45, 0.5,  0.5,  0.04, 41, -10, 10],
+           [105,  4.13, 0.37, 1.8,  1.55, 0.5,  0.5,  0.05, 40, -9,  10],
+           [122,  4.31, 0.31, 2.2,  1.95, 1.0,  1.2,  0.28, 37, -9,  10],
+           [135,  4.36, 0.30, 2.25, 2.0,  1.1,  1.3,  0.31, 35, -8,  9],
+           [150,  4.50, 0.28, 2.3,  2.1,  1.2,  1.4,  0.36, 34, -8,  8],
+           [203,  5.00, 0.25, 2.7,  2.5,  1.3,  1.5,  0.45, 32, -7,  6]],
+  };
+  var gF = 0, gD = 0, gLiftF = 0, gLiftH = 0, gBobS = 0, gBobH = 0, gFlex = 0, gNeck = 0, gHead = 0, gTail = 0;
+  function gaitAt(kind, v) {
+    var tab = GAIT[kind], n = tab.length, i = 0;
+    while (i < n - 2 && v > tab[i + 1][0]) i++;
+    var a = tab[i], b = tab[i + 1], t = smooth((v - a[0]) / (b[0] - a[0]));
+    gF = a[1] + (b[1] - a[1]) * t; gD = a[2] + (b[2] - a[2]) * t;
+    gLiftF = a[3] + (b[3] - a[3]) * t; gLiftH = a[4] + (b[4] - a[4]) * t;
+    gBobS = a[5] + (b[5] - a[5]) * t; gBobH = a[6] + (b[6] - a[6]) * t; gFlex = a[7] + (b[7] - a[7]) * t;
+    gNeck = (a[8] + (b[8] - a[8]) * t) * D2R; gHead = (a[9] + (b[9] - a[9]) * t) * D2R; gTail = (a[10] + (b[10] - a[10]) * t) * D2R;
+  }
+  // 四只脚落地的先后（一整步算 1；顺序是 近前、远前、近后、远后；近后脚算 0）
+  //   慢走：一只一只落（后脚 → 同侧前脚 → 另一边后脚 → 另一边前脚），任何时候至少两只脚在地上
+  //   小跑：对角的两只脚一起落
+  //   飞奔：金毛是后脚一前一后、前脚一前一后，然后四脚腾空；
+  //         腊肠是两只后脚几乎一起落、一起蹬（兔子跳），再两只前脚，中间腾空两次
+  var FOOTFALL = {
+    gold: { walk: [0.20, 0.70, 0, 0.50], trot: [0.53, 0.03, 0, 0.50], run: [0.15, 0.00, 0, 0.70], run2: [0.19, 0.04, 0, 0.72], run3: [0.28, 0.14, 0, 0.78],
+            band: [46, 58, 116, 128], v2: 136, v3: 170, v4: 237, phi0: 0.65 },
+    dax:  { walk: [0.25, 0.75, 0, 0.50], trot: [0.53, 0.03, 0, 0.50], run: [0.54, 0.42, 0, 0.12], run2: [0.57, 0.45, 0, 0.08], run3: [0.57, 0.45, 0, 0.08],
+            band: [38, 50, 108, 120], v2: 122, v3: 150, v4: 203, phi0: 0.95 },
+  };
+
+  // ============================================================
+  //  8. 一只狗
+  // ============================================================
+  function Rig(kind, coatName, seed) {
+    if (!BREED[kind]) kind = 'dax';
+    this.kind = kind;
+    this.B = BREED[kind];
+    this.coat = COATS[coatName] ? coatName : (kind === 'gold' ? 'gold' : 'dax_red');
+    this.C = COATS[this.coat];
+    this.pal = buildPal(this.C);
+    this.rs = ((seed === undefined ? Math.random() * 4e9 : seed) >>> 0) || 7;   // 自己的随机数（只用来错开时间，不影响画法）
+    var T = TARGET[kind];
+    this.t = this.rnd() * 20;
+
+    // 姿势：from → to，cur 是过渡到一半的样子，ch 是叠上腾空、急停这些之后真正拿去算骨架的
+    this.pose = 'stand'; this.prev = 'stand'; this.to = T.stand;
+    this.from = copyCh({}, T.stand); this.cur = copyCh({}, T.stand); this.ch = copyCh({}, T.stand);
+    this.pt = 9; this.pdur = 0.3; this.pe = 1;
+
+    // 步态
+    this.S = 0; this.dist = 0; this.hx = 1;   // 横向一共走了多远（脚按它钉在地上）、总共跑了多远、横向占几成
+    this.phase = this.rnd();     // 这一步走到哪了（0..1）
+    this.G = 0;                  // 0 站着 … 1 在走/跑
+    this.vS = 0; this.gt = 0; this.gb = 0; this.sprint = false; this.moving = false;
+    this.off = [0, 0, 0, 0]; this.runP = [0, 0, 0, 0];
+    this.legs = [];
+    for (var k = 0; k < 4; k++) this.legs.push({ down: true, x: 0, y: 0, lx: 0, pl: 0.6, w: 0, u: -1, kap: 0, s: 1, xtd: 0, D: 0.6 });
+    this.loadF = 0; this.loadH = 0; this.lastSp = 0; this.accS = 0; this.brake = 0; this.push = 0;
+    this.varF = 1; this.varFt = 1; this.varL = 1; this.varLt = 1;
+    this.bobS = 0; this.bobH = 0; this.flexA = 0; this.gNeck = 0; this.gHead = 0; this.gTail = 0; this.lam = 10; this.fq = 1;
+
+    // 腾空、落地、急停、转身
+    this.airT = -1; this.vz0 = 0; this.wAir = 0; this.wTuck = 0; this.wReach = 0; this.wDangle = 0; this.wCrouch = 0; this.wBrace = 0;
+    this.landK = 0; this.landF = 0; this.landFV = 0; this.landH = 0; this.landHV = 0; this.landWait = -1; this.lastLanding = 0; this.sinceKick = 9;
+    this.turnT = 1; this.lastFace = 0;
+
+    // 耳朵、尾巴（弹簧，带惯性）
+    this.earA = 0; this.earV = 0; this.earB = 0; this.earBV = 0;
+    this.tailA = T.stand.tail; this.tailV = 0; this.tailB = T.stand.tail; this.tailBV = 0;
+    this.wag = 0.3; this.wagT = this.rnd();
+    this.fur = 0; this.furV = 0;          // 饰毛往后飘多少
+
+    // 脸
+    this.blinkAt = 1 + this.rnd() * 3; this.blink = 0;
+    this.mood = 'none'; this.md = { ear: 0, earUp: 0, tail: 0, neck: 0, head: 0, wag: 1, smile: 0 };
+    this.happy = 0; this.sleepy = 0; this.pant = 0; this.pantT = 0; this.exert = 0; this.carry = 0; this.bark = 0; this.shake = 0;
+    this.look = 0; this.laW = 0; this.laX = 0; this.laY = 0;
+    this.breathT = this.rnd(); this.br = 0;
+
+    // 站着时的小动作
+    this.flickAt = 2 + this.rnd() * 5; this.noseAt = 2 + this.rnd() * 4; this.nose = 0;
+    this.shiftAt = 3 + this.rnd() * 4; this.shiftT = 0; this.shiftS = 0;
+    this.tiltAt = 3 + this.rnd() * 4; this.tiltT = 0; this.tiltS = 0; this.tiltHold = 0;
+    this.actT = this.rnd() * 3;           // 刨地、挠痒这些小动作自己的钟
+
+    // 一次性的动作（act）和小剧本
+    this.base = 'stand'; this.actReq = ''; this.aName = null; this.aSeq = null; this.aSeg = 0; this.aT = 0; this.aStart = 0; this.aEnd = 0;
+    this.aTotal = 1; this.actDone = null; this.flipN = 0; this.segFx = 0; this.ov = {}; this.ovReset();
+    this.beat = 0; this.beatN = 0; this.beatKind = 0;
+    // R5 / R6 的新输入
+    this.tilt = 0; this.lb = 0; this.chin = 0; this.jawIn = 0; this.snapT = 9; this.snapIn = false; this.eyesIn = null; this.tailSet = 0; this.tsW = 0;
+    this.paX = 0; this.paY = 0; this.paW = 0; this.chew = 0; this.scent = 0; this.dream = 0; this.flickIn = false; this.pawUp = 0; this.dirtyT = 0; this.dirtyIn = false;
+    this.wiggle = 0; this.gusto = 0.5; this.stiffW = 0; this.ears = 0; this.wobble = 0; this.still = 0; this.sink = 0; this.reach = 0; this.swallowAt = 3 + this.rnd() * 2; this.swallow = 0;
+
+    this.J = {}; this.J0 = {};
+    this.LG = new Float64Array(40);       // 四条腿解出来的关节
+    this.TL = new Float64Array(24);       // 尾巴每一节的位置
+    this.outs = {};                       // 每种分辨率一张自己的图
+    this.out = null;
+  }
+  Rig.prototype.rnd = function () {
+    var x = this.rs;
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    this.rs = x || 7;
+    return x / 4294967296;
+  };
+  // 一下带阻尼的弹簧（落地的一沉、耳朵的一甩都用它）
+  function spring(o, pk, vk, target, w, z, dt) {
+    var n = dt > 0.012 ? ceil(dt / 0.012) : 1, h = dt / n;
+    for (var i = 0; i < n; i++) {
+      o[vk] += (w * w * (target - o[pk]) - 2 * z * w * o[vk]) * h;
+      o[pk] += o[vk] * h;
+    }
+    var d = target - o[pk], v = o[vk];
+    if (d < 0.012 && d > -0.012 && v < 0.12 && v > -0.12) { o[pk] = target; o[vk] = 0; }     // 晃得差不多了就停住，别留一点点余震
+  }
+
+  // 每一步都要调：把时间往前推。很便宜，不画东西。
+  //   I: { pose, speed, air, wag, pant, carry, look, happy, shake, bark,        ← 第二版就有的
+  //        mood, lookAt, vx, vy, accel, landing, turn, sleepy,                  ← 第三版加的
+  //        vz（往上的速度，有的话腾空的几段分得更准）, crouch（0..1，起跳前先蹲一下） }
+  Rig.prototype.update = function (dt, I) {
+    I = I || {};
+    if (!(dt > 0)) dt = 0;
+    if (dt > 0.1) dt = 0.1;
+    var B = this.B, kind = this.kind, gold = kind === 'gold', T = TARGET[kind], k, n;
+    this.t += dt;
+    this.actT += dt;
+    I = this.actStep(dt, I);          // 正在演一个动作 / 小剧本：这一段它说了算（姿势、眼睛、歪头……）
+    var ov = this.ov;
+
+    // ---- 换姿势 ----
+    var sp = +I.speed || 0;
+    if (sp < 0) sp = 0;
+    var name = I.pose;
+    if (ACT_ONLY[name]) name = this.base;                 // pose 写的是一个动作名：在原来的姿势上做
+    else if (!(IS_POSE[name] || (I._seq && T[name]))) name = 'stand';
+    else this.base = name;
+    if (name === 'held' && I.stiff) name = '_stiff';      // 被举过头顶：绷成一根棍
+    if (sp > 3 && !WALKS[name]) name = 'stand';        // 坐着、趴着是走不了路的：有速度就先站起来
+    if (name !== this.pose) {
+      copyCh(this.from, this.cur);
+      this.to = T[name];
+      this.pdur = (gold ? 0.42 : 0.27) * ((BIG[name] || BIG[this.pose]) ? 1.3 : 1);
+      this.prev = this.pose; this.pose = name; this.pt = 0;
+    }
+    if (this.pt < 9) {
+      this.pt += dt;
+      var dur = this.pdur, tick = dur * 0.2, done = true;
+      for (n = 0; n < NCH; n++) {
+        var key = CH[n][0], g = CH[n][1];
+        var u = (this.pt - (g === 1 ? tick : (g === 2 ? tick * 2 : 0))) / dur;
+        if (u < 1) done = false;
+        this.cur[key] = this.from[key] + (this.to[key] - this.from[key]) * (g === 3 ? smooth(u) : easePose(u));
+      }
+      this.pe = smooth(this.pt / dur);
+      if (done) this.pt = 9;
+    }
+
+    // ---- 腾空和落地 ----
+    var air = (I.air || 0) > 0.25;
+    this.sinceKick += dt;
+    if (air && this.airT < 0) { this.airT = 0; this.vz0 = I.vz > 0 ? I.vz : 0; }
+    if (!air && this.airT >= 0) { if (this.airT > 0.08) this.kick(1); this.airT = -1; }
+    var landing = +I.landing || 0;
+    if (landing > 0.5 && this.lastLanding <= 0.5 && this.sinceKick > 0.3 && !air) this.kick(landing);
+    this.lastLanding = landing;
+    this.wAir = approach(this.wAir, air ? 1 : 0, air ? 24 : 14, dt);
+    var tuck = 0, reach = 0, dangle = 0;
+    if (air) {
+      this.airT += dt;
+      var fl = (I.vz !== undefined && this.vz0 > 0) ? clamp(0.5 - 0.5 * I.vz / this.vz0, 0, 1) : this.airT / 0.46;   // 飞到哪了
+      dangle = smooth((this.airT - (name === 'air' ? 0.4 : 1.0)) / 0.3);        // 一直不落地 = 被拎着
+      tuck = smooth((fl - 0.18) / 0.2) * (1 - smooth((fl - 0.55) / 0.2)) * (1 - dangle);
+      reach = smooth((fl - 0.55) / 0.2) * (1 - dangle);
+    }
+    this.wTuck = approach(this.wTuck, tuck, 20, dt);
+    this.wReach = approach(this.wReach, reach, 20, dt);
+    this.wDangle = approach(this.wDangle, dangle, 10, dt);
+    this.wCrouch = approach(this.wCrouch, clamp(+I.crouch || 0, 0, 1), 22, dt);
+    // 落地的一沉：前半身先到，后半身晚一点
+    var lw = gold ? 17 : 26;
+    spring(this, 'landF', 'landFV', 0, lw, 0.5, dt);
+    spring(this, 'landH', 'landHV', 0, lw * 0.92, 0.5, dt);
+    if (this.landWait >= 0) { this.landWait -= dt; if (this.landWait < 0) this.landHV -= this.landK * 0.85; }
+
+    // ---- 转身：不是一下子翻面，要花一小会儿（大狗慢一点）----
+    if (I.turn && this.turnT >= 1) this.turnT = 0;
+    if (this.turnT < 1) this.turnT = min(1, this.turnT + dt / (gold ? 0.24 : 0.15));
+
+    // ---- 速度、加速度 ----
+    var acc = I.accel !== undefined ? +I.accel : (dt > 0 ? (sp - this.lastSp) / dt : 0);
+    this.lastSp = sp;
+    this.accS = approach(this.accS, acc, 8.3, dt);
+    var gg = gold ? 338 : 490;
+    var brake = clamp(-this.accS / gg, 0, 0.9), push = clamp(this.accS / gg, 0, 0.6);
+    this.brake = approach(this.brake, brake, 20, dt); this.push = approach(this.push, push, 20, dt);
+    var moving = sp > 3 && !air;
+    this.wBrace = approach(this.wBrace, (brake > 0.4 && sp > 10 && !air) ? smooth((brake - 0.4) / 0.3) : 0, brake > 0.4 ? 16 : 7, dt);
+    this.G = approach(this.G, moving ? 1 : 0, moving ? 18 : 9, dt);
+
+    // ---- 步态 ----
+    this.vS = approach(this.vS, sp, 12, dt);
+    var v = max(this.vS, gold ? 8 : 6);
+    gaitAt(kind, v);
+    this.varF = approach(this.varF, this.varFt, 5, dt); this.varL = approach(this.varL, this.varLt, 5, dt);
+    var f = gF * this.varF, lam = v / f, ds = sp * dt;
+    this.fq = f; this.lam = lam;
+    // 斜着跑（屏幕上还有上下方向的速度）：迈步的节奏按真正的速度来，但从侧面看到的步幅只有横向的那一部分，
+    // 这样踩在地上的脚在屏幕上才不会横着滑。没给 vx / vy 就当是正对着横向跑。
+    var hx = (I.vx !== undefined && I.vy !== undefined && sp > 1) ? clamp(abs(+I.vx) / sp, 0, 1) : 1;
+    this.hx = approach(this.hx, hx, 10, dt);
+    var dsx = ds * this.hx;
+    this.dist += ds;             // 一共跑了多远
+    this.S += dsx;               // 其中横向的（脚是按这个钉在地上的）
+    this.bobS = gBobS; this.bobH = gBobH; this.flexA = gFlex; this.gNeck = gNeck; this.gHead = gHead; this.gTail = gTail;
+    var FFp = FOOTFALL[kind], bd = FFp.band;
+    // 用哪种步态：快到一定程度换上去，慢到一定程度才换下来（中间留一段，免得来回跳）
+    if (this.accS > 0.6 * B.accel && sp > 3) this.sprint = true;            // 猛地起跑：直接用飞奔的步子
+    else if (this.accS < 0.15 * B.accel) this.sprint = false;
+    if (this.gt === 0 && this.vS > bd[1]) this.gt = 1; else if (this.gt === 1 && this.vS < bd[0]) this.gt = 0;
+    if (this.gt === 1 && this.vS > bd[3]) this.gt = 2; else if (this.gt === 2 && this.vS < bd[2]) this.gt = 1;
+    var gt = this.sprint ? 2 : this.gt;
+    var o = this.off, rp = this.runP;
+    var w2 = smooth((v - FFp.v2) / (FFp.v3 - FFp.v2)), w3 = smooth((v - FFp.v3) / (FFp.v4 - FFp.v3));
+    for (k = 0; k < 4; k++) rp[k] = arcLerp(arcLerp(FFp.run[k], FFp.run2[k], w2), FFp.run3[k], w3);
+    // 起步
+    if (moving && !this.moving) {
+      for (k = 0; k < 4; k++) {
+        var L0 = this.legs[k], far0 = k & 1;
+        L0.down = true; L0.w = 0; L0.y = 0;
+        L0.x = this.cur[LX_[k]] + (far0 ? (k < 2 ? B.farX : -B.farX) : 0);
+      }
+      if (this.sprint) { this.gb = 2; this.phase = frac((gold ? rp[3] : rp[2]) - 0.05); }   // 两条后腿先收到身下，一起蹬
+      else { this.gb = this.gt; var pat = this.gt === 0 ? FFp.walk : (this.gt === 1 ? FFp.trot : rp); this.phase = frac(pat[0] + gD + 0.02); }
+    }
+    this.moving = moving;
+    var dph = ds / lam;
+    this.phase += dph;
+    if (this.phase >= 1) {
+      this.phase -= 1;
+      this.varFt = 1 + (this.rnd() - 0.5) * 0.05; this.varLt = 1 + (this.rnd() - 0.5) * 0.2;    // 没有两步是一模一样的
+    }
+    // 步态之间慢慢换：一步半左右换完
+    var step = dph / 1.4 + dt * (this.sprint ? 6 : 0.5);
+    this.gb += clamp(gt - this.gb, -step, step);
+    var gb = this.gb, lo = gb < 1 ? FFp.walk : FFp.trot, hi = gb < 1 ? FFp.trot : rp, tt = smooth(gb < 1 ? gb : gb - 1);
+    for (k = 0; k < 4; k++) o[k] = arcLerp(lo[k], hi[k], tt);
+    var runW = gb > 1 ? gb - 1 : 0;
+    this.runW = runW;
+
+    // ---- 四只脚 ----
+    // 踩在地上的脚钉在地面上不动：身体往前走了 ds，它在身体坐标里就往后退 ds（不是按时间摆腿，所以不打滑）。
+    // 离地的脚沿一条弧线迈到下一个落脚点。
+    // 腿只有那么长：先看这一刻腿的根有多高，算出脚最远能踩到哪；够不到的落脚点往回收，快够不着的脚提前离地。
+    var JU = this.J;
+    if (moving) this.trunk(JU);
+    var rho = gold ? 0.3 : 0.5;
+    var kPeak = gb < 1 ? lerp(1.1, 1.5, gb) : lerp(1.5, 1.9, gb - 1);
+    var lf = 0, lh = 0;
+    for (k = 0; k < 4; k++) {
+      var L = this.legs[k], fore = k < 2, far = k & 1;
+      if (!moving) { L.u = -1; L.kap = approach(L.kap, 0, 12, dt); continue; }
+      var fo = far ? (fore ? B.farX : -B.farX) : 0;
+      var x0 = (fore ? B.fpad : B.hpad) + fo;                                   // 站着时这只脚在哪
+      var pvx = (fore ? JU.S0x : JU.HJx) + fo, pvh = (fore ? JU.S0y : JU.HJy) - B.padY;   // 腿的根：前后位置、离脚掌多高
+      var Rm = (fore ? B.RmF : B.RmH) * 0.955, hr = sqrt(max(1, Rm * Rm - pvh * pvh));
+      var lamx = max(0.05, lam * this.hx), s = gD * lamx, D = gD;
+      if (s > 2 * hr) { s = 2 * hr; D = s / lamx; }                  // 腿够不到那么远：这条腿在地上的时间短一点
+      var room = hr - s / 2, c = clamp(x0 + (fore ? 0.12 : -0.10) * s, pvx - room, pvx + room);
+      var xtd = c + s / 2, p = frac(this.phase - o[k]);
+      L.s = s; L.xtd = xtd; L.D = D;
+      if (L.down) {
+        L.x -= dsx;
+        if (p >= D || L.x < pvx - hr) { L.down = false; L.lx = L.x; L.pl = min(p, 0.93); L.w = 0; }
+      }
+      if (!L.down) {
+        if (p < L.pl) { if (L.w > 0.5) L.x = xtd - p * lamx; L.down = true; L.y = 0; L.w = 0; L.kap = 0; }
+        else {
+          var w = (p - L.pl) / (1 - L.pl);
+          if (w < L.w) w = L.w; else if (w > 1) w = 1;
+          L.w = w;
+          var dx = xtd - L.lx, m = abs(dx) > 0.5 ? -rho * lamx * (1 - L.pl) / dx : 0;
+          if (m < -1.5) m = -1.5; else if (m > 0) m = 0;
+          var w2s = w * w, w3s = w2s * w;
+          L.x = L.lx + dx * ((3 * w2s - 2 * w3s) + m * (w3s - 2 * w2s + w) + m * (w3s - w2s));
+          var wp = 1 - pow(1 - w, fore ? lerp(1.25, 1.8, runW) : 1.18);
+          L.y = (fore ? gLiftF : gLiftH) * this.varL * pow(sin(PI * wp), 1.1);
+          if (fore) {
+            if (runW > 0 && w < 0.5) L.x -= (gold ? 0.9 : 0.4) * runW * sin(TAU * w);        // 飞奔时前脚先往后收一下
+            L.kap = kPeak * sin(PI * (w < 0.4 ? w / 0.8 : 0.5 + (w - 0.4) / 1.2));           // 腕关节折起来，落地前再甩直
+          }
+        }
+      }
+      L.u = L.down ? clamp((xtd - L.x) / s, 0, 1) : -1;
+      if (L.down) { var sn = sin(PI * L.u); if (fore) { if (sn > lf) lf = sn; } else if (sn > lh) lh = sn; }
+    }
+    this.loadF = approach(this.loadF, lf, 25, dt); this.loadH = approach(this.loadH, lh, 25, dt);
+
+    // ---- R5 / R6 的新输入 ----
+    this.tilt = approach(this.tilt, clamp(+I.tilt || 0, -1, 1), 10, dt);
+    this.lb = approach(this.lb, I.lookBack ? 1 : 0, 8, dt);
+    this.chin = approach(this.chin, I.chin ? 1 : 0, 6, dt);
+    this.jawIn = approach(this.jawIn, clamp(+I.jaw || 0, 0, 1), 14, dt);
+    if (I.snap && !this.snapIn) this.snapT = 0;                     // 空咬一下：0.1 秒张开、合上
+    this.snapIn = !!I.snap; this.snapT += dt;
+    this.eyesIn = I.eyes === 'closed' ? 'shut' : (I.eyes === 'open' || I.eyes === 'slit' || I.eyes === 'happy' || I.eyes === 'wide' || I.eyes === 'soft' ? I.eyes : null);
+    var tsOn = I.tailSet !== undefined && I.tailSet !== null && isFinite(+I.tailSet);
+    if (tsOn) this.tailSet = clamp(+I.tailSet, -90, 85) * D2R;
+    this.tsW = approach(this.tsW, tsOn ? 1 : 0, 8, dt);
+    var pa = I.pawAt && I.pawAt.length === 2;
+    if (pa) { this.paX = this.paW > 0.02 ? approach(this.paX, +I.pawAt[0] || 0, 12, dt) : +I.pawAt[0] || 0; this.paY = this.paW > 0.02 ? approach(this.paY, +I.pawAt[1] || 0, 12, dt) : +I.pawAt[1] || 0; }
+    this.paW = approach(this.paW, pa ? 1 : 0, 9, dt);
+    this.chew = approach(this.chew, I.chew ? 1 : 0, 8, dt);
+    this.scent = approach(this.scent, I.scent ? (I.scent === true ? 1 : clamp(+I.scent, 0, 1)) : 0, 10, dt);
+    this.dream = approach(this.dream, clamp(+I.dream || 0, 0, 1), 6, dt);
+    if (I.earFlick && !this.flickIn) this.earV -= gold ? 13 : 16;   // 抖一下耳朵（脉冲）
+    this.flickIn = !!I.earFlick;
+    this.pawUp = approach(this.pawUp, I.pawUp ? 1 : 0, 12, dt);
+    if (I.dirty) this.dirtyT = 10;                                   // 刨完土：鼻头脏 10 秒
+    else if (this.dirtyT > 0) this.dirtyT -= dt;
+    this.wiggle = approach(this.wiggle, clamp(+I.wiggle || 0, 0, 1), 8, dt);
+    this.gusto = I.gusto === undefined ? (gold ? 0.4 : 1) : clamp(+I.gusto, 0, 1);
+    this.ears = approach(this.ears, clamp(+I.ears || 0, -1, 1), 10, dt);
+    this.wobble = approach(this.wobble, I.wobble ? 1 : 0, 8, dt);
+    this.still = approach(this.still, I.still ? 1 : 0, 6, dt);
+    this.sink = I.sink ? min(1, this.sink + dt / 5) : approach(this.sink, 0, 6, dt);
+    this.reach = approach(this.reach, I.reach ? 1 : 0, 5, dt);
+    // 吃饭时偶尔咽一下（金毛）
+    this.swallowAt -= dt;
+    if (this.swallowAt <= 0) { this.swallowAt = 3 + this.rnd() * 2; this.swallow = 0.3; }
+    if (this.swallow > 0) this.swallow -= dt;
+    // 节拍：蹬一下、舔一下水、嚼一口……引擎可以在这些时候放草屑、水花
+    var bk = 0, bf = 0;
+    if (this.pw('kick') > 0.5) { bk = 1; bf = gold ? 3.2 : 7.0; }
+    else if (this.pw('drink') > 0.5) { bk = 2; bf = gold ? 3.0 : 3.7; }
+    else if (this.pw('lickbowl') > 0.5) { bk = 2; bf = gold ? 2.7 : 4.0; }
+    else if (this.pw('eat') > 0.5) { bk = 2; bf = (gold ? 2.2 : 4.5) * (0.6 + 0.4 * this.gusto); }
+    else if (this.pw('taps') > 0.5) { bk = 3; bf = gold ? 2.0 : 6.0; }
+    if (bk) { var bn = floor(this.actT * bf); if (bn !== this.beatN && this.beatKind === bk) this.beat++; this.beatN = bn; }
+    this.beatKind = bk;
+
+    // ---- 表情和状态 ----
+    var mname = MOODS[I.mood] ? I.mood : 'none';
+    this.mood = mname;
+    var mt = MOODS[mname], md = this.md;
+    for (n = 0; n < MOOD_KEYS.length; n++) { var mk = MOOD_KEYS[n]; md[mk] = approach(md[mk], mt[mk], 7, dt); }
+    this.happy = approach(this.happy, (I.happy || name === 'roll' || name === 'scratch') ? 1 : 0, 12, dt);
+    this.sleepy = approach(this.sleepy, clamp(+I.sleepy || 0, 0, 1), 3, dt);
+    this.carry = approach(this.carry, I.carry ? 1 : 0, 16, dt);
+    this.bark = approach(this.bark, I.bark ? 1 : 0, 30, dt);
+    this.shake = +I.shake || 0;
+    this.look = approach(this.look, clamp(+I.look || 0, -1, 1), 7, dt);
+    if (I.lookAt && I.lookAt.length === 2) { this.laX = approach(this.laX, +I.lookAt[0] || 0, 10, dt); this.laY = approach(this.laY, +I.lookAt[1] || 0, 10, dt); }
+    this.laW = approach(this.laW, I.lookAt ? 1 : 0, 8, dt);
+    // 跑累了会喘：跑得越久喘得越久
+    var KV = gold ? 62 : 64;
+    this.exert = clamp(this.exert + dt * (sp > KV * 1.3 ? 0.45 * sp / (KV * 2.5) : -0.09), 0, 1);
+    var pantOn = (I.pant || this.exert > 0.5 || sp > KV * 2.2) && !I.carry && name !== 'sleep';
+    this.pant = approach(this.pant, pantOn ? 1 : 0, 8, dt);
+    this.pantT += dt;
+    // 摇尾巴
+    var wagIn = I.wag === undefined ? 0.3 : clamp(+I.wag, 0, 1);
+    if (this.pw('taps') > 0.5) wagIn = max(wagIn, gold ? 0.6 : 0.95);      // 等开饭：尾巴摇个不停
+    if (this.pw('stalk') > 0.5 || this.still > 0.5) wagIn = 0;             // 潜行、装死：尾巴不动
+    if (ov.wag >= 0) wagIn = ov.wag;
+    this.wag = approach(this.wag, wagIn, 6, dt);
+    this.wagT += dt * (1.2 + 2.8 * this.wag);
+    // 眨眼：间隔不固定，偶尔连眨两下；困了眨得慢
+    this.blinkAt -= dt;
+    if (this.blinkAt <= 0) {
+      this.blink = 0.09 + this.sleepy * 0.12;
+      this.blinkAt = this.rnd() < 0.1 ? 0.24 : 2.5 + this.rnd() * 3.5;
+    }
+    if (this.blink > 0) this.blink -= dt;
+    // 呼吸：停一会儿 → 吸气 → 停一会儿 → 呼气（不是匀速的正弦）
+    var asleep = name === 'sleep';
+    this.breathT = frac(this.breathT + dt / (asleep ? 4.2 : (gold ? 2.3 : 2.0)));
+    var bt = this.breathT;
+    this.br = bt < 0.44 ? 0 : (bt < 0.52 ? smooth((bt - 0.44) / 0.08) : (bt < 0.89 ? 1 : 1 - smooth((bt - 0.89) / 0.11)));
+
+    // ---- 站着时的小动作：抖耳朵、动鼻子、换一下重心、歪一下头 ----
+    var calm = this.G < 0.1 && !air && (name === 'stand' || name === 'alert' || name === 'sit' || name === 'lie' || name === 'beg');
+    this.flickAt -= dt; this.noseAt -= dt; this.shiftAt -= dt; this.tiltAt -= dt;
+    if (this.flickAt <= 0) { this.flickAt = (gold ? 4 : 2) + this.rnd() * (gold ? 6 : 3.5); if (calm || asleep) this.earV -= 7 + this.rnd() * 4; }
+    if (this.noseAt <= 0) { this.noseAt = 2.5 + this.rnd() * 5; this.nose = 0.16; }
+    if (this.nose > 0) this.nose -= dt;
+    if (this.shiftAt <= 0) { this.shiftAt = (gold ? 5 : 2.5) + this.rnd() * (gold ? 6 : 3); this.shiftT = calm && (name === 'stand' || name === 'alert') ? (this.rnd() < 0.5 ? -1 : 1) * (this.shiftT === 0 ? 1 : 0) : 0; }
+    this.shiftS = approach(this.shiftS, calm ? this.shiftT : 0, 3.5, dt);
+    if (this.tiltAt <= 0) { this.tiltAt = (gold ? 4 : 2.5) + this.rnd() * 5; this.tiltT = calm ? (this.rnd() - 0.5) * 2 : 0; this.tiltHold = 0.6 + this.rnd() * 0.8; }
+    if (this.tiltHold > 0) { this.tiltHold -= dt; if (this.tiltHold <= 0) this.tiltT = 0; }
+    this.tiltS = approach(this.tiltS, calm ? this.tiltT : 0, 9, dt);
+
+    // ---- 耳朵：跑起来往后飘，小跑时一颠一颠，急停往前甩，落地往下一沉再弹回来 ----
+    var earT = this.cur.ear + md.ear * (gold ? 1 : 1.8) - 0.45 * this.ears - 0.4 * this.tilt + ov.ear + min(1.15, sp * 0.0075) * this.G - clamp(this.accS * 0.0012, -0.6, 0.6) + this.G * 0.35 * (this.loadF - 0.4);
+    if (air) earT += this.wReach * -0.7 + (1 - this.wReach) * 0.5;
+    if (this.shake) earT += sin(this.t * 40) * 0.3 * this.shake;
+    if (ov.shake > 0.01) earT += ov.shake * (gold ? 0.9 : 1.6) * sin(TAU * ov.shakeT + 0.6);         // 甩毛：耳朵拍打（腊肠像直升机）
+    spring(this, 'earA', 'earV', earT, gold ? 17 : 21, 0.34, dt);
+    spring(this, 'earB', 'earBV', this.earA, gold ? 13 : 15, 0.3, dt);
+    // ---- 尾巴 ----
+    var upr = UPRIGHT[name] || 0;
+    var tailT = lerp(this.cur.tail, this.gTail, this.G * upr) + md.tail * (name === 'sleep' ? 0 : 1) - this.brake * 0.3 + this.push * 0.2;
+    if (name !== 'sleep' && name !== 'roll') tailT += clamp(this.wag - 0.25, 0, 0.75) * 0.6 * (1 - this.G * 0.6);     // 摇得越欢，尾巴举得越高
+    tailT = lerp(tailT, this.tailSet, this.tsW) + ov.tail;                                               // 引擎直接给了尾巴根的角度
+    if (ov.shake > 0.01) tailT += ov.shake * 0.7 * sin(TAU * ov.shakeT - 1.8);                           // 甩毛：最后甩到尾巴
+    spring(this, 'tailA', 'tailV', tailT, gold ? 13 : 18, 0.5, dt);
+    spring(this, 'tailB', 'tailBV', this.tailA, gold ? 9 : 12, 0.4, dt);
+    // ---- 饰毛：身体一动，毛梢慢半拍 ----
+    spring(this, 'fur', 'furV', min(1, sp / 150) - clamp(this.accS * 0.0015, -0.5, 0.5), 11, 0.4, dt);
+  };
+  // 落地：往下的一下冲击（前半身先，后半身晚 0.04 秒），耳朵尾巴跟着甩
+  Rig.prototype.kick = function (k) {
+    var gold = this.kind === 'gold';
+    this.landK = (gold ? 34 : 22) * k;
+    this.landFV -= this.landK;
+    this.landWait = 0.04;
+    this.earV += 9 * k; this.tailV -= 5 * k; this.furV += 6 * k;
+    this.sinceKick = 0;
+  };
+
+  // ---- 一次性的动作 ----
+  // 每一步先清空"叠加量"，再由正在演的动作填进去
+  Rig.prototype.ovReset = function () {
+    var o = this.ov;
+    o.wF = 0; o.wTN = 0; o.wTF = 0; o.wBr = 0; o.wKick = 0;          // 叠上去的内部姿势：伸懒腰两段、撑稳、蹬草
+    o.tx = 0; o.ty = 0; o.thT = 0; o.thP = 0; o.neck = 0; o.head = 0; o.tail = 0; o.ear = 0;
+    o.jaw = 0; o.tongue = 0; o.tcurl = 0; o.lickc = -1; o.eye = null; o.shake = 0; o.shakeT = 0; o.kick = -1; o.lift = 0; o.fur = 0; o.wag = -1;
+  };
+  // 推进动作的时钟；返回这一步真正用的输入（在演小剧本时是一份改过的拷贝）
+  Rig.prototype.actStep = function (dt, I) {
+    var gold = this.kind === 'gold', gi = gold ? 0 : 1, k;
+    var req = I.act ? String(I.act) : (ACT_ONLY[I.pose] ? I.pose : '');
+    if (req !== this.actReq) {
+      this.actReq = req;
+      if (req && (ACT_PRIM[req] || ACT_SEQ[req])) {
+        this.aName = req; this.aSeq = ACT_SEQ[req] || [[ACT_PRIM[req][0], ACT_PRIM[req][1], 0, req]];
+        this.aSeg = -1; this.aT = 0; this.aStart = 0; this.aEnd = 0; this.flipN = 0;
+        this.aTotal = 0;
+        for (k = 0; k < this.aSeq.length; k++) this.aTotal += this.aSeq[k][gi];
+      }
+    }
+    this.ovReset();
+    if (!this.aName) return I;
+    this.aT += dt;
+    var sq = this.aSeq, sg;
+    while (this.aT >= this.aEnd) {
+      this.aSeg++;
+      if (this.aSeg >= sq.length) { this.actDone = this.aName; this.aName = null; this.flipN = 0; return I; }
+      sg = sq[this.aSeg];
+      if (!(sg[gi] > 0)) continue;                 // 这一段这只狗不演
+      this.aStart = this.aEnd; this.aEnd += sg[gi]; this.segFx = 0;
+      var st0 = sg[4];
+      if (st0 && st0.flip) this.flipN ^= 1;           // 转圈：自己掉个头（整段剧本演完一定转回原来的朝向）
+      if (st0 && st0.earFlick) this.earV -= gold ? 13 : 16;
+    }
+    sg = sq[this.aSeg];
+    var dur = sg[gi], u = clamp((this.aT - this.aStart) / dur, 0, 1);
+    var E = {};
+    for (k in I) E[k] = I[k];
+    E._seq = 1; E.act = undefined;
+    if (sg[2]) E.pose = sg[2];
+    var st = sg[4];
+    if (st) for (k in st) if (k !== 'flip' && k !== 'earFlick') E[k] = st[k];
+    if (st && st.track) {          // 盯着一只小飞虫：头一下一下地跟
+      var tq = floor(this.aT * 5);
+      E.lookAt = [20 + 7 * RND[tq & 63], 22 + 5 * RND[(tq + 9) & 63]];
+    }
+    if (sg[3]) this.prim(sg[3], u, dur, E);
+    return E;
+  };
+  // 基本动作：u = 0..1 的进度，dur 这一段几秒。只往 this.ov 里填叠加量
+  Rig.prototype.prim = function (nm, u, dur, E) {
+    var o = this.ov, gold = this.kind === 'gold', env;
+    if (nm === 'yawn') {               // 哈欠：头先抬再落，嘴张到最大，舌头卷起来，眼睛挤紧，耳朵往后贴
+      env = ramp(u, 0.06, 0.3) * (1 - ramp(u, 0.66, 0.9));
+      o.jaw = max(o.jaw, 1.6 * env); o.tongue = max(o.tongue, 0.75 * env); o.tcurl = 1;
+      o.head += 0.2 * bump(u, 0.04, 0.62) - 0.07 * bump(u, 0.6, 1); o.neck += 0.07 * bump(u, 0.04, 0.62);
+      o.ear += 0.75 * env;
+      if (u > 0.14 && u < 0.8) o.eye = 'shut';
+    } else if (nm === 'lickchops') {   // 舔舔嘴：舌头从嘴角往上舔过鼻头，两下，最后咽一下
+      if (u < 0.86) o.lickc = sin(PI * frac(u / 0.86 * 2));
+      o.jaw = max(o.jaw, 0.1);
+      if (u < 0.92) o.eye = 'happy';
+      o.head -= 0.05 * bump(u, 0.86, 1);
+    } else if (nm === 'stretch') {     // 伸懒腰：先前腿往前伸（顺带一个哈欠），再往前走两步，两条后腿轮流拖在后面
+      o.wF = ramp(u, 0, 0.2) * (1 - ramp(u, 0.47, 0.6));
+      if (u > 0.1 && u < 0.5) this.prim('yawn', (u - 0.1) / 0.4, dur * 0.4, E);
+      o.wTN = bump(u, 0.5, 0.8); o.wTF = bump(u, 0.72, 1);
+    } else if (nm === 'shakeoff') {    // 甩毛：从头甩到尾的一道扭转波；腿叉开撑稳，闭着眼；最后眨眼、舔一下鼻子
+      var am = E.amount === undefined ? 1 : clamp(+E.amount, 0, 1);
+      o.wBr = ramp(u, 0, 0.1) * (1 - ramp(u, 0.8, 0.95)) * am;
+      o.shake = ramp(u, 0, 0.08) * (1 - ramp(u, 0.6, 0.8)) * am;
+      o.shakeT = u * dur * (gold ? 4.3 : 5.7);
+      if (u > 0.04 && u < 0.78 && am > 0.5) o.eye = 'shut';
+      if (u > 0.82) this.prim('lickchops', (u - 0.82) / 0.18, dur * 0.18, E);
+    } else if (nm === 'sneeze') {      // 打喷嚏：头往上一抬，再猛地往前下方一点，眼睛闭上，耳朵晚一拍飞起来
+      o.head += 0.3 * bump(u, 0, 0.42) - 0.45 * bump(u, 0.4, 0.78); o.neck += 0.1 * bump(u, 0, 0.42) - 0.16 * bump(u, 0.4, 0.78);
+      o.tx += 0.5 * bump(u, 0.4, 0.78);
+      if (u > 0.22 && u < 0.72) o.eye = 'shut';
+      o.jaw = max(o.jaw, 0.22 * bump(u, 0.42, 0.62));
+      if (u > 0.46 && !(this.segFx & 1)) { this.segFx |= 1; this.earV -= gold ? 12 : 16; this.furV += 5; }
+    } else if (nm === 'nudge') {       // 拱一下：鼻子先往下一沉，再往前上方一挑
+      o.head += -0.22 * bump(u, 0, 0.35) + 0.38 * bump(u, 0.3, 0.86); o.neck += 0.2 * bump(u, 0.3, 0.86); o.tx += 0.9 * bump(u, 0.3, 0.86);
+    } else if (nm === 'kick') {        // 蹬两三下草（一次性的）
+      o.wKick = ramp(u, 0, 0.12) * (1 - ramp(u, 0.86, 1)); o.kick = u * 2.6;
+    } else if (nm === 'thump') {       // 尾巴拍三下地
+      o.tail += 0.75 * sin(PI * frac(u * 3)) - 0.2;
+      if (frac(u * 3) > 0.9 && !(this.segFx & (2 << floor(u * 3)))) { this.segFx |= 2 << floor(u * 3); this.beat++; }
+    } else if (nm === 'snap') {        // 空咬一下
+      o.jaw = max(o.jaw, 0.8 * bump(u, 0, 0.75)); o.head += 0.12 * bump(u, 0, 0.75);
+    } else if (nm === 'hop') {         // 原地蹦起来（自己在画布里往上挪）
+      var hh = E.hopH === undefined ? 3 : +E.hopH;
+      o.lift = max(o.lift, 4 * hh * u * (1 - u) * (gold ? 0.8 : 1));
+    } else if (nm === 'sigh') {        // 叹一口气：胸口先鼓一下，再慢慢塌下去，头跟着一沉
+      o.ty += 0.35 * bump(u, 0, 0.4) - 0.3 * bump(u, 0.4, 1); o.head -= 0.06 * bump(u, 0.35, 1); o.jaw = max(o.jaw, 0.06 * bump(u, 0.4, 0.8));
+    }
+  };
+
+  // 某个姿势现在占几成（换姿势换到一半时，新旧两个各占一部分）
+  Rig.prototype.pw = function (name) {
+    var e = this.pt < 9 ? this.pe : 1;
+    return (this.pose === name ? e : 0) + (this.prev === name && this.pt < 9 ? 1 - e : 0);
+  };
+
+  // 躯干现在在哪：姿势（换到一半的、叠上腾空和急停的）+ 走跑时的颠簸和脊柱屈伸 + 加减速、落地、换重心……
+  // update 里排脚步要用它（腿的根在哪），solve 里画之前再算一遍。
+  Rig.prototype.trunk = function (J) {
+    var B = this.B, kind = this.kind, gold = kind === 'gold', T = TARGET[kind], J0 = this.J0, ch = this.ch, name = this.pose, t = this.t;
+    // ---- 姿势：换姿势换到一半的样子，再叠上：起跳前的蹲、腾空的几段、急停 ----
+    copyCh(ch, this.cur);
+    mixCh(ch, T._crouch, this.wCrouch);
+    if (this.wAir > 0.002) {
+      mixCh(ch, T.air, this.wAir);
+      mixCh(ch, T._tuck, this.wAir * this.wTuck);
+      mixCh(ch, T._reach, this.wAir * this.wReach);
+      mixCh(ch, T._dangle, this.wAir * this.wDangle);
+    }
+    mixCh(ch, T._brace, this.wBrace);
+    // 正在演的动作：伸懒腰、拖后腿、撑稳、蹬草
+    var ov = this.ov;
+    if (ov.wF > 0.002) mixCh(ch, T._stretchF, ov.wF);
+    if (ov.wTN > 0.002) mixCh(ch, T._trailN, ov.wTN);
+    if (ov.wTF > 0.002) mixCh(ch, T._trailF, ov.wTF);
+    if (ov.wBr > 0.002) mixCh(ch, T._brace4, ov.wBr);
+    if (ov.wKick > 0.002) mixCh(ch, T.kick, ov.wKick);
+    ch.tx += ov.tx; ch.ty += ov.ty; ch.thT += ov.thT; ch.thP += ov.thP;
+    if (ov.shake > 0.01) {        // 甩毛：扭转波从肩膀传到屁股（侧面看是一上一下地抖）
+      var sw = TAU * ov.shakeT;
+      ch.ty += ov.shake * (gold ? 0.5 : 0.35) * sin(sw - 0.6);
+      ch.thT += ov.shake * 0.05 * sin(sw - 0.6); ch.thP += ov.shake * 0.08 * sin(sw - 1.2);
+    }
+    if (this.wobble > 0.01) ch.tx += this.wobble * 0.5 * sin(this.t * 9);                   // 站不稳，晃一下
+    var wTp = this.pw('taps');
+    if (wTp > 0.01 && gold) ch.tx += wTp * 0.25 * sin(this.actT * TAU * 1.0);              // 坐着往前蹭
+    if (this.wiggle > 0.01) ch.thP += this.wiggle * 0.07 * sin(this.t * TAU * 4);           // 扑之前屁股一扭一扭
+    var wKk = this.pw('kick') + ov.wKick;
+    if (wKk > 0.01) ch.ty += min(1, wKk) * (gold ? 0.25 : 0.35) * abs(sin(this.actT * PI * (gold ? 3.2 : 7.0)));   // 蹬的时候身子一颠一颠
+    var G = this.G * (1 - this.wBrace) * (1 - this.wAir);
+    J.G = G;
+
+    var tx = ch.tx, ty = ch.ty, thT = ch.thT, thP = ch.thP, len = ch.len, c = cos(ch.roll * PI);
+    trunkPts(J0, B, tx, ty, thT, thP, len, c);       // 这个姿势"本来"的关节位置：悬空的脚是跟着它走的
+    J.p0x = J0.S0x; J.p0y = J0.S0y; J.p1x = J0.HJx; J.p1y = J0.HJy;
+    var dyT = 0, dyP = 0, hgt = B.T0[1], flex = 0;
+    if (G > 0.002) {
+      // 走、跑：整个身子压低一点（跑得越快压得越低，腿才迈得开）；脚踩实的时候身体最低，腾空的时候最高；飞奔时脊柱一弓一伸
+      var low = -(0.04 + (gold ? 0.07 : 0.05) * this.runW) * hgt;
+      dyT += G * (low + this.bobS * (0.3 - this.loadF));
+      dyP += G * (low + this.bobH * (0.3 - this.loadH));
+      flex = this.flexA * cos(TAU * (this.phase - FOOTFALL[kind].phi0)) * G;
+      thT -= 0.4 * flex; thP += 0.6 * flex; len *= 1 - 0.2 * flex;
+    }
+    J.flex = flex;
+    // 起步往前压、刹车往后坐
+    var mv = min(1, this.vS / 30 + this.wBrace);
+    J.mv = mv;
+    dyP -= (0.12 * this.brake + 0.04 * this.push) * hgt * mv;
+    dyT += (0.025 * this.brake - 0.05 * this.push) * hgt * mv;
+    tx += (0.9 * this.push - 0.5 * this.brake) * mv * (gold ? 1 : 0.6);
+    // 落地的一沉
+    dyT += this.landF; dyP += this.landH;
+    // 站久了换一下重心
+    var sh4 = round(this.shiftS * 4) / 4;                 // 分四档走：定格的姿势，中间不出半像素的蠕动
+    tx += sh4 * (gold ? 0.5 : 0.4); dyP -= abs(sh4) * 0.25;
+    // 摇尾巴摇得欢：屁股跟着扭（腊肠整个身子都在扭）
+    var wagS = sin(this.wagT * TAU), wig = clamp((this.wag - 0.55) / 0.45, 0, 1) * (1 - G) * (name === 'sleep' ? 0 : 1);
+    var wigX = wig * wagS * (gold ? 0.4 : 0.8), wigC = wig * cos(this.wagT * TAU);
+    if (!gold) tx -= wigX * 0.35;
+    thP += wigC * (gold ? 0.03 : 0.07); thT -= wigC * (gold ? 0.012 : 0.03);
+    // 拔河：左右猛甩
+    if (this.shake) tx += (sin(t * 46) > 0 ? 0.3 : -0.3) * this.shake;
+    ty += dyT;
+    var dth = (dyT - dyP) / B.L;
+    thT += dth; thP += dth;
+    trunkPts(J, B, tx, ty, thT, thP, len, c);
+    J.Px += wigX; J.HJx += wigX; J.TSx += wigX;
+    J.br = this.br; J.len = len; J.wagS = wagS; J.dPel = thP - ch.thP;
+  };
+
+  // 把现在的状态算成一副骨架（只算，不画）。face：1 脸朝右，−1 朝左（"看向某一点"要用）
+  Rig.prototype.solve = function (face) {
+    var B = this.B, kind = this.kind, gold = kind === 'gold', J = this.J, ch = this.ch, LG = this.LG;
+    var name = this.pose, t = this.t, md = this.md, k;
+
+    this.trunk(J);
+    var G = J.G, upr = UPRIGHT[name] || 0, c = J.c, flex = J.flex, mv = J.mv;
+    var p0x = J.p0x, p0y = J.p0y, p1x = J.p1x, p1y = J.p1y;
+
+    // ---- 四条腿 ----
+    var up = c < 0 ? -1 : 1;
+    var wDig = this.pw('dig'), wScr = this.pw('scratch'), wRoll = this.pw('roll') * (1 - this.still), wBeg = this.pw('beg'), wPaw = this.pw('paw');
+    var wKick = min(1, this.pw('kick') + this.ov.wKick), wTaps = this.pw('taps'), wEat = this.pw('eat'), wCirc = this.pw('circle'), wRear = this.pw('rear');
+    var at = this.actT;
+    for (k = 0; k < 4; k++) {
+      var fore = k < 2, far = k & 1, L = this.legs[k];
+      var ox = far ? (fore ? B.farX : -B.farX) : 0, oy = far ? B.farY : 0;
+      var jx = fore ? J.S0x : J.HJx, jy = fore ? J.S0y : J.HJy, pl = ch[LP_[k]];
+      var px = ch[LX_[k]] + (1 - pl) * (jx - (fore ? p0x : p1x)) + ox, py = ch[LY_[k]] + (1 - pl) * (jy - (fore ? p0y : p1y));
+      var d = ch[LD_[k]], kap = fore ? ch[LK_[k]] : 0;
+      // 换姿势的时候脚是抬起来迈过去的，不是在地上拖
+      if (this.pt < 9 && pl > 0.5 && G < 0.5) {
+        var mvx = abs(this.to[LX_[k]] - this.from[LX_[k]]);
+        if (mvx > 0.8) py += min(1.5, 0.28 * mvx) * sin(PI * this.pe) * (far ? 0.7 : 1);
+      }
+      // —— 小动作 ——（哪个姿势有自己的小动作，就加在这里）
+      if (wDig > 0.01 && fore) {            // 刨地：两只前脚轮流往后扒
+        var dg = at * (gold ? 5 : 7) * TAU + (far ? PI : 0);
+        px += wDig * (gold ? 2.6 : 1.7) * sin(dg); py += wDig * (gold ? 1.5 : 0.9) * max(0, cos(dg));
+      }
+      if (wScr > 0.01 && k === 2) { var sc = sin(at * 6 * TAU); px += wScr * 0.5 * sc; py += wScr * (gold ? 1.0 : 0.7) * sc; }   // 挠痒：后脚一秒六下
+      if (wRoll > 0.01) { px += wRoll * (fore ? 0.9 : 0.8) * sin(at * (fore ? 9 : 7.5) + k * 1.7); }                           // 打滚：四脚朝天乱蹬
+      if (wBeg > 0.01 && fore) py += wBeg * 0.35 * sin(at * 6 + k);                                                           // 作揖：前爪一点一点
+      if (wPaw > 0.01 && k === 0) py += wPaw * 0.4 * sin(at * 5);
+      // 蹬草：后腿贴着地往后一扫，到头往上一甩，再收回来；两条腿错开半拍
+      if (wKick > 0.01 && !fore) {
+        var kp = this.ov.kick >= 0 ? frac(this.ov.kick * 0.5 + (far ? 0.5 : 0)) : frac(at * (gold ? 1.6 : 3.5) + (far ? 0.5 : 0));
+        var kx0 = gold ? -6.5 : -5.6, kx1 = gold ? -16.5 : -12.6, kfl = gold ? 2.0 : 1.3, kxx, kyy;
+        if (kp < 0.45) { kxx = lerp(kx0, kx1, smooth(kp / 0.45)); kyy = 0; }
+        else if (kp < 0.62) { var kq = (kp - 0.45) / 0.17; kxx = kx1 + 0.8 * kq; kyy = kfl * sin(PI * 0.5 * kq); }
+        else { var kr = (kp - 0.62) / 0.38; kxx = lerp(kx1 + 0.8, kx0, smooth(kr)); kyy = kfl * (1 - smooth(kr)) + 0.6 * sin(PI * kr); }
+        px = lerp(px, kxx + ox, wKick); py = lerp(py, kyy + B.padY, wKick);
+        if (kp < 0.62) d = lerp(d, 12 * D2R, wKick * smooth(kp / 0.3));
+      }
+      // 等开饭：前爪轮流抬起来踩
+      if (wTaps > 0.01 && fore) {
+        var tph = frac(at * (gold ? 1.0 : 3.0) + (far ? 0.5 : 0)), tl = max(0, sin(TAU * tph));
+        py += wTaps * (gold ? 1.2 : 0.9) * tl; px += wTaps * (gold ? 0.4 : 0.2) * tl;
+      }
+      // 腊肠吃饭：两只后脚轮流踩
+      if (wEat > 0.01 && !gold && !fore) py += wEat * 0.45 * max(0, sin(TAU * frac(at * 3.0 + (far ? 0.5 : 0))));
+      // 转圈：原地小碎步
+      if (wCirc > 0.01) {
+        var cpp = frac(at * (gold ? 2.0 : 4.0) + (k === 0 ? 0 : (k === 1 ? 0.5 : (k === 2 ? 0.75 : 0.25)))), cl = max(0, sin(TAU * cpp));
+        py += wCirc * (gold ? 0.9 : 0.55) * cl; px += wCirc * (gold ? 0.7 : 0.45) * (cl - 0.3);
+      }
+      // 做梦：四条腿划水
+      if (this.dream > 0.01) { var dp = at * (gold ? 3.0 : 4.0) * TAU + k * 1.3, da = 0.55 * this.dream * (fore || this.dream > 0.7 ? 1 : 0.4); px += da * sin(dp); py += da * 0.6 * max(0, cos(dp)); }
+      // 装死：一条后腿慢慢往下沉
+      if (this.sink > 0.01 && k === 2) { py -= this.sink * 2.4 * c; px -= this.sink * 1.2; }
+      // 指示：近侧的前腿抬起来折着
+      if (k === 0 && this.pawUp > 0.01) { px = lerp(px, jx + (gold ? 2.4 : 1.6), this.pawUp); py = lerp(py, jy - (gold ? 8.6 : 5.0), this.pawUp); kap = lerp(kap, 115 * D2R, this.pawUp); d = lerp(d, -10 * D2R, this.pawUp); }
+      // pawAt：前爪去够 / 搭在某一点上（后腿站起来时两只都搭上去）
+      if (this.paW > 0.01 && fore && (k === 0 || wRear > 0.5)) {
+        var pax = this.paX * face + (far ? 0.6 : 0) - ox, pay = this.paY - (far ? 0.7 : 0);
+        px = lerp(px, pax + ox, this.paW); py = lerp(py, pay, this.paW); kap = lerp(kap, 35 * D2R, this.paW);
+      }
+      // —— 走、跑 ——
+      if (G > 0.002) {
+        px = lerp(px, L.x, G); py = lerp(py, L.y + B.padY, G);
+        d = lerp(d, fore ? B.dF : B.dH, G); kap = lerp(kap, L.kap, G);
+      }
+      ikLim = (G > 0.5 && !L.down) ? 0.9 : 0.97;                 // 迈在半空的腿留一点弯，不绷成一根棍
+      if (fore) foreIK(LG, k * 10, jx + ox, jy + oy, px, py + oy, B, d, kap, up);
+      else hindIK(LG, k * 10, jx + ox, jy + oy, px, py + oy, B, d, up);
+    }
+
+    // ---- 脖子和头 ----
+    var neck = ch.neck, head = ch.head, gu = G * upr;
+    neck = lerp(neck, this.gNeck, gu); head = lerp(head, this.gHead, gu);          // 走得越快，头越往前探
+    var mw = (name === 'sleep' || name === 'roll') ? 0.2 : 1;
+    neck += md.neck * mw; head += md.head * mw;                                    // 心情
+    neck += this.look * 0.22; head += this.look * 0.42;                            // 抬头低头
+    head += this.bark * 0.22; neck += this.bark * 0.06;                            // 叫：头一扬
+    head -= this.sleepy * 0.12 * mw; neck -= this.sleepy * 0.1 * mw;               // 困了头往下耷拉
+    head += round(this.tiltS * 4) / 4 * 0.1;                                       // 站着时偶尔动一下头
+    if (G > 0.002) {
+      var nod = (this.loadF - 0.45) * (gold ? 0.07 : 0.05) * G;                     // 前脚踩实的时候头点一下
+      neck -= nod; head -= nod * 0.5;
+      neck += 0.5 * flex; head -= 0.2 * flex;                                      // 飞奔：身体伸开时脖子往前探，收拢时抬起来
+    }
+    if (this.shake) head += sin(t * 46) * 0.07 * this.shake;
+    head += this.landF * 0.05; neck += this.landF * 0.03;                          // 落地：头往下一栽
+    var ov = this.ov;
+    neck += ov.neck; head += ov.head;                                              // 正在演的动作
+    if (ov.shake > 0.01) { var shw = TAU * ov.shakeT; neck += ov.shake * 0.1 * sin(shw); head += ov.shake * (gold ? 0.34 : 0.4) * sin(shw + 0.3); }   // 甩毛：头先甩
+    head += this.tilt * 0.12;                                                      // 歪头
+    if (this.chin > 0.01) { neck = lerp(neck, (gold ? -34 : -16) * D2R, this.chin); head = lerp(head, -4 * D2R, this.chin); }   // 下巴搁下来
+    if (this.scent > 0.01) head += this.scent * 0.035 * (sin(t * 34) > 0.2 ? 1 : 0) + this.scent * 0.02 * sin(t * 5);              // 闻：鼻子一抽一抽
+    if (this.reach > 0.01) { neck = lerp(neck, 18 * D2R, this.reach * 0.7); head = lerp(head, -6 * D2R, this.reach * 0.7); }      // 伸长脖子去闻
+    neck += this.lb * 0.25;                                                        // 回头看：脖子再往上弯一点
+    // 吃、舔碗：头跟着一下一下地动
+    var wEatH = this.pw('eat'), wLB = this.pw('lickbowl'), wDr = this.pw('drink'), gs = this.gusto;
+    if (wEatH > 0.01) {
+      var ef = (gold ? 2.2 : 4.5) * (0.6 + 0.4 * gs), es = sin(TAU * this.actT * ef);
+      if (gold) { head += wEatH * 0.035 * es * (0.5 + gs); neck += wEatH * 0.09 * (this.swallow > 0 ? 1 : 0); }
+      else { neck += wEatH * 0.08 * es * (0.4 + 0.6 * gs); head -= wEatH * 0.05 * es; }
+    }
+    if (wLB > 0.01) { var ls_ = max(0, sin(TAU * this.actT * (gold ? 2.7 : 4.0))); neck += wLB * 0.06 * ls_; head -= wLB * 0.06 * ls_; }
+    if (wDr > 0.01) head += wDr * 0.012 * sin(TAU * this.actT * (gold ? 3.0 : 3.7));
+    head -= this.push * 0.15 * mv; neck -= this.push * 0.2 * mv;                   // 起步：头压低往前冲
+    head += this.brake * 0.12 * mv; neck += this.brake * 0.15 * mv;                // 刹车：头扬起来
+    var nl = B.neck, hx = J.N0x + nl * cos(neck), hy = J.N0y + nl * sin(neck);
+    var wAim = min(1, wEatH + wLB + wDr) * this.laW;
+    if (wAim > 0.01) {                     // 鼻尖伸到碗里：整条脖子 + 头绕着脖子根转，再调头和脖子之间的弯，几步就够
+      var gx = this.laX * face, gy = this.laY, nu = B.nose[0], nv = B.nose[1] * (c < 0 ? -1 : 1), it, nk = neck, hd = head;
+      for (it = 0; it < 4; it++) {
+        var ax_ = nl * cos(nk) + B.HL * (nu * cos(hd) - nv * sin(hd)), ay_ = nl * sin(nk) + B.HL * (nu * sin(hd) + nv * cos(hd));
+        var da_ = clamp(atan2(gy - J.N0y, gx - J.N0x) - atan2(ay_, ax_), -0.6, 0.6);
+        nk += da_; hd += da_;
+        var r0_ = sqrt(ax_ * ax_ + ay_ * ay_), r1_ = sqrt((gx - J.N0x) * (gx - J.N0x) + (gy - J.N0y) * (gy - J.N0y));
+        var bx_ = nl * cos(nk) + B.HL * (nu * cos(hd - 0.05) - nv * sin(hd - 0.05)), by_ = nl * sin(nk) + B.HL * (nu * sin(hd - 0.05) + nv * cos(hd - 0.05));
+        var dr_ = (sqrt(bx_ * bx_ + by_ * by_) - r0_) / -0.05;
+        if (abs(dr_) > 0.05) hd += clamp((r1_ - r0_) / dr_, -0.25, 0.25);
+        hd = clamp(hd, nk - 1.7, nk + 0.2);
+      }
+      neck = lerp(neck, nk, wAim); head = lerp(head, hd, wAim);
+      hx = J.N0x + nl * cos(neck); hy = J.N0y + nl * sin(neck);
+    }
+    if (this.laW > 0.01 && wAim < 0.5) {   // 看向某一点：头转过去一大半，脖子跟一点；转不过去的角度就到头为止
+      var want = atan2(this.laY - hy, max(2, this.laX * face - hx));
+      var dl = clamp(want - head, -0.9, 0.9) * this.laW;
+      head += dl * 0.65; neck += dl * 0.3;
+      hx = J.N0x + nl * cos(neck); hy = J.N0y + nl * sin(neck);
+    }
+    hy -= 0.3 * G * this.bobS * (0.3 - this.loadF);                                // 身体颠的时候头颠得少一点
+    var vs = c < 0 ? -1 : 1;
+    var minY = B.HL * (B.skull[3] + 0.02);                                         // 头别钻到地里
+    var sky = hy + B.HL * B.skull[0] * sin(head);
+    if (sky < minY) hy += minY - sky;
+    var nty = hy + B.HL * (sin(head) + B.nose[1] * vs * cos(head));                // 鼻尖也别钻到地里（闻地面、刨地的时候）
+    if (nty < 0.8) hy += 0.8 - nty;
+    J.hx = hx; J.hy = hy; J.hp = head; J.neck = neck; J.vs = vs;
+
+    // ---- 嘴、舌头 ----
+    var wLick = this.pw('lick');
+    var snapJ = this.snapT < 0.12 ? 0.75 * sin(PI * this.snapT / 0.12) : 0;
+    var chewJ = 0, lapT = 0, curl = ov.tcurl;
+    if (wEatH > 0.01) chewJ = wEatH * (0.15 + 0.35 * (0.5 + 0.5 * sin(TAU * this.actT * (gold ? 2.2 : 4.5) * (0.6 + 0.4 * gs)))) * (0.6 + 0.4 * gs);
+    if (this.chew > 0.01) chewJ = max(chewJ, this.chew * (0.12 + 0.3 * (0.5 + 0.5 * sin(TAU * this.actT * (gold ? 3 : 4)))));
+    if (wDr > 0.01) { lapT = wDr * 1.2 * max(0, sin(TAU * this.actT * (gold ? 3.0 : 3.7))); curl = -1; }
+    if (wLB > 0.01) { lapT = max(lapT, wLB * 1.3 * max(0, sin(TAU * this.actT * (gold ? 2.7 : 4.0)))); curl = 1; }
+    var jaw = max(ch.jaw, this.pant * 0.5, this.carry * 0.75, this.bark * 0.9, this.jawIn * 0.85, ov.jaw, snapJ, chewJ, wLB * 0.3);
+    var tongue = max(ch.tongue, this.pant, ov.tongue, lapT) * (1 - this.carry);
+    if (wLick > 0.01) tongue = lerp(tongue, 1.0 + 0.4 * sin(at * 13), wLick);
+    J.jaw = jaw * 0.6; J.tongue = tongue; J.lick = max(wLick, curl > 0 ? 1 : 0); J.tdown = curl < 0 ? 1 : 0; J.lickc = ov.lickc;
+    J.pantStep = this.pant > 0.3 ? (floor(this.pantT * 12) & 1) : 0;
+
+    // ---- 尾巴：一节一节接起来，越往梢越慢半拍 ----
+    var N = B.tailN, TL = this.TL, segL = B.tailL / N, q;
+    var wAmp = this.wag < 0.04 ? 0 : (10 + 30 * this.wag) * D2R * md.wag * (1 - 0.5 * G) * (1 - this.runW * G) * (name === 'sleep' ? 0 : 1) * (c < 0 ? 0.6 : 1);
+    var x = J.TSx, y = J.TSy, dPel = J.dPel, minT = B.tailR[1] + 0.2;
+    var tipF = 0;                          // 尾巴尖自己的小动作
+    if (this.pw('stalk') > 0.5) tipF += 0.35 * (sin(t * 11) > 0.6 ? 1 : 0);                            // 潜行：只有尾巴尖一弹一弹
+    if (this.dream > 0.01) tipF += this.dream * 0.4 * (sin(t * 9) > 0.7 ? 1 : 0);                       // 做梦：尾巴尖抖
+    if (!gold && this.pw('squat') > 0.5) tipF += 0.05 * sin(t * TAU * 8);                               // 腊肠蹲着：尾巴微微抖
+    TL[0] = x; TL[1] = y;
+    for (q = 0; q < N; q++) {
+      var fr = q / (N - 1);
+      var a = lerp(this.tailA, this.tailB, fr) + ch.curl * fr * (gold ? 1.0 : 1.4) + dPel * 0.7
+            + wAmp * sin(this.wagT * TAU - fr * 1.6) * (0.35 + 0.65 * fr) + tipF * fr * fr;
+      var sl = segL * (1.14 - 0.32 * fr);
+      x -= cos(a) * sl; y += sin(a) * sl;
+      if (y < minT) y = minT;
+      TL[q * 2 + 2] = x; TL[q * 2 + 3] = y;
+    }
+
+    // ---- 脸 ----
+    var eye = MOODS[this.mood].eye;
+    if (this.happy > 0.5) eye = 'happy';
+    if (this.sleepy > 0.6 && eye === 'open') eye = 'sleepy';
+    // 姿势自己的眼神：金毛吃饭眯着眼、腊肠瞪圆了；舔碗笑眯眯；蹲着金毛半闭、腊肠睁大；叼着东西啃也眯着
+    var pe = null;
+    if (this.pw('eat') > 0.5) pe = gold ? 'soft' : 'wide';
+    else if (this.pw('lickbowl') > 0.5) pe = 'happy';
+    else if (this.pw('drink') > 0.5) pe = 'soft';
+    else if (this.pw('squat') > 0.5) pe = gold ? 'sleepy' : 'wide';
+    else if (this.pw('stalk') > 0.5) pe = 'wide';
+    else if (this.pw('lean') > 0.5) pe = 'happy';
+    else if (this.pw('flop') > 0.5 || this.pw('_sploot') > 0.5 && this.chin > 0.5) pe = 'sleepy';
+    else if (this.chew > 0.5) pe = 'sleepy';
+    if (pe && eye !== 'happy') eye = pe;
+    if (this.eyesIn) eye = this.eyesIn;
+    if (ov.eye) eye = ov.eye;
+    if ((this.pw('sleep') > 0.5 && !this.eyesIn) || this.blink > 0) eye = 'shut';
+    J.eye = eye; J.brow = (!gold && this.pw('squat') > 0.5) ? BROW_UP : MOODS[this.mood].brow; J.smile = md.smile > 0.5 || this.happy > 0.5;
+    J.earA = this.earA; J.earB = this.earB; J.earUp = md.earUp + max(0, this.ears) * 0.8 + this.tilt * 1.2;
+    J.fur = ov.shake > 0.01 ? ov.shake * 0.9 * sin(TAU * ov.shakeT - 1.0) : 0;
+
+    // ---- 锚点（身体坐标）----
+    var cu = cos(head) * B.HL, su = sin(head) * B.HL;
+    J.mouthX = hx + B.ball[0] * cu - B.ball[1] * vs * su - J.jaw * 1.2; J.mouthY = hy + B.ball[0] * su + B.ball[1] * vs * cu - J.jaw * 0.8;
+    J.noseX = hx + cu - B.nose[1] * vs * su; J.noseY = hy + su + B.nose[1] * vs * cu;
+    J.headX = hx + B.skull[0] * cu; J.headY = hy + B.skull[0] * su;
+    J.backX = (J.Px + J.Tx) / 2; J.backY = (J.Py + J.Ty) / 2 + (B.rib[1] + B.pel[1]) / 2 * c;
+    var sk2 = B.skull;
+    J.topX = hx + sk2[0] * cu - (sk2[1] + sk2[3]) * vs * su; J.topY = hy + sk2[0] * su + (sk2[1] + sk2[3]) * vs * cu;   // 头顶
+    var cs2 = B.chest;
+    J.chestX = J.Tx + (cs2[0] + cs2[2] * 0.6) * J.cT - cs2[1] * c * J.sT; J.chestY = J.Ty + (cs2[0] + cs2[2] * 0.6) * J.sT + cs2[1] * c * J.cT;
+    return J;
+  };
+
+  // ---- 画一条腿、一只脚掌、一撮毛 ----
+  var PAWS = new Float64Array(4 * 6), nPaw = 0;     // 这一帧画了哪几只近侧的脚掌：中心、脚趾朝向、大小（最后点脚趾缝用）
+  function drawPaw(px, py, ma, sz, mat, z, part, pd) {
+    var cm = cos(ma), sm = sin(ma), w = clamp((-sm - 0.3) / 0.4, 0, 1);
+    var tx = -sm * w + cm * (1 - w), ty = cm * w + sm * (1 - w), lift = (sz[1] - pd) * w;
+    var g = w * clamp(1 - (py - pd) / 1.2, 0, 1);            // 踩在地上：脚掌平平地贴着地，不跟着腿前后滚
+    tx += (1 - tx) * g; ty -= ty * g;
+    var tl = sqrt(tx * tx + ty * ty) || 1;
+    tx /= tl; ty /= tl;
+    cm *= 1 - g; sm = sm * (1 - g) - g;
+    brush(z, 0.8, mat, part, 0.42, 0);
+    var pcx = px + tx * sz[0] * 0.36 - cm * lift, pcy = py + ty * sz[0] * 0.36 - sm * lift;
+    ell(pcx, pcy, sz[0], sz[1], atan2(ty, tx));
+    if (mat === M_PAW && nPaw < 4) { var o = nPaw * 6; PAWS[o] = pcx; PAWS[o + 1] = pcy; PAWS[o + 2] = tx; PAWS[o + 3] = ty; PAWS[o + 4] = sz[0]; PAWS[o + 5] = sz[1]; nPaw++; }
+  }
+  function drawHind(B, LG, k, jx, jy, far, bias) {
+    var o = k * 10, kx = LG[o], ky = LG[o + 1], hx = LG[o + 2], hy = LG[o + 3], px = LG[o + 6], py = LG[o + 7], ma = LG[o + 8];
+    var z = far ? -30 : 10, mat = far ? M_COATF : M_COAT, part = far ? P_FHIND : P_NHIND;
+    brush(z, 2, mat, part, 0.38, bias);
+    ell(jx + (kx - jx) * 0.42, jy + (ky - jy) * 0.42, B.thigh[0], B.thigh[1], atan2(ky - jy, kx - jx));     // 大腿：一整块肌肉
+    brush(z, 1.2, mat, part, 0.48, bias);
+    cap(kx, ky, B.gaskR[0], hx, hy, B.gaskR[1]);                                                  // 小腿
+    cap(hx + B.hock * sin(ma), hy - B.hock * cos(ma), B.metaR * 0.95, hx, hy, B.metaR); // 飞节往后突出的那一点
+    cap(hx, hy, B.metaR, px - cos(ma) * 0.5, py - sin(ma) * 0.5, B.metaR * 0.95);       // 跖骨
+    drawPaw(px, py, ma, B.hpaw, far ? M_PAWF : M_PAW, z + 0.6, part, B.padY);
+  }
+  function drawFore(B, LG, k, sx, sy, far, bias) {
+    var o = k * 10, jx = LG[o], jy = LG[o + 1], ex = LG[o + 2], ey = LG[o + 3], cx = LG[o + 4], cy = LG[o + 5], px = LG[o + 6], py = LG[o + 7], ma = LG[o + 8];
+    var z = far ? -29 : 14, mat = far ? M_COATF : M_COAT, part = far ? P_FFORE : P_NFORE;
+    brush(z, 2, mat, part, 0.4, bias);
+    if (!far) ell((sx + jx) / 2, (sy + jy) / 2, B.shoulder[0], B.shoulder[1], atan2(jy - sy, jx - sx));   // 肩：沿着肩胛骨的一块肌肉
+    cap(jx, jy, B.armR[0], ex, ey, B.armR[1]);                                                    // 上臂
+    brush(z, 1.2, mat, part, 0.48, bias);
+    cap(ex, ey, B.foreR[0], cx, cy, B.foreR[1]);                                                  // 小臂
+    cap(cx, cy, B.pastR, px - cos(ma) * 0.5, py - sin(ma) * 0.5, B.pastR * 0.95);       // 掌骨
+    drawPaw(px, py, ma, B.fpaw, far ? M_PAWF : M_PAW, z + 0.6, part, B.padY);
+  }
+  // 一排毛梢：从 (x0,y0) 到 (x1,y1) 均匀排 n 撮，每撮长 len、朝 ang 方向。长短和方向各不一样，但每次都一样（不会闪）
+  var RND = (function () { var a = [], s = 12345; for (var i = 0; i < 64; i++) { s = (s * 1103515245 + 12345) & 0x7fffffff; a.push(s / 0x3fffffff - 1); } return a; })();
+  function tufts(x0, y0, x1, y1, n, len, ang, r0, r1, seed, bell) {
+    for (var i = 0; i < n; i++) {
+      var u = (i + 0.5) / n, x = x0 + (x1 - x0) * u, y = y0 + (y1 - y0) * u;
+      var l = len * (bell ? 0.45 + 0.55 * sin(PI * u) : 1) * (1 + 0.25 * RND[(seed + i) & 63]);
+      var a = ang + 0.18 * RND[(seed + i + 17) & 63];
+      var ty = y + sin(a) * l;
+      if (ty < 0.3) ty = min(y, 0.3);
+      cap(x, y, r0, x + cos(a) * l, ty, r1);
+    }
+  }
+  // 一块"贴图"里的一格：k×k 个像素
+  function blk(ax, ay, di, dj, k, mat, tone) {
+    for (var b = 0; b < k; b++) for (var a = 0; a < k; a++) pix(ax + di * k + a, ay + dj * k + b, mat, tone);
+  }
+
+  // 把骨架画到草稿上。F：1 脸朝右，−1 朝左
+  Rig.prototype.draw = function (F) {
+    var B = this.B, C = this.C, J = this.J, LG = this.LG, TL = this.TL, gold = this.kind === 'gold', ch = this.ch;
+    var c = J.c, bias = C.bias, k, q, cT = J.cT, sT = J.sT, cP = J.cP, sP = J.sP;
+    // 转身：不是一下子翻面。头先转过去，前半身跟上，后半身和尾巴最后；每一段在横向上压扁再反过来
+    var tu = this.turnT, cH = 1, cF = 1, cR = 1;
+    if (tu < 1) {
+      cH = -cos(PI * smooth(tu * 1.5)); cF = -cos(PI * smooth(tu * 1.25 - 0.12)); cR = -cos(PI * smooth(tu * 1.25 - 0.25));
+      // 转到一半是正面 / 背面看过去：身子短了，但不能压成一条（最窄留四成）
+      if (abs(cH) < 0.4) cH = cH < 0 ? -0.4 : 0.4;
+      if (abs(cF) < 0.4) cF = cF < 0 ? -0.4 : 0.4;
+      if (abs(cR) < 0.4) cR = cR < 0 ? -0.4 : 0.4;
+    }
+    var fR = F * cR, fF = F * cF, fH = F * cH;
+    if (this.lb > 0.01) {          // 回头看：头和脖子那一段翻过去，脸朝着尾巴（中间那一下是侧着的，别压成一条）
+      var lbc = cos(PI * smooth(this.lb));
+      if (abs(lbc) < 0.4) lbc = lbc < 0 ? -0.4 : 0.4;
+      fH *= lbc;
+    }
+    J.fR = fR; J.fF = fF; J.fH = fH;
+    var stream = clamp(this.fur + (J.fur || 0), -0.9, 1.2);      // 毛梢往后飘多少
+    nPaw = 0;
+
+    // ================= 后半身 =================
+    TS = 0; TO = 0; TC = fR;
+    // 远侧后腿
+    drawHind(B, LG, 3, J.HJx - B.farX, J.HJy + B.farY, true, bias);
+    // 尾巴
+    var N = B.tailN, r0 = B.tailR[0], r1 = B.tailR[1];
+    if (gold) {
+      // 尾巴下面的一排长毛（"旗子"）：中间最长，两头短；跑起来往后飘
+      brush(-13, 0.4, M_CREAM, P_TAIL, 0.55, 0);
+      for (q = 0; q < 9; q++) {
+        var tu9 = (q + 0.6) / 9.4 * N, ti = min(N - 1, floor(tu9)), tf = tu9 - ti;
+        var fx = TL[ti * 2] + (TL[ti * 2 + 2] - TL[ti * 2]) * tf, fy = TL[ti * 2 + 1] + (TL[ti * 2 + 3] - TL[ti * 2 + 1]) * tf;
+        // 毛长在尾巴的"下面"那一侧，又被重力往下拉；跑起来往后飘
+        var tdx = TL[ti * 2 + 2] - TL[ti * 2], tdy = TL[ti * 2 + 3] - TL[ti * 2 + 1], tdl = sqrt(tdx * tdx + tdy * tdy) || 1;
+        var fa = atan2(0.55 * tdx / tdl - 0.45 + 0.25 * tdy / tdl, -0.55 * tdy / tdl + 0.25 * tdx / tdl) - stream * 0.3 + 0.16 * RND[q + 3];
+        var fl = 4.5 * (0.4 + 0.6 * sin(PI * pow((q + 0.5) / 9, 0.85))) * (1 + 0.2 * RND[q + 20]);
+        var fty = fy + sin(fa) * fl;
+        if (fty < 0.3) { fa = -fa * 0.45 + PI * 0.55 * (cos(fa) < 0 ? 1 : 0.2); fl *= 0.55; fty = fy + sin(fa) * fl; }     // 尾巴搁在地上：毛摊在上面，不往地里扎
+        cap(fx, fy - 0.3, 1.25, fx + cos(fa) * fl, fty, 0.3);
+      }
+    }
+    brush(-12, 1, M_COAT, P_TAIL, 0.25, bias);
+    for (q = 0; q < N; q++) cap(TL[q * 2], TL[q * 2 + 1], lerp(r0, r1, q / N), TL[q * 2 + 2], TL[q * 2 + 3], lerp(r0, r1, (q + 1) / N));
+    if (C.points) {            // 黑棕色：尾巴根下面一小段是浅棕
+      brush(-11.9, 0.2, M_TAN, P_TAIL, 0.5, 0); sOver = P_TAIL;
+      cap(TL[0], TL[1] - r0 * 0.7, r0 * 0.45, TL[4], TL[5] - r0 * 0.5, r0 * 0.3);
+    }
+    // 骨盆
+    brush(0, 3, M_COAT, P_TRUNK, 0.1, bias);
+    if (C.gloss) sFlag = F_TOP;
+    ell(J.Px - B.pelUp * c * sP, J.Py + B.pelUp * c * cP, B.pel[0], B.pel[1], J.thP);
+    // 腰：两头分属后半身和前半身（转身时两头各转各的）
+    var lo = B.loin;
+    var lax = (J.Px + lo[0] * cP - lo[1] * c * sP) * fR, lay = J.Py + lo[0] * sP + lo[1] * c * cP;
+    var lbx = (J.Tx + lo[3] * cT - lo[4] * c * sT) * fF, lby = J.Ty + lo[3] * sT + lo[4] * c * cT;
+    TC = 1;
+    cap(lax, lay, lo[2], lbx, lby, lo[5]);
+    if (gold && c > 0) {      // 金毛肚子下面：一条浅色的长毛把收腹的那道弯填平，下缘是一排毛梢
+      var mirr = fR < 0, fa0 = -PI * 0.5 - 0.2 - stream * 0.3;
+      if (mirr) fa0 = PI - fa0;
+      brush(-2, 0.6, M_CREAM, P_FUR, 0.5, 0);
+      cap(lax + 2.2 * fR, lay - lo[2] + 1.0, 1.3, lbx - 0.5 * fF, lby - lo[5] + 1.0, 1.5);
+     
+      tufts(lax + 1.6 * fR, lay - lo[2] + 0.2, lbx - 0.2 * fF, lby - lo[5] + 0.1, 7, 2.0, fa0, 1.0, 0.3, 30, true);
+    }
+    TC = fR;
+    // 近侧后腿（金毛大腿后面有"裤子"毛）
+    if (gold && c > 0) {
+      var kx = LG[20], ky = LG[21], hkx = LG[22], hky = LG[23];
+      brush(8, 0.4, M_CREAM, P_NHIND, 0.55, 0.1);
+      tufts(J.HJx - B.thigh[1] * 0.85, J.HJy + 1.6, hkx + 0.3, hky + 1.4, 7, 3.4, -2.05 - stream * 0.3, 1.3, 0.35, 40, false);
+    }
+    drawHind(B, LG, 2, J.HJx, J.HJy, false, bias);
+
+    // ================= 前半身 =================
+    TC = fF;
+    drawFore(B, LG, 1, J.S0x + B.farX, J.S0y + B.farY, true, bias);
+    brush(0, 3, M_COAT, P_TRUNK, 0.1, bias);
+    if (C.gloss) sFlag = F_TOP;
+    var br = J.br * 0.25;
+    ell(J.Tx - br * sT, J.Ty + br * cT, B.rib[0], B.rib[1] + br, J.thT);                                  // 胸腔（吸气时往上鼓一格）
+    var wi = B.wither, cs = B.chest;
+    ell(J.Tx + wi[0] * cT - (wi[1] + br * 2) * c * sT, J.Ty + wi[0] * sT + (wi[1] + br * 2) * c * cT, wi[2], wi[3], J.thT);   // 肩隆
+    sFlag = 0;
+    ell(J.Tx + cs[0] * cT - cs[1] * c * sT, J.Ty + cs[0] * sT + cs[1] * c * cT, cs[2], cs[3], J.thT);     // 前胸
+    if (ch.belly > 0.02) {     // 翻过来：露出浅色的肚皮
+      brush(3.2, 0.3, M_CREAM, P_BELLY, 0.3, 0);
+      var bw_ = ch.belly;
+      TC = 1;
+      cap(lax, lay + lo[2] * 0.45, lo[2] * 0.5 * bw_, lbx, lby + lo[5] * 0.5, lo[5] * 0.55 * bw_);
+      TC = fF;
+      ell(J.Tx + 1.0 * cT, J.Ty + B.rib[1] * 0.45, B.rib[0] * 0.75 * bw_, B.rib[1] * 0.5 * bw_, J.thT);
+    }
+    if (gold) {
+      // 胸口的浅色大毛领 + 下缘的毛梢
+      var bxc = J.Tx + (cs[0] + 0.5) * cT - (cs[1] - 0.6) * c * sT, byc = J.Ty + (cs[0] + 0.5) * sT + (cs[1] - 0.6) * c * cT;
+      brush(3.2, 0.4, M_CREAM, P_FUR, 0.4, 0.12); sOver = P_TRUNK;
+      ell(bxc - 0.1, byc - 0.2, 3.1, 4.9, J.thT + 0.3);
+      if (c > 0) {
+        brush(-1, 0.4, M_CREAM, P_FUR, 0.55, 0.08);
+        tufts(bxc + 2.5, byc + 1.4, bxc - 1.7, byc - 4.7, 7, 2.8, -1.7 - stream * 0.3, 1.1, 0.3, 50, false);
+      }
+    } else {
+      // 腊肠：胸口一块浅色
+      brush(3.2, 0.3, M_TAN, P_FUR, 0.4, 0); sOver = P_TRUNK;
+      ell(J.Tx + (cs[0] + 0.55) * cT - (cs[1] - 0.9) * c * sT, J.Ty + (cs[0] + 0.55) * sT + (cs[1] - 0.9) * c * cT, 1.05, 1.5, J.thT + 0.2);
+    }
+    // 近侧前腿（金毛小臂后面有一排毛）
+    if (gold && c > 0) {
+      brush(13, 0.4, M_CREAM, P_NFORE, 0.55, 0);
+      tufts(LG[2] - 1.0, LG[3] + 0.2, LG[4] - 0.9, LG[5] + 1.4, 5, 2.1, -2.0 - stream * 0.3, 0.9, 0.3, 60, false);
+    }
+    drawFore(B, LG, 0, J.S0x, J.S0y, false, bias);
+
+    // ================= 脖子和头（转身时先转）=================
+    TS = J.N0x; TO = J.N0x * fF; TC = fH;
+    var hx = J.hx, hy = J.hy, hp = J.hp, vs = J.vs, HL = B.HL;
+    var cn = cos(J.neck), sn = sin(J.neck), nr0 = B.neckR0, nr1 = B.neckR1;
+    var nsx = J.N0x - 0.5 * cn - 0.2, nsy = J.N0y - 0.5 * sn - 0.5 * c;
+    var nex = hx - 0.25 * nr1 * cn + 0.55 * nr1 * sn * vs, ney = hy - 0.25 * nr1 * sn - 0.55 * nr1 * cn * vs;
+    brush(4, 3, M_COAT, P_TRUNK, 0.2, bias);
+    cap(nsx, nsy, nr0, nex, ney, nr1);
+    if (gold) {                // 脖子前面：浅色的毛领往上接到下巴底下
+      brush(4.2, 0.4, M_CREAM, P_FUR, 0.45, 0.1); sOver = P_TRUNK;
+      var rx_ = lerp(nsx, nex, 0.35) + 0.6 * nr0 * sn * vs, ry_ = lerp(nsy, ney, 0.35) - 0.6 * nr0 * cn * vs;
+      ell(rx_, ry_, B.neck * 0.5, nr0 * 0.62, J.neck);
+    }
+    if (gold && c > 0) {       // 脖子前面的毛
+      brush(3.6, 0.4, M_CREAM, P_FUR, 0.55, 0);
+      tufts(nex + nr1 * 0.7 * sn + 0.6 * cn, ney - nr1 * 0.7 * cn, nsx + nr0 * 0.85 * sn + 0.5, nsy - nr0 * 0.85 * cn + 1.0, 4, 1.7, -1.35 - stream * 0.25, 0.9, 0.3, 70, false);
+    }
+    // 项圈：横在脖子中间，只画在脖子上；下面挂一块小牌子
+    var cmx = lerp(nsx, nex, 0.56), cmy = lerp(nsy, ney, 0.56), cr = lerp(nr0, nr1, 0.56) + 0.3;
+    brush(7.5, 0.3, M_COLLAR, P_COLLAR, 0.5, 0); sOver = P_TRUNK;
+    cap(cmx + sn * cr, cmy - cn * cr, gold ? 0.55 : 0.5, cmx - sn * cr, cmy + cn * cr, gold ? 0.55 : 0.5);
+    var tgi = PI_(cmx + sn * (cr - 0.5) * vs + 0.3), tgj = PJ_(cmy - cn * (cr - 0.5) * vs - 0.6), sk = RR === 1 ? 1 : round(RR / 2);
+    blk(tgi, tgj, 0, 0, sk, M_TAG, 3);
+    if (RR > 1) blk(tgi, tgj, 0, 1, sk, M_TAG, 1);
+
+    // 头：先下巴、嘴里、舌头，再头骨和吻，再鼻子、耳朵，最后点眼睛
+    var ux = cos(hp) * HL, uy = sin(hp) * HL, vx = -sin(hp) * HL * vs, vy = cos(hp) * HL * vs;
+    var ja = J.jaw, cj = cos(ja), sj = sin(ja), hg = B.hinge, jw = B.jaw, mz = B.muz, lip = B.lip;
+    // 下巴绕着嘴角后面的铰链往下转
+    var j0u = hg[0] + (jw[0] - hg[0]) * cj + (jw[1] - hg[1]) * sj, j0v = hg[1] - (jw[0] - hg[0]) * sj + (jw[1] - hg[1]) * cj;
+    var j1u = hg[0] + (jw[3] - hg[0]) * cj + (jw[4] - hg[1]) * sj, j1v = hg[1] - (jw[3] - hg[0]) * sj + (jw[4] - hg[1]) * cj;
+    brush(20, 1, M_MUZ, P_JAW, 0.3, 0);
+    cap(hx + j0u * ux + j0v * vx, hy + j0u * uy + j0v * vy, jw[2] * HL, hx + j1u * ux + j1v * vx, hy + j1u * uy + j1v * vy, jw[5] * HL);
+    if (ja > 0.05) {
+      // 嘴里：一块暗红，夹在上唇和下巴之间
+      var gap = (lip - (j1v + jw[5])) * 0.5;
+      if (gap > 0.01) {
+        brush(18.5, 0, M_MOUTH, P_MOUTH, 1, 0);
+        var mu = (mz[3] + j1u) * 0.5 - 0.02, mv2 = (lip + j1v) * 0.5;
+        cap(hx + (hg[0] + 0.2) * ux + (lip - 0.03) * vx, hy + (hg[0] + 0.2) * uy + (lip - 0.03) * vy, 0.03 * HL, hx + mu * ux + mv2 * vx, hy + mu * uy + mv2 * vy, min(gap + 0.02, 0.12) * HL);
+      }
+    }
+    if (J.tongue > 0.05) {
+      // 舌头：贴着下巴伸出来，舌尖往下搭；喘气时舌尖一上一下
+      var tg = min(1.5, J.tongue), tr = (gold ? 0.058 : 0.05) * HL;
+      var t0u = hg[0] + (0.52 - hg[0]) * cj + (jw[1] + 0.05 - hg[1]) * sj, t0v = hg[1] - (0.52 - hg[0]) * sj + (jw[1] + 0.05 - hg[1]) * cj;
+      var tlen = jw[3] - 0.52 + 0.02 + 0.07 * tg, t1u = t0u + tlen * cj, t1v = t0v - tlen * sj;
+      brush(21, 0.8, M_TONGUE, P_TONGUE, 0.4, 0.1);
+      var t0x = hx + t0u * ux + t0v * vx, t0y = hy + t0u * uy + t0v * vy, t1x = hx + t1u * ux + t1v * vx, t1y = hy + t1u * uy + t1v * vy;
+      cap(t0x, t0y, tr, t1x, t1y, tr);
+      if (J.tdown) cap(t1x, t1y, tr, t1x - ux * 0.06 * tg - vx * 0.12 * tg, t1y - uy * 0.06 * tg - vy * 0.12 * tg, tr * 0.85);       // 喝水：舌尖往下往回卷，像个勺子
+      else if (J.lick > 0.3) cap(t1x, t1y, tr, t1x + (ux * 0.13 + vx * 0.10) * tg, t1y + (uy * 0.13 + vy * 0.10) * tg, tr * 0.8);       // 舔：舌尖往前上方卷
+      else cap(t1x, t1y, tr, t1x + ux * 0.02, t1y - (0.035 + 0.055 * tg) * HL - (J.pantStep ? 0.5 / RR : 0), tr * 0.85);          // 舌尖耷拉下来
+    }
+    // 头骨 + 上吻（同一个部位，中间没有接缝）
+    var sk_ = B.skull;
+    brush(22, 2, M_COAT, P_HEAD, 0.22, bias);
+    ell(hx + sk_[0] * ux + sk_[1] * vx, hy + sk_[0] * uy + sk_[1] * vy, sk_[2] * HL, sk_[3] * HL, hp);
+    var sp_ = B.stop;
+    ell(hx + sp_[0] * ux + sp_[1] * vx, hy + sp_[0] * uy + sp_[1] * vy, sp_[2] * HL, sp_[3] * HL, hp);
+    brush(22, 1.6, M_COAT, P_HEAD, 0.35, bias);
+    cap(hx + mz[0] * ux + mz[1] * vx, hy + mz[0] * uy + mz[1] * vy, mz[2] * HL, hx + mz[3] * ux + mz[4] * vx, hy + mz[3] * uy + mz[4] * vy, mz[5] * HL);
+    // 嘴唇一带颜色浅一点
+    brush(22.5, 0.2, M_MUZ, P_HEAD, 0.5, 0); sOver = P_HEAD;
+    var lv = lip + (gold ? 0.045 : 0.03), lr = (gold ? 0.05 : 0.032) * HL;
+    cap(hx + (mz[0] + 0.07) * ux + lv * vx, hy + (mz[0] + 0.07) * uy + lv * vy, lr, hx + (mz[3] - 0.03) * ux + (lv + 0.012) * vx, hy + (mz[3] - 0.03) * uy + (lv + 0.012) * vy, lr * 0.9);
+    // 鼻子
+    var ns = B.nose, ntw = this.nose > 0 ? 0.012 : 0;
+    var nox = hx + ns[0] * ux + (ns[1] + ntw) * vx, noy = hy + ns[0] * uy + (ns[1] + ntw) * vy;
+    brush(25, 1, M_NOSE, P_NOSE, 0.2, 0.05);
+    ell(nox, noy, ns[2] * HL, ns[2] * HL * 0.9, hp);
+    if (this.dirtyT > 0) {         // 刨完土：鼻头和吻尖沾着泥
+      brush(25.2, 0.6, M_DIRT, P_NOSE, 0.35, 0.05);
+      ell(nox - ux * 0.02, noy - uy * 0.02, ns[2] * HL * 1.35, ns[2] * HL * 1.15, hp);
+    }
+    if (J.lickc >= 0) {            // 舔舔嘴：舌头从嘴角出来，往上舔过鼻头
+      var lk = J.lickc, l0u = mz[3] - 0.07, l0v = lip - 0.01, l1u = ns[0] + 0.04 + 0.02 * lk, l1v = lerp(lip + 0.01, ns[1] + ns[2] * 0.9, lk);
+      brush(25.6, 0.8, M_TONGUE, P_TONGUE, 0.4, 0.1);
+      cap(hx + l0u * ux + l0v * vx, hy + l0u * uy + l0v * vy, (gold ? 0.05 : 0.045) * HL, hx + l1u * ux + l1v * vx, hy + l1u * uy + l1v * vy, (gold ? 0.045 : 0.04) * HL);
+    }
+    // 耳朵：软的，主要顺着重力往下垂；跑起来往后飘，耳尖比耳根慢半拍
+    var ea = B.earAt, eL = B.earL * HL, er0 = B.earR[0] * HL, er1 = B.earR[1] * HL;
+    var eu = J.earUp * (gold ? 0.02 : 0.05), ebx = hx + ea[0] * ux + (ea[1] + eu) * vx, eby = hy + ea[0] * uy + (ea[1] + eu) * vy;
+    var e0 = -PI / 2 + 0.4 * hp + (B.earRest + PI / 2) * vs;
+    var a1 = e0 - J.earA, a2 = e0 - J.earB, l1 = (eL - er1) * 0.55, l2 = (eL - er1) * 0.45;
+    var emx = ebx + cos(a1) * l1, emy = eby + sin(a1) * l1, etx = emx + cos(a2) * l2, ety = emy + sin(a2) * l2;
+    var minE = er1 + 0.1;
+    if (ety < minE) ety = minE;
+    if (emy < minE) emy = minE;
+    J.earX = emx; J.earY = emy;
+    brush(26, 1, M_EAR, P_EAR, 0.5, bias);
+    cap(ebx, eby, er0, emx, emy, lerp(er0, er1, 0.7));
+    cap(emx, emy, lerp(er0, er1, 0.7), etx, ety, er1);
+    if (C.points) {            // 黑棕色：耳朵前缘一道浅棕
+      brush(26.5, 0.1, M_TAN, P_EAR, 0.6, 0); sOver = P_EAR;
+      cap(ebx + er0 * 0.7, eby - 0.4, 0.3, emx + er1 * 0.75, emy, 0.3);
+    }
+
+    // ---- 脸上的"贴图"：眼睛、眉毛、嘴线、鼻子上的高光。只挪整格，不跟着头旋转 ----
+    var fs = TC < 0 ? -1 : 1;          // 脸朝哪边
+    var uj = vs > 0 ? -1 : 1;          // 头顶朝上还是朝下（肚皮朝天时是倒着的）
+    var ey_ = B.eye, exw = hx + ey_[0] * ux + ey_[1] * vx, eyw = hy + ey_[0] * uy + ey_[1] * vy;
+    var ei = PI_(exw), ej = PJ_(eyw), st = J.eye, K = M_EYE;
+    var bw2 = J.brow, brM = C.points ? M_TAN : M_COAT, brT = C.points ? 3 : (gold ? 2 : 1);
+    if (RR === 1) {
+      // 一倍：眼睛就是一个深色的点，别加高光（两格里一格是白的，反而看不出是眼睛）
+      if (st === 'shut' || st === 'sleepy' || st === 'slit') { pix(ei, ej, M_COAT, 1); pix(ei + fs, ej, M_COAT, 1); }
+      else if (st === 'happy') { pix(ei - 1, ej, K, 1); pix(ei, ej + uj, K, 1); pix(ei + 1, ej, K, 1); }
+      else { pix(ei, ej, K, 1); if (st === 'wide') pix(ei, ej + uj, K, 1); }
+    } else {
+      // 两倍以上：一格 = sk×sk 个像素。x 往鼻子那边为正，y 往头顶为正
+      var E = function (x, y, m, tn) { blk(ei, ej, x * fs, y * uj, sk, m, tn); };
+      var hl = fs > 0 ? 0 : 1;          // 眼神光在屏幕左上（光永远从左上来）
+      var top = 1;                      // 眼睛最上面一行
+      if (st === 'shut') {
+        E(-1, 0, M_COAT, 1); E(0, 0, M_COAT, 1); E(1, 0, M_COAT, 1);
+      } else if (st === 'happy') {      // 笑眯眯：两道往上拱的弧
+        E(-1, 0, K, 1); E(0, 1, K, 1); E(1, 1, K, 1); E(2, 0, K, 1);
+      } else if (st === 'slit') {       // 眯着一条缝偷看：一道黑线，里面一点亮
+        E(-1, 0, K, 1); E(0, 0, K, 1); E(1, 0, K, 1); E(hl, 0, K, 5);
+        E(0, 1, M_COAT, 1); E(1, 1, M_COAT, 1); top = 0;
+      } else if (st === 'sleepy') {     // 困：上眼皮盖下来一半
+        E(0, 0, K, 1); E(1, 0, K, 1); E(hl, 0, K, 5);
+        E(-1, 1, M_COAT, 1); E(0, 1, M_COAT, 1); E(1, 1, M_COAT, 1);
+      } else if (st === 'soft') {       // 眼皮放松（满足、得意）：黑眼珠只露下面一行，上面是眼皮
+        E(0, 0, K, 1); E(1, 0, K, 1);
+        E(0, 1, M_COAT, gold ? 1 : 1); E(1, 1, M_COAT, 1);
+      } else {                          // 睁着（wide 再高一行）：2×2 的黑眼珠 + 1 格眼神光
+        var rows = st === 'wide' ? 3 : 2;
+        for (var rj = 0; rj < rows; rj++) { E(0, rj, K, 1); E(1, rj, K, 1); }
+        E(hl, rows - 1, K, 5);
+        if (gold) E(-1, 0, K, 2);       // 金毛：眼角往后拖一格深棕，眼形是杏仁的
+        top = rows - 1;
+      }
+      // 眉毛：眼睛上面空一行，一道比毛色深一点的短线；心情把它抬高、压低、歪过来
+      if (st !== 'shut' || this.pw('sleep') < 0.5) {
+        var by_ = top + 2 + bw2[0];
+        E(0, by_ - (bw2[1] < 0 ? 1 : 0), brM, gold && !C.points ? 1 : brT);
+        E(1, by_ - (bw2[1] > 0 ? 1 : 0), brM, brT);
+        if (gold) E(-1, by_ - (bw2[1] < 0 ? 1 : 0) - (bw2[1] > 0 ? 0 : 0), brM, 3);
+      }
+    }
+    // 嘴：闭着的时候是一条线，嘴角往上翘一格
+    if (ja <= 0.05 && RR > 1) {
+      var m0u = mz[3] - 0.01, m1u = mz[0] + 0.1, mvv = lip + 0.005;
+      seg(hx + m0u * ux + mvv * vx, hy + m0u * uy + mvv * vy, hx + m1u * ux + mvv * vx, hy + m1u * uy + mvv * vy, M_COAT, 1);
+      var mci = PI_(hx + (m1u - 0.035) * ux + mvv * vx), mcj = PJ_(hy + (m1u - 0.035) * uy + mvv * vy);
+      pix(mci, mcj + uj, M_COAT, 1);
+      if (J.smile) pix(mci - fs, mcj + uj * 2, M_COAT, 1);
+    }
+    // 鼻子上的一点湿润的高光
+    if (RR > 1) pix(PI_(nox) - 1, PJ_(noy) - 1, M_NOSE, 5);
+    // 近侧的脚掌：一道脚趾缝；腊肠的脚趾尖上有黑指甲
+    if (RR > 1) {
+      for (k = 0; k < nPaw; k++) {
+        var po = k * 6, pcx = PAWS[po], pcy = PAWS[po + 1], ptx = PAWS[po + 2], pty = PAWS[po + 3], prx = PAWS[po + 4], pry = PAWS[po + 5];
+        TS = 0; TO = 0; TC = k < 1 ? fR : fF;       // 先画的是后脚（后半身），后画的是前脚
+        var ti = PI_(pcx + ptx * prx * 0.25), tj = PJ_(pcy + pty * prx * 0.25 - pry * 0.25 * (pty > 0.5 ? 0 : 1)), ii = ti * 1, idx = tj * bw + ii;
+        if (ii > 0 && tj > 0 && ii < bw - 1 && tj < bh - 1 && bM[idx] === M_PAW && bM[idx + bw] === M_PAW) { pix(ii, tj, M_PAW, max(1, bT[idx] - 1)); pix(ii, tj + 1, M_PAW, max(1, bT[idx + bw] - 1)); }
+        if (!gold) {
+          var ni = PI_(pcx + ptx * prx * 0.82), nj = PJ_(pcy + pty * prx * 0.82 - pry * 0.55 * (pty > 0.5 ? 0 : 1)), nidx = nj * bw + ni;
+          if (ni > 0 && nj > 0 && ni < bw - 1 && nj < bh - 1 && bM[nidx] === M_PAW) pix(ni, nj, M_NOSE, 2);
+        }
+      }
+    }
+    // 黑棕色：嘴边的浅棕已经画过了；再加四只爪子（爪子的材质本来就是浅棕）
+
+    // 短毛的反光：背上的亮线在肩和胯的位置断开（不然就成了一条从头到尾的亮边）
+    limbEdge = (this.pw('scratch') + this.pw('paw') + this.pw('beg') + this.pw('roll')) > 0.5 ? 1 : 0;
+    TS = 0; TO = 0; TC = fF;
+    gapA = PI_(J.Lx - 0.6); gapB = PI_(J.Tx + B.wither[0] - B.wither[2] * 0.9);
+  };
+
+  // 画出来。faceLeft：脸朝左；R：一个世界单位画成几个像素（默认 1）；
+  // sub（可以不给）：0..1，身体在像素格子里往右挪不到一格的零头 —— 引擎如果把"画在哪"的小数部分传进来，
+  // 踩在地上的脚就能一个像素都不抖。
+  Rig.prototype.render = function (faceLeft, R, sub) {
+    R = round(+R) || 1;
+    if (R < 1) R = 1; else if (R > 4) R = 4;
+    var o = this.outs[R];
+    if (!o) {
+      var data = new Uint8ClampedArray(W * R * H * R * 4);
+      o = this.outs[R] = {
+        w: W * R, h: H * R, data: data, d32: new Uint32Array(data.buffer), scale: R, ox: OX * R, oy: GY * R, key: null, ver: 0,
+        box: [0, 0, -1, -1], mouth: [0, 0], nose: [0, 0], back: [0, 0], seat: [0, 0], headX: 0, headY: 0, top: 0, half: 0,
+        grip: [0, 0], tailTip: [0, 0], headTop: [0, 0], forepaw: [0, 0], chest: [0, 0], ear: [0, 0],
+        act: null, actT: 0, actDone: null, beat: 0, beatAt: [0, 0], lift: 0,
+      };
+    }
+    this.out = o;
+    var F = faceLeft ? -1 : 1;
+    if (this.flipN) F = -F;                                                            // 小剧本里自己掉了个头（转圈）
+    if (this.lastFace && this.lastFace !== F && this.turnT > 0.5) this.turnT = 0;     // 没人告诉我们"转身了"：自己发现
+    this.lastFace = F;
+    var J = this.solve(F);
+    useScratch(R);
+    sub = +sub || 0;
+    var lift = this.ov.lift || 0;
+    X0 = OX + sub / R; Y0 = GY - round(lift * R) / R;     // 自己蹦起来：整只狗在画布里往上挪（按整像素挪，不出半格）
+    this.draw(F);
+    // 擦掉上一帧
+    var b = o.box, d32 = o.d32, w = o.w, j;
+    for (j = b[1]; j <= b[3]; j++) d32.fill(0, j * w + b[0], j * w + b[2] + 1);
+    finish(d32, this.pal, this.C, b);
+    // 锚点：世界单位；dx 已经按朝向翻好了
+    var fF = J.fF, fH = J.fH, nx0 = J.N0x * fF, B = this.B;
+    o.mouth[0] = nx0 + (J.mouthX - J.N0x) * fH; o.mouth[1] = J.mouthY;
+    o.nose[0] = nx0 + (J.noseX - J.N0x) * fH; o.nose[1] = J.noseY;
+    o.headX = nx0 + (J.headX - J.N0x) * fH; o.headY = J.headY;
+    o.back[0] = J.backX * fF; o.back[1] = J.backY;
+    o.seat[0] = (J.Tx + J.Px) / 2 * fF; o.seat[1] = (J.Ty + J.Py) / 2 + (B.seat[1] - B.T0[1]) * (J.c > 0 ? 1 : 0.4);
+    var lf = round(lift * R) / R, fR = J.fR, LG = this.LG, TL = this.TL, nT = B.tailN * 2;
+    o.mouth[1] += lf; o.nose[1] += lf; o.headY += lf; o.back[1] += lf; o.seat[1] += lf;
+    o.grip[0] = o.mouth[0]; o.grip[1] = o.mouth[1];                               // 叼着东西（碗沿、纸袋卷、树枝）的地方 = 嘴
+    o.tailTip[0] = TL[nT] * fR; o.tailTip[1] = TL[nT + 1] + lf;
+    o.headTop[0] = nx0 + (J.topX - J.N0x) * fH; o.headTop[1] = J.topY + lf;
+    o.forepaw[0] = LG[6] * fF; o.forepaw[1] = LG[7] + lf;
+    o.chest[0] = J.chestX * fF; o.chest[1] = J.chestY + lf;
+    o.ear[0] = nx0 + (J.earX - J.N0x) * fH; o.ear[1] = J.earY + lf;
+    o.top = b[3] >= b[1] ? GY - b[1] / R : 0;
+    o.half = METRICS[this.kind].half;
+    o.ox = OX * R + sub;
+    o.lift = lf;
+    // 动作：正在演哪个、演到哪了；刚演完的那个只报一次
+    o.act = this.aName; o.actT = this.aName ? clamp(this.aT / this.aTotal, 0, 1) : 0;
+    o.actDone = this.actDone; this.actDone = null;
+    o.beat = this.beat;
+    if (this.beatKind === 1) { var kk = this.ov.kick >= 0 ? 2 : 2; o.beatAt[0] = LG[kk * 10 + 6] * fR; o.beatAt[1] = LG[kk * 10 + 7] + lf; }
+    else if (this.beatKind === 3) { o.beatAt[0] = o.forepaw[0]; o.beatAt[1] = o.forepaw[1]; }
+    else { o.beatAt[0] = o.mouth[0]; o.beatAt[1] = o.mouth[1]; }
+    o.ver++;
+    return o;
+  };
+
+  // 给检查步态的工具用：四只脚掌现在在哪（身体坐标）、是不是踩在地上、一共走了多远
+  Rig.prototype.probe = function () {
+    var J = this.solve(this.lastFace || 1), LG = this.LG, feet = [];
+    for (var k = 0; k < 4; k++) feet.push({ x: LG[k * 10 + 6], y: LG[k * 10 + 7] - (k & 1 ? this.B.farY : 0), down: this.legs[k].down && this.moving, reach: LG[k * 10 + 9], u: this.legs[k].u });
+    return { S: this.S, phase: this.phase, feet: feet, f: this.fq, stride: this.lam, gait: this.gb, G: this.G, J: J };
+  };
+
+  // 每种狗有多大（世界单位）：鼻尖到尾巴尖、站着时头顶的高度、半个身长（碰撞用）、嘴离身体中心多远
+  var METRICS = {
+    gold: { length: 46, height: 25.5, half: 23, mouthReach: 23 },
+    dax:  { length: 38.5, height: 16.5, half: 19.5, mouthReach: 20 },
+  };
+
+  root.PET_DOGS = {
+    create: function (kind, coat, seed) { return new Rig(kind, coat, seed); },
+    POSES: POSES, MOODS: Object.keys(MOODS).filter(function (m) { return m !== 'none'; }),
+    ACTS: ACTS, ACT_TIME: ACT_TIME,
+    COATS: COATS, BREED: BREED, METRICS: METRICS,
+    W: W, H: H, OX: OX, GY: GY,
+  };
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
