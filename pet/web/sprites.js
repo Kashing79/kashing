@@ -1,6 +1,8 @@
-// 像素画：每个字符是一个像素，'.' 是透明。
-// 所有角色都画成"面向右"，引擎会自动镜像出面向左的版本。
-(function () {
+// 旧版的手画像素图：每个字符是一个像素，'.' 是透明。
+// 所有角色都画成"面向右"，要面向左时由画的那一方左右镜像。
+// 第三版里小人、小道具有了新的画法（person.js / fx.js）；那两个文件不在时，引擎就用这里的图。
+// 这个文件不碰网页的任何东西（没有 canvas），在 Mac 外壳的 JavaScriptCore 里也能直接跑。
+(function (G) {
   'use strict';
 
   // ---------- 小工具 ----------
@@ -380,18 +382,16 @@
   }
 
   // ============================================================
-  //  把字符画变成可以直接画的图
+  //  把字符画变成一张图：{ w, h, data(RGBA), scale: 1, ox, oy, key, ver, bb }
+  //  四周各留 1 像素给描边；bb 是"真正有像素"的范围
   // ============================================================
-  function render(rows, pal, outline) {
+  function render(name, rows, pal, outline) {
     var h = rows.length, w = rows[0].length;
     for (var i = 0; i < h; i++) {
       if (rows[i].length !== w) throw new Error('row width mismatch at row ' + i + ': "' + rows[i] + '" (' + rows[i].length + ' != ' + w + ')');
     }
     var W = w + 2, H = h + 2;
-    var cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    var c = cv.getContext('2d');
-    var img = c.createImageData(W, H), d = img.data;
+    var d = new Uint8ClampedArray(W * H * 4);
     var solid = new Uint8Array(W * H);
     var x, y;
     for (y = 0; y < h; y++) {
@@ -419,13 +419,13 @@
         }
       }
     }
-    c.putImageData(img, 0, 0);
-    var fl = document.createElement('canvas');
-    fl.width = W; fl.height = H;
-    var fc = fl.getContext('2d');
-    fc.translate(W, 0); fc.scale(-1, 1);
-    fc.drawImage(cv, 0, 0);
-    return { img: cv, flip: fl, w: W, h: H };
+    var x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+      if (d[(y * W + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    // 原点：小人是两脚中间、踩着的那条线（最下面一行是描边）；其他小图是正中间
+    var feet = name.indexOf('p_') === 0;
+    return { w: W, h: H, data: d, scale: 1, ox: W / 2, oy: feet ? H - 1 : H / 2, key: 'spr_' + name + '@1', ver: 1, bb: [x0, y0, x1, y1] };
   }
 
   // collect：只想拿到"字符画 + 调色盘"而不画图时用（给 iPhone 小组件的打包脚本用）
@@ -434,7 +434,7 @@
     var S = {};
     function add(name, rows, p, extra, outline) {
       if (collect) { collect(name, rows, p, extra); return; }
-      var s = render(rows, p, outline);
+      var s = render(name, rows, p, outline);
       if (extra) for (var k in extra) s[k] = extra[k];
       S[name] = s;
     }
@@ -494,5 +494,5 @@
     return S;
   }
 
-  window.PET_SPRITES = { build: build, INK: INK };
-})();
+  G.PET_SPRITES = { build: build, INK: INK };
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));
