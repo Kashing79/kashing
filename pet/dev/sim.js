@@ -19,7 +19,8 @@ const fs = require('fs');
   for (const mode of ['roam', 'band']) {
     const page = await browser.newPage({ viewport: mode === 'roam' ? { width: 1440, height: 900 } : { width: 1440, height: 330 } });
     page.on('pageerror', e => errors.push(mode + ' pageerror: ' + (e.stack || e)));
-    page.on('console', m => { if (m.type() === 'error') errors.push(mode + ' console: ' + m.text()); });
+    // 还没写出来的戏包 / needs.js 文件不存在：浏览器会报"读不到文件"，那不算错（外壳本来就跳过不存在的文件）
+    page.on('console', m => { if (m.type() === 'error' && !(/Failed to load resource/.test(m.text()) && /\/(scenes\/[^/]+|needs)\.js$/.test((m.location() || {}).url || ''))) errors.push(mode + ' console: ' + m.text() + ' ' + ((m.location() || {}).url || '')); });
     await page.goto(url + '?scale=3&entrance=0&roam=' + (mode === 'roam' ? 1 : 0));
     await page.waitForTimeout(300);
     await page.evaluate(() => window.pet.configure({ paused: true }));

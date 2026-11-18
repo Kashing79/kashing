@@ -22,12 +22,19 @@
   cfg.auto = QS.get('auto') !== '0';
   cfg.entrance = QS.get('entrance') !== '0';
   cfg.lawnTap = !NATIVE;            // 浏览器里点空地 = 往那儿丢球；Mac 上"空地"是她的桌面，不归我们管
+  // 小人说话用哪种文字：设定里没写就看浏览器的语言（繁体 / 简体 / 英文）
+  if (!cfg.lang) {
+    var nl = String((navigator.languages && navigator.languages[0]) || navigator.language || '').toLowerCase();
+    cfg.lang = /^zh-(tw|hk|mo|hant)/.test(nl) ? 'hant' : (/^zh/.test(nl) || !nl ? 'hans' : 'en');
+  }
+  if (QS.has('lang')) cfg.lang = QS.get('lang');
 
   var R = clamp(Math.round(+cfg.res) || 2, 1, 4);      // 一个世界单位画成几个像素
   var grass = !!cfg.grass;
   var optScale = parseInt(QS.get('scale') || '0', 10) || 0;   // 0 = 自动
   var optInsets = null;      // Mac 外壳告诉我们：菜单栏、程序坞各占多少
   var paused = false;
+  var lastInput = performance.now(), lastSense = 0;     // 她上一次碰键盘 / 鼠标是什么时候（告诉引擎"她在不在"）
 
   var canvas = document.getElementById('stage');
   if (!canvas) { canvas = document.createElement('canvas'); canvas.id = 'stage'; document.body.appendChild(canvas); }
@@ -126,6 +133,12 @@
     for (var i = 0; i < items.length; i++) {
       var it = items[i], im = it.img, cv = canvasOf(im), k = RR / (im.scale || 1);
       var x = Math.round(it.x * RR), y = Math.round(it.y * RR), w = im.w * k, h = im.h * k;
+      var cl = it.clip;
+      if (cl) {       // 只画这一块里面的部分（屏幕上的一个矩形，世界单位）
+        c.save(); c.beginPath();
+        c.rect(Math.round(cl[0] * RR), Math.round(cl[1] * RR), Math.round(cl[2] * RR), Math.round(cl[3] * RR));
+        c.clip();
+      }
       if (it.a < 1) c.globalAlpha = it.a;
       if (it.flip) {       // 左右镜像
         c.setTransform(-1, 0, 0, 1, x + w, y);
@@ -134,6 +147,7 @@
       } else if (k === 1) c.drawImage(cv, x, y);
       else c.drawImage(cv, x, y, w, h);
       if (it.a < 1) c.globalAlpha = 1;
+      if (cl) c.restore();
     }
   }
 
@@ -220,6 +234,8 @@
     var fr = eng.compose();
     last = fr;
     if (grass && lawn) ctx.drawImage(lawn, 0, 0, LW * R, LH * R); else ctx.clearRect(0, 0, LW * R, LH * R);
+    // 草地上的小印子（花、小土堆……）：有草地的时候画在草地上；没草地时只画说了 overlay 的
+    if (fr.decals && fr.decals.length) paint(ctx, grass ? fr.decals : fr.decals.filter(function (d) { return d.overlay; }), R);
     paint(ctx, fr.items, R);
     drawIsland();
     placeBubble(fr.bubble);
@@ -265,6 +281,8 @@
     lastMs = ms;
     dt = clamp(dt, 0, 0.25);
     var n = Math.max(1, Math.ceil(dt / (1 / 60)));
+    // 告诉引擎她多久没碰键盘鼠标了（一秒说一次就够）
+    if (eng.sense && ms - lastSense > 1000) { lastSense = ms; eng.sense({ idle: Math.max(0, (performance.now() - lastInput) / 1000) }); }
     for (var i = 0; i < n; i++) eng.step(dt / n);
     draw();
     if (ms - lastPost > 80) { lastPost = ms; post(); }
@@ -307,11 +325,13 @@
       }
     },
     command: function (name) { eng.command(name); kick(); },
+    sense: function (o) { if (eng.sense) eng.sense(o); },
     // type: down | move | up | hover | leave ；坐标是页面里的 CSS 像素
     pointer: function (type, x, y) {
       // 手里正拖着球 / 拎着谁的时候，岛先不要展开挡住视线
       if (ISL && ISL.pointer && !eng.status().drag && ISL.pointer(type, x, y)) { schedule(); return; }
       if (type === 'down') down = true; else if (type === 'up') down = false;
+      if (type !== 'leave') lastInput = performance.now();
       eng.pointer(type, (x - offX) / S, (y - offY) / S);
       if (type === 'down' || type === 'up') { post(); kick(); } else schedule();
     },
@@ -326,6 +346,12 @@
       scene: eng._t.scene,
       endScene: eng._t.endScene,
       perf: eng._t.perf,
+      list: eng._t.list,
+      raise: eng._t.raise,
+      events: eng._t.events,
+      props: eng._t.props,
+      sceneErrors: eng._t.sceneErrors,
+      care: eng._t.care,
       engine: eng,
     },
   };
@@ -339,6 +365,7 @@
     document.addEventListener('mouseleave', function () { window.pet.pointer('leave', 0, 0); });
   }
   window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  window.addEventListener('keydown', function () { lastInput = performance.now(); });
   // 改变大小会清空画布，所以马上重画一次，免得闪一下空白
   window.addEventListener('resize', function () { layout(); draw(); schedule(); });
   setInterval(function () { if (grass) { makeLawn(); schedule(); } }, 5 * 60 * 1000);

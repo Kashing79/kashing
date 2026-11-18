@@ -2121,7 +2121,8 @@
     r.step(1 / 60, { frame: 'p_release', holding: 'ball' });
     im = r.render(false, 2);
     function r1(v) { return Math.round(v * 10) / 10; }
-    return { height: D.hip + D.torso + D.headTop, half: 6.5, reach: POSES.p_pat.touch[0], eye: [D.headX + 1.0, D.hip + D.torso + 4.5],
+    // height 量到头顶（头皮）；前面翘起来的那一撮头发再高半个单位，不算在身高里（top 锚点是真正最高的像素）
+    return { height: D.hip + D.torso + D.headTop - 0.5, half: 6.5, reach: POSES.p_pat.touch[0], eye: [D.headX + 1.0, D.hip + D.torso + 4.5],
              chest: [1.4, D.hip + D.shY - 2], release: [r1(im.hand[0]), r1(im.hand[1])], hip: D.hip };
   })();
 

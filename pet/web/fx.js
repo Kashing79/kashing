@@ -361,7 +361,7 @@
       var c = Math.cos(ang), sn = Math.sin(ang), nx = ux * c - uy * sn, ny = ux * sn + uy * c, nz = sqrt(1 - d) * 0.9 + 0.1;
       var t = (nx * LX + ny * LY + nz * LZ) / sqrt(nx * nx + ny * ny + nz * nz);
       if (R < 2) return t > 0.7 ? 4 : (t > -0.1 ? 3 : 2);              // 太小了：三级就够
-      return t > 0.955 ? 5 : (t > 0.66 ? 4 : (t > 0.12 ? 3 : (t > -0.36 ? 2 : 1)));
+      return t > 0.955 ? 5 : (t > 0.7 ? 4 : (t > 0.22 ? 3 : (t > -0.22 ? 2 : 1)));      // 背光的一边多压暗一点：亮的那块小一点，球看起来不那么大
     } });
     var W = p.W, px = p.cx, py = p.cy + cy * R, ax = rx * R, ay = ry * R, N = 200, line = [];
     var ca = Math.cos(ang), sa = Math.sin(ang), cr = Math.cos(rot), sr = Math.sin(rot), si;
@@ -405,6 +405,7 @@
       p.t[kk] = p.t[kk] >= 3 ? 4 : 2; p.m[kk] = M.seam; p.f[kk] = 2;
       if (R >= 3 && p.m[kk + W] === M.ball) { p.t[kk + W] = p.t[kk + W] >= 3 ? 4 : 2; p.m[kk + W] = M.seam; p.f[kk + W] = 2; }
     }
+    if (R > 1) p.rim(M.ball, 1, 1, 1);          // 右下贴着描边再压一道最暗的：边缘更利落
     p.outline();
     if (R > 1) p.soften();
     return p.done(key);
@@ -803,8 +804,9 @@
   function poop(p, a) {
     var m = M[a.m || 'choc'], px = 1 / p.R;
     // 每层：[中心 x, 中心 y, 半长（不算圆头）, 圆头半径]
-    var T = a.big ? [[0, -1.25, 1.25, 1.25], [0.15, -2.85, 0.6, 1.0], [0.45, -4.0, 0.0, 0.6], [0.95, -4.4, 0.0, 0.3]]
-                  : [[0, -1.0, 0.5, 1.0], [0.15, -2.2, 0.0, 0.75], [0.5, -2.95, 0.0, 0.3]];
+    // 最下面那层的底不超过 y = -0.5（描边正好落在地上那一排）
+    var T = a.big ? [[0, -1.5, 1.5, 1.0], [0.15, -2.85, 0.6, 1.0], [0.45, -4.0, 0.0, 0.6], [0.95, -4.4, 0.0, 0.3]]
+                  : [[0, -1.25, 0.75, 0.75], [0.15, -2.2, 0.0, 0.75], [0.5, -2.95, 0.0, 0.3]];
     var H = a.big ? 4.6 : 3.1, W = a.big ? 5 : 3, sx = a.pop ? (W + 2 * px) / W : 1, sy = a.pop ? (H - px) / H : 1, i;
     if (a.big) p.box(-3.5, -5.5, 3.5, 0); else p.box(-2.5, -4, 2.5, 0);
     for (i = 0; i < T.length; i++) {
@@ -893,8 +895,8 @@
   // a = 'closed' / 'open' 盖子掀开 30° / 'pop' 冒出来那一下（压扁一帧）
   function bin(p, a) {
     var s = M.steel, n = M.navy, sx = a === 'pop' ? 1.12 : 1, sy = a === 'pop' ? 0.86 : 1, top = -9 * sy;
-    p.box(-5.5, -12.5, 5.5, 0);
-    p.rect(-3 * sx, -1.5, -2 * sx, 0, n, { tone: 2 }); p.rect(2 * sx, -1.5, 3 * sx, 0, n, { tone: 2 });     // 两只脚
+    p.box(-5.5, -15.5, 5.5, 0);
+    p.rect(-3 * sx, -1.5, -2 * sx, -0.5, n, { tone: 2 }); p.rect(2 * sx, -1.5, 3 * sx, -0.5, n, { tone: 2 });     // 两只脚
     p.poly([-4 * sx, top, 4 * sx, top, 3.5 * sx, -1.5, -3.5 * sx, -1.5], s, { tone: function (x) { var u = x / (4 * sx); return u < -0.7 ? 5 : (u > 0.6 ? 2 : 3); } });
     p.rim(s, 0, 1, 2);
     p.rect(-3.5 * sx, top + 1.5, 3.5 * sx, top + 2.0, s, { tone: 2, over: s });                             // 一道箍
@@ -916,9 +918,12 @@
   // 他的白手帕：拎着一个角，一道折痕
   function hanky(p) {
     var m = M.paper;
-    p.poly([0, 0, 2.0, 2.0, 0.25, 4.0, -2.0, 2.0], m, { tone: function (x, y) { return x < -0.25 ? 4 : 3; } });
-    p.line(0, 0.5, 0.25, 3.5, m, 2, { over: m });
-    p.rim(m, 1, 1, 2);
+    // 拎着一个角垂下来：左半边亮、右半边暗一点；四边往里一点是一圈缝边；下面那个角微微卷起来
+    p.poly([0, 0, 2.0, 2.0, 0.25, 4.0, -2.0, 2.0], m, { tone: function (x, y) { return x < -0.1 ? 4 : 3; } });
+    p.line(0, 0.75, 1.25, 2.0, m, 2, { over: m }); p.line(1.25, 2.0, 0.25, 3.25, m, 2, { over: m });
+    p.line(0, 0.75, -1.25, 2.0, m, 2, { over: m }); p.line(-1.25, 2.0, 0.25, 3.25, m, 2, { over: m });
+    p.line(0.25, 1.0, 0.25, 3.0, m, 3, { over: m });                                    // 中间一道折痕
+    p.poly([0.25, 4.0, 1.0, 3.25, 0.5, 3.25], m, { tone: 2 });                         // 卷起来的角
     p.outline();
     p.anchor('grip', 0, 0.25);
   }
@@ -926,14 +931,16 @@
   // 小雏菊（不描边，和草地上的花一家）：a = 0 刚冒出来的芽 / 1 开花
   function daisy(p, a) {
     var g = M.grass, w = M.white, NO = { ol: false };
+    // 茎和叶子用草地上最亮的那种绿（和草地本身的颜色分得开），右边贴一道深绿
     if (!a) {
-      p.line(0, -0.5, 0, -2.0, g, 2, NO);
-      p.line(-0.75, -2.5, -0.25, -2.0, g, 4, NO); p.line(0.75, -2.5, 0.25, -2.0, g, 3, NO);
-      p.dot(-1.0, -2.75, g, 4, NO); p.dot(1.0, -2.75, g, 3, NO);
+      p.line(0, -0.5, 0, -2.0, g, 4, NO); p.line(0.5, -0.5, 0.5, -1.5, g, 1, { ol: false, under: true });
+      p.line(-0.75, -2.5, -0.25, -2.0, g, 5, NO); p.line(0.75, -2.5, 0.25, -2.0, g, 4, NO);
+      p.dot(-1.0, -2.75, g, 5, NO); p.dot(1.0, -2.75, g, 4, NO);
       return;
     }
-    p.line(p.hp, -0.5, p.hp, -3.5, g, 2, NO);                                            // 茎
-    p.line(p.hp + 0.5, -1.5, p.hp + 1.25, -2.0, g, 4, NO); p.dot(p.hp + 1.5, -2.25, g, 4, NO);   // 一片叶子
+    p.line(p.hp, -0.5, p.hp, -3.5, g, 4, NO);                                            // 茎
+    p.line(p.hp + 0.5, -0.5, p.hp + 0.5, -2.5, g, 1, { ol: false, under: true });
+    p.line(p.hp + 0.5, -1.5, p.hp + 1.25, -2.0, g, 5, NO); p.dot(p.hp + 1.5, -2.25, g, 4, NO);   // 一片叶子
     p.disc(p.hp, -4.25, 1.75, w, { tone: function (ux, uy) { return ux + uy > 0.7 ? 2 : 3; }, ol: false });
     p.dot(p.hp - 1.5, -4.25, w, 2, { ol: false }); p.dot(p.hp + 1.25, -4.25, w, 2, { ol: false });   // 花瓣之间的小缺口
     p.dot(p.hp, -5.75, w, 2, { ol: false });
@@ -949,7 +956,7 @@
     p.disc(-1.8 * k, -2.6 * k, 1.4 * k, w, U); p.disc(0.6 * k, -3.2 * k, 1.6 * k, w, U); p.disc(2.8 * k, -2.4 * k, 1.3 * k, w, U);
     p.disc(-2.4 * k, -0.2 * k, 1.2 * k, w, U); p.disc(3.3 * k, -0.4 * k, 1.1 * k, w, U);
     p.rim(w, 1, 1, 3); p.rim(w, 0, 1, 2);
-    p.disc(-4.25 * k, 3.0 * k, 0.65, w, { tone: 4 }); p.disc(-6.3 * k, 5.0 * k, 0.4, w, { tone: 4 });     // 两个往下拖的小泡（和大泡分开）
+    p.disc(-5.0 * k, 3.6 * k, 1.0, w, { tone: 4 }); p.disc(-7.4 * k, 6.1 * k, 0.6, w, { tone: 4 });     // 两个往下拖的小泡（和大泡分开）
   }
   function food(p) {
     var m = M.cred;
@@ -1130,20 +1137,20 @@
   // 一团奶油色的毛（6 × 5），四周翘着几根；a = 转到哪一帧（0 / 1 / 2，滚起来轮着放）
   function furball(p, a) {
     var c = M.cream, i, ph = a * 2.1;
-    p.box(-3.5, -5.5, 3.5, 0);
-    p.ell(0, -2.4, 2.4, 2.1, c, { f: 0.35 });
+    p.box(-4, -6.5, 4, 0);
+    p.ell(0, -2.6, 2.4, 2.1, c, { f: 0.35 });
     for (i = 0; i < 9; i++) {
       var an = ph + i * 0.7 + (hsh(i * 3 + 1) - 0.5) * 0.4, l = 2.3 + hsh(i * 7) * 0.9;
-      p.line(Math.cos(an) * 1.6, -2.4 + Math.sin(an) * 1.4, Math.cos(an + 0.25) * l, -2.4 + Math.sin(an + 0.25) * l * 0.85, c, an > 2.4 && an < 5.5 ? 4 : 3);
+      p.line(Math.cos(an) * 1.6, -2.6 + Math.sin(an) * 1.4, Math.cos(an + 0.25) * l, Math.min(-1.0, -2.6 + Math.sin(an + 0.25) * l * 0.85), c, an > 2.4 && an < 5.5 ? 4 : 3);
     }
-    p.line(Math.cos(ph) * 0.5 - 0.5, -2.9, Math.cos(ph) * 0.5 + 0.75, -1.9, c, 2, { over: c });        // 一道毛的纹路，跟着转
+    p.line(Math.cos(ph) * 0.5 - 0.5, -3.1, Math.cos(ph) * 0.5 + 0.75, -2.1, c, 2, { over: c });        // 一道毛的纹路，跟着转
     p.outline();
     p.anchor('grip', 0, 0);
   }
   // 白杯子（4 × 4）：里面是茶，右边一个把手，上面一缕热气；a = 0 / 1 两帧热气
   function cup(p, a) {
     var m = M.paper, NO = { ol: false };
-    p.box(-2.0, -6.5, 3.0, 0);
+    p.box(-2.0, -6.5, 3.5, 0);
     var hp = [];                                                                        // 把手：一个小圈
     for (var i = 0; i <= 10; i++) { var t = -PI / 2 + i / 10 * PI; hp.push(1.6 + Math.cos(t) * 0.9, -2.0 + Math.sin(t) * 0.8); }
     p.stroke(hp, 0.5, m, { tone: 3 });
@@ -1204,13 +1211,13 @@
       p.dot(-4.25, -0.5, m, 3, NO); p.dot(4.25, -1.0, m, 2, NO); p.dot(-3.25, -3.0, m, 3, NO); p.dot(3.75, -2.75, m, 4, NO); p.dot(1.5, -0.25, m, 4, NO);
       return;
     }
-    var pts = [], i;
-    for (i = 0; i <= 12; i++) { var t = PI + PI * i / 12; pts.push(2.25 * Math.cos(t), -0.5 + 1.25 * Math.sin(t)); }
-    p.poly(pts, m, { tone: function (x, y) { return x < -0.75 && y < -0.75 ? 5 : (x > 0.75 ? 3 : 4); } });
-    p.rect(-2.25, -0.75, 2.25, -0.5, m, { tone: 3 });
-    p.dot(-0.5, -1.25, m, 2, { over: m }); p.dot(0.75, -1.0, m, 2, { over: m });
-    p.outline();
-    p.dot(-3.0, -0.5, m, 3, NO); p.dot(3.0, -0.75, m, 3, NO);
+    // 小土堆：一层比一层窄的三排，顶上亮、底下暗（和爪印一样不描边，安安静静地贴在草上）
+    p.rect(-1.0, -2.0, 1.0, -1.5, m, { tone: 4, ol: false });
+    p.rect(-1.75, -1.5, 1.75, -1.0, m, { tone: function (x) { return x < -0.5 ? 4 : 3; }, ol: false });
+    p.rect(-2.25, -1.0, 2.25, -0.5, m, { tone: function (x) { return x < -1.25 ? 3 : 2; }, ol: false });
+    p.rect(-2.0, -0.5, 2.0, 0, m, { tone: 1, ol: false });
+    p.dot(-0.5, -2.0, m, 5, { ol: false, lock: true });
+    p.dot(-2.75, -0.5, m, 2, NO); p.dot(2.75, -0.75, m, 3, NO);
   }
   // 小灯笼（5 × 8）：藏青的架子，里面暖暖的光；a.glow = 地上那一圈暖光（20 宽，很淡）
   function lantern(p, a) {
@@ -1275,12 +1282,13 @@
     p.poly(Q, m, { tone: function (x, y) { var sx = x * (1 + (y + 0.5) / 26 * 0.1); return gingham(sx + 44, y + 40, 1.5); } });
     p.rect(-22, -1.0, corner ? 15 : 22, -0.5, m, { tone: 2 });
     p.rim(m, 1, 0, 3);
-    if (corner) {
-      // 翘起来的角：看得到布的反面（素色），边上亮一道
-      p.poly([22, -7, 15, -0.5, 19.5, -6.0, 23.5, -9.5], m, { tone: 2 });
-      p.line(15.5, -1.0, 23.0, -9.0, m, 4);
-    }
     p.outline();
+    if (corner) {
+      // 右前角被掀起来折到布上：露出素色的反面，折痕那边亮一道，两条毛边描深
+      p.poly([22, -7, 15, -0.5, 15.5, -7.5], m, { tone: 4 });
+      p.line(21.5, -6.75, 15.25, -1.0, m, 5);
+      p.line(22, -7, 15.5, -7.5, m, 0); p.line(15.5, -7.5, 15, -0.5, m, 0);
+    }
   }
   // 藤编小篮子（12 × 9）：编出来的格纹、一圈卷边、提手、盖子掀开；a.front = 只画前面那一面（盖在蹲在篮子里的小腊肠前面）
   function basket(p, a) {
@@ -1301,7 +1309,7 @@
     p.rect(-6.25, -6.75, -1.0, -6.25, k, { tone: 5 });
     p.rect(4.5, -6.25, 6.25, -5.75, k, { tone: 3 });
     p.outline();
-    p.anchor('grip', 0, -10.75);
+    if (!front) p.anchor('grip', 0, -10.75);
   }
   // 书：a = 'open' 两手捧着打开（7 × 5）/ 'turn' 翻页那一帧 / 'closed' 合上（4 × 5）
   function book(p, a) {
@@ -1370,7 +1378,7 @@
   function cake(p, a) {
     var w = M.paper, sp = M.ivory, pk = M.rose, f = a.f, fl = M.flame, NO = { ol: false };
     p.box(-5.5, -10.5, 5.5, 0);
-    p.ell(0, -0.75, 5.0, 0.75, w, { tone: function (ux, uy) { return uy > 0.3 ? 2 : 4; } });     // 盘子
+    p.ell(0, -1.0, 5.0, 0.5, w, { tone: function (ux, uy) { return uy > 0.1 ? 2 : 4; } });       // 盘子
     p.rect(-3.5, -4.5, 3.5, -1.0, sp, { tone: function (x) { return x < -2.5 ? 4 : (x > 2.5 ? 2 : 3); } });   // 蛋糕
     p.rect(-3.5, -3.0, 3.5, -2.25, pk, { tone: 3 });                                      // 夹层
     p.ell(0, -4.5, 3.5, 0.75, w, { tone: 4 });                                            // 上面的奶油
@@ -1457,12 +1465,12 @@
   // ---------- 表情（R5 3.4）----------
   // 嗅一嗅：鼻子前面两三道小弯；a = 0（两道，近）/ 1（三道，远一点）
   function sniffs(p, a) {
-    var m = M.white, NO = { ol: false }, i, k = a === undefined ? 1 : a;
+    var NO = { ol: false }, i, k = a === undefined ? 1 : a, n = 2 + (k ? 1 : 0);
     p.box(-0.5, -2.5, 4.5, 2.0);
-    for (i = 0; i < 2 + (k ? 1 : 0); i++) {
-      var x = 0.5 + i * 1.25 + k * 0.5, y = -1.0 + (i & 1) * 1.0;
-      p.dot(x, y - 0.5, m, 3, NO); p.dot(x + 0.5, y, m, 4, NO); p.dot(x, y + 0.5, m, 3, NO);
-      p.dot(x - 0.5, y, M.steel, 2, { ol: false, under: true });
+    for (i = 0; i < n; i++) {
+      // 一道小小的 ")"：中间两点白，两头一点灰
+      var x = 0.5 + i * 1.25 + k * 0.5, y = -0.75 + (i === 1 ? 0.5 : 0);
+      p.dot(x, y - 1.0, M.steel, 3, NO); p.dot(x + 0.5, y - 0.5, M.white, 4, NO); p.dot(x + 0.5, y, M.white, 4, NO); p.dot(x, y + 0.5, M.steel, 3, NO);
     }
   }
   // 打喷嚏：往前一小股飞沫（3–5 个像素）；a.m = 颜色（花粉的黄色版用 yolk）
@@ -1739,18 +1747,38 @@
     ['confetti6', confetti, { m: 'cred', t: 3 }, '粒子：纸屑（红）'],
     ['petal0', petal, 0, '粒子：粉色花瓣（横着）'],
     ['petal1', petal, 1, '粒子：粉色花瓣（竖着）'],
+    // ---- 只写种类、不写状态时的默认样子（画法和说明里写的那张一模一样，免得引擎找不到图）----
+    ['bowl_gold', bowlDraw, { m: 'cred', w: 14, h: 6, tp: 1.5, s: 'empty', bone: 1 }, '同 bowl_gold_empty（只写种类、不写状态时用的默认样子）'],
+    ['bowl_dax', bowlDraw, { m: 'cblue', w: 10, h: 4.5, tp: 1.0, ry: 1.0, s: 'empty', grip: 1 }, '同 bowl_dax_empty（只写种类、不写状态时用的默认样子）'],
+    ['bowl_water', bowlDraw, { m: 'steel', w: 12, h: 5, tp: 1.25, ry: 1.0, s: 'water' }, '同 bowl_water_full（只写种类、不写状态时用的默认样子）'],
+    ['bowls_stack', bowlStack, {}, '同 bowls_stack_empty（只写种类、不写状态时用的默认样子）'],
+    ['kibble_bag', kbag, {}, '同 kibble_bag_closed（只写种类、不写状态时用的默认样子）'],
+    ['kibble_fall', kfall, 0, '同 kibble_fall_a（只写种类、不写状态时用的默认样子）'],
+    ['bag', pbag, 'roll', '同 bag_roll（只写种类、不写状态时用的默认样子）'],
+    ['scooper', scooper, 'carry', '同 scooper_carry（只写种类、不写状态时用的默认样子）'],
+    ['bin', bin, 'closed', '同 bin_closed（只写种类、不写状态时用的默认样子）'],
+    ['daisy', daisy, 1, '同 daisy_bloom（只写种类、不写状态时用的默认样子）'],
+    ['book', book, 'open', '同 book_open（只写种类、不写状态时用的默认样子）'],
+    ['gift', gift, {}, '同 gift_wrapped（只写种类、不写状态时用的默认样子）'],
+    ['cake', cake, { f: 'lit' }, '同 cake_lit（只写种类、不写状态时用的默认样子）'],
   ];
 
+  // 图有两百多张：用到哪张才画哪张（第一次读 S[名字] 时画好，之后一直用同一张）。
+  // Object.keys(S) 照样列出所有名字；没有 JIT 的 JavaScriptCore 里启动也不用一下子画完。
   var built = {};
   function build(cfg, R) {
     R = resOf(R);
     if (built[R]) return built[R];
-    var S = {}, i;
-    for (i = 0; i < SPRITES.length; i++) {
-      var e = SPRITES[i], p = padOf(R);
-      e[1](p, e[2]);
-      S[e[0]] = p.done(e[0] + '@' + R);
-    }
+    var S = {};
+    SPRITES.forEach(function (e) {
+      Object.defineProperty(S, e[0], { enumerable: true, configurable: true, get: function () {
+        var p = padOf(R);
+        e[1](p, e[2]);
+        var im = p.done(e[0] + '@' + R);
+        Object.defineProperty(S, e[0], { value: im, enumerable: true, configurable: true, writable: true });
+        return im;
+      } });
+    });
     return (built[R] = S);
   }
   var EXTRA = [];

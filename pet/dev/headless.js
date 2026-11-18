@@ -17,7 +17,10 @@ const RES = parseInt(arg('res', '2'), 10) || 2;
 const MIN = { roam: parseFloat(arg('roam', '20')), band: parseFloat(arg('band', '10')) };
 const SEED = (parseInt(arg('seed', String((Date.now() ^ (process.pid << 8)) >>> 0)), 10) >>> 0) || 1;
 const WEB = path.resolve(arg('web', path.join(__dirname, '../web')));
-const FILES = ['config.js', 'sprites.js', 'fx.js', 'dogs.js', 'person.js', 'lawn.js', 'pet.js'];
+// 和 Mac 外壳一样的顺序（SPEC 8.7）：这几个，再加 scenes/ 下面所有的戏包（按文件名排）
+const FILES = ['config.js', 'sprites.js', 'fx.js', 'dogs.js', 'person.js', 'lawn.js', 'needs.js', 'pet.js'];
+const PACKS = fs.existsSync(path.join(WEB, 'scenes')) ? fs.readdirSync(path.join(WEB, 'scenes')).filter(f => /\.js$/.test(f)).sort().map(f => 'scenes/' + f) : [];
+const MINE = ['scenes/classic.js', 'scenes/care.js', 'scenes/examples.js'];
 
 let failed = false;
 const problems = [];
@@ -48,7 +51,7 @@ const builtins = new Set(Object.getOwnPropertyNames(vm.runInContext('globalThis'
 // 这些名字只有网页里才有：写在代码里（注释和 typeof 判断除外）就是隐患。
 // 引擎自己的文件里出现就算错；画图的文件里出现先提个醒（真跑到那一行时下面自然会报错）
 const WEB_ONLY = /\b(window|document|navigator|location|URLSearchParams|setTimeout|setInterval|requestAnimationFrame|performance|localStorage|console)\b/;
-const STRICT = ['config.js', 'sprites.js', 'pet.js'];
+const STRICT = ['config.js', 'sprites.js', 'needs.js', 'pet.js'].concat(MINE);
 function lint(file, src) {
   src.split('\n').forEach((line, i) => {
     const code = line.replace(/\/\/.*$/, '').replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""')
@@ -70,7 +73,7 @@ function syntax(file, src) {
 }
 
 const loaded = [];
-for (const f of FILES) {
+for (const f of FILES.concat(PACKS)) {
   const p = path.join(WEB, f);
   if (!fs.existsSync(p)) { console.log('skip', f, '(missing)'); continue; }
   const src = fs.readFileSync(p, 'utf8');
@@ -78,11 +81,11 @@ for (const f of FILES) {
   lint(f, src);
   syntax(f, src);
   try { vm.runInContext(src, ctx, { filename: f }); loaded.push(f); }
-  catch (e) { fail('loading ' + f + ': ' + (e && e.stack || e)); }
+  catch (e) { if (f.indexOf('scenes/') === 0 && !MINE.includes(f)) warn('loading ' + f + ' threw (the host skips such a pack): ' + (e && e.message || e)); else fail('loading ' + f + ': ' + (e && e.stack || e)); }
 }
 const G = vm.runInContext('globalThis', ctx);
 const added = Object.getOwnPropertyNames(G).filter(k => !builtins.has(k) && k.indexOf('__') !== 0);
-console.log('loaded', loaded.join(' '), '| globals:', added.join(' '), '| res', RES, '| seed', SEED);
+console.log('loaded', loaded.filter(f => f.indexOf('scenes/') < 0).join(' '), '+', loaded.filter(f => f.indexOf('scenes/') === 0).length, 'scene packs | globals:', added.join(' '), '| res', RES, '| seed', SEED);
 for (const k of added) if (!/^PET_[A-Z]+$/.test(k)) warn('a file left an extra global behind: "' + k + '" (each file should add exactly one PET_... name)');
 if (!G.PET_ENGINE) { console.log('RESULT: FAILED (no PET_ENGINE)'); process.exit(1); }
 if (!G.PET_DOGS) fail('PET_DOGS is missing (dogs.js did not define it): the engine still runs, but the dogs cannot be drawn');
@@ -128,6 +131,7 @@ function checkItems(items, where, view) {
     seen.add(it.id);
     if (!isNum(it.x) || !isNum(it.y)) fail(w + ': position not finite (' + it.x + ', ' + it.y + ')');
     if (!isNum(it.a) || it.a < 0 || it.a > 1) fail(w + ': bad opacity ' + it.a);
+    if (it.clip !== undefined && !(it.clip && it.clip.length === 4 && it.clip.every(isNum))) fail(w + ': bad clip ' + JSON.stringify(it.clip));
     if (typeof it.flip !== 'boolean') fail(w + ': flip must be a boolean');
     checkImg(it.img, w);
     if (isNum(it.x) && it.img && it.img.w) {
@@ -153,8 +157,9 @@ function checkVersions(run, items, deep) {
     const key = run + ':' + it.id, t = track[key] || (track[key] = { im: im, ver: -1, sum: 0, deepVer: -1 });
     if (t.im !== im) { fail(key + ': the image object changed identity'); t.im = im; t.deepVer = -1; }
     if (im.ver < t.ver) fail(key + ': ver went backwards');
-    // 认得"零头"的骨架（原点不在整像素上）：刚画好的那一帧，图应该正好落在像素格子上
-    if (im.ver !== t.ver && Math.abs(im.ox - Math.round(im.ox)) > 1e-6) {
+    // 认得"零头"的骨架（原点不在整像素上）：刚画好的那一帧，图应该正好落在像素格子上。
+    // 头一回见到这张图（t.ver 还是 -1，比如换到"夜里"那一段）不算：它是早些时候画的，角色已经挪过了
+    if (t.ver !== -1 && im.ver !== t.ver && Math.abs(im.ox - Math.round(im.ox)) > 1e-6) {
       const gx = it.x * im.scale;
       if (Math.abs(gx - Math.round(gx)) > 1e-4) fail(key + ': freshly drawn image is not on the pixel grid (x*R = ' + gx.toFixed(4) + ')');
     }
@@ -172,11 +177,15 @@ function checkFrame(run, fr, view, deep) {
   checkItems(fr.items, run, view);
   checkVersions(run, fr.items, deep);
   if (typeof fr.drag !== 'boolean') fail(run + ': drag must be a boolean');
-  if (!fr.hot || typeof fr.hot.length !== 'number' || fr.hot.length > 4) fail(run + ': bad hot list');
+  if (!fr.hot || typeof fr.hot.length !== 'number' || fr.hot.length > 12) fail(run + ': bad hot list');
   else for (const r of fr.hot) {
     if (!r || r.length !== 4 || !r.every(isNum)) { fail(run + ': hot rect not finite ' + JSON.stringify(r)); continue; }
     if (r[2] <= 0 || r[3] <= 0 || r[2] > 140 || r[3] > 140) fail(run + ': hot rect has a silly size ' + JSON.stringify(r));
     if (r[0] + r[2] < -60 || r[0] > view.w + 60 || r[1] + r[3] < -(view.h * 2.3 + 100) || r[1] > view.h + 60) fail(run + ': hot rect far outside the view ' + JSON.stringify(r));
+  }
+  if (fr.decals !== undefined) {
+    if (!Array.isArray(fr.decals)) fail(run + ': decals is not an array');
+    else for (const d of fr.decals) { if (!d || typeof d.id !== 'string' || !isNum(d.x) || !isNum(d.y) || typeof d.overlay !== 'boolean') fail(run + ': bad decal ' + JSON.stringify(d && d.id)); else checkImg(d.img, run + ' decal ' + d.id); }
   }
   if (fr.bubble !== null) {
     const b = fr.bubble;
@@ -394,6 +403,7 @@ function simulate(mode, minutes) {
 
   const e = T.state();
   for (const m of T.errors()) fail(mode + ': a drawing module threw: ' + m);
+  if (T.sceneErrors) for (const m of T.sceneErrors()) fail(mode + ': a scene failed: ' + m);
   for (const k in stats.phases) stats.phases[k] = Math.round(stats.phases[k]);
   stats.scenes = e.scenes; stats.fetch = eng.status().fetch; stats.haptics = haptics;
   const renders = Object.keys(perf).reduce((n, k) => n + perf[k].renders, 0), changed = Object.keys(perf).reduce((n, k) => n + perf[k].changed, 0);

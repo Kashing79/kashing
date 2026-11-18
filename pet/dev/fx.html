@@ -20,6 +20,8 @@
 <script src="../web/config.js"></script>
 <script src="../web/fx.js"></script>
 <script src="../web/lawn.js"></script>
+<script src="../web/dogs.js"></script>
+<script src="../web/person.js"></script>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
@@ -115,6 +117,51 @@
     ['bone', 'bfly_a', 'bfly_b', 'bfly2_a', 'bfly2_b', 'puff0', 'puff1', 'puff2', 'fx_heart', 'fx_hs', 'fx_bang', 'fx_note', 'fx_z', 'fx_zs', 'fx_q', 'fx_spark', 'fx_sweat', 'fx_woof',
       'fx_heart_pop0', 'fx_heart_pop1', 'fx_heart_pop2', 'fx_spark0', 'fx_spark1', 'fx_spark2', 'puff3', 'bfly_c', 'bfly_rest', 'bfly2_c', 'bfly2_rest',
       'paw', 'paw_s', 'sod0', 'sod1', 'sod2', 'sod0_dusk', 'sod1_dusk', 'sod2_dusk', 'sod0_night', 'sod1_night', 'sod2_night', 'bloom_w', 'bloom_y', 'bloom_p', 'bloom2_w', 'bloom2_y', 'bloom2_p', 'leaf_a0', 'leaf_a1', 'leaf_a2', 'leaf_a3', 'leaf_b0', 'leaf_b1', 'leaf_b2', 'leaf_b3', 'firefly0', 'firefly1', 'firefly2'].forEach(function (n) { listed[n] = 1; });
+    // ---- 第二批：开饭、便便、收拾（R6），互动用的小道具和表情（R5）----
+    var groups = [
+      ['开饭（R6）：碗和狗粮（原点在底边正中，青色十字 = grip）', ['bowl_gold_empty', 'bowl_gold_half', 'bowl_gold_full', 'bowl_dax_empty', 'bowl_dax_half', 'bowl_dax_full', 'bowl_water_full', 'bowl_water_full2', 'bowl_water_low'], 16, 10, 'ground'],
+      ['', ['bowls_stack_empty', 'bowls_stack_bag', 'kibble_bag_closed', 'kibble_bag_pour', 'kibble_fall_a', 'kibble_fall_b', 'kibble_bit'], 16, 18, 'ground'],
+      ['便便和收拾（R6 4.4：干干净净、像玩具）', ['poop_s', 'poop_s_pop', 'poop_l', 'poop_l_pop', 'poop_gold', 'poop_gold_pop', 'poop_gold2', 'bag_roll', 'bag_open', 'bag_full', 'hanky', 'daisy_sprout', 'daisy_bloom'], 9, 9, 'ground'],
+      ['', ['scooper_carry', 'scooper_full', 'scooper_use', 'bin_closed', 'bin_open', 'bin_pop'], 16, 20, 'ground'],
+      ['表情（R6 + R5）', ['fx_food', 'fx_drool0', 'fx_drool1', 'fx_drool2', 'fx_sigh', 'fx_huff', 'fx_dots0', 'fx_dots1', 'fx_dots2', 'fx_blush', 'fx_wisp', 'fx_clover'], 12, 12],
+      ['', ['fx_sniffs0', 'fx_sniffs1', 'fx_achoo', 'fx_achoo_y', 'fx_dizzy0', 'fx_dizzy1', 'fx_dizzy2', 'fx_dizzy3', 'fx_grr', 'fx_sun', 'fx_moon', 'fx_bigwoof'], 12, 14],
+      ['', ['fx_thought', 'fx_thought_ball', 'fx_thought_bone', 'fx_thought_shoe', 'fx_thought_butterfly', 'fx_thought_hole', 'fx_thought_tail', 'fx_thought_heart', 'fx_thought_cursor', 'fx_thought_bouquet'], 15, 13],
+      ['互动用的小道具（R5）', ['stick', 'stick_chewed', 'rope', 'rope_carry', 'rope_knot', 'leash', 'leash_handle', 'leash_carry'], 31, 16],
+      ['', ['brush', 'brush_full', 'furball', 'furball_b', 'furball_c', 'cup', 'cup2', 'calendar', 'calendar_sheet', 'calendar_sheet2', 'photo', 'gnat', 'gnat2', 'lantern'], 10, 12, 'ground'],
+      ['', ['basket', 'basket_front', 'book_open', 'book_turn', 'book_closed', 'gift_wrapped', 'gift_open', 'flower', 'flower_worn', 'cake_lit', 'cake_lit2', 'cake_bent', 'cake_out', 'envelope', 'bouquet', 'ribbon'], 14, 14, 'ground'],
+      ['', ['blanket', 'blanket_edge', 'blanket_den', 'blanket_lump', 'blanket_folded'], 48, 30, 'ground'],
+      ['草地上的贴花', ['mound', 'hole', 'nap_flower', 'nap_flower_y', 'nap_flower_p', 'fur', 'fur2', 'petal0', 'petal1', 'confetti0', 'confetti1', 'confetti2', 'confetti3', 'confetti4', 'confetti5', 'confetti6'], 10, 6, 'ground'],
+      ['', ['flat_grass', 'flat_grass_dusk', 'flat_grass_night', 'sunpatch', 'lantern_glow'], 62, 26],
+    ];
+    groups.forEach(function (g) {
+      var have = g[1].filter(function (n) { return S[n] && (!filt || n.indexOf(filt) >= 0); });
+      if (!have.length) return;
+      if (g[0]) h2(g[0]);
+      strip(named(have), g[2], g[3], null, g[4]);
+      have.forEach(function (n) { listed[n] = 1; });
+    });
+    // ---- 拿在手里 / 叼在嘴里：按 grip 对到他的 hand、狗的 mouth（真实大小 × 3）----
+    if (window.PET_PERSON && window.PET_DOGS && !filt) {
+      h2('拿在手里 / 叼在嘴里（grip 对到 hand / mouth；一个像素放大 3 倍）');
+      var HW = 330, HH = 60, hc = document.createElement('canvas'); hc.width = HW * R; hc.height = HH * R; hc.style.width = HW * R * 3 + 'px'; hc.style.height = HH * R * 3 + 'px';
+      out.appendChild(hc);
+      var hx = hc.getContext('2d'); if (lawnDay) { hx.drawImage(cv(lawnDay), 0, 0); hx.drawImage(cv(lawnDay), lawnDay.w, 0); }
+      var drawAt = function (im, x, y) { hx.drawImage(toCanvas(im), Math.round(x * R - im.ox), Math.round(y * R - im.oy)); };
+      var holdAt = function (name, px, py) { var im = S[name]; if (!im) return; var g = im.grip || [im.ox, im.oy]; hx.drawImage(cv(im), Math.round(px * R - g[0]), Math.round(py * R - g[1])); };
+      var manProps = ['kibble_bag_closed', 'scooper_carry', 'bag_full', 'cup', 'bouquet', 'book_closed', 'gift_wrapped'];
+      manProps.forEach(function (n, i) {
+        var rig = window.PET_PERSON.create(window.PET_CONFIG);
+        for (var k = 0; k < 30; k++) rig.update(0.05, { frame: 'p_hold', holding: 'ball', t: k * 0.05 });
+        var o = rig.render(false, R), x = 14 + i * 26, y = 52;
+        drawAt(o, x, y); if (o.hand) holdAt(n, x + o.hand[0], y - o.hand[1]);
+      });
+      [['gold', 'stick'], ['dax', 'bowl_dax_empty'], ['gold', 'rope_carry']].forEach(function (d, i) {
+        var rig = window.PET_DOGS.create(d[0], d[0] === 'gold' ? 'gold' : 'dax_red');
+        for (var k = 0; k < 20; k++) rig.update(0.05, { pose: 'stand', carry: true });
+        var o = rig.render(false, R), x = 205 + i * 48, y = 52;
+        drawAt(o, x, y); if (o.mouth) holdAt(d[1], x + o.mouth[0], y - o.mouth[1]);
+      });
+    }
     var rest = all.filter(function (n) { return !listed[n]; });
     if (rest.length) { h2('其余的图（后来加的）'); for (i = 0; i < rest.length; i += 8) strip(named(rest.slice(i, i + 8)), 16, 18); }
     if (FX.EXTRA && FX.EXTRA.length && !filt) {
