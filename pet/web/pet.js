@@ -101,7 +101,8 @@
   var pointer = { x: -999, y: -999, inside: false, down: false, drag: false, hist: [], grab: null, gx: 0, gy: 0 };
   var emotes = [], parts = [], items = [];
   var bfly = { on: false, x: 0, y: 0, vx: 0, vy: 0, tx: 0, ty: 0, t: 0, until: 0, nextAt: rand(25, 60), color: 0, land: 0 };
-  var home = { st: 'out', t: 0, q: [] };     // out 在外面 | going 正在回岛 | in 在岛里 | leaving 正在出来
+  var home = { st: 'out', t: 0, q: [], auto: false, inAt: 0, wasNight: false };     // out 在外面 | going 正在回岛 | in 在岛里 | leaving 正在出来
+  function islandOn() { var I = window.PET_ISLAND; return !!(I && (!I.visible || I.visible())); }
   var lastTouch = 0;
   var stats = { day: '', fetch: 0, pets: 0 };
   var scene = null, nextSceneAt = 14, sceneCount = {};
@@ -1032,7 +1033,8 @@
           if (Math.abs(bx - p.x) > 6) p.face = bx > p.x ? 1 : -1;
         }
         if (sleepyTime() && play.phase === 'rest' && home.st === 'out') {
-          if (window.PET_ISLAND && opt.roam) goHome(); else { p.st = 'sleep'; p.t = 0; }
+          // 夜深了：有岛就回岛里睡（天亮自己出来）；没有岛就原地睡
+          if (islandOn() && opt.roam) { home.auto = true; home.inAt = now; goHome(); } else { p.st = 'sleep'; p.t = 0; }
           break;
         }
         if (play.phase === 'rest' && now >= p.next) personThink();
@@ -1193,8 +1195,8 @@
     endScene(true);
     pointer.drag = false; pointer.grab = null;
     ball.st = 'hand'; ball.holder = null; ball.other = null; ball.vx = ball.vy = ball.vz = 0;
-    play.phase = 'rest'; play.rounds = 0;
-    home.st = 'going'; home.t = 0;
+    play.phase = 'rest'; play.rounds = 0; play.want = 0;
+    home.st = 'going'; home.t = 0; home.wasNight = isNight();
     if (!opt.roam || !window.PET_ISLAND) {   // 没有岛可回：原地消失
       actors.forEach(function (a) { if (!a.hidden) { puff(a.x, a.y - 10, true); a.hidden = true; } });
       return;
@@ -1236,8 +1238,10 @@
       }
       if (!home.q.length) { home.st = 'out'; play.nextAt = now + rand(8, 14); nextSceneAt = now + rand(10, 18); }
     } else if (home.st === 'in') {
-      // 天亮了自己出来
-      if (!isNight() && home.auto && now - home.inAt > 5) { home.auto = false; comeOut(); }
+      // 天亮了自己出来：不管是夜里自己回去睡的，还是她前一天让它们回去的
+      var night = isNight();
+      if ((home.wasNight && !night) || (home.auto && !night && now - home.inAt > 5)) { home.auto = false; home.wasNight = night; comeOut(); }
+      else home.wasNight = night;
     }
   }
 

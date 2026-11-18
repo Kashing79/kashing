@@ -102,6 +102,7 @@
       lastKey = ''; paint();
     },
     center: function () { return G.cx || window.innerWidth / 2; },
+    visible: function () { return !root.hidden; },
     canvas: function () { return (st.home === 'in' || st.home === 'going') && !root.hidden ? den : null; },
     state: function (o) { st = o; paint(); },
     rects: function () { return root.hidden ? [] : [left() - 4, 0, W + 8, H + 6]; },
