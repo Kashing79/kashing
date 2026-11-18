@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>球球</title>
+<style>
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: transparent;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    cursor: default;
+  }
+  #stage {
+    position: absolute; left: 0; bottom: 0;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+  }
+  #bubbles { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; overflow: hidden; }
+  .bubble {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    max-width: 240px;
+    padding: 6px 10px;
+    font: 600 13px/1.35 -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Helvetica Neue", sans-serif;
+    color: #2a1f2d;
+    background: #fffdf7;
+    border: 2px solid #2a1f2d;
+    border-radius: 9px;
+    box-shadow: 2px 2px 0 rgba(42, 31, 45, .25);
+    white-space: pre-wrap; text-align: center;
+    opacity: 0; transition: opacity .25s;
+  }
+  .bubble.on { opacity: 1; }
+  .bubble::after {
+    content: ''; position: absolute; left: 50%; bottom: -8px; margin-left: -5px;
+    width: 8px; height: 8px; background: #fffdf7;
+    border-right: 2px solid #2a1f2d; border-bottom: 2px solid #2a1f2d;
+    transform: rotate(45deg);
+  }
+
+  /* —— 只在浏览器里预览时才有的背景和提示（装成桌宠后是完全透明的） —— */
+  body.preview {
+    background: linear-gradient(#dfeaf5 0%, #eef3f8 62%, #cfd9e4 62%, #c3cfdc 100%);
+  }
+  body.preview.dark {
+    background: linear-gradient(#1d2430 0%, #252d3a 62%, #171c25 62%, #12161d 100%);
+  }
+  #hint {
+    display: none;
+    position: absolute; left: 0; right: 0; top: 18px;
+    text-align: center;
+    font: 14px/1.7 -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Helvetica Neue", sans-serif;
+    color: #4a5565;
+    pointer-events: none;
+  }
+  body.preview #hint { display: block; }
+  body.preview.dark #hint { color: #9aa6b8; }
+  #hint b { color: #2a1f2d; }
+  body.preview.dark #hint b { color: #e8edf5; }
+</style>
+</head>
+<body>
+<div id="hint">
+  <b>预览</b>（装到 Mac 上以后背景是透明的，它们站在屏幕最下面）<br>
+  拖住小球甩出去 · 点小人让他丢球 · 点小狗摸摸它
+</div>
+<canvas id="stage"></canvas>
+<div id="bubbles"></div>
+<script src="config.js"></script>
+<script src="sprites.js"></script>
+<script src="pet.js"></script>
+</body>
+</html>

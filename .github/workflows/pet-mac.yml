@@ -1,0 +1,110 @@
+# 在 GitHub 的云端 Mac 上编译"球球"桌宠，并做几项自检。
+# 只在 pet/ 有改动时才跑。不想要的话，直接删掉这个文件即可，不影响桌宠本身。
+name: pet-mac
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['pet/**', '.github/workflows/pet-mac.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          uname -m
+          xcode-select -p
+          xcrun swiftc --version
+          ls /Library/Developer/CommandLineTools 2>/dev/null | head -5 || true
+
+      - name: Build with Command Line Tools only (what most people have)
+        run: |
+          if [ -d /Library/Developer/CommandLineTools/usr/bin ]; then
+            DEVELOPER_DIR=/Library/Developer/CommandLineTools xcrun swiftc --version
+            DEVELOPER_DIR=/Library/Developer/CommandLineTools bash pet/install.sh --build-only
+            echo "CLT_BUILD_OK"
+          else
+            echo "CLT_NOT_PRESENT (skipped)"
+          fi
+
+      - name: Build (default toolchain)
+        run: |
+          bash pet/install.sh --build-only
+          ls -la pet/build/QiuQiu.app/Contents pet/build/QiuQiu.app/Contents/MacOS pet/build/QiuQiu.app/Contents/Resources
+          file pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          codesign -dv pet/build/QiuQiu.app 2>&1 | head -8 || true
+          du -sh pet/build/QiuQiu.app
+
+      - name: Self-test (page renders, background is transparent)
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          "$APP" --selftest "$RUNNER_TEMP/snap.png" > "$RUNNER_TEMP/selftest.log" 2>&1 &
+          PID=$!
+          for i in $(seq 1 40); do
+            if ! kill -0 $PID 2>/dev/null; then break; fi
+            sleep 1
+          done
+          if kill -0 $PID 2>/dev/null; then echo "SELFTEST TIMEOUT"; kill $PID; fi
+          CODE=0; wait $PID || CODE=$?
+          cat "$RUNNER_TEMP/selftest.log"
+          echo "selftest exit code: $CODE"
+          if [ -f "$RUNNER_TEMP/snap.png" ]; then
+            sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP/snap.png" | tail -2
+            sips -Z 1400 "$RUNNER_TEMP/snap.png" --out "$RUNNER_TEMP/snap_small.png" >/dev/null
+            echo "-----BEGIN SNAP PNG-----"
+            base64 -i "$RUNNER_TEMP/snap_small.png" | fold -w 120
+            echo "-----END SNAP PNG-----"
+          fi
+          grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest.log"
+
+      - name: Live run (real screen, mouse drag, click-through)
+        continue-on-error: true
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          LOG="$RUNNER_TEMP/app.log"
+          "$APP" --debug > "$LOG" 2>&1 &
+          PID=$!
+          sleep 9
+          FRAME=$(grep -m1 '^FRAME' "$LOG" || true)
+          echo "frame: $FRAME"
+          set -- $FRAME
+          X=$2; Y=$3; W=$4; H=$5
+          shot() {
+            screencapture -x -R"$X,$Y,$W,$H" "$RUNNER_TEMP/$1.png" || { echo "screencapture failed"; return 0; }
+            sips -s format jpeg -s formatOptions 55 -Z 1300 "$RUNNER_TEMP/$1.png" --out "$RUNNER_TEMP/$1.jpg" >/dev/null
+            echo "-----BEGIN $1 JPG-----"
+            base64 -i "$RUNNER_TEMP/$1.jpg" | fold -w 120
+            echo "-----END $1 JPG-----"
+          }
+          shot live1
+          HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
+          echo "hot: $HOT"
+          BALL=$(echo "$HOT" | awk '{print $2}')
+          if [ -n "$BALL" ]; then
+            BX=$(echo "$BALL" | awk -F, '{print $1 + $3/2}')
+            BY=$(echo "$BALL" | awk -F, '{print $2 + $4/2}')
+            xcrun swiftc -O -o "$RUNNER_TEMP/ci_mouse" pet/dev/ci_mouse.swift
+            "$RUNNER_TEMP/ci_mouse" "$BX" "$BY" -230 -170 || true
+            sleep 0.5
+            shot live2
+            sleep 2.5
+            shot live3
+          fi
+          echo "---- app log (events) ----"
+          grep -E '^(INTERACTIVE|MOUSE|FRAME)' "$LOG" | head -60 || true
+          echo "---- app log (tail) ----"
+          grep -v '^HOT' "$LOG" | tail -20 || true
+          kill $PID 2>/dev/null || true
