@@ -1,0 +1,23 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:transparent}canvas{display:block}</style></head>
+<body><canvas id="c" width="1024" height="1024"></canvas>
+<script src="../web/config.js"></script>
+<script src="../web/sprites.js"></script>
+<script>
+// 开发用：画 App 图标（圆角方块 + 小腊肠 + 小球）
+var S = window.PET_SPRITES.build(window.PET_CONFIG);
+var c = document.getElementById('c'), x = c.getContext('2d');
+x.imageSmoothingEnabled = false;
+function rr(px, py, w, h, r) { x.beginPath(); x.moveTo(px + r, py); x.arcTo(px + w, py, px + w, py + h, r); x.arcTo(px + w, py + h, px, py + h, r); x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath(); }
+var g = x.createLinearGradient(0, 100, 0, 924);
+g.addColorStop(0, '#bfe3f7'); g.addColorStop(0.62, '#e4f3fb'); g.addColorStop(0.62, '#9fd18b'); g.addColorStop(1, '#86bf74');
+rr(100, 100, 824, 824, 186); x.fillStyle = g; x.fill();
+x.save(); rr(100, 100, 824, 824, 186); x.clip();
+var k = 22, d = S.d_stand_b;
+x.drawImage(d.img, Math.round(512 - d.w * k / 2) + 6, 610 - d.h * k + 80, d.w * k, d.h * k);
+var b = S.ball0, kb = 26;
+x.drawImage(b.img, 250, 190, b.w * kb, b.h * kb);
+var h = S.fx_heart, kh = 18;
+x.drawImage(h.img, 640, 250, h.w * kh, h.h * kh);
+x.restore();
+</script></body></html>

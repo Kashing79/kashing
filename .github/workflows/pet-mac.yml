@@ -96,13 +96,15 @@ jobs:
           grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest.log"
 
       - name: Live run (real screen, mouse drag, click-through)
-        continue-on-error: true
         run: |
           APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
           LOG="$RUNNER_TEMP/app.log"
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_mouse" pet/dev/ci_mouse.swift
+          # 关掉自动丢球，让画面基本静止，鼠标测试才对得准
+          defaults write local.qiuqiu.deskpet auto -bool false
           "$APP" --debug > "$LOG" 2>&1 &
           PID=$!
-          sleep 9
+          sleep 7
           FRAME=$(grep -m1 '^FRAME' "$LOG" || true)
           echo "frame: $FRAME"
           set -- $FRAME
@@ -115,21 +117,24 @@ jobs:
             echo "-----END $1 JPG-----"
           }
           shot live1
-          HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
-          echo "hot: $HOT"
-          BALL=$(echo "$HOT" | awk '{print $2}')
-          if [ -n "$BALL" ]; then
+          OK=0
+          for attempt in 1 2 3 4 5; do
+            HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
+            BALL=$(echo "$HOT" | awk '{print $2}')
+            echo "attempt $attempt hot: $HOT"
+            if [ -z "$BALL" ]; then sleep 1; continue; fi
             BX=$(echo "$BALL" | awk -F, '{print $1 + $3/2}')
             BY=$(echo "$BALL" | awk -F, '{print $2 + $4/2}')
-            xcrun swiftc -O -o "$RUNNER_TEMP/ci_mouse" pet/dev/ci_mouse.swift
             "$RUNNER_TEMP/ci_mouse" "$BX" "$BY" -230 -170 || true
-            sleep 0.5
-            shot live2
-            sleep 2.5
-            shot live3
-          fi
+            sleep 0.4
+            if grep -q '^JSDRAG 1' "$LOG"; then OK=1; break; fi
+            sleep 2
+          done
+          shot live2
+          sleep 2.5
+          shot live3
           echo "---- app log (events) ----"
-          grep -E '^(INTERACTIVE|MOUSE|FRAME)' "$LOG" | head -60 || true
-          echo "---- app log (tail) ----"
-          grep -v '^HOT' "$LOG" | tail -20 || true
+          grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME)' "$LOG" | head -60 || true
           kill $PID 2>/dev/null || true
+          defaults delete local.qiuqiu.deskpet >/dev/null 2>&1 || true
+          if [ "$OK" = "1" ] && grep -q '^MOUSE up' "$LOG"; then echo "MOUSE_DRAG_OK"; else echo "MOUSE_DRAG_NOT_CONFIRMED"; exit 1; fi

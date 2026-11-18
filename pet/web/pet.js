@@ -78,15 +78,17 @@
   //  版面
   // ------------------------------------------------------------
   function layout() {
-    var vw = window.innerWidth, vh = window.innerHeight;
+    var host = canvas.parentElement || document.body;
+    var vw = host.clientWidth || window.innerWidth, vh = host.clientHeight || window.innerHeight;
     S = opt.scale || (vw < 520 ? 2 : (vw < 1150 ? 3 : 4));
     LW = Math.max(150, Math.floor(vw / S));
     LH = Math.max(70, Math.floor(vh / S));
     canvas.width = LW; canvas.height = LH;
     canvas.style.width = (LW * S) + 'px';
     canvas.style.height = (LH * S) + 'px';
-    offX = 0;
-    offY = vh - LH * S;
+    var rect = canvas.getBoundingClientRect();
+    offX = rect.left;
+    offY = rect.top;
     ctx.imageSmoothingEnabled = false;
     if (!booted) {
       booted = true;

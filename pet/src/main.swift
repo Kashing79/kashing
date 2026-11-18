@@ -252,7 +252,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 }
             }
             hot = rects
-            jsDragging = ((obj["d"] as? NSNumber)?.intValue ?? 0) != 0
+            let dragging = ((obj["d"] as? NSNumber)?.intValue ?? 0) != 0
+            if debug && dragging != jsDragging { print("JSDRAG \(dragging ? 1 : 0)"); fflush(stdout) }
+            jsDragging = dragging
         } else if type == "ready" {
             pushConfig()
         }
@@ -302,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             panel.ignoresMouseEvents = !want
             if debug { print("INTERACTIVE \(want ? 1 : 0)"); fflush(stdout) }
         }
-        if debug && tickCount % 15 == 0 { debugHot() }
+        if debug && tickCount % 5 == 0 { debugHot() }
 
         if !mouseDownInside {
             if inside {

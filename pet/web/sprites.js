@@ -572,11 +572,12 @@
     BALL.forEach(function (r, i) { add('ball' + i, r, pal.ball); });
 
     // 小人。hand = 拿球时球心的位置（相对未描边的图，面向右）
-    add('p_front', P_FRONT, pal.person);
-    add('p_front2', sink(P_FRONT, 21), pal.person);
-    add('p_front_blink', P_FRONT_BLINK, pal.person);
-    add('p_wave_a', P_WAVE_A, pal.person);
-    add('p_wave_b', P_WAVE_B, pal.person);
+    var fh = { hand: [2, 20] };
+    add('p_front', P_FRONT, pal.person, fh);
+    add('p_front2', sink(P_FRONT, 21), pal.person, { hand: [2, 21] });
+    add('p_front_blink', P_FRONT_BLINK, pal.person, fh);
+    add('p_wave_a', P_WAVE_A, pal.person, fh);
+    add('p_wave_b', P_WAVE_B, pal.person, fh);
     add('p_idle', pSide('down'), pal.person);
     add('p_idle2', pSide('down', null, true), pal.person);
     add('p_blink', put(pSide('down'), P_SIDE_BLINK_PX), pal.person);
