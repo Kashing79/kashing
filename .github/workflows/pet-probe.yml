@@ -1,0 +1,57 @@
+# 临时的排查用流程：验证 v3 原生方案的几个关键点。验证完会删掉。
+name: pet-probe
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['pet/dev/ci_probe2.swift', '.github/workflows/pet-probe.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26, xcode-27]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native feasibility probe
+        run: |
+          sw_vers | head -2
+          if [ -d /Library/Developer/CommandLineTools/usr/bin ]; then
+            DEVELOPER_DIR=/Library/Developer/CommandLineTools xcrun swiftc -O -target "$(uname -m)-apple-macos11.0" -o "$RUNNER_TEMP/probe_clt" pet/dev/ci_probe2.swift && echo "CLT_BUILD_OK (JavaScriptCore + AppKit, target macOS 11)"
+          fi
+          xcrun swiftc -O -target "$(uname -m)-apple-macos11.0" -o "$RUNNER_TEMP/probe2" pet/dev/ci_probe2.swift
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_windows" pet/dev/ci_windows.swift
+          for MODE in belowIcons desktop; do
+            "$RUNNER_TEMP/probe2" pet/web/dogs.js $MODE > "$RUNNER_TEMP/p_$MODE.log" 2>&1 &
+            PID=$!
+            sleep 7
+            echo "==== $MODE"
+            cat "$RUNNER_TEMP/p_$MODE.log" | head -20
+            "$RUNNER_TEMP/ci_windows" | grep -E "Probe|Menubar|Finder|Wallpaper|Dock" | head -8 || true
+            screencapture -x "$RUNNER_TEMP/full_$MODE.png" || true
+            sips -s format jpeg -s formatOptions 55 -Z 1024 "$RUNNER_TEMP/full_$MODE.png" --out "$RUNNER_TEMP/full_$MODE.jpg" >/dev/null
+            echo "-----BEGIN full_$MODE JPG-----"
+            base64 -i "$RUNNER_TEMP/full_$MODE.jpg" | fold -w 120
+            echo "-----END full_$MODE JPG-----"
+            kill $PID 2>/dev/null || true
+            sleep 0.7
+          done
+          echo "==== same benchmark with the JIT switched off (to see whether the JIT was on above)"
+          JSC_useJIT=0 "$RUNNER_TEMP/probe2" pet/web/dogs.js belowIcons > "$RUNNER_TEMP/p_nojit.log" 2>&1 &
+          PID=$!
+          sleep 12
+          grep "JSC bench" "$RUNNER_TEMP/p_nojit.log" || cat "$RUNNER_TEMP/p_nojit.log" | head -5
+          kill $PID 2>/dev/null || true
+          echo "==== memory of the native probe"
+          "$RUNNER_TEMP/probe2" pet/web/dogs.js belowIcons > /dev/null 2>&1 &
+          PID=$!
+          sleep 4
+          ps -o pid,rss,%cpu,comm -p $PID || true
+          kill $PID 2>/dev/null || true
