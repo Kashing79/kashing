@@ -308,7 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         if top < 1 { top = 24 }
         let cx = Double(panel.frame.width / 2)
         js("window.PET_ISLAND&&window.PET_ISLAND.configure({cx:\(cx),notchW:\(notchW),h:\(barH),on:\(island)});")
-        js("window.pet&&window.pet.configure({scale:\(scale),auto:\(auto),roam:\(roam),insets:{top:\(top),bottom:\(bottom),left:\(left),right:\(right)},paused:\(hiddenByUser)});")
+        js("window.pet&&window.pet.configure({scale:\(scale),auto:\(auto),roam:\(roam),insets:{top:\(top),bottom:\(bottom),left:\(left),right:\(right)},soft:\(softCanvas),paused:\(hiddenByUser)});")
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
