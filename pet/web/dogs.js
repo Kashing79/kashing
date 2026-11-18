@@ -305,18 +305,18 @@
     gold: {
       a: 4.2, b: 6.6,                       // 脊柱两段：骨盆—腰、腰—胸
       T0: [4.0, 14.3],                      // 站着时胸腔中心
-      rib: [6.4, 5.5], pel: [4.3, 4.3], pelUp: 0.5,
-      loin: [0.8, 0.7, 3.9, -2.0, 0.3, 4.9],        // 腰：骨盆这头 (x, y, 半径)，胸腔那头 (x, y, 半径)
+      rib: [6.4, 5.5], pel: [4.3, 4.3], pelUp: 0.8,
+      loin: [0.8, 0.9, 4.0, -2.0, 0.3, 4.9],        // 腰：骨盆这头 (x, y, 半径)，胸腔那头 (x, y, 半径)
       wither: [2.0, 4.0, 2.6, 1.9],                 // 肩隆：位置和大小
       chest: [5.2, -1.0, 1.8, 2.8],                 // 前胸
       S0: [2.3, 3.9], N0: [3.6, 3.3],               // 胸腔上的点：肩胛骨顶端、脖子根
       HJ: [-0.8, -0.1], tailSet: [-3.4, 3.1],       // 骨盆上的点：髋关节、尾巴根
       ls: 5.16, lh: 5.80, lr: 5.81, lmc: 2.73, dF: -26.2,   // 前腿：肩胛骨、上臂、小臂、掌骨；肩胛骨和小臂"联动"的夹角
-      lf: 6.28, lt: 6.72, lm: 2.93, dH: -14.6,              // 后腿：大腿、小腿、跖骨；大腿和跖骨"联动"的夹角
+      lf: 6.05, lt: 5.48, lm: 4.65, dH: -13.6,              // 后腿：大腿、小腿、跖骨；大腿和跖骨"联动"的夹角
       padY: 0.6, fpad: 6.4, hpad: -8.9,             // 站着时脚掌关节的高度、前后脚的位置
       farX: 1.2, farY: 0.4,                         // 远侧的腿：前腿再往前、后腿再往后这么多，整体抬高一点
       shoulder: [3.3, 2.3], armR: [2.4, 1.5], foreR: [1.45, 1.2], pastR: 1.1, fpaw: [1.8, 1.05],
-      thigh: [4.0, 2.9], gaskR: [2.0, 1.15], metaR: 1.05, hock: 0.5, hpaw: [1.7, 1.0],
+      thigh: [3.7, 2.7], gaskR: [2.0, 1.2], metaR: 1.1, hock: 0.45, hpaw: [1.7, 1.0],
       neck: 6.0, neckR0: 4.2, neckR1: 3.4, neckA: 52, headA: -12,
       HL: 12.6,                                     // 头长：后脑勺到鼻尖
       skull: [0.30, 0.02, 0.32, 0.29],              // 头骨：中心 (u, v)、两个半轴（都是头长的几分之几）
@@ -341,7 +341,7 @@
       HJ: [-0.4, -0.3], tailSet: [-2.4, 2.4],
       ls: 3.61, lh: 3.75, lr: 3.14, lmc: 1.09, dF: -30.7,
       lf: 3.30, lt: 3.39, lm: 2.01, dH: -29.4,
-      padY: 0.5, fpad: 6.1, hpad: -7.8,
+      padY: 0.5, fpad: 6.1, hpad: -8.1,
       farX: 0.9, farY: 0.4,
       shoulder: [2.5, 1.9], armR: [1.6, 1.15], foreR: [1.1, 1.0], pastR: 0.95, fpaw: [1.5, 0.85],
       thigh: [2.4, 1.7], gaskR: [1.3, 1.0], metaR: 0.95, hock: 0.15, hpaw: [1.3, 0.8],
@@ -1177,7 +1177,7 @@
     var o = k * 10, kx = LG[o], ky = LG[o + 1], hx = LG[o + 2], hy = LG[o + 3], px = LG[o + 6], py = LG[o + 7], ma = LG[o + 8];
     var z = far ? -30 : 10, mat = far ? M_COATF : M_COAT, part = far ? P_FHIND : P_NHIND;
     brush(z, 2, mat, part, 0.38, bias);
-    ell((jx + kx) / 2, (jy + ky) / 2, B.thigh[0], B.thigh[1], Math.atan2(ky - jy, kx - jx));     // 大腿：一整块肌肉
+    ell(jx + (kx - jx) * 0.42, jy + (ky - jy) * 0.42, B.thigh[0], B.thigh[1], Math.atan2(ky - jy, kx - jx));     // 大腿：一整块肌肉
     brush(z, 1.2, mat, part, 0.48, bias);
     cap(kx, ky, B.gaskR[0], hx, hy, B.gaskR[1]);                                                  // 小腿
     cap(hx + B.hock * Math.sin(ma), hy - B.hock * Math.cos(ma), B.metaR * 0.95, hx, hy, B.metaR); // 飞节往后突出的那一点
