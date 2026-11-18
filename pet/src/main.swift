@@ -196,6 +196,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         if conf.responds(to: Selector(("_setDrawsBackground:"))) {
             conf.setValue(false, forKey: "drawsBackground")
         }
+        // 小人和狗狗都画在一块很小的画布上，用不着显卡加速。
+        // 在 macOS 27 的虚拟机上实测：开着加速时画布是一片空白（看得到岛，看不到小人和狗），关掉就正常。
+        // 这两个也是 WebKit 的非公开开关，同样先确认存在再用。设 QIUQIU_GPU_CANVAS=1 可以改回系统默认。
+        if ProcessInfo.processInfo.environment["QIUQIU_GPU_CANVAS"] != "1" {
+            let prefs = conf.preferences
+            if prefs.responds(to: Selector(("_setCanvasUsesAcceleratedDrawing:"))) {
+                prefs.setValue(false, forKey: "canvasUsesAcceleratedDrawing")
+            }
+            if prefs.responds(to: Selector(("_setAcceleratedDrawingEnabled:"))) {
+                prefs.setValue(false, forKey: "acceleratedDrawingEnabled")
+            }
+        }
 
         web = PetWebView(frame: content.bounds, configuration: conf)
         web.autoresizingMask = [.width, .height]
@@ -566,7 +578,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         web.evaluateJavaScript("JSON.stringify(window.pet&&window.pet._t?window.pet._t.state():null)") { result, _ in
             print("SELFTEST state \(result as? String ?? "nil")")
         }
-        print("SELFTEST hotRects \(hot.count) panel \(Int(panel.frame.width))x\(Int(panel.frame.height)) visible \(panel.isVisible)")
+        // 画布里到底有没有画上东西（小人和狗狗都画在画布上）
+        web.evaluateJavaScript("(function(){try{var c=document.getElementById('stage');var d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;var n=0;for(var i=3;i<d.length;i+=4){if(d[i]>0)n++;}return n;}catch(e){return -1;}})()") { result, _ in
+            print("SELFTEST canvasPixels \((result as? NSNumber)?.intValue ?? -2)")
+        }
+        print("SELFTEST hotRects \(hot.count) panel \(Int(panel.frame.width))x\(Int(panel.frame.height)) visible \(panel.isVisible) level \(panel.level.rawValue)")
         web.takeSnapshot(with: nil) { image, error in
             guard let image = image,
                   let tiff = image.tiffRepresentation,
@@ -579,23 +595,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 try? png.write(to: URL(fileURLWithPath: path))
             }
             let w = rep.pixelsWide, h = rep.pixelsHigh
-            var drawn = 0, clear = 0, total = 0
+            // 顶上那一条是灵动岛；小人和狗狗在它下面。两块分开数，免得"只画出了岛"也算通过。
+            let barRows = Int(Double(h) * 70.0 / Double(max(1, Int(self.panel.frame.height))))
+            var drawn = 0, clear = 0, total = 0, pets = 0
             var y = 0
             while y < h {
                 var x = 0
                 while x < w {
                     let a = rep.colorAt(x: x, y: y)?.alphaComponent ?? 0
                     total += 1
-                    if a > 0.5 { drawn += 1 } else if a < 0.02 { clear += 1 }
+                    if a > 0.5 { drawn += 1; if y > barRows { pets += 1 } } else if a < 0.02 { clear += 1 }
                     x += 3
                 }
                 y += 3
             }
             let topLeft = rep.colorAt(x: 2, y: 2)?.alphaComponent ?? 1
             let topRight = rep.colorAt(x: max(0, w - 3), y: 2)?.alphaComponent ?? 1
-            print("SELFTEST snapshot \(w)x\(h) drawn=\(drawn) clear=\(clear) total=\(total) cornerAlpha=\(topLeft),\(topRight)")
+            print("SELFTEST snapshot \(w)x\(h) drawn=\(drawn) pets=\(pets) clear=\(clear) total=\(total) cornerAlpha=\(topLeft),\(topRight)")
             let transparent = topLeft < 0.02 && topRight < 0.02 && clear > total / 2
-            let hasPets = drawn > 50
+            let hasPets = pets > 40
             if transparent && hasPets {
                 print("SELFTEST PASS")
             } else {

@@ -4,7 +4,7 @@ name: pet-probe
 on:
   push:
     branches: ['claude/**']
-    paths: ['pet/dev/ci_probe.swift', '.github/workflows/pet-probe.yml']
+    paths: ['pet/dev/ci_probe.swift', 'pet/src/main.swift', '.github/workflows/pet-probe.yml']
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-26, xcode-27]
+        os: [macos-15, macos-26, xcode-27]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 12
     steps:
@@ -46,25 +46,27 @@ jobs:
             kill $PID 2>/dev/null || true
             sleep 0.6
           }
-          run native27 27 native
-          run native3 3 native
           run web27 27 web
-          run web3 3 web
-          run webopaque3 3 webopaque
           run webgpuoff27 27 web gpuoff
-      - name: Real app at two levels
+      - name: Real app, software canvas (new default) vs GPU canvas (system default)
         run: |
           bash pet/install.sh --build-only >/dev/null
           APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
-          for L in 3 27; do
-            QIUQIU_LEVEL=$L "$APP" > /dev/null 2>&1 &
+          for MODE in 0 1; do
+            QIUQIU_GPU_CANVAS=$MODE "$APP" > /dev/null 2>&1 &
             PID=$!
             sleep 6
-            screencapture -x -R"212,0,600,520" "$RUNNER_TEMP/app$L.png" || true
-            sips -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/app$L.png" --out "$RUNNER_TEMP/app$L.jpg" >/dev/null
-            echo "-----BEGIN app$L JPG-----"
-            base64 -i "$RUNNER_TEMP/app$L.jpg" | fold -w 120
-            echo "-----END app$L JPG-----"
+            screencapture -x -R"112,0,800,560" "$RUNNER_TEMP/gpu$MODE.png" || true
+            sips -s format jpeg -s formatOptions 45 "$RUNNER_TEMP/gpu$MODE.png" --out "$RUNNER_TEMP/gpu$MODE.jpg" >/dev/null
+            echo "-----BEGIN gpu$MODE JPG-----"
+            base64 -i "$RUNNER_TEMP/gpu$MODE.jpg" | fold -w 120
+            echo "-----END gpu$MODE JPG-----"
+            echo "---- cpu / memory, QIUQIU_GPU_CANVAS=$MODE ----"
+            ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu|com.apple.WebKit" | grep -v grep | head -6 || true
             kill $PID 2>/dev/null || true
             sleep 0.7
           done
+          echo "---- self-test with the system default (GPU canvas) ----"
+          QIUQIU_GPU_CANVAS=1 "$APP" --selftest "$RUNNER_TEMP/s1.png" 2>&1 | grep SELFTEST | cut -c1-160 || true
+          echo "---- self-test with the new default (software canvas) ----"
+          "$APP" --selftest "$RUNNER_TEMP/s0.png" 2>&1 | grep SELFTEST | cut -c1-160 || true
