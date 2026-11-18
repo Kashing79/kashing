@@ -40,8 +40,16 @@ let kBundleID = "local.qiuqiu.deskpet"
 
 /// 永远不抢键盘焦点的面板：点它不会让正在打字的 App 失去焦点。
 final class PetPanel: NSPanel {
+    var debugLog = false
     override var canBecomeKey: Bool { return false }
     override var canBecomeMain: Bool { return false }
+    override func sendEvent(_ event: NSEvent) {
+        if debugLog && (event.type == .leftMouseDown || event.type == .leftMouseUp) {
+            print("PANEL event \(event.type == .leftMouseDown ? "down" : "up") appActive=\(NSApp.isActive) ignores=\(ignoresMouseEvents)")
+            fflush(stdout)
+        }
+        super.sendEvent(event)
+    }
 }
 
 /// 网页只负责画画，鼠标事件全部交给盖在上面的 InputView。
@@ -116,6 +124,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         timer = t
 
         if debug {
+            panel.debugLog = true
+            // 调试：别的 App 收到的鼠标按下（说明这次点击没有落在我们的窗口上）
+            NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] _ in
+                print("GLOBAL down (went to another app) interactive=\(self?.interactive ?? false) ignores=\(self?.panel.ignoresMouseEvents ?? true)")
+                fflush(stdout)
+            }
             let f = panel.frame
             let sh = NSScreen.screens.first?.frame.height ?? 0
             print("FRAME \(Int(f.minX)) \(Int(sh - f.maxY)) \(Int(f.width)) \(Int(f.height))")

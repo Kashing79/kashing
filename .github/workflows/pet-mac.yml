@@ -118,23 +118,25 @@ jobs:
           }
           shot live1
           OK=0
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3 4 5 6; do
             HOT=$(grep '^HOT' "$LOG" | tail -1 || true)
-            BALL=$(echo "$HOT" | awk '{print $2}')
-            echo "attempt $attempt hot: $HOT"
-            if [ -z "$BALL" ]; then sleep 1; continue; fi
-            BX=$(echo "$BALL" | awk -F, '{print $1 + $3/2}')
-            BY=$(echo "$BALL" | awk -F, '{print $2 + $4/2}')
-            "$RUNNER_TEMP/ci_mouse" "$BX" "$BY" -230 -170 || true
-            sleep 0.4
-            if grep -q '^JSDRAG 1' "$LOG"; then OK=1; break; fi
-            sleep 2
+            # 前 3 次：单纯点一下金毛（第 3 个区域）；后 3 次：拖球（第 1 个区域）
+            if [ "$attempt" -le 3 ]; then TARGET=$(echo "$HOT" | awk '{print $4}'); DX=0; DY=0; else TARGET=$(echo "$HOT" | awk '{print $2}'); DX=-230; DY=-170; fi
+            echo "== attempt $attempt target=$TARGET hot: $HOT"
+            echo "MARK attempt $attempt" >> "$LOG"
+            if [ -z "$TARGET" ]; then sleep 1; continue; fi
+            BX=$(echo "$TARGET" | awk -F, '{print $1 + $3/2}')
+            BY=$(echo "$TARGET" | awk -F, '{print $2 + $4/2}')
+            "$RUNNER_TEMP/ci_mouse" "$BX" "$BY" "$DX" "$DY" || true
+            sleep 0.5
+            if [ "$attempt" -ge 4 ] && grep -q '^JSDRAG 1' "$LOG"; then OK=1; break; fi
+            sleep 1.5
           done
           shot live2
           sleep 2.5
           shot live3
           echo "---- app log (events) ----"
-          grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME)' "$LOG" | head -60 || true
+          grep -E '^(INTERACTIVE|MOUSE|JSDRAG|FRAME|PANEL|GLOBAL|MARK)' "$LOG" | head -90 || true
           kill $PID 2>/dev/null || true
           defaults delete local.qiuqiu.deskpet >/dev/null 2>&1 || true
           if [ "$OK" = "1" ] && grep -q '^MOUSE up' "$LOG"; then echo "MOUSE_DRAG_OK"; else echo "MOUSE_DRAG_NOT_CONFIRMED"; exit 1; fi

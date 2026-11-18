@@ -124,8 +124,9 @@
   function placeBubble() {
     if (!bubble) return;
     var top = person.box ? person.box[1] : LH - 30;
-    bubble.el.style.left = clamp(person.x * S + offX, 130, window.innerWidth - 130) + 'px';
-    bubble.el.style.top = (top * S + offY - 14) + 'px';
+    var lr = bubbleLayer.getBoundingClientRect();
+    bubble.el.style.left = clamp(person.x * S + offX - lr.left, 130, Math.max(130, lr.width - 130)) + 'px';
+    bubble.el.style.top = (top * S + offY - lr.top - 14) + 'px';
     if (now > bubble.until) {
       var el = bubble.el; bubble = null;
       el.classList.remove('on');
@@ -770,7 +771,7 @@
     configure: function (o) {
       if (!o) return;
       if (typeof o.auto === 'boolean') { opt.auto = o.auto; if (!o.auto) play.rounds = 0; }
-      if (typeof o.scale === 'number' && o.scale !== opt.scale) { opt.scale = o.scale; layout(); }
+      if (typeof o.scale === 'number' && o.scale !== opt.scale) { opt.scale = o.scale; layout(); draw(); }
       if (typeof o.paused === 'boolean') {
         opt.paused = o.paused;
         if (!o.paused) { lastMs = 0; schedule(); }
@@ -818,7 +819,8 @@
     document.addEventListener('mouseleave', function () { window.pet.pointer('leave', 0, 0); });
   }
   window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-  window.addEventListener('resize', function () { layout(); schedule(); });
+  // 改变大小会清空画布，所以马上重画一次，免得闪一下空白
+  window.addEventListener('resize', function () { layout(); draw(); schedule(); });
 
   layout();
   person.msgAt = range(CFG.messageMinutes, 40) * 60 * rand(0.2, 0.6);
