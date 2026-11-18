@@ -21,17 +21,21 @@ var __qq = (function (G) {
     if (!n) { n = ++nid; ids.set(im, n); }
     return '#' + n;
   }
-  // 清单 → 接在 out 后面，每项 10 格：id、图的名字、ver、宽、高、scale、x、y、flip、a
-  function flat(out, items) {
+  // 清单 → 接在 out 后面，每项 15 格：id、图的名字、ver、宽、高、scale、x、y、flip、a、
+  //   有没有裁切、裁切的 x、y、宽、高（世界单位：只画图在这个方框里的那一部分）
+  // keep 为真时接着上一次的 last 往后排（同一帧里的第二张清单，比如草地上的印记）
+  function flat(out, items, keep) {
     var n = 0;
-    last = [];
+    if (!keep) last = [];
     for (var i = 0; items && i < items.length; i++) {
       var it = items[i], im = it && it.img;
       if (!im || !im.data || !(im.w > 0) || !(im.h > 0)) continue;
-      var s = fin(im.scale, 1);
+      var s = fin(im.scale, 1), c = it.clip;
+      var hasClip = !!(c && c.length >= 4);
       last.push(im);
       out.push(String(it.id), keyOf(im), im.key ? 1 : (im.ver | 0), im.w | 0, im.h | 0, s > 0 ? s : 1,
-               fin(it.x, 0), fin(it.y, 0), it.flip ? 1 : 0, (it.a === undefined || it.a === null) ? 1 : fin(it.a, 1));
+               fin(it.x, 0), fin(it.y, 0), it.flip ? 1 : 0, (it.a === undefined || it.a === null) ? 1 : fin(it.a, 1),
+               hasClip ? 1 : 0, hasClip ? fin(c[0], 0) : 0, hasClip ? fin(c[1], 0) : 0, hasClip ? fin(c[2], 0) : 0, hasClip ? fin(c[3], 0) : 0);
       n++;
     }
     return n;
@@ -58,6 +62,15 @@ var __qq = (function (G) {
       nh++;
     }
     out[1] = nh;
+    // 草地上的印记（睡过的地方开的小花、埋骨头的小土堆……）：先是全部，再是"没有草地时也画在最上面那层"的那几个
+    var dec = f.decals || [], over = [];
+    for (var q = 0; q < dec.length; q++) if (dec[q] && dec[q].overlay) over.push(dec[q]);
+    var at = out.length;
+    out.push(0);
+    out[at] = flat(out, dec, true);
+    at = out.length;
+    out.push(0);
+    out[at] = flat(out, over, true);
     var b = f.bubble;
     if (b && b.text) {
       out[3] = 1; out[4] = String(b.text); out[5] = fin(b.x, 0); out[6] = fin(b.y, 0);

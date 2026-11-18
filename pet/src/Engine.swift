@@ -236,14 +236,24 @@ final class PetEngine {
         let h = JSRead.string(JSRead.at(arr, 8))
         if !h.isEmpty { f.home = h }
         f.busy = JSRead.int(JSRead.at(arr, 9))
-        f.items = readItems(arr, from: 10, count: n)
-        var p = 10 + n * 10
+        f.items = readItems(arr, from: 10, count: n, base: 0)
+        var p = 10 + n * PetEngine.stride
         var i = 0
         while i < nh && p + 3 < arr.count {
             f.hot.append(CGRect(x: JSRead.double(arr[p]), y: JSRead.double(arr[p + 1]),
                                 width: JSRead.double(arr[p + 2]), height: JSRead.double(arr[p + 3])))
             p += 4
             i += 1
+        }
+        // 草地上的印记：先是全部，再是没有草地时要画在最上面那层的几个（像素按顺序排在清单后面）
+        if p < arr.count {
+            let nd = JSRead.int(arr[p])
+            f.decals = readItems(arr, from: p + 1, count: nd, base: n)
+            p += 1 + max(0, nd) * PetEngine.stride
+            if p < arr.count {
+                let no = JSRead.int(arr[p])
+                f.overlayDecals = readItems(arr, from: p + 1, count: no, base: n + max(0, nd))
+            }
         }
         // 很久没用到的图不留着
         if frameNo % 900 == 0 && textures.count > 160 {
@@ -260,19 +270,22 @@ final class PetEngine {
         var d = DenFrame()
         d.w = JSRead.double(JSRead.at(arr, 0))
         d.h = JSRead.double(JSRead.at(arr, 1))
-        d.items = readItems(arr, from: 3, count: JSRead.int(JSRead.at(arr, 2)))
+        d.items = readItems(arr, from: 3, count: JSRead.int(JSRead.at(arr, 2)), base: 0)
         return d
     }
 
-    /// 一维数组里从 start 开始，每 10 格是一项
-    private func readItems(_ a: [Any], from start: Int, count: Int) -> [SpriteItem] {
+    /// 清单里每一项在一维数组里占几格（和 Glue.swift 里的 flat() 对上）
+    static let stride = 15
+
+    /// 一维数组里从 start 开始，每 stride 格是一项；base = 这张清单的第一张图在"这一帧所有图"里排第几
+    private func readItems(_ a: [Any], from start: Int, count: Int, base: Int) -> [SpriteItem] {
         var out: [SpriteItem] = []
         if count <= 0 { return out }
         out.reserveCapacity(count)
         var i = 0
         while i < count {
-            let p = start + i * 10
-            if p + 9 >= a.count { break }
+            let p = start + i * PetEngine.stride
+            if p + PetEngine.stride - 1 >= a.count { break }
             let key = JSRead.string(a[p + 1])
             let ver = JSRead.int(a[p + 2])
             let pw = JSRead.int(a[p + 3])
@@ -283,7 +296,11 @@ final class PetEngine {
                                   x: JSRead.double(a[p + 6]), y: JSRead.double(a[p + 7]),
                                   w: Double(pw) / scale, h: Double(ph) / scale,
                                   flip: JSRead.double(a[p + 8]) != 0, alpha: JSRead.double(a[p + 9]), image: nil)
-            item.image = texture(key: key, ver: ver, pw: pw, ph: ph, index: i)
+            if JSRead.double(a[p + 10]) != 0 {
+                item.clip = CGRect(x: JSRead.double(a[p + 11]), y: JSRead.double(a[p + 12]),
+                                   width: JSRead.double(a[p + 13]), height: JSRead.double(a[p + 14]))
+            }
+            item.image = texture(key: key, ver: ver, pw: pw, ph: ph, index: base + i)
             out.append(item)
             i += 1
         }

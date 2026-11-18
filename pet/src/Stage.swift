@@ -26,6 +26,7 @@ final class SpriteLayers {
         var texKey = ""
         var ver = -1
         var flip = false
+        var mask: CALayer? = nil
     }
     private var nodes: [String: Node] = [:]
     private var order: [String] = []
@@ -88,6 +89,28 @@ final class SpriteLayers {
             }
             let a = Float(max(0, min(1, it.alpha)))
             if node.layer.opacity != a { node.layer.opacity = a }
+            // 只画方框里的那一部分（比如从岛里垂下来的尾巴、躲在程序坞后面的小狗）
+            if let c = it.clip {
+                let cl = originX + CGFloat(c.minX) * unit, ct = originTop + CGFloat(c.minY) * unit
+                let cr = cl + CGFloat(c.width) * unit, cb = ct + CGFloat(c.height) * unit
+                var x0 = max(0, cl - left), x1 = min(w, cr - left)
+                let yTop = max(0, ct - top), yBot = min(h, cb - top)
+                if it.flip { let t = x0; x0 = w - x1; x1 = w - t }          // 镜像过的图：方框也跟着镜像
+                let m: CALayer
+                if let existing = node.mask {
+                    m = existing
+                } else {
+                    m = CALayer()
+                    m.backgroundColor = hexColor(0x000000)
+                    m.actions = SpriteLayers.noActions
+                    node.mask = m
+                }
+                let r = CGRect(x: x0, y: h - yBot, width: max(0, x1 - x0), height: max(0, yBot - yTop))
+                if m.frame != r { m.frame = r }
+                if node.layer.mask !== m { node.layer.mask = m }
+            } else if node.layer.mask != nil {
+                node.layer.mask = nil
+            }
         }
         // 谁在前谁在后变了（或者多了少了）：按新的顺序重新叠一遍
         if ids != order {

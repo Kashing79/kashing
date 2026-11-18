@@ -14,6 +14,7 @@ import QuartzCore
 final class Lawn {
     private var window: NSWindow?
     private let layer = CALayer()
+    let decals = SpriteLayers()             // 草地上的印记（小花、小土堆……），叠在草地上面
     private var shownKey = ""
     private(set) var shownMode = "off"
     private(set) var pixelW = 0
@@ -85,6 +86,15 @@ final class Lawn {
         }
     }
 
+    /// 草地上的印记：和小人、狗狗用同一套坐标（世界单位 → pt，从屏幕顶往下算）
+    func applyDecals(_ items: [SpriteItem], unit: CGFloat, backing: CGFloat, originTop: CGFloat) {
+        if window == nil || shownMode == "off" {
+            decals.clear()
+            return
+        }
+        decals.apply(items, unit: unit, backing: backing, originX: 0, originTop: originTop)
+    }
+
     /// 草地窗口的编号（没有就是 0）
     var windowNumber: Int { return window?.windowNumber ?? 0 }
 
@@ -102,7 +112,13 @@ final class Lawn {
 
     private func ensureWindow(_ f: CGRect) -> NSWindow {
         if let w = window {
-            if w.frame != f { w.setFrame(f, display: true) }
+            if w.frame != f {
+                w.setFrame(f, display: true)
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                decals.container.frame = CGRect(origin: .zero, size: f.size)
+                CATransaction.commit()
+            }
             return w
         }
         let w = NSWindow(contentRect: f, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -128,6 +144,8 @@ final class Lawn {
         layer.minificationFilter = .nearest
         layer.anchorPoint = CGPoint(x: 0, y: 0)
         root.addSublayer(layer)
+        decals.container.frame = CGRect(origin: .zero, size: f.size)
+        root.addSublayer(decals.container)
         w.contentView = view
         window = w
         return w

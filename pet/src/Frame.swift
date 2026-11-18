@@ -21,12 +21,15 @@ struct SpriteItem {
     var flip: Bool
     var alpha: Double
     var image: CGImage?
+    var clip: CGRect? = nil // 只画图在这个方框里的部分（世界单位）；nil = 整张都画
 }
 
 /// 一帧
 struct StageFrame {
     var items: [SpriteItem] = []
     var hot: [CGRect] = []          // 可以点的范围（世界单位）
+    var decals: [SpriteItem] = []   // 草地上的印记（画在桌面草地那个窗口里）
+    var overlayDecals: [SpriteItem] = []    // 没有草地时，其中可以画在最上面那层的几个
     var drag = false                // 她正拖着球 / 拎着谁
     var bubbleText: String? = nil   // 小人在说的话
     var bubbleX = 0.0               // 他头顶在哪（世界单位）

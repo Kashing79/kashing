@@ -147,7 +147,15 @@ extension AppDelegate {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        sprites.apply(fr.items, unit: unit, backing: geo.backing, originX: 0, originTop: offTop)
+        // 草地上的印记：有草地就画在草地上（她的窗口后面）；没有草地时只画允许画在最上面那层的几个，垫在最底下
+        if lawn.shownMode != "off" {
+            lawn.applyDecals(fr.decals, unit: unit, backing: geo.backing, originTop: offTop)
+            sprites.apply(fr.items, unit: unit, backing: geo.backing, originX: 0, originTop: offTop)
+        } else {
+            lawn.applyDecals([], unit: unit, backing: geo.backing, originTop: offTop)
+            sprites.apply(fr.overlayDecals.isEmpty ? fr.items : fr.overlayDecals + fr.items,
+                          unit: unit, backing: geo.backing, originX: 0, originTop: offTop)
+        }
         bubble.update(text: fr.bubbleText, key: "\(fr.bubbleId)|" + (fr.bubbleText ?? ""),
                       anchorX: CGFloat(fr.bubbleX) * unit, anchorTop: offTop + CGFloat(fr.bubbleY) * unit,
                       viewSize: geo.frame.size, backing: geo.backing)
