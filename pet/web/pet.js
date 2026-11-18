@@ -1374,6 +1374,14 @@
       if (g.moved) {     // 放下
         a.carried = false; a.vz = 0;
         if (a.z <= 0) a.z = 0.01;
+        // 拎到灵动岛上放下 = 送它们回岛睡觉
+        var I = window.PET_ISLAND, ir = (I && I.rects && opt.roam) ? I.rects() : null;
+        var px = pointer.x * S + offX, py = pointer.y * S + offY;
+        if (ir && ir.length >= 4 && home.st === 'out' && px >= ir[0] - 12 && px <= ir[0] + ir[2] + 12 && py <= ir[1] + ir[3] + 30) {
+          if (a.isPerson) personIdle(); else { a.st = 'idle'; a.pose = 'stand'; a.t = 0; }
+          home.auto = false; goHome(); home.inAt = now;
+          return;
+        }
         if (home.st === 'going') { a.st = 'home'; a.t = 0; a.hq = false; a.react = 0.2; if (!a.isPerson) a.pose = 'stand'; }
         else if (a.isPerson) { personIdle(); }
         else { a.st = 'pose'; a.pose = 'sit'; a.t = 0; a.dur = 1.6; a.wag = 0.9; }
@@ -1684,7 +1692,9 @@
     // type: down | move | up | hover | leave ；坐标是页面里的 CSS 像素
     pointer: function (type, x, y) {
       var I = window.PET_ISLAND;
-      if (I && I.pointer && I.pointer(type, x, y)) { schedule(); return; }
+      // 手里正拖着球 / 拎着谁的时候，岛先不要展开挡住视线
+      var holding = pointer.drag || (pointer.grab && pointer.grab.moved);
+      if (I && I.pointer && !holding && I.pointer(type, x, y)) { schedule(); return; }
       var p = toL(x, y);
       if (type === 'down') ptDown(p[0], p[1]);
       else if (type === 'move') ptMove(p[0], p[1]);
