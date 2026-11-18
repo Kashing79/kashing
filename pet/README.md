@@ -47,6 +47,11 @@
 - 夜里它们会睡觉，点一下就醒
 - 菜单栏右上角的 🎾：调大小、开机自动启动、先躲起来、退出
 
+## 她的 iPhone
+
+iPhone 上做不了悬浮桌宠，改用「加到主画面的网页 App」加「主画面小组件」。
+做法见 [`iphone/README.md`](iphone/README.md)。
+
 ## 文件夹里有什么
 
 | 文件 | 作用 |
@@ -56,4 +61,6 @@
 | `web/` | 像素画和玩法 |
 | `src/main.swift` | Mac 外壳（透明置顶窗口） |
 | `assets/` | App 图标 |
+| `iphone/` | iPhone 主画面小组件和说明 |
+| `phone/` | 生成 iPhone 网页 App 的脚本（成品在仓库根目录的 `docs/qiuqiu/`） |
 | `dev/` | 开发时用的测试脚本，安装用不到 |

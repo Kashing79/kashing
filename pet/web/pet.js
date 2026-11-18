@@ -80,7 +80,8 @@
   function layout() {
     var host = canvas.parentElement || document.body;
     var vw = host.clientWidth || window.innerWidth, vh = host.clientHeight || window.innerHeight;
-    S = opt.scale || (vw < 520 ? 2 : (vw < 1150 ? 3 : 4));
+    var autoS = typeof CFG.autoScale === 'function' ? CFG.autoScale(vw, vh) : 0;
+    S = opt.scale || autoS || (vw < 520 ? 2 : (vw < 1150 ? 3 : 4));
     LW = Math.max(150, Math.floor(vw / S));
     LH = Math.max(70, Math.floor(vh / S));
     canvas.width = LW; canvas.height = LH;

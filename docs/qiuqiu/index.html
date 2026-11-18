@@ -1,0 +1,1640 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>球球</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="球球">
+<meta name="theme-color" content="#bfe3f7">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { --sky-a: #bfe3f7; --sky-b: #e9f5fc; --ground-a: #9fd18b; --ground-b: #86bf74; --ink: #21364a; --soft: #21364a99; --card: #ffffffcc; }
+  html.dusk { --sky-a: #f6b48a; --sky-b: #fde3c4; --ground-a: #8fbf7e; --ground-b: #73a866; --ink: #4a2c21; --soft: #4a2c2199; }
+  html.night { --sky-a: #141c33; --sky-b: #2a3558; --ground-a: #2f5a45; --ground-b: #244a39; --ink: #e9eefc; --soft: #e9eefcaa; --card: #ffffff1f; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body {
+    position: fixed; inset: 0;
+    background: linear-gradient(var(--ground-a), var(--ground-b));
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Noto Sans TC", sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 天空占满上面；最下面留一条草地（含 iPhone 底部横条的安全区） */
+  #world {
+    position: absolute; left: 0; right: 0; top: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 46px);
+    background: linear-gradient(var(--sky-a), var(--sky-b));
+    overflow: hidden;
+  }
+  html.night #world::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1.2px 1.2px at 12% 18%, #fff 60%, transparent), radial-gradient(1.2px 1.2px at 31% 9%, #fff 60%, transparent),
+      radial-gradient(1.6px 1.6px at 52% 22%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 71% 13%, #fff 60%, transparent),
+      radial-gradient(1.4px 1.4px at 86% 27%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 22% 36%, #fff 60%, transparent),
+      radial-gradient(1.3px 1.3px at 63% 41%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 92% 46%, #fff 60%, transparent);
+    opacity: .8;
+  }
+  #stage { position: absolute; left: 0; bottom: 0; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges; image-rendering: pixelated; }
+  #bubbles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .bubble {
+    position: absolute; transform: translate(-50%, -100%); max-width: 220px; padding: 6px 10px;
+    font: 600 14px/1.35 inherit; font-family: inherit; color: #2a1f2d; background: #fffdf7;
+    border: 2px solid #2a1f2d; border-radius: 9px; white-space: pre-wrap; text-align: center;
+    opacity: 0; transition: opacity .25s;
+  }
+  .bubble.on { opacity: 1; }
+  #top {
+    position: absolute; left: 0; right: 0; top: 0; z-index: 2; pointer-events: none;
+    padding: calc(env(safe-area-inset-top, 0px) + 18px) max(18px, env(safe-area-inset-right, 0px)) 0 max(18px, env(safe-area-inset-left, 0px));
+    display: flex; flex-direction: column; gap: 10px; transition: opacity .6s;
+  }
+  #top.quiet { opacity: 0; }
+  #top h1 { margin: 0; font-size: 22px; line-height: 1.2; }
+  #tips { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 7px; }
+  #tips li { padding: 6px 11px; font-size: 13px; line-height: 1.25; background: var(--card); border-radius: 999px; }
+  #install {
+    align-self: flex-start; max-width: 30em; padding: 10px 12px; font-size: 13px; line-height: 1.5;
+    background: var(--card); border-radius: 12px; color: var(--ink);
+  }
+  #install b { font-weight: 700; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="world">
+  <div id="top">
+    <h1 id="t-title"></h1>
+    <ul id="tips"><li id="t-1"></li><li id="t-2"></li><li id="t-3"></li></ul>
+    <div id="install" hidden></div>
+  </div>
+  <canvas id="stage"></canvas>
+  <div id="bubbles"></div>
+</div>
+<script>
+// —— 手机版外壳：文字（繁体 / 简体）、白天黑夜的天空、"加到主画面"提示、离线缓存 ——
+(function () {
+  var hant = /^zh\b.*(tw|hk|mo|hant)/i.test(navigator.language || '') || /hant|tw|hk/i.test((navigator.languages || []).join(','));
+  var zh = /^zh/i.test(navigator.language || 'zh');
+  var T = hant ? {
+    title: '球球', a: '拖住小球甩出去', b: '點小人，他幫你丟球', c: '點小狗，摸摸牠',
+    install: '想像 App 一樣打開：點 Safari 下方的<b>分享</b>按鈕，選<b>「加入主畫面」</b>。加好以後沒有網路也能玩。',
+  } : zh ? {
+    title: '球球', a: '拖住小球甩出去', b: '点小人，他帮你丢球', c: '点小狗，摸摸它',
+    install: '想像 App 一样打开：点 Safari 下方的<b>分享</b>按钮，选<b>"添加到主屏幕"</b>。加好以后没有网络也能玩。',
+  } : {
+    title: 'QiuQiu', a: 'Drag the ball and fling it', b: 'Tap the person to throw', c: 'Tap a dog to pet it',
+    install: 'To open it like an app: tap <b>Share</b> in Safari, then <b>Add to Home Screen</b>. It works offline after that.',
+  };
+  document.documentElement.lang = hant ? 'zh-Hant' : (zh ? 'zh-Hans' : 'en');
+  document.getElementById('t-title').textContent = T.title;
+  document.getElementById('t-1').textContent = T.a;
+  document.getElementById('t-2').textContent = T.b;
+  document.getElementById('t-3').textContent = T.c;
+
+  function sky() {
+    var h = new Date().getHours(), c = document.documentElement.classList;
+    c.remove('dusk', 'night');
+    if (h >= 19 || h < 5) c.add('night'); else if (h >= 17 || h < 7) c.add('dusk');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--sky-a').trim());
+  }
+  sky(); setInterval(sky, 5 * 60 * 1000);
+
+  var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && !standalone) { var box = document.getElementById('install'); box.innerHTML = T.install; box.hidden = false; }
+
+  // 玩起来以后，上面的字淡掉，不挡画面
+  var top = document.getElementById('top'), touched = 0;
+  window.addEventListener('pointerdown', function () { touched++; if (touched >= 2) top.classList.add('quiet'); });
+
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+})();
+</script>
+<script>// ============================================================
+//  球球 · 可以自己改的设定
+//  改完之后重新运行一次  bash install.sh  就会生效。
+//  看不懂也没关系：把这个文件交给 Claude Code，说"帮我改成……"就行。
+// ============================================================
+window.PET_CONFIG = {
+
+  // —— 穿西装的小人 ——（颜色用 #RRGGBB）
+  person: {
+    hair:  '#2b2530',   // 头发
+    skin:  '#f3c9a5',   // 肤色
+    suit:  '#3a4c7a',   // 西装
+    shirt: '#f6f4ef',   // 衬衫
+    tie:   '#d0353f',   // 领带
+    shoes: '#2a2024',   // 皮鞋
+  },
+
+  // —— 小腊肠的毛色 ——  'red' 红棕 | 'blacktan' 黑棕 | 'cream' 奶油
+  dachshund: 'red',
+
+  // —— 小人偶尔会说的话（可以留空）——
+  // 每行一句，小人会隔一阵子转过来挥挥手，随机说其中一句。
+  // 例：messages: ['休息一下吧', '记得喝水', '我在呢'],
+  messages: [],
+
+  // 每隔多少分钟说一句（最短, 最长）
+  messageMinutes: [25, 60],
+
+  // —— 小人自动丢球 ——  每隔多少秒玩一轮（最短, 最长）
+  autoPlaySeconds: [40, 110],
+
+  // —— 夜里睡觉 ——  [几点开始, 几点结束]，这段时间大家都睡觉，不自动丢球。
+  // 点一下它们还是会醒来陪玩。不想要就写 null。
+  nightSleep: [0, 7],
+};
+
+// 手机屏幕窄：竖着拿用 2.5 倍，横着拿用 3 倍
+window.PET_CONFIG.autoScale = function (vw) { return vw < 340 ? 2 : (vw < 560 ? 2.5 : 3); };
+</script>
+<script>// 像素画：每个字符是一个像素，'.' 是透明。
+// 所有角色都画成"面向右"，引擎会自动镜像出面向左的版本。
+(function () {
+  'use strict';
+
+  // ---------- 小工具 ----------
+  function blank(w) { return '.'.repeat(w); }
+
+  // 把 patch 盖到 rows 上。patch.px 是 [x, y, ch] 列表；ch 为 '_' 表示擦成透明。
+  function put(rows, px) {
+    var g = rows.map(function (r) { return r.split(''); });
+    px.forEach(function (p) {
+      var x = p[0], y = p[1], ch = p[2];
+      if (y < 0 || y >= g.length || x < 0 || x >= g[y].length) return;
+      g[y][x] = ch === '_' ? '.' : ch;
+    });
+    return g.map(function (r) { return r.join(''); });
+  }
+  // 一段横线像素
+  function run(x0, x1, y, ch) {
+    var out = [];
+    for (var x = x0; x <= x1; x++) out.push([x, y, ch]);
+    return out;
+  }
+  function cat() {
+    var out = [];
+    for (var i = 0; i < arguments.length; i++) out = out.concat(arguments[i]);
+    return out;
+  }
+  // 替换某几行
+  function rowsAt(rows, y0, repl) {
+    var g = rows.slice();
+    repl.forEach(function (r, i) { g[y0 + i] = r; });
+    return g;
+  }
+  // 整体上移 n 行（腾空）
+  function up(rows, n) {
+    var w = rows[0].length, g = rows.slice(n);
+    for (var i = 0; i < n; i++) g.push(blank(w));
+    return g;
+  }
+  // 顶部补空行到 h 行
+  function padTop(rows, h) {
+    var w = rows[0].length, g = rows.slice();
+    while (g.length < h) g.unshift(blank(w));
+    return g;
+  }
+  // 上半身下沉 1 像素（呼吸 / 迈步）：顶部加一行，删掉 removeRow 这一行
+  function sink(rows, removeRow) {
+    var w = rows[0].length, g = rows.slice();
+    g.splice(removeRow, 1);
+    g.unshift(blank(w));
+    return g;
+  }
+
+  // ============================================================
+  //  小球（6x6）
+  // ============================================================
+  var BALL = [
+    ['.yYyw.',
+     'yYYwyy',
+     'yYwyyy',
+     'ywyyyv',
+     'wyyyvv',
+     '.yvvv.'],
+    ['.wYyy.',
+     'yywYyy',
+     'yYywyy',
+     'yyyywv',
+     'yyyvvw',
+     '.yvvv.'],
+    ['.yYyy.',
+     'wYYyyy',
+     'ywwyyy',
+     'yyywwv',
+     'yyyvvw',
+     '.yvvv.'],
+    ['.yYyy.',
+     'yYYyyw',
+     'yYyyww',
+     'yywwyv',
+     'wwyyvv',
+     '.yvvv.'],
+  ];
+
+  // ============================================================
+  //  穿西装的小人（20x26）
+  // ============================================================
+  var P_FRONT = [
+    '......hhhhhhhh......',
+    '.....hhhhhhhhhh.....',
+    '....hhhhhhhhhhhh....',
+    '....hhhhhhhhhhhh....',
+    '....hhhhhssshhhh....',
+    '....hhsssssssshh....',
+    '....hssssssssssh....',
+    '....sssessssesss....',
+    '....sssessssesss....',
+    '....sdssssssssds....',
+    '.....ssssmmssss.....',
+    '......ssssssss......',
+    '........wwww........',
+    '.....jjjwttwjjj.....',
+    '....jjjjJttJjjjj....',
+    '....jjjjJttJjjjj....',
+    '....jjjjjJJjjjjj....',
+    '....jjjjjjjjjjjj....',
+    '....sjjjjjjjjjjs....',
+    '.....jjjjjjjjjj.....',
+    '.....pppppppppp.....',
+    '.....pppp..pppp.....',
+    '.....pppp..pppp.....',
+    '.....pppp..pppp.....',
+    '.....pppp..pppp.....',
+    '....bbbbb..bbbbb....',
+  ];
+  var P_FRONT_BLINK = rowsAt(P_FRONT, 7, [
+    '....ssssssssssss....',
+    '....sseesssseess....',
+  ]);
+  // 正面挥手：先擦掉右边那条手臂，再画举起来的手
+  var P_FRONT_NOARM = put(P_FRONT, cat(
+    [[15, 14, '_'], [15, 15, '_'], [15, 16, '_'], [15, 17, '_'], [15, 18, '_']]
+  ));
+  var P_WAVE_A = put(P_FRONT_NOARM, [
+    [15, 14, 'j'], [15, 13, 'j'], [16, 13, 'j'], [16, 12, 'j'], [17, 12, 'j'],
+    [17, 11, 'j'], [17, 10, 'j'], [17, 9, 's'], [18, 9, 's'], [17, 8, 's'], [18, 8, 's'],
+  ]);
+  var P_WAVE_B = put(P_FRONT_NOARM, [
+    [15, 14, 'j'], [15, 13, 'j'], [16, 13, 'j'], [16, 12, 'j'], [17, 12, 'j'],
+    [18, 11, 'j'], [18, 10, 'j'], [19, 9, 's'], [18, 9, 's'], [19, 8, 's'], [18, 8, 's'],
+  ]);
+
+  // 侧面（面向右的 3/4 视角），不含近侧手臂
+  var P_SIDE = [
+    '......hhhhhhhh......',
+    '.....hhhhhhhhhh.....',
+    '....hhhhhhhhhhhh....',
+    '....hhhhhhhhhhhh....',
+    '....hhhhhhhsssshh...',
+    '....hhhhsssssssss...',
+    '....hhhssssssssss...',
+    '....hhhsssessssess..',
+    '....hhhsssessssess..',
+    '....hhsssssssssdss..',
+    '.....hsssssssmmss...',
+    '......sssssssss.....',
+    '.........wwww.......',
+    '.....jjjjjwttwj.....',
+    '.....jjjjjJttJj.....',
+    '.....jjjjjJttJj.....',
+    '.....jjjjjjJJjj.....',
+    '.....jjjjjjjjjj.....',
+    '.....jjjjjjjjjj.....',
+    '.....jjjjjjjjjj.....',
+    '......pppppppp......',
+    '......ppp..ppp......',
+    '......ppp..ppp......',
+    '......ppp..ppp......',
+    '......ppp..ppp......',
+    '......bbbb.bbbb.....',
+  ];
+  var P_SIDE_BLINK_PX = [[10, 7, 's'], [15, 7, 's'], [9, 8, 'e'], [14, 8, 'e']];
+  var LEGS_STRIDE = [
+    '......pppppppp......',
+    '.....pppp..pppp.....',
+    '.....ppp....ppp.....',
+    '....ppp......ppp....',
+    '....ppp......ppp....',
+    '....bbbb.....bbbb...',
+  ];
+  var LEGS_PASS = [
+    '......pppppppp......',
+    '.......pppppp.......',
+    '.......ppppp........',
+    '.......ppppp........',
+    '.......ppppp........',
+    '.......bbbbbb.......',
+  ];
+  // 近侧手臂（袖子用 J，手用 s）。肩膀在 (7,14) 附近。
+  var ARM = {
+    down:   cat(run(6, 7, 14, 'J'), run(6, 7, 15, 'J'), run(6, 7, 16, 'J'), run(6, 7, 17, 'J'), run(6, 7, 18, 's')),
+    fwd:    cat(run(6, 7, 14, 'J'), run(7, 8, 15, 'J'), run(8, 9, 16, 'J'), run(9, 10, 17, 'J'), run(10, 11, 18, 's')),
+    back:   cat(run(6, 7, 14, 'J'), run(5, 6, 15, 'J'), run(4, 5, 16, 'J'), run(3, 4, 17, 'J'), run(2, 3, 18, 's')),
+    hold:   cat(run(6, 7, 14, 'J'), run(6, 7, 15, 'J'), run(7, 8, 16, 'J'), run(8, 11, 17, 'J'), run(12, 13, 17, 's'), run(12, 13, 16, 's')),
+    windup: cat(run(6, 7, 14, 'J'), run(4, 6, 13, 'J'), run(2, 4, 12, 'J'), run(1, 2, 11, 'J'), run(0, 1, 10, 's'), run(0, 1, 9, 's')),
+    release: cat(run(7, 8, 14, 'J'), run(8, 10, 13, 'J'), run(10, 12, 12, 'J'), run(13, 15, 12, 'J'), run(16, 17, 12, 's'), run(16, 17, 11, 's')),
+    follow: cat(run(7, 8, 14, 'J'), run(8, 9, 15, 'J'), run(9, 10, 16, 'J'), run(10, 11, 17, 'J'), run(12, 13, 18, 's')),
+    pat:    cat(run(7, 8, 14, 'J'), run(8, 9, 15, 'J'), run(9, 10, 16, 'J'), run(10, 11, 17, 'J'), run(11, 12, 18, 'J'), run(13, 14, 19, 's'), run(14, 15, 20, 's')),
+  };
+  function pSide(arm, legs, lower) {
+    var r = P_SIDE;
+    if (legs) r = rowsAt(r, 20, legs);
+    r = put(r, ARM[arm]);
+    if (lower) r = sink(r, 21);
+    return r;
+  }
+
+  // ============================================================
+  //  小腊肠（32x15）
+  // ============================================================
+  var D_BODY = [
+    '................................',
+    '................................',
+    '.......................rrrr.....',
+    '......................rrrrrr....',
+    '.....................rrrrnrrr...',
+    '.....................rrrrrrrrrn.',
+    '.....................rrrrrrrrqq.',
+    '....rrrrrrrrrrrrrrrrrrrrrrrqq...',
+    '...rrrrrrrrrrrrrrrrrrrrrrr......',
+    '...rrrrrrrrrrrrrrrrrrrrrrr......',
+    '...rrrrrrrrrrrrrrrrrrrrrr.......',
+    '....rRRRRRRRRRRRRRRRRrrr........',
+    '................................',
+    '................................',
+    '................................',
+  ];
+  var D_EAR = {
+    down: cat(run(21, 22, 4, 'E'), run(21, 22, 5, 'E'), run(21, 23, 6, 'E'), run(21, 23, 7, 'E'), run(22, 23, 8, 'E')),
+    back: cat(run(21, 22, 4, 'E'), run(18, 22, 5, 'E'), run(17, 21, 6, 'E')),
+    up:   cat(run(21, 22, 4, 'E'), run(19, 22, 3, 'E'), run(18, 20, 2, 'E')),
+  };
+  var D_TAIL = {
+    a:   [[3, 7, 't'], [2, 6, 't'], [2, 5, 't'], [1, 4, 't']],
+    b:   [[3, 7, 't'], [3, 6, 't'], [4, 5, 't'], [4, 4, 't']],
+    run: [[3, 7, 't'], [2, 7, 't'], [1, 6, 't'], [0, 6, 't']],
+  };
+  var D_LEGS = {
+    stand:   cat(run(5, 7, 12, 'r'), run(6, 7, 13, 'r'), run(6, 7, 14, 'r'), [[8, 14, 'q']],
+                 run(20, 22, 12, 'r'), run(21, 22, 13, 'r'), run(21, 22, 14, 'r'), [[23, 14, 'q']]),
+    stretch: cat(run(3, 6, 12, 'r'), run(1, 3, 13, 'r'), [[0, 13, 'q']],
+                 run(21, 24, 12, 'r'), run(24, 26, 13, 'r'), [[27, 13, 'q']]),
+    gather:  cat(run(7, 9, 12, 'r'), run(9, 10, 13, 'r'), run(10, 11, 14, 'r'), [[12, 14, 'q']],
+                 run(18, 20, 12, 'r'), run(17, 18, 13, 'r'), run(16, 17, 14, 'r'), [[15, 14, 'q']]),
+  };
+  function dStand(ear, tail, legs, lift) {
+    var r = put(D_BODY, cat(D_LEGS[legs], D_EAR[ear], D_TAIL[tail]));
+    return lift ? up(r, 1) : r;
+  }
+  var D_SIT = [
+    '................................',
+    '......................rrrr......',
+    '.....................rrrrrr.....',
+    '....................EErrnrrr....',
+    '....................EErrrrrrrn..',
+    '....................EEErrrrrqq..',
+    '...................rEEErrrqq....',
+    '..................rrrEErrr......',
+    '.................rrrrrrrrr......',
+    '...............rrrrrrrrrrr......',
+    '.............rrrrrrrrrrrrr......',
+    '...........rrrrrrrrrrrr.rr......',
+    '.........rrrrrrrrrrrrr..rr......',
+    '........rrrrRRrrrrrrr...rr......',
+    '........rrrrrrrrrrrqq...rrq.....',
+  ];
+  var D_SIT_TAIL = {
+    a: [[8, 12, 't'], [7, 11, 't'], [6, 10, 't'], [6, 9, 't']],
+    b: [[7, 13, 't'], [6, 12, 't'], [5, 12, 't'], [4, 11, 't']],
+  };
+  var D_BOW = [
+    '................................',
+    '................................',
+    '................................',
+    '....rrrr........................',
+    '...rrrrrrr......................',
+    '...rrrrrrrrrr...................',
+    '...rrrrrrrrrrrrr......rrrr......',
+    '....rrrrrrrrrrrrrrr..rrrrrr.....',
+    '....rr.rrrrrrrrrrrrrEErrnrrr....',
+    '....rr...rrrrrrrrrrrEErrrrrrrn..',
+    '....rr.....rrrrrrrrrEEErrrrrqq..',
+    '....rr.......rrrrrrrrEErrrqq....',
+    '....rr.........rrrrrrrrr........',
+    '....rr..........rrrrrrrrrrrr....',
+    '....rrq...........rrrrrrrrrrq...',
+  ];
+  var D_BOW_TAIL = {
+    a: [[3, 3, 't'], [2, 2, 't'], [2, 1, 't'], [1, 0, 't']],
+    b: [[4, 2, 't'], [4, 1, 't'], [5, 0, 't']],
+  };
+  var D_LIE = padTop([
+    '......rrrrrrrrrrrrrrr...........',
+    '....rrrrrrrrrrrrrrrrrrEE........',
+    '...rrrrrrrrrrrrrrrrrrrEEErrr....',
+    '..rrrrrrrrrrrrrrrrrrrrEEErrrrr..',
+    '..rrrrrrrrrrrrrrrrrrrrrEErnrrrn.',
+    '..rrRRRRRRRRRRRRRRrrrrrrrrrrqq..',
+    '.tttrrq..........qqrrrrrrqq.....',
+  ], 15);
+  var D_SLEEP = put(D_LIE, [[26, 12, 'R']]);
+  var D_SLEEP2 = sink(D_SLEEP, 8);
+
+  // ============================================================
+  //  大金毛（40x24）
+  // ============================================================
+  // 头（站立时的位置）。gHead(dx, dy, opt) 可以把头挪到别的位置。
+  var G_HEAD_ROWS = [
+    // [y, x0, 字符串]
+    [1, 29, 'gggggg'],
+    [2, 28, 'gggggggg'],
+    [3, 27, 'DDggggngggg'],
+    [4, 27, 'DDDgggggggggn'],
+    [5, 27, 'DDDgggggglll'],
+    [6, 27, 'DDDgggggg'],
+    [7, 28, 'DDgggggg'],
+  ];
+  function gHead(dx, dy, opt) {
+    opt = opt || {};
+    var px = [];
+    G_HEAD_ROWS.forEach(function (r) {
+      for (var i = 0; i < r[2].length; i++) px.push([r[1] + i + dx, r[0] + dy, r[2][i]]);
+    });
+    if (opt.tongue) { px.push([36 + dx, 6 + dy, 'k']); px.push([37 + dx, 6 + dy, 'k']); px.push([36 + dx, 7 + dy, 'k']); }
+    if (opt.closed) { px.push([33 + dx, 3 + dy, 'g']); px.push([32 + dx, 4 + dy, 'G']); px.push([33 + dx, 4 + dy, 'G']); }
+    return px;
+  }
+  // 身体（不含头、腿、尾巴）
+  var G_BODY = [
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '......................ggggggggggggl.....',
+    '.......ggggggggggggggggggggggggggll.....',
+    '.....ggggggggggggggggggggggggggglll.....',
+    '....gggggggggggggggggggggggggggglll.....',
+    '....ggggggggggggggggggggggggggggll......',
+    '....gggggggggggggggggggggggggggll.......',
+    '.....ggglllllllGGGGGGgggggggggll........',
+    '...............gllllllggggggggl.........',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+  ];
+  // 画一条腿：从 (hipX, topY) 往下 len 行，每行往 slope 方向偏移；thick = 顶部加粗几行
+  function leg(hipX, topY, len, slope, width, ch, thick) {
+    var px = [];
+    for (var i = 0; i < len; i++) {
+      var x = Math.round(hipX + slope * i);
+      var extra = (thick && i < thick) ? (thick - i) : 0;
+      for (var k = -extra; k < width; k++) px.push([x + k, topY + i, ch]);
+      if (i === len - 1) px.push([x + width, topY + i, ch]);
+    }
+    return px;
+  }
+  var G_TAIL = {
+    mid:  cat(run(2, 4, 10, 'g'), run(1, 3, 11, 'g'), run(0, 2, 12, 'g'),
+              [[3, 12, 'l'], [1, 13, 'l'], [2, 13, 'l'], [0, 13, 'l'], [1, 14, 'l']]),
+    up:   cat(run(3, 4, 9, 'g'), run(3, 4, 8, 'g'), run(2, 4, 7, 'g'), run(2, 3, 6, 'g'), run(1, 3, 5, 'g'), run(1, 2, 4, 'g'),
+              [[1, 7, 'l'], [1, 6, 'l'], [0, 5, 'l'], [0, 4, 'l'], [0, 3, 'l'], [1, 3, 'l'], [2, 8, 'l']]),
+  };
+  var G_FEATHER = [[6, 19, 'l'], [6, 20, 'l'], [24, 18, 'l'], [24, 19, 'l'], [24, 20, 'l']];
+  var G_LEGS = {
+    // 远侧腿（G，深色）先画，近侧腿（g）后画
+    stand: cat(
+      leg(11, 15, 9, 0, 2, 'G'), leg(21, 16, 8, 0, 2, 'G'),
+      leg(7, 15, 9, 0, 2, 'g', 3), leg(25, 16, 8, 0, 2, 'g', 1), G_FEATHER
+    ),
+    trotA: cat(
+      leg(11, 15, 9, 0.3, 2, 'G'), leg(21, 16, 8, -0.3, 2, 'G'),
+      leg(7, 15, 9, -0.3, 2, 'g', 3), leg(25, 16, 8, 0.3, 2, 'g', 1)
+    ),
+    trotB: cat(
+      leg(11, 15, 9, -0.3, 2, 'G'), leg(21, 16, 8, 0.3, 2, 'G'),
+      leg(7, 15, 9, 0.3, 2, 'g', 3), leg(25, 16, 8, -0.3, 2, 'g', 1)
+    ),
+    stretch: cat(
+      leg(10, 15, 7, -1.0, 3, 'G'), leg(23, 16, 6, 1.0, 3, 'G'),
+      leg(6, 15, 7, -1.1, 3, 'g', 3), leg(26, 16, 6, 1.1, 3, 'g', 1)
+    ),
+    gather: cat(
+      leg(11, 15, 9, 0.4, 2, 'G'), leg(22, 16, 8, -0.4, 2, 'G'),
+      leg(8, 15, 9, 0.45, 2, 'g', 3), leg(25, 16, 8, -0.45, 2, 'g', 1)
+    ),
+  };
+  function gStand(tail, legs, lift, tongue) {
+    var r = put(G_BODY, cat(G_LEGS[legs], G_TAIL[tail], gHead(0, 0, { tongue: tongue !== false })));
+    return lift ? up(r, 1) : r;
+  }
+  var G_SIT_BODY = [
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '........................................',
+    '..........................ggggggggl.....',
+    '.........................ggggggggll.....',
+    '.......................ggggggggglll.....',
+    '.....................ggggggggggglll.....',
+    '...................gggggggggggggll......',
+    '.................ggggggggggggggll.......',
+    '...............ggggggggggggggggl........',
+    '..............ggggggggggggggggg.........',
+    '.............ggggggggggggg.ggg..........',
+    '............gggggggggggggg.ggg..........',
+    '...........ggggggggggggggg.ggg..........',
+    '...........gggggggggggggg.lgg...........',
+    '..........ggggggGGgggggg.GGgg...........',
+    '..........gggggGGggggggg.GGgg...........',
+    '..........ggggGGgggggggg.GGgg...........',
+    '..........gggggggggggglllGGggg..........',
+  ];
+  var G_SIT = put(G_SIT_BODY, gHead(0, 0, { tongue: true }));
+  var G_SIT_TAIL = {
+    a: cat(run(6, 9, 23, 'g'), run(3, 5, 23, 'l'), run(5, 8, 22, 'l')),
+    b: cat(run(8, 9, 22, 'g'), run(7, 8, 21, 'g'), run(6, 7, 20, 'g'), run(5, 6, 19, 'g'), [[5, 21, 'l'], [4, 20, 'l'], [4, 19, 'l'], [4, 18, 'l'], [5, 18, 'g']]),
+  };
+  var G_LIE_BODY = padTop([
+    '.......ggggggggggggggggggggggggggll.....',
+    '.....ggggggggggggggggggggggggggggll.....',
+    '....gggggggggggggggggggggggggggggl......',
+    '....gggggggggggggggggggggggggggggggggl..',
+    '.lllgggGGGGGGGGGGGGGGGGGggggglllggggggl.',
+  ], 24);
+  var G_NECK = cat(run(23, 33, 18, 'g'), run(26, 29, 17, 'g'), [[34, 18, 'l']]);
+  var G_LIE = put(G_LIE_BODY, cat(G_NECK, gHead(0, 10, { tongue: true })));
+  var G_LIE2 = put(G_LIE_BODY, cat(G_NECK, gHead(0, 10, {})));
+  var G_SLEEP = put(G_LIE_BODY, gHead(0, 16, { closed: true }));
+  var G_SLEEP2 = sink(G_SLEEP, 20);
+
+  // ============================================================
+  //  表情小图标
+  // ============================================================
+  var HEART = [
+    '.rr.rr.',
+    'rwrrrrr',
+    'rrrrrrr',
+    '.rrrrr.',
+    '..rrr..',
+    '...r...',
+  ];
+  var BANG = [
+    'yy',
+    'yy',
+    'yy',
+    'yy',
+    '..',
+    'yy',
+  ];
+  var NOTE = [
+    '..bbb',
+    '..b.b',
+    '..b.b',
+    '..b..',
+    'bbb..',
+    'bbb..',
+  ];
+  var ZED = [
+    'zzzzz',
+    '...z.',
+    '..z..',
+    '.z...',
+    'zzzzz',
+  ];
+  var ZED_S = [
+    'zzzz',
+    '..z.',
+    '.z..',
+    'zzzz',
+  ];
+
+  // ============================================================
+  //  调色盘
+  // ============================================================
+  function hex(c) {
+    c = c.replace('#', '');
+    if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+    return [parseInt(c.substr(0, 2), 16), parseInt(c.substr(2, 2), 16), parseInt(c.substr(4, 2), 16)];
+  }
+  function mix(a, b, t) {
+    var x = hex(a), y = hex(b);
+    return '#' + [0, 1, 2].map(function (i) {
+      var v = Math.round(x[i] + (y[i] - x[i]) * t);
+      return ('0' + Math.max(0, Math.min(255, v)).toString(16)).slice(-2);
+    }).join('');
+  }
+  var INK = '#2a1f2d';
+
+  var DAX_COLORS = {
+    red:      { r: '#b8632b', R: '#8f4519', q: '#dfa063', E: '#7a3a16', t: '#8f4519' },
+    blacktan: { r: '#3d3539', R: '#2b2528', q: '#c98a4b', E: '#2b2528', t: '#2b2528' },
+    cream:    { r: '#e9c995', R: '#cba56a', q: '#f7e6c4', E: '#c39a5e', t: '#cba56a' },
+  };
+
+  function palettes(cfg) {
+    var p = Object.assign({ hair: '#2b2530', skin: '#f3c9a5', suit: '#3a4c7a', shirt: '#f6f4ef', tie: '#d0353f', shoes: '#2a2024' }, (cfg && cfg.person) || {});
+    var dax = DAX_COLORS[(cfg && cfg.dachshund) || 'red'] || DAX_COLORS.red;
+    return {
+      person: {
+        h: p.hair, s: p.skin, d: mix(p.skin, '#e8747c', 0.38), e: INK, m: '#b4524e',
+        w: p.shirt, t: p.tie, j: p.suit, J: mix(p.suit, '#000000', 0.28), p: mix(p.suit, '#000000', 0.14), b: p.shoes,
+      },
+      dax: Object.assign({ n: INK, k: '#f08a9a' }, dax),
+      gold: { g: '#e6ad4c', G: '#c08a2e', l: '#f8dc9c', D: '#b97c24', n: INK, k: '#f08a9a' },
+      ball: { y: '#d6e645', Y: '#f4f9ae', v: '#9fb226', w: '#ffffff' },
+      fx: { r: '#f0506e', w: '#ffd0da', y: '#ffc93c', b: '#6fb7ff', z: '#bcd8ff' },
+    };
+  }
+
+  // ============================================================
+  //  把字符画变成可以直接画的图
+  // ============================================================
+  function render(rows, pal, outline) {
+    var h = rows.length, w = rows[0].length;
+    for (var i = 0; i < h; i++) {
+      if (rows[i].length !== w) throw new Error('row width mismatch at row ' + i + ': "' + rows[i] + '" (' + rows[i].length + ' != ' + w + ')');
+    }
+    var W = w + 2, H = h + 2;
+    var cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    var c = cv.getContext('2d');
+    var img = c.createImageData(W, H), d = img.data;
+    var solid = new Uint8Array(W * H);
+    var x, y;
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) {
+        var ch = rows[y][x];
+        if (ch === '.') continue;
+        var col = pal[ch];
+        if (!col) throw new Error('unknown color "' + ch + '"');
+        var rgb = hex(col), o = ((y + 1) * W + (x + 1)) * 4;
+        d[o] = rgb[0]; d[o + 1] = rgb[1]; d[o + 2] = rgb[2]; d[o + 3] = 255;
+        solid[(y + 1) * W + (x + 1)] = 1;
+      }
+    }
+    if (outline !== false) {
+      var ink = hex(INK);
+      for (y = 0; y < H; y++) {
+        for (x = 0; x < W; x++) {
+          if (solid[y * W + x]) continue;
+          var near = (x > 0 && solid[y * W + x - 1]) || (x < W - 1 && solid[y * W + x + 1]) ||
+                     (y > 0 && solid[(y - 1) * W + x]) || (y < H - 1 && solid[(y + 1) * W + x]);
+          if (near) {
+            var k = (y * W + x) * 4;
+            d[k] = ink[0]; d[k + 1] = ink[1]; d[k + 2] = ink[2]; d[k + 3] = 255;
+          }
+        }
+      }
+    }
+    c.putImageData(img, 0, 0);
+    var fl = document.createElement('canvas');
+    fl.width = W; fl.height = H;
+    var fc = fl.getContext('2d');
+    fc.translate(W, 0); fc.scale(-1, 1);
+    fc.drawImage(cv, 0, 0);
+    return { img: cv, flip: fl, w: W, h: H };
+  }
+
+  // collect：只想拿到"字符画 + 调色盘"而不画图时用（给 iPhone 小组件的打包脚本用）
+  function build(cfg, collect) {
+    var pal = palettes(cfg);
+    var S = {};
+    function add(name, rows, p, extra) {
+      if (collect) { collect(name, rows, p, extra); return; }
+      var s = render(rows, p);
+      if (extra) for (var k in extra) s[k] = extra[k];
+      S[name] = s;
+    }
+    // 小球
+    BALL.forEach(function (r, i) { add('ball' + i, r, pal.ball); });
+
+    // 小人。hand = 拿球时球心的位置（相对未描边的图，面向右）
+    var fh = { hand: [2, 20] };
+    add('p_front', P_FRONT, pal.person, fh);
+    add('p_front2', sink(P_FRONT, 21), pal.person, { hand: [2, 21] });
+    add('p_front_blink', P_FRONT_BLINK, pal.person, fh);
+    add('p_wave_a', P_WAVE_A, pal.person, fh);
+    add('p_wave_b', P_WAVE_B, pal.person, fh);
+    add('p_idle', pSide('down'), pal.person);
+    add('p_idle2', pSide('down', null, true), pal.person);
+    add('p_blink', put(pSide('down'), P_SIDE_BLINK_PX), pal.person);
+    add('p_hold', pSide('hold'), pal.person, { hand: [15, 15] });
+    add('p_hold2', pSide('hold', null, true), pal.person, { hand: [15, 16] });
+    add('p_walk0', pSide('fwd', LEGS_STRIDE, true), pal.person, { hand: [12, 20] });
+    add('p_walk1', pSide('down', LEGS_PASS), pal.person, { hand: [7, 20] });
+    add('p_walk2', pSide('back', LEGS_STRIDE, true), pal.person, { hand: [2, 21] });
+    add('p_walk3', pSide('down', LEGS_PASS), pal.person, { hand: [7, 20] });
+    add('p_windup', pSide('windup'), pal.person, { hand: [0, 7] });
+    add('p_release', pSide('release'), pal.person, { hand: [19, 10] });
+    add('p_follow', pSide('follow'), pal.person);
+    add('p_pat', pSide('pat'), pal.person);
+
+    // 小腊肠。mouth = 叼球时球心的位置
+    var dm = { mouth: [30, 7] };
+    add('d_stand_a', dStand('down', 'a', 'stand'), pal.dax, dm);
+    add('d_stand_b', dStand('down', 'b', 'stand'), pal.dax, dm);
+    add('d_run0', dStand('back', 'run', 'stretch', true), pal.dax, { mouth: [30, 6] });
+    add('d_run1', dStand('up', 'a', 'stand'), pal.dax, dm);
+    add('d_run2', dStand('down', 'b', 'gather'), pal.dax, dm);
+    add('d_run3', dStand('up', 'a', 'stand'), pal.dax, dm);
+    add('d_jump', dStand('back', 'run', 'stretch'), pal.dax, dm);
+    add('d_sit_a', put(D_SIT, D_SIT_TAIL.a), pal.dax, { mouth: [29, 6] });
+    add('d_sit_b', put(D_SIT, D_SIT_TAIL.b), pal.dax, { mouth: [29, 6] });
+    add('d_bow_a', put(D_BOW, D_BOW_TAIL.a), pal.dax, { mouth: [29, 11] });
+    add('d_bow_b', put(D_BOW, D_BOW_TAIL.b), pal.dax, { mouth: [29, 11] });
+    add('d_lie', D_LIE, pal.dax, { mouth: [30, 13] });
+    add('d_sleep', D_SLEEP, pal.dax);
+    add('d_sleep2', D_SLEEP2, pal.dax);
+
+    // 大金毛
+    var gm = { mouth: [39, 6] };
+    add('g_stand_a', gStand('mid', 'stand'), pal.gold, gm);
+    add('g_stand_b', gStand('up', 'stand'), pal.gold, gm);
+    add('g_trot0', gStand('mid', 'trotA'), pal.gold, gm);
+    add('g_trot1', gStand('up', 'stand', true), pal.gold, { mouth: [39, 5] });
+    add('g_trot2', gStand('mid', 'trotB'), pal.gold, gm);
+    add('g_trot3', gStand('up', 'stand', true), pal.gold, { mouth: [39, 5] });
+    add('g_run0', gStand('mid', 'stretch', true), pal.gold, { mouth: [39, 5] });
+    add('g_run1', gStand('up', 'stand'), pal.gold, gm);
+    add('g_run2', gStand('mid', 'gather'), pal.gold, gm);
+    add('g_run3', gStand('up', 'stand'), pal.gold, gm);
+    add('g_sit_a', put(G_SIT, G_SIT_TAIL.a), pal.gold, gm);
+    add('g_sit_b', put(G_SIT, G_SIT_TAIL.b), pal.gold, gm);
+    add('g_lie', G_LIE, pal.gold, { mouth: [39, 16] });
+    add('g_lie2', G_LIE2, pal.gold, { mouth: [39, 16] });
+    add('g_sleep', G_SLEEP, pal.gold);
+    add('g_sleep2', G_SLEEP2, pal.gold);
+
+    // 表情
+    add('fx_heart', HEART, pal.fx);
+    add('fx_bang', BANG, pal.fx);
+    add('fx_note', NOTE, pal.fx);
+    add('fx_z', ZED, pal.fx);
+    add('fx_zs', ZED_S, pal.fx);
+    return S;
+  }
+
+  window.PET_SPRITES = { build: build, INK: INK };
+})();
+</script>
+<script>// 球球 · 玩法引擎
+// 一个穿西装的小人、一只小腊肠、一只大金毛，和一颗小球。
+// 这个文件既能在 Mac 外壳（WKWebView）里跑，也能直接在浏览器里打开预览。
+(function () {
+  'use strict';
+
+  // ------------------------------------------------------------
+  //  设定
+  // ------------------------------------------------------------
+  var DEF = { messages: [], messageMinutes: [25, 60], autoPlaySeconds: [40, 110], nightSleep: [0, 7] };
+  var CFG = Object.assign({}, DEF, window.PET_CONFIG || {});
+  var QS = new URLSearchParams(location.search);
+  var NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.pet);
+  var opt = {
+    scale: parseInt(QS.get('scale') || '0', 10) || 0,   // 0 = 自动
+    auto: QS.get('auto') !== '0',
+    paused: false,
+  };
+
+  var canvas = document.getElementById('stage');
+  var ctx = canvas.getContext('2d');
+  var bubbleLayer = document.getElementById('bubbles');
+  var SPR = window.PET_SPRITES.build(CFG);
+
+  // 每张图里"真正有像素"的范围，用来判断鼠标点没点中
+  Object.keys(SPR).forEach(function (k) {
+    var s = SPR[k], d = s.img.getContext('2d').getImageData(0, 0, s.w, s.h).data;
+    var x0 = s.w, y0 = s.h, x1 = -1, y1 = -1;
+    for (var y = 0; y < s.h; y++) for (var x = 0; x < s.w; x++) {
+      if (d[(y * s.w + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    s.bb = [x0, y0, x1, y1];
+  });
+
+  var S = 3;            // 一个像素放大几倍
+  var LW = 300, LH = 110;   // 画布的逻辑大小（像素画的像素）
+  var offX = 0, offY = 0;   // 画布左上角在页面里的位置（CSS 像素）
+  var now = 0;          // 游戏时间（秒）
+  var GRAV = 420;
+  var BALL_R = 4;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+  function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function sgn(v) { return v < 0 ? -1 : 1; }
+  function range(r, fallback) { return (r && r.length === 2) ? rand(r[0], r[1]) : fallback; }
+
+  // ------------------------------------------------------------
+  //  角色
+  // ------------------------------------------------------------
+  var KIND = {
+    dax:  { pre: 'd_', half: 15, accel: 720, run: 150, back: 105, trot: 62, walk: 30, reach: 11, grab: 6, runFps: 15 },
+    gold: { pre: 'g_', half: 19, accel: 300, run: 168, back: 84,  trot: 58, walk: 22, reach: 20, grab: 7, runFps: 10 },
+  };
+  function makeDog(kind) {
+    return {
+      kind: kind, K: KIND[kind], x: 0, z: 0, vz: 0, v: 0, face: 1,
+      st: 'idle', pose: 'stand', t: 0, dur: 0, anim: 0, wagT: Math.random() * 4, wag: 2,
+      energy: 1, tx: 0, spd: 0, react: 0, hopAt: 0, way: null, pant: false, box: null, zAt: 0, hype: 0,
+    };
+  }
+  var gold = makeDog('gold');
+  var dax = makeDog('dax');
+  var dogs = [gold, dax];
+  var person = {
+    x: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, next: 4,
+    msgAt: 0, waveCd: 0, hoverT: 0, box: null, zAt: 0, giveTo: null,
+  };
+  var ball = { x: 0, z: BALL_R, vx: 0, vz: 0, st: 'hand', holder: null, rot: 0, box: null, freeT: 0, vis: true };
+  var play = { phase: 'rest', rounds: 0, nextAt: 9, throwAt: 0, fetcher: null };
+  var pointer = { x: -999, y: -999, inside: false, down: false, drag: false, hist: [] };
+  var emotes = [];
+  var lastTouch = 0;      // 上一次有人理它们的时间（刚打开也算一次）
+  var booted = false;
+
+  // ------------------------------------------------------------
+  //  版面
+  // ------------------------------------------------------------
+  function layout() {
+    var host = canvas.parentElement || document.body;
+    var vw = host.clientWidth || window.innerWidth, vh = host.clientHeight || window.innerHeight;
+    var autoS = typeof CFG.autoScale === 'function' ? CFG.autoScale(vw, vh) : 0;
+    S = opt.scale || autoS || (vw < 520 ? 2 : (vw < 1150 ? 3 : 4));
+    LW = Math.max(150, Math.floor(vw / S));
+    LH = Math.max(70, Math.floor(vh / S));
+    canvas.width = LW; canvas.height = LH;
+    canvas.style.width = (LW * S) + 'px';
+    canvas.style.height = (LH * S) + 'px';
+    var rect = canvas.getBoundingClientRect();
+    offX = rect.left;
+    offY = rect.top;
+    ctx.imageSmoothingEnabled = false;
+    if (!booted) {
+      booted = true;
+      person.x = Math.round(LW * rand(0.42, 0.58));
+      person.face = 1;
+      gold.x = person.x - 46; gold.face = 1;
+      dax.x = person.x + 34; dax.face = -1;
+      setPose(gold, 'sit', 6);
+      setPose(dax, 'stand', 2);
+    }
+    person.x = clamp(person.x, 14, LW - 14);
+    dogs.forEach(function (d) { d.x = clamp(d.x, d.K.half + 1, LW - d.K.half - 1); });
+    ball.x = clamp(ball.x, BALL_R, LW - BALL_R);
+  }
+
+  // ------------------------------------------------------------
+  //  小工具：表情、说话
+  // ------------------------------------------------------------
+  function emote(type, ent, dx, life) {
+    emotes.push({ type: type, ent: ent, dx: dx || 0, t: 0, life: life || 1.1 });
+  }
+  var bubble = null;
+  function say(text) {
+    if (bubble) { bubble.el.remove(); bubble = null; }
+    var el = document.createElement('div');
+    el.className = 'bubble';
+    el.textContent = text;
+    bubbleLayer.appendChild(el);
+    bubble = { el: el, until: now + Math.max(4.5, Math.min(9, text.length * 0.35 + 3)) };
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    placeBubble();
+  }
+  function placeBubble() {
+    if (!bubble) return;
+    var top = person.box ? person.box[1] : LH - 30;
+    var lr = bubbleLayer.getBoundingClientRect();
+    bubble.el.style.left = clamp(person.x * S + offX - lr.left, 130, Math.max(130, lr.width - 130)) + 'px';
+    bubble.el.style.top = (top * S + offY - lr.top - 14) + 'px';
+    if (now > bubble.until) {
+      var el = bubble.el; bubble = null;
+      el.classList.remove('on');
+      setTimeout(function () { el.remove(); }, 400);
+    }
+  }
+
+  function isNight() {
+    var n = CFG.nightSleep;
+    if (!n || n.length !== 2) return false;
+    var h = new Date().getHours();
+    return n[0] <= n[1] ? (h >= n[0] && h < n[1]) : (h >= n[0] || h < n[1]);
+  }
+  // 夜里、而且好一阵子没人理 → 大家睡觉
+  function sleepyTime() { return isNight() && (now - lastTouch) > 150; }
+
+  // ------------------------------------------------------------
+  //  狗狗的动作
+  // ------------------------------------------------------------
+  function setPose(d, pose, dur) {
+    d.st = 'pose'; d.pose = pose; d.t = 0; d.dur = dur; d.v = 0;
+  }
+  function walkTo(d, tx, spd) {
+    d.st = 'walk'; d.pose = 'stand'; d.t = 0;
+    d.tx = clamp(tx, d.K.half + 2, LW - d.K.half - 2);
+    d.spd = spd;
+  }
+  function awake(d) { return !(d.st === 'pose' && d.pose === 'sleep'); }
+  function wake(d, quiet) {
+    if (!awake(d)) { d.st = 'idle'; d.pose = 'stand'; d.t = 0; d.dur = 0; if (!quiet) emote('bang', d); }
+  }
+
+  // 往 tx 跑，返回是否到了
+  function drive(d, tx, maxSpd, dt) {
+    var K = d.K;
+    tx = clamp(tx, K.half + 1, LW - K.half - 1);
+    var dx = tx - d.x, dist = Math.abs(dx);
+    if (dist < 1.5 && Math.abs(d.v) < 40) { d.v = 0; d.x = tx; return true; }
+    var brake = d.v * d.v / (2 * K.accel);
+    var want = (dist <= brake + 1) ? 0 : sgn(dx) * maxSpd;
+    var step = K.accel * dt;
+    d.v += clamp(want - d.v, -step, step);
+    d.x += d.v * dt;
+    if (d.x < K.half + 1) { d.x = K.half + 1; d.v = 0; }
+    if (d.x > LW - K.half - 1) { d.x = LW - K.half - 1; d.v = 0; }
+    if (Math.abs(d.v) > 4) d.face = d.v > 0 ? 1 : -1;
+    return false;
+  }
+  function coast(d, dt) {   // 慢慢停下来
+    var step = d.K.accel * dt;
+    d.v -= clamp(d.v, -step, step);
+    d.x = clamp(d.x + d.v * dt, d.K.half + 1, LW - d.K.half - 1);
+  }
+  function faceTo(d, x) { if (Math.abs(x - d.x) > 2) d.face = x > d.x ? 1 : -1; }
+  function hop(d, power) { if (d.z === 0) { d.vz = power; d.z = 0.01; } }
+
+  // 闲着的时候自己找事做
+  function think(d) {
+    d.pant = false; d.wag = 2;
+    if (sleepyTime()) { setPose(d, 'sleep', rand(20, 40)); return; }
+    var r = Math.random();
+    var idleFor = now - Math.max(lastTouch, play.lastPlay || 0);
+    if (d.kind === 'dax') {
+      if (r < 0.30) walkTo(d, person.x + rand(-90, 90), rand(28, 60));
+      else if (r < 0.42) walkTo(d, rand(20, LW - 20), d.K.trot);
+      else if (r < 0.54) { faceTo(d, person.x); setPose(d, 'bow', rand(1.5, 3)); d.wag = 7; }
+      else if (r < 0.68) { faceTo(d, person.x); setPose(d, 'sit', rand(3, 7)); d.wag = 3; }
+      else if (r < 0.76) {   // 满屏疯跑
+        d.st = 'zoom'; d.t = 0; d.pose = 'stand';
+        var a = clamp(d.x - rand(70, 160), 20, LW - 20), b = clamp(d.x + rand(70, 160), 20, LW - 20);
+        d.way = Math.random() < 0.5 ? [a, b, a, d.x] : [b, a, b, d.x];
+      }
+      else if (r < 0.82) { d.st = 'spin'; d.t = 0; d.pose = 'stand'; d.wag = 6; }   // 追自己的尾巴
+      else if (r < 0.92 && idleFor > 40) setPose(d, 'lie', rand(6, 14));
+      else if (idleFor > 180 && r < 0.97) setPose(d, 'sleep', rand(25, 60));
+      else setPose(d, 'stand', rand(1.5, 4));
+    } else {
+      if (d.energy < 0.45) { setPose(d, 'lie', rand(8, 14)); d.pant = true; return; }
+      if (r < 0.26) { faceTo(d, person.x); setPose(d, 'sit', rand(6, 12)); }
+      else if (r < 0.50) setPose(d, 'lie', rand(10, 22));
+      else if (r < 0.72) walkTo(d, person.x + pick([-1, 1]) * rand(26, 60), d.K.walk);
+      else if (r < 0.80) walkTo(d, rand(30, LW - 30), d.K.walk);
+      else if (idleFor > 120 && r < 0.93) setPose(d, 'sleep', rand(30, 80));
+      else setPose(d, 'stand', rand(2, 5));
+    }
+  }
+
+  function mouthX(d) { return d.x + d.face * (d.K.half - 2); }
+
+  function grab(d) {
+    ball.st = 'mouth'; ball.holder = d; ball.vx = ball.vz = 0;
+    play.phase = 'back'; play.fetcher = d;
+    d.st = 'return'; d.t = 0; d.pose = 'stand'; d.wag = 6;
+    if (d.kind === 'gold') d.energy = Math.max(0, d.energy - 0.2);
+    dogs.forEach(function (o) {
+      if (o !== d && (o.st === 'chase' || o.st === 'alert')) { o.st = 'follow'; o.t = 0; }
+    });
+    if (person.st === 'walk') { person.st = 'idle'; person.t = 0; }
+  }
+
+  // 球刚被丢出去：醒着的狗都去追
+  function onBallFree() {
+    ball.freeT = 0;
+    dogs.forEach(function (d) {
+      if (!awake(d)) return;
+      if (d.kind === 'gold' && d.energy < 0.3) {   // 金毛累了，趴着看
+        if (!(d.st === 'pose' && d.pose === 'lie')) { setPose(d, 'lie', 12); d.pant = true; }
+        d.wag = 4;
+        return;
+      }
+      d.st = 'alert'; d.t = 0; d.pose = 'stand'; d.wag = 6;
+      d.react = d.kind === 'dax' ? rand(0.04, 0.16) : rand(0.22, 0.5);
+    });
+    if (awake(dax)) emote('bang', dax, 0, 0.7);
+  }
+
+  function landingX() {
+    var disc = ball.vz * ball.vz + 2 * GRAV * Math.max(0, ball.z - BALL_R);
+    var t = (ball.vz + Math.sqrt(disc)) / GRAV;
+    return clamp(ball.x + ball.vx * t * 1.12, BALL_R + 2, LW - BALL_R - 2);
+  }
+
+  function updateDog(d, dt) {
+    var K = d.K;
+    d.t += dt;
+    d.wagT += dt * d.wag;
+    if (d.hype > 0) { d.hype -= dt; if (d.hype <= 0 && d.st !== 'chase' && d.st !== 'return') d.wag = 2; }
+    // 跳
+    if (d.z > 0) {
+      d.vz -= GRAV * 1.5 * dt; d.z += d.vz * dt;
+      if (d.z <= 0) { d.z = 0; d.vz = 0; }
+    }
+    // 金毛体力
+    if (d.kind === 'gold' && d.st !== 'chase') {
+      d.energy = Math.min(1, d.energy + dt * (d.pose === 'lie' || d.pose === 'sleep' ? 0.03 : 0.012));
+    }
+
+    switch (d.st) {
+      case 'idle':
+        coast(d, dt);
+        think(d);
+        break;
+
+      case 'pose':
+        coast(d, dt);
+        if (d.pose === 'sleep') {
+          if (now > d.zAt) { emote(Math.random() < 0.5 ? 'z' : 'zs', d, d.face * (K.half - 6), 1.8); d.zAt = now + 1.7; }
+          if (d.t > d.dur) { if (sleepyTime()) d.t = 0; else think(d); }
+        } else if (d.t > d.dur) think(d);
+        break;
+
+      case 'walk':
+        if (drive(d, d.tx, d.spd, dt) || d.t > 14) think(d);
+        break;
+
+      case 'zoom':
+        if (!d.way || !d.way.length || d.t > 12) { think(d); break; }
+        if (drive(d, d.way[0], K.run, dt)) d.way.shift();
+        break;
+
+      case 'spin':
+        coast(d, dt);
+        d.face = (Math.floor(d.t * 9) % 2) ? 1 : -1;
+        if (d.t > 1.3) { setPose(d, 'sit', rand(1.5, 3)); d.wag = 5; }
+        break;
+
+      case 'alert':
+        coast(d, dt);
+        faceTo(d, ball.x);
+        if (d.t >= d.react) { d.st = 'chase'; d.t = 0; }
+        break;
+
+      case 'chase': {
+        if (ball.st !== 'free') { d.st = ball.st === 'mouth' ? 'follow' : 'wait'; d.t = 0; break; }
+        var tx = ball.z > 14 ? landingX() : ball.x + ball.vx * 0.12;
+        var dir = sgn(tx - d.x);
+        drive(d, tx - dir * (K.half - 4), K.run, dt);
+        // 小腊肠会跳起来接
+        if (d.kind === 'dax' && d.z === 0 && ball.vz < 0 && ball.z > 12 && ball.z < 30 && Math.abs(mouthX(d) - ball.x) < 16) hop(d, 165);
+        if (Math.abs(mouthX(d) - ball.x) < K.grab && ball.z <= d.z + K.reach) grab(d);
+        break;
+      }
+
+      case 'return': {
+        if (ball.st !== 'mouth' || ball.holder !== d) { d.st = 'wait'; d.t = 0; break; }
+        var side = sgn(d.x - person.x);
+        if (drive(d, person.x + side * (K.half + 10), K.back, dt)) { d.face = -side; handover(d); }
+        break;
+      }
+
+      case 'follow': {
+        var f = play.fetcher;
+        if (!f || ball.st !== 'mouth') { d.st = 'wait'; d.t = 0; break; }
+        drive(d, f.x - f.face * (f.K.half + K.half + 5), d.kind === 'dax' ? K.run : K.trot * 1.5, dt);
+        if (d.kind === 'dax' && d.z === 0 && Math.random() < dt * 1.6) hop(d, 105);
+        break;
+      }
+
+      case 'wait': {   // 围在小人旁边等他丢
+        if (play.phase === 'rest' && d.t > 2.2) { think(d); break; }
+        var sd = d === dax ? person.face : -person.face;
+        var wx = person.x + sd * (d === dax ? 30 : 40);
+        if (drive(d, wx, K.trot * 1.4, dt)) {
+          faceTo(d, person.x);
+          d.pose = d.kind === 'dax' ? ((Math.floor(d.t * 0.7) % 2) ? 'bow' : 'stand') : 'sit';
+          if (d.kind === 'dax' && Math.random() < dt * 0.9) hop(d, 95);
+        } else d.pose = 'stand';
+        d.wag = 6;
+        break;
+      }
+
+      case 'beg': {   // 球被她拿在手里晃
+        if (ball.st !== 'drag') { d.st = 'wait'; d.t = 0; break; }
+        var bx = ball.x - sgn(ball.x - d.x) * (K.half - 6);
+        if (Math.abs(ball.x - d.x) > K.half + 4) drive(d, bx, K.run * 0.9, dt); else { coast(d, dt); faceTo(d, ball.x); }
+        d.pose = 'stand'; d.wag = 7;
+        if (d.z === 0 && now > d.hopAt && Math.abs(ball.x - d.x) < 34 && ball.z < 70) {
+          hop(d, d.kind === 'dax' ? rand(120, 170) : 0.01);
+          d.hopAt = now + rand(0.5, 1.3);
+        }
+        break;
+      }
+    }
+
+    // 鼠标靠近：看过来、摇尾巴；小腊肠会蹦一下
+    if (pointer.inside && !pointer.drag && awake(d) && (d.st === 'pose' || d.st === 'idle') && d.pose !== 'lie') {
+      var px = pointer.x, near = Math.abs(px - d.x) < 46 && pointer.y > LH - 70;
+      if (near) {
+        faceTo(d, px); d.wag = Math.max(d.wag, 5);
+        if (d.kind === 'dax' && d.z === 0 && now > d.hopAt && Math.abs(px - d.x) < 24) { hop(d, 110); d.hopAt = now + rand(1.4, 3); }
+      }
+    }
+
+    if (Math.abs(d.v) > 6) {
+      var fps = K.runFps * clamp(Math.abs(d.v) / K.run, 0.45, 1);
+      d.anim += dt * fps;
+    }
+  }
+
+  function dogSprite(d) {
+    var p = d.K.pre;
+    if (Math.abs(d.v) > 6) {
+      var i = Math.floor(d.anim) % 4;
+      if (d.kind === 'gold' && Math.abs(d.v) < d.K.trot * 1.7) return 'g_trot' + i;
+      return p + 'run' + i;
+    }
+    if (d.z > 1 && d.kind === 'dax') return 'd_jump';
+    var w = (Math.floor(d.wagT) % 2) ? 'b' : 'a';
+    switch (d.pose) {
+      case 'sit': return p + 'sit_' + w;
+      case 'bow': return d.kind === 'dax' ? 'd_bow_' + w : 'g_sit_' + w;
+      case 'lie':
+        if (d.kind === 'dax') return 'd_lie';
+        return (d.pant && Math.floor(now * 4) % 2) ? 'g_lie' : (d.pant ? 'g_lie2' : 'g_lie');
+      case 'sleep': return p + ((Math.floor(now * 0.7) % 2) ? 'sleep2' : 'sleep');
+      default: return p + 'stand_' + w;
+    }
+  }
+
+  // ------------------------------------------------------------
+  //  小人
+  // ------------------------------------------------------------
+  function personIdle() { person.st = 'idle'; person.t = 0; }
+  function personFront(dur) { person.st = 'front'; person.t = 0; person.dur = dur; }
+  function personWave(text) {
+    person.st = 'wave'; person.t = 0; person.waveCd = now + 25;
+    if (text) say(text);
+  }
+  function personThink() {
+    var r = Math.random();
+    person.next = now + rand(5, 11);
+    if (CFG.messages && CFG.messages.length && now >= person.msgAt) {
+      person.msgAt = now + range(CFG.messageMinutes, 40) * 60;
+      personWave(String(pick(CFG.messages)));
+      return;
+    }
+    if (r < 0.22) {
+      var tx = clamp(person.x + pick([-1, 1]) * rand(30, 110), LW * 0.16, LW * 0.84);
+      if (Math.abs(tx - person.x) > 16) { person.st = 'walk'; person.t = 0; person.tx = tx; }
+    } else if (r < 0.36) personFront(rand(2.2, 4));
+  }
+  function throwDir() { return person.x < LW / 2 ? 1 : -1; }
+
+  function startSession(n) {
+    play.rounds = n; play.phase = 'ready'; play.throwAt = now + rand(0.9, 1.6);
+    if (person.st !== 'idle') personIdle();
+    person.face = throwDir();
+    wake(dax, true);
+    if (gold.energy > 0.3) wake(gold, true);
+    dogs.forEach(function (d) {
+      if (!awake(d)) return;
+      if (d.kind === 'gold' && d.energy < 0.3) return;
+      d.st = 'wait'; d.t = 0; d.pose = 'stand';
+    });
+  }
+  function personThrow() {
+    person.st = 'windup'; person.t = 0; person.face = throwDir();
+  }
+  function doLaunch() {
+    var dir = person.face;
+    var room = (dir > 0 ? LW - person.x : person.x) - 24;
+    var dist = Math.max(40, room * rand(0.32, 0.74));
+    var tMax = Math.sqrt(8 * Math.max(30, Math.min(LH - 34, 120)) / GRAV);
+    var T = clamp(rand(0.85, 1.25), 0.55, tMax);
+    var s = SPR.p_release, hx = s.hand[0] + 1, hy = s.hand[1] + 1;
+    var x0 = Math.round(person.x - s.w / 2), wx = dir > 0 ? x0 + hx : x0 + (s.w - 1 - hx);
+    ball.st = 'free'; ball.holder = null;
+    ball.x = clamp(wx, BALL_R, LW - BALL_R);
+    ball.z = s.h - hy;
+    ball.vx = dir * dist / T;
+    ball.vz = GRAV * T / 2;
+    play.phase = 'fly'; play.rounds = Math.max(0, play.rounds - 1);
+    play.lastPlay = now;
+    onBallFree();
+  }
+  // 狗把球叼回来了
+  function handover(d) {
+    person.face = sgn(d.x - person.x);
+    person.st = 'pat'; person.t = 0; person.giveTo = d;
+    d.st = 'wait'; d.t = 0; d.pose = 'sit'; d.wag = 7;
+    emote('heart', d, d.face * (d.K.half - 8));
+    ball.st = 'handing';
+    ball.x = mouthX(d); ball.z = BALL_R;
+    play.lastPlay = now;
+    if (play.rounds > 0 && !sleepyTime()) { play.phase = 'ready'; play.throwAt = now + rand(1.5, 2.9); }
+    else { play.phase = 'rest'; play.nextAt = now + range(CFG.autoPlaySeconds, 70); person.next = now + rand(3, 6); }
+  }
+
+  function updatePerson(dt) {
+    var p = person;
+    p.t += dt;
+    switch (p.st) {
+      case 'idle':
+        if (ball.st === 'free' || ball.st === 'drag' || ball.st === 'mouth') {
+          var bx = ball.st === 'mouth' && ball.holder ? ball.holder.x : ball.x;
+          if (Math.abs(bx - p.x) > 6) p.face = bx > p.x ? 1 : -1;
+        }
+        if (sleepyTime() && play.phase === 'rest') { p.st = 'sleep'; p.t = 0; break; }
+        if (play.phase === 'rest' && now >= p.next) personThink();
+        break;
+      case 'walk':
+        if (play.phase !== 'rest') { personIdle(); break; }
+        var dx = p.tx - p.x;
+        if (Math.abs(dx) < 1.2 || p.t > 10) { personIdle(); break; }
+        p.face = sgn(dx);
+        p.x += p.face * 24 * dt;
+        p.anim += dt * 6.5;
+        break;
+      case 'windup':
+        if (p.t >= 0.4) { p.st = 'release'; p.t = 0; doLaunch(); }
+        break;
+      case 'release':
+        if (p.t >= 0.15) { p.st = 'follow'; p.t = 0; }
+        break;
+      case 'follow':
+        if (p.t >= 0.34) personIdle();
+        break;
+      case 'pat':
+        if (p.t >= 0.75) {
+          if (ball.st === 'handing') { ball.st = 'hand'; ball.holder = null; }
+          p.giveTo = null;
+          personIdle();
+          if (play.phase === 'ready') p.face = throwDir();
+        }
+        break;
+      case 'front':
+        if (p.t >= p.dur || play.phase !== 'rest') personIdle();
+        break;
+      case 'wave':
+        if (p.t >= 2.0) { if (play.phase === 'rest') personFront(1.2); else personIdle(); }
+        break;
+      case 'sleep':
+        if (now > p.zAt) { emote('z', p, 6, 1.8); p.zAt = now + 2.1; }
+        if (!sleepyTime()) personIdle();
+        break;
+    }
+    // 鼠标停在他身上一会儿：转过来挥挥手
+    if (pointer.inside && !pointer.drag && p.box && (p.st === 'idle' || p.st === 'front') && play.phase === 'rest') {
+      var over = pointer.x > p.box[0] - 3 && pointer.x < p.box[2] + 3 && pointer.y > p.box[1] - 3 && pointer.y < p.box[3] + 2;
+      p.hoverT = over ? p.hoverT + dt : 0;
+      if (p.hoverT > 0.45 && now > p.waveCd) { p.hoverT = 0; personWave(); }
+    } else p.hoverT = 0;
+  }
+
+  function personSprite() {
+    var p = person, breath = Math.floor(now / 0.85) % 2, blink = (now % 4.3) < 0.14;
+    switch (p.st) {
+      case 'walk': return 'p_walk' + (Math.floor(p.anim) % 4);
+      case 'windup': return 'p_windup';
+      case 'release': return 'p_release';
+      case 'follow': return 'p_follow';
+      case 'pat': return 'p_pat';
+      case 'front': return blink ? 'p_front_blink' : (breath ? 'p_front2' : 'p_front');
+      case 'wave': return (Math.floor(p.t * 5) % 2) ? 'p_wave_a' : 'p_wave_b';
+      case 'sleep': return 'p_front_blink';
+      default:
+        if (ball.st === 'hand') return breath ? 'p_hold2' : 'p_hold';
+        return blink ? 'p_blink' : (breath ? 'p_idle2' : 'p_idle');
+    }
+  }
+
+  // ------------------------------------------------------------
+  //  小球
+  // ------------------------------------------------------------
+  function updateBall(dt) {
+    if (ball.st !== 'free') return;
+    ball.freeT += dt;
+    ball.vz -= GRAV * dt;
+    ball.x += ball.vx * dt;
+    ball.z += ball.vz * dt;
+    if (ball.x < BALL_R) { ball.x = BALL_R; ball.vx = Math.abs(ball.vx) * 0.6; }
+    if (ball.x > LW - BALL_R) { ball.x = LW - BALL_R; ball.vx = -Math.abs(ball.vx) * 0.6; }
+    if (ball.z <= BALL_R) {
+      ball.z = BALL_R;
+      if (ball.vz < -45) { ball.vz = -ball.vz * 0.52; ball.vx *= 0.74; }
+      else { ball.vz = 0; ball.vx *= Math.exp(-2.4 * dt); if (Math.abs(ball.vx) < 3) ball.vx = 0; }
+    }
+    ball.rot += ball.vx * dt * 0.16;
+    // 保险：球落地好一阵子都没狗去捡（比如都睡了）→ 叫醒小腊肠
+    if (ball.freeT > 5 && ball.vx === 0 && !dogs.some(function (d) { return d.st === 'chase' || d.st === 'alert'; })) {
+      wake(dax); dax.st = 'chase'; dax.t = 0; dax.pose = 'stand'; ball.freeT = 0;
+    }
+  }
+
+  // ------------------------------------------------------------
+  //  总导演：什么时候开始玩
+  // ------------------------------------------------------------
+  function updatePlay() {
+    if (play.phase === 'rest') {
+      if (opt.auto && !sleepyTime() && now >= play.nextAt && ball.st === 'hand' && (person.st === 'idle' || person.st === 'front' || person.st === 'walk')) {
+        startSession(randInt(2, 4));
+      }
+    } else if (play.phase === 'ready') {
+      if (ball.st === 'hand' && person.st === 'idle' && now >= play.throwAt) personThrow();
+    }
+  }
+
+  // ------------------------------------------------------------
+  //  鼠标 / 手指
+  // ------------------------------------------------------------
+  function inBox(b, x, y, pad) { return b && x >= b[0] - pad && x <= b[2] + pad && y >= b[1] - pad && y <= b[3] + pad; }
+  function touchAll() {
+    lastTouch = now;
+    dogs.forEach(function (d) { wake(d); });
+    if (person.st === 'sleep') personIdle();
+  }
+  function pet(d) {
+    emote('heart', d, d.face * (d.K.half - 8));
+    d.wag = 8; d.hype = 3;
+    if (d.st === 'pose' || d.st === 'idle') {
+      if (d.kind === 'dax') { setPose(d, 'stand', 1.6); d.wag = 8; hop(d, 120); }
+      else { setPose(d, 'sit', 2.4); d.wag = 8; }
+    }
+  }
+  function clickPerson() {
+    var p = person;
+    if (ball.st === 'hand' && (p.st === 'idle' || p.st === 'front' || p.st === 'wave' || p.st === 'walk')) {
+      personIdle();
+      if (play.phase === 'rest') startSession(1); else play.rounds = Math.max(play.rounds, 0);
+      play.phase = 'ready'; play.throwAt = now + 0.05;
+    } else if (p.st === 'idle' || p.st === 'front') {
+      personWave();
+    }
+  }
+  function ptDown(x, y) {
+    pointer.x = x; pointer.y = y; pointer.down = true; pointer.inside = true;
+    var wasNightAsleep = sleepyTime();
+    touchAll();
+    if (ball.vis && inBox(ball.box, x, y, 4)) {
+      // 抓住小球
+      if (ball.st === 'mouth' && ball.holder) { ball.holder.st = 'beg'; ball.holder.t = 0; }
+      if (person.st === 'windup' || person.st === 'pat') personIdle();
+      ball.st = 'drag'; ball.holder = null; ball.vx = ball.vz = 0;
+      pointer.drag = true; pointer.hist = [];
+      play.phase = 'drag';
+      dogs.forEach(function (d) {
+        if (d.kind === 'gold' && d.energy < 0.3) return;
+        d.st = 'beg'; d.t = 0; d.pose = 'stand';
+      });
+      ptMove(x, y);
+      post();
+      return;
+    }
+    if (inBox(dax.box, x, y, 1)) { pet(dax); return; }
+    if (inBox(gold.box, x, y, 1)) { pet(gold); return; }
+    if (inBox(person.box, x, y, 1)) { if (wasNightAsleep) personWave(); else clickPerson(); return; }
+  }
+  function ptMove(x, y) {
+    pointer.x = x; pointer.y = y; pointer.inside = true;
+    if (!pointer.drag) return;
+    ball.x = clamp(x, BALL_R, LW - BALL_R);
+    ball.z = clamp(LH - y, BALL_R, LH + 30);
+    var t = performance.now() / 1000;
+    pointer.hist.push([t, ball.x, ball.z]);
+    while (pointer.hist.length > 2 && t - pointer.hist[0][0] > 0.11) pointer.hist.shift();
+  }
+  function ptUp() {
+    pointer.down = false;
+    if (!pointer.drag) return;
+    pointer.drag = false;
+    var h = pointer.hist, vx = 0, vz = 0;
+    if (h.length >= 2) {
+      var a = h[0], b = h[h.length - 1], dtt = Math.max(0.016, b[0] - a[0]);
+      vx = (b[1] - a[1]) / dtt; vz = (b[2] - a[2]) / dtt;
+    }
+    var vMaxZ = Math.sqrt(2 * GRAV * (LH * 1.1));
+    ball.vx = clamp(vx * 0.9, -560, 560);
+    ball.vz = clamp(vz * 0.9, -400, vMaxZ);
+    ball.st = 'free';
+    play.phase = 'fly'; play.lastPlay = now;
+    if (opt.auto) play.rounds = Math.max(play.rounds, 1);   // 她丢完，小人也回丢一个
+    onBallFree();
+    post();
+  }
+  function ptHover(x, y) { pointer.x = x; pointer.y = y; pointer.inside = true; }
+  function ptLeave() { pointer.inside = false; }
+
+  // ------------------------------------------------------------
+  //  画
+  // ------------------------------------------------------------
+  function drawEnt(name, cx, z, face) {
+    var s = SPR[name];
+    if (!s) return null;
+    var x = Math.round(cx - s.w / 2), y = Math.round(LH - s.h - z);
+    ctx.drawImage(face < 0 ? s.flip : s.img, x, y);
+    var bx0 = face < 0 ? s.w - 1 - s.bb[2] : s.bb[0], bx1 = face < 0 ? s.w - 1 - s.bb[0] : s.bb[2];
+    return { s: s, x: x, y: y, box: [x + bx0, y + s.bb[1], x + bx1, y + s.bb[3]] };
+  }
+  function anchor(r, a, face) {   // 图上的锚点 → 画布坐标
+    var ax = a[0] + 1, ay = a[1] + 1;
+    return [face < 0 ? r.x + (r.s.w - 1 - ax) : r.x + ax, r.y + ay];
+  }
+  function drawBall(cx, cyTop) {
+    var f = ((Math.floor(ball.rot) % 4) + 4) % 4, s = SPR['ball' + f];
+    var x = Math.round(cx - s.w / 2), y = Math.round(cyTop - s.h / 2);
+    ctx.drawImage(s.img, x, y);
+    ball.box = [x, y, x + s.w - 1, y + s.h - 1];
+    ball.vis = true;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, LW, LH);
+    var held = null;
+
+    // 金毛（最后面）
+    var rg = drawEnt(dogSprite(gold), gold.x, gold.z, gold.face);
+    gold.box = rg.box;
+    // 小人
+    var ps = personSprite();
+    var pFace = (person.st === 'front' || person.st === 'wave' || person.st === 'sleep') ? 1 : person.face;
+    var rp = drawEnt(ps, person.x, 0, pFace);
+    person.box = rp.box;
+    // 小腊肠（最前面）
+    var rd = drawEnt(dogSprite(dax), dax.x, dax.z, dax.face);
+    dax.box = rd.box;
+
+    // 小球
+    ball.vis = false;
+    if (ball.st === 'hand') {
+      if (rp.s.hand) { held = anchor(rp, rp.s.hand, pFace); drawBall(held[0] + 0.5, held[1] + 0.5); ball.x = held[0]; ball.z = LH - held[1]; }
+      else ball.box = null;
+    } else if (ball.st === 'mouth' && ball.holder) {
+      var r = ball.holder === dax ? rd : rg;
+      if (r.s.mouth) { held = anchor(r, r.s.mouth, ball.holder.face); drawBall(held[0] + 0.5, held[1] + 0.5); ball.x = held[0]; ball.z = LH - held[1]; }
+    } else {
+      drawBall(ball.x, LH - ball.z);
+    }
+
+    // 表情
+    for (var i = 0; i < emotes.length; i++) {
+      var e = emotes[i], s = SPR['fx_' + e.type];
+      if (!s || !e.ent.box) continue;
+      var k = e.t / e.life;
+      if (k > 0.8 && Math.floor(e.t * 16) % 2) continue;   // 快消失时闪一闪
+      var ex = Math.round(e.ent.x + e.dx - s.w / 2 + (e.type === 'z' || e.type === 'zs' ? e.t * 4 : 0));
+      var ey = Math.round(e.ent.box[1] - s.h - 2 - e.t * 9);
+      ctx.drawImage(s.img, ex, Math.max(0, ey));
+    }
+    placeBubble();
+  }
+
+  // 告诉 Mac 外壳：现在哪些地方是"可以点的"（其余地方鼠标直接穿过去）
+  var lastPost = 0, lastMsg = '';
+  function post() {
+    if (!NATIVE) return;
+    var rects = [];
+    function add(b, pad) {
+      if (!b) return;
+      rects.push(Math.round((b[0] - pad) * S + offX), Math.round((b[1] - pad) * S + offY),
+                 Math.round((b[2] - b[0] + 1 + pad * 2) * S), Math.round((b[3] - b[1] + 1 + pad * 2) * S));
+    }
+    if (ball.vis) add(ball.box, 4);
+    add(dax.box, 1); add(gold.box, 1); add(person.box, 1);
+    var msg = JSON.stringify({ t: 'hot', r: rects, d: pointer.drag ? 1 : 0 });
+    if (msg === lastMsg) return;
+    lastMsg = msg;
+    try { window.webkit.messageHandlers.pet.postMessage(msg); } catch (e) {}
+  }
+
+  // ------------------------------------------------------------
+  //  主循环
+  // ------------------------------------------------------------
+  function step(dt) {
+    now += dt;
+    updatePlay();
+    updatePerson(dt);
+    updateDog(gold, dt);
+    updateDog(dax, dt);
+    updateBall(dt);
+    for (var i = emotes.length - 1; i >= 0; i--) { emotes[i].t += dt; if (emotes[i].t >= emotes[i].life) emotes.splice(i, 1); }
+  }
+  function busy() {
+    if (pointer.drag || pointer.inside || ball.st === 'free' || ball.st === 'mouth' || emotes.length) return true;
+    if (person.st !== 'idle' && person.st !== 'front' && person.st !== 'sleep') return true;
+    return dogs.some(function (d) { return Math.abs(d.v) > 1 || d.z > 0 || d.st === 'wait' || d.st === 'spin'; });
+  }
+  var lastMs = 0, timer = 0;
+  function frame(ms) {
+    timer = 0;
+    if (opt.paused) return;
+    var dt = lastMs ? (ms - lastMs) / 1000 : 0.016;
+    lastMs = ms;
+    dt = clamp(dt, 0, 0.25);
+    var n = Math.max(1, Math.ceil(dt / (1 / 60)));
+    for (var i = 0; i < n; i++) step(dt / n);
+    draw();
+    if (now - lastPost > 0.08) { lastPost = now; post(); }
+    schedule();
+  }
+  function schedule() {
+    if (timer || opt.paused) return;
+    // 没事的时候慢一点画，省电
+    if (busy()) timer = requestAnimationFrame(frame);
+    else timer = setTimeout(function () { timer = requestAnimationFrame(frame); }, 90);
+  }
+
+  // ------------------------------------------------------------
+  //  对外接口（Mac 外壳会调用这些）
+  // ------------------------------------------------------------
+  function toL(x, y) { return [(x - offX) / S, (y - offY) / S]; }
+  window.pet = {
+    configure: function (o) {
+      if (!o) return;
+      if (typeof o.auto === 'boolean') { opt.auto = o.auto; if (!o.auto) play.rounds = 0; }
+      if (typeof o.scale === 'number' && o.scale !== opt.scale) { opt.scale = o.scale; layout(); draw(); }
+      if (typeof o.paused === 'boolean') {
+        opt.paused = o.paused;
+        if (!o.paused) { lastMs = 0; schedule(); }
+      }
+    },
+    command: function (name) {
+      if (name === 'throw') { touchAll(); clickPerson(); }
+      else if (name === 'wave') { touchAll(); personWave(); }
+    },
+    // type: down | move | up | hover | leave ；坐标是页面里的 CSS 像素
+    pointer: function (type, x, y) {
+      var p = toL(x, y);
+      if (type === 'down') ptDown(p[0], p[1]);
+      else if (type === 'move') ptMove(p[0], p[1]);
+      else if (type === 'up') ptUp();
+      else if (type === 'hover') ptHover(p[0], p[1]);
+      else if (type === 'leave') ptLeave();
+      schedule();
+    },
+    // 给测试用
+    _t: {
+      step: function (dt) { step(dt); },
+      draw: draw,
+      state: function () {
+        return {
+          now: now, phase: play.phase, rounds: play.rounds, ball: { st: ball.st, x: ball.x, z: ball.z, holder: ball.holder && ball.holder.kind },
+          person: { st: person.st, x: person.x }, dax: { st: dax.st, pose: dax.pose, x: dax.x, z: dax.z, v: dax.v },
+          gold: { st: gold.st, pose: gold.pose, x: gold.x, v: gold.v, energy: gold.energy }, LW: LW, LH: LH, S: S,
+        };
+      },
+      boxes: function () { return { ball: ball.box, dax: dax.box, gold: gold.box, person: person.box, S: S, offX: offX, offY: offY }; },
+      set: function (k, v) { if (k === 'nextAt') play.nextAt = v; if (k === 'msgAt') person.msgAt = v; if (k === 'energy') gold.energy = v; },
+    },
+  };
+
+  // 浏览器预览：直接用网页自己的鼠标 / 触摸事件
+  if (!NATIVE) {
+    document.body.classList.add('preview');
+    if (QS.get('dark') === '1') document.body.classList.add('dark');
+    if (QS.get('bare') === '1') document.body.classList.remove('preview');
+    window.addEventListener('pointerdown', function (e) { window.pet.pointer('down', e.clientX, e.clientY); e.preventDefault(); });
+    window.addEventListener('pointermove', function (e) { window.pet.pointer(pointer.down ? 'move' : 'hover', e.clientX, e.clientY); });
+    window.addEventListener('pointerup', function () { window.pet.pointer('up', 0, 0); });
+    window.addEventListener('pointercancel', function () { window.pet.pointer('up', 0, 0); });
+    document.addEventListener('mouseleave', function () { window.pet.pointer('leave', 0, 0); });
+  }
+  window.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  // 改变大小会清空画布，所以马上重画一次，免得闪一下空白
+  window.addEventListener('resize', function () { layout(); draw(); schedule(); });
+
+  layout();
+  person.msgAt = range(CFG.messageMinutes, 40) * 60 * rand(0.2, 0.6);
+  // 刚打开：小人先转过来挥挥手
+  setTimeout(function () { if (person.st === 'idle' && play.phase === 'rest') personWave(); }, 1600);
+  schedule();
+  if (NATIVE) { try { window.webkit.messageHandlers.pet.postMessage(JSON.stringify({ t: 'ready' })); } catch (e) {} }
+})();
+</script>
+</body>
+</html>

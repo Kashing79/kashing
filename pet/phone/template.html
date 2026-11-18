@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>球球</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="球球">
+<meta name="theme-color" content="#bfe3f7">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { --sky-a: #bfe3f7; --sky-b: #e9f5fc; --ground-a: #9fd18b; --ground-b: #86bf74; --ink: #21364a; --soft: #21364a99; --card: #ffffffcc; }
+  html.dusk { --sky-a: #f6b48a; --sky-b: #fde3c4; --ground-a: #8fbf7e; --ground-b: #73a866; --ink: #4a2c21; --soft: #4a2c2199; }
+  html.night { --sky-a: #141c33; --sky-b: #2a3558; --ground-a: #2f5a45; --ground-b: #244a39; --ink: #e9eefc; --soft: #e9eefcaa; --card: #ffffff1f; }
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; }
+  body {
+    position: fixed; inset: 0;
+    background: linear-gradient(var(--ground-a), var(--ground-b));
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "PingFang SC", "Noto Sans TC", sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* 天空占满上面；最下面留一条草地（含 iPhone 底部横条的安全区） */
+  #world {
+    position: absolute; left: 0; right: 0; top: 0;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 46px);
+    background: linear-gradient(var(--sky-a), var(--sky-b));
+    overflow: hidden;
+  }
+  html.night #world::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1.2px 1.2px at 12% 18%, #fff 60%, transparent), radial-gradient(1.2px 1.2px at 31% 9%, #fff 60%, transparent),
+      radial-gradient(1.6px 1.6px at 52% 22%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 71% 13%, #fff 60%, transparent),
+      radial-gradient(1.4px 1.4px at 86% 27%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 22% 36%, #fff 60%, transparent),
+      radial-gradient(1.3px 1.3px at 63% 41%, #fff 60%, transparent), radial-gradient(1.1px 1.1px at 92% 46%, #fff 60%, transparent);
+    opacity: .8;
+  }
+  #stage { position: absolute; left: 0; bottom: 0; image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges; image-rendering: pixelated; }
+  #bubbles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .bubble {
+    position: absolute; transform: translate(-50%, -100%); max-width: 220px; padding: 6px 10px;
+    font: 600 14px/1.35 inherit; font-family: inherit; color: #2a1f2d; background: #fffdf7;
+    border: 2px solid #2a1f2d; border-radius: 9px; white-space: pre-wrap; text-align: center;
+    opacity: 0; transition: opacity .25s;
+  }
+  .bubble.on { opacity: 1; }
+  #top {
+    position: absolute; left: 0; right: 0; top: 0; z-index: 2; pointer-events: none;
+    padding: calc(env(safe-area-inset-top, 0px) + 18px) max(18px, env(safe-area-inset-right, 0px)) 0 max(18px, env(safe-area-inset-left, 0px));
+    display: flex; flex-direction: column; gap: 10px; transition: opacity .6s;
+  }
+  #top.quiet { opacity: 0; }
+  #top h1 { margin: 0; font-size: 22px; line-height: 1.2; }
+  #tips { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 7px; }
+  #tips li { padding: 6px 11px; font-size: 13px; line-height: 1.25; background: var(--card); border-radius: 999px; }
+  #install {
+    align-self: flex-start; max-width: 30em; padding: 10px 12px; font-size: 13px; line-height: 1.5;
+    background: var(--card); border-radius: 12px; color: var(--ink);
+  }
+  #install b { font-weight: 700; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="world">
+  <div id="top">
+    <h1 id="t-title"></h1>
+    <ul id="tips"><li id="t-1"></li><li id="t-2"></li><li id="t-3"></li></ul>
+    <div id="install" hidden></div>
+  </div>
+  <canvas id="stage"></canvas>
+  <div id="bubbles"></div>
+</div>
+<script>
+// —— 手机版外壳：文字（繁体 / 简体）、白天黑夜的天空、"加到主画面"提示、离线缓存 ——
+(function () {
+  var hant = /^zh\b.*(tw|hk|mo|hant)/i.test(navigator.language || '') || /hant|tw|hk/i.test((navigator.languages || []).join(','));
+  var zh = /^zh/i.test(navigator.language || 'zh');
+  var T = hant ? {
+    title: '球球', a: '拖住小球甩出去', b: '點小人，他幫你丟球', c: '點小狗，摸摸牠',
+    install: '想像 App 一樣打開：點 Safari 下方的<b>分享</b>按鈕，選<b>「加入主畫面」</b>。加好以後沒有網路也能玩。',
+  } : zh ? {
+    title: '球球', a: '拖住小球甩出去', b: '点小人，他帮你丢球', c: '点小狗，摸摸它',
+    install: '想像 App 一样打开：点 Safari 下方的<b>分享</b>按钮，选<b>"添加到主屏幕"</b>。加好以后没有网络也能玩。',
+  } : {
+    title: 'QiuQiu', a: 'Drag the ball and fling it', b: 'Tap the person to throw', c: 'Tap a dog to pet it',
+    install: 'To open it like an app: tap <b>Share</b> in Safari, then <b>Add to Home Screen</b>. It works offline after that.',
+  };
+  document.documentElement.lang = hant ? 'zh-Hant' : (zh ? 'zh-Hans' : 'en');
+  document.getElementById('t-title').textContent = T.title;
+  document.getElementById('t-1').textContent = T.a;
+  document.getElementById('t-2').textContent = T.b;
+  document.getElementById('t-3').textContent = T.c;
+
+  function sky() {
+    var h = new Date().getHours(), c = document.documentElement.classList;
+    c.remove('dusk', 'night');
+    if (h >= 19 || h < 5) c.add('night'); else if (h >= 17 || h < 7) c.add('dusk');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', getComputedStyle(document.documentElement).getPropertyValue('--sky-a').trim());
+  }
+  sky(); setInterval(sky, 5 * 60 * 1000);
+
+  var standalone = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && !standalone) { var box = document.getElementById('install'); box.innerHTML = T.install; box.hidden = false; }
+
+  // 玩起来以后，上面的字淡掉，不挡画面
+  var top = document.getElementById('top'), touched = 0;
+  window.addEventListener('pointerdown', function () { touched++; if (touched >= 2) top.classList.add('quiet'); });
+
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+})();
+</script>
+<script>__CONFIG__
+// 手机屏幕窄：竖着拿用 2.5 倍，横着拿用 3 倍
+window.PET_CONFIG.autoScale = function (vw) { return vw < 340 ? 2 : (vw < 560 ? 2.5 : 3); };
+</script>
+<script>__SPRITES__</script>
+<script>__PET__</script>
+</body>
+</html>

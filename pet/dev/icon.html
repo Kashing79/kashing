@@ -11,8 +11,9 @@ x.imageSmoothingEnabled = false;
 function rr(px, py, w, h, r) { x.beginPath(); x.moveTo(px + r, py); x.arcTo(px + w, py, px + w, py + h, r); x.arcTo(px + w, py + h, px, py + h, r); x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath(); }
 var g = x.createLinearGradient(0, 100, 0, 924);
 g.addColorStop(0, '#bfe3f7'); g.addColorStop(0.62, '#e4f3fb'); g.addColorStop(0.62, '#9fd18b'); g.addColorStop(1, '#86bf74');
-rr(100, 100, 824, 824, 186); x.fillStyle = g; x.fill();
-x.save(); rr(100, 100, 824, 824, 186); x.clip();
+var FULL = location.search.indexOf('full=1') >= 0;   // iPhone 图标：铺满整个方块，系统自己会切圆角
+if (FULL) { g = x.createLinearGradient(0, 0, 0, 1024); g.addColorStop(0, '#bfe3f7'); g.addColorStop(0.64, '#e4f3fb'); g.addColorStop(0.64, '#9fd18b'); g.addColorStop(1, '#86bf74'); x.fillStyle = g; x.fillRect(0, 0, 1024, 1024); x.save(); x.translate(512, 512); x.scale(1.12, 1.12); x.translate(-512, -512); }
+else { rr(100, 100, 824, 824, 186); x.fillStyle = g; x.fill(); x.save(); rr(100, 100, 824, 824, 186); x.clip(); }
 var k = 22, d = S.d_stand_b;
 x.drawImage(d.img, Math.round(512 - d.w * k / 2) + 6, 610 - d.h * k + 80, d.w * k, d.h * k);
 var b = S.ball0, kb = 26;

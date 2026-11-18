@@ -560,10 +560,12 @@
     return { img: cv, flip: fl, w: W, h: H };
   }
 
-  function build(cfg) {
+  // collect：只想拿到"字符画 + 调色盘"而不画图时用（给 iPhone 小组件的打包脚本用）
+  function build(cfg, collect) {
     var pal = palettes(cfg);
     var S = {};
     function add(name, rows, p, extra) {
+      if (collect) { collect(name, rows, p, extra); return; }
       var s = render(rows, p);
       if (extra) for (var k in extra) s[k] = extra[k];
       S[name] = s;
