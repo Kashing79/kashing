@@ -80,7 +80,7 @@
       cv: cv, cx: cx, id: cx.createImageData(DOGS.W, DOGS.H), img: null,
       x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, sp: 0, face: 1, lift: 0,
       st: 'idle', pose: 'stand', t: 0, dur: 0, wag: 0.3, energy: 1,
-      tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, way: null,
+      tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, sideAt: 0, way: null,
       pant: false, happy: 0, hype: 0, bark: 0, look: 0,
       box: null, top: 0, mx: kind === 'gold' ? 15 : 16, zAt: 0, dustAt: 0, lastSp: 0,
       scene: null, cmd: null, hidden: false, carried: false,
@@ -362,8 +362,19 @@
     items.push({ spr: sprName, x0: fromX, y0: person.y, z0: fromZ, to: toEnt, t: 0, dur: dur, peak: peak, scene: true });
   }
 
+  // 狗狗之间的戏：主角要是正挤在小人身边，先小跑到旁边的空地上再演
+  function stage(a) {
+    if (person.hidden) return 0;
+    var dx = a.x - person.x, dy = a.y - person.y;
+    if (Math.abs(dx) > 44 || Math.abs(dy) > 24) return 0;
+    var s = dx >= 0 ? 1 : -1, far = rand(56, 84);
+    var tx = person.x + s * far;
+    if (tx < F.x0 + 44 || tx > F.x1 - 44) tx = person.x - s * far;
+    return go(a, tx, clamp(person.y + ry(rand(-8, 16)), F.y0, F.y1), spd(a, 'trot') * 1.2);
+  }
   // —— 狗狗和狗狗 ——
   function* scSniff() {      // 凑过去闻一闻
+    yield stage(gold);
     var s = dax.x < gold.x ? -1 : 1;
     hold(gold, 'alert'); faceTo(gold, dax.x); gold.wag = 0.6;
     yield go(dax, gold.x + s * (gold.mx + dax.mx + 7), gold.y + ry(1), spd(dax, 'trot'));
@@ -398,11 +409,14 @@
     c = go(gold, p.x, p.y, spd(gold, 'run') * 0.9);
     follow(dax, gold, 14, ry(-2), spd(dax, 'run'));
     yield c;
-    hold(gold, 'lie'); gold.pant = true; hold(dax, 'sit'); dax.pant = true; faceTo(dax, gold.x);
+    hold(gold, 'lie'); gold.pant = true;
+    yield go(dax, gold.x + gold.face * (gold.mx + dax.mx + 2), gold.y + ry(3), spd(dax, 'trot'));
+    hold(dax, 'sit'); dax.pant = true; faceTo(dax, gold.x);
     emote('note', dax);
     yield 2.4;
   }
   function* scCuddle() {     // 挤在一起睡
+    yield stage(gold);
     hold(gold, 'lie');
     yield 0.7;
     yield go(dax, gold.x + gold.face * 3, gold.y + ry(3), spd(dax, 'walk') * 1.6);
@@ -416,6 +430,7 @@
     yield 0.7;
   }
   function* scRide() {       // 小腊肠跳到金毛背上
+    yield stage(gold);
     hold(gold, 'lie'); gold.wag = 0.5;
     yield 0.6;
     yield go(dax, gold.x - gold.face * 22, gold.y + ry(1), spd(dax, 'trot'));
@@ -432,6 +447,7 @@
     yield 0.8;
   }
   function* scLick() {       // 金毛给小腊肠舔毛
+    yield stage(dax);
     hold(dax, 'sit'); dax.wag = 0.5;
     var s = gold.x < dax.x ? -1 : 1;
     yield go(gold, dax.x + s * (gold.mx + 6), dax.y + ry(-1), spd(gold, 'walk') * 1.6);
@@ -618,6 +634,21 @@
     }
   }
 
+  // 站在小人 / 另一只狗的正后方会被挡住（看起来像骑在人家头上）：返回挡住它的那个
+  function blocker(d) {
+    if (!person.hidden && !person.carried && Math.abs(d.x - person.x) < d.half * 0.7 + 7 && d.y <= person.y && d.y > person.y - 25) return person;
+    var o = other(d);
+    if (!o.hidden && !o.carried && !o.scene && o.z === 0 && Math.abs(d.x - o.x) < o.half * 0.75 &&
+        (d.y < o.y || (d.y === o.y && d === dax)) && d.y > o.y - 13) return o;
+    return null;
+  }
+  function sidestep(d, b) {
+    var s = d.x >= b.x ? 1 : -1, gap = (b.isPerson ? 9 : b.half) + d.half + rand(6, 14);
+    var tx = b.x + s * gap;
+    if (tx < F.x0 + d.half + 4 || tx > F.x1 - d.half - 4) tx = b.x - s * gap;
+    walkTo(d, tx, b.y + ry(rand(1, 7)), spd(d, 'trot'));
+  }
+
   function grab(d) {
     var o = other(d);
     ball.vx = ball.vy = ball.vz = 0;
@@ -708,6 +739,8 @@
         } else {
           if (d.pose === 'dig' && Math.random() < dt * 14) bits(d.x + d.face * 10, d.y - 1, 1, ['#8a6a4a', '#6f5238', '#a98a62'], 26, 60);
           if (d.pose === 'roll' && CFG.grass && Math.random() < dt * 6) bits(d.x + rand(-8, 8), d.y - 2, 1, ['#9ad584', '#77b363'], 18, 40);
+          var blk = (d.t > 0.5 && d.z === 0 && now > d.sideAt) ? blocker(d) : null;
+          if (blk) { d.sideAt = now + 2.5; sidestep(d, blk); break; }
           if (d.t > d.dur) think(d);
         }
         break;

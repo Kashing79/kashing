@@ -95,6 +95,24 @@ jobs:
           fi
           grep -q "SELFTEST PASS" "$RUNNER_TEMP/selftest.log"
 
+      - name: Window level probe (which level draws above the menu bar)
+        run: |
+          APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
+          xcrun swiftc -O -o "$RUNNER_TEMP/ci_windows" pet/dev/ci_windows.swift
+          for L in 26 27 33 102 1000 1500; do
+            QIUQIU_LEVEL=$L "$APP" > /dev/null 2>&1 &
+            PID=$!
+            sleep 4
+            if [ "$L" = "26" ] || [ "$L" = "1000" ]; then "$RUNNER_TEMP/ci_windows" | head -24; fi
+            screencapture -x -R"312,0,400,70" "$RUNNER_TEMP/lvl$L.png" || true
+            sips -s format jpeg -s formatOptions 55 "$RUNNER_TEMP/lvl$L.png" --out "$RUNNER_TEMP/lvl$L.jpg" >/dev/null
+            echo "-----BEGIN lvl$L JPG-----"
+            base64 -i "$RUNNER_TEMP/lvl$L.jpg" | fold -w 120
+            echo "-----END lvl$L JPG-----"
+            kill $PID 2>/dev/null || true
+            sleep 0.7
+          done
+
       - name: Live run (real screen, mouse drag, click-through)
         run: |
           APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu

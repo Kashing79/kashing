@@ -173,7 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         panel.backgroundColor = NSColor.clear
         panel.hasShadow = false
         // 比菜单栏再高一点：这样灵动岛能画在刘海两边；系统的菜单、弹窗仍然在我们上面
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 2)
+        var level = NSWindow.Level.mainMenu.rawValue + 2
+        if let s = ProcessInfo.processInfo.environment["QIUQIU_LEVEL"], let v = Int(s) { level = v }   // 调试用
+        panel.level = NSWindow.Level(rawValue: level)
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
