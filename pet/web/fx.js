@@ -39,7 +39,7 @@
     dark:  ['#2a1f2d', '#2a1f2d', '#3d3040', '#574a5c', '#7a6c80', '#a79aad'],     // 蝴蝶的身子、没有自己颜色的小东西
     white: ['#5f5c80', '#8e8fad', '#b4b9d0', '#f7f5e9', '#ffffff', '#ffffff'],     // 白花瓣、高光点
     grass: ['#2b5a47', '#478a60', '#5a9d60', '#6fae5c', '#9ccc66', '#c8e88a'],     // 草（白天）
-    grassD: ['#2c2f4a', '#3d5c62', '#4f7a55', '#7c8f52', '#d2b95c', '#ecd98a'],    // 草（傍晚）
+    grassD: ['#2a3046', '#41665a', '#527d58', '#6e9058', '#c2b466', '#e2d58c'],    // 草（傍晚）
     grassN: ['#10121c', '#1a292e', '#213836', '#2b453c', '#466151', '#6a8573'],    // 草（夜里）
     soil:  ['#3b2a2a', '#4d3a36', '#6b5244', '#8a6f5c', '#a98a70', '#c7ab8e'],     // 泥土、爪印
     ochre: ['#6b4420', '#a56c2e', '#d9a441', '#f0cb72', '#fae7a6', '#fff6d6'],     // 落叶（黄）
@@ -90,13 +90,14 @@
     this.f = new Uint8Array(n);  // 标记：1 不描边，2 锁住
     this.a = new Uint8Array(n);  // 透明度（0 = 不透明）
     this.o = new Uint16Array(n); // 第几笔画上去的（描边时，挨着好几种材料就听最后画的那个）
+    this.g = new Uint8Array(n);  // 描边时算哪种材料（画在别的东西上面的高光、花纹，算底下那种）
     this.reset(true);
   }
   Pad.prototype.reset = function (first) {
     if (!first && this.x1 >= this.x0) {
       for (var y = this.y0; y <= this.y1; y++) {
         var o = y * this.W;
-        for (var x = this.x0; x <= this.x1; x++) { this.m[o + x] = 0; this.t[o + x] = 0; this.f[o + x] = 0; this.a[o + x] = 0; this.o[o + x] = 0; }
+        for (var x = this.x0; x <= this.x1; x++) { this.m[o + x] = 0; this.t[o + x] = 0; this.f[o + x] = 0; this.a[o + x] = 0; this.o[o + x] = 0; this.g[o + x] = 0; }
       }
     }
     this.x0 = this.W; this.y0 = this.H; this.x1 = -1; this.y1 = -1;
@@ -116,7 +117,7 @@
     this.m[k] = mat; this.t[k] = tone < 0 ? 0 : (tone > 5 ? 5 : tone);
     this.f[k] = o ? ((o.ol === false ? 1 : 0) | (o.lock ? 2 : 0)) : 0;
     this.a[k] = o && o.a !== undefined ? clamp(round(o.a * 255), 1, 255) : 0;
-    this.o[k] = this.n;
+    if (!(o && o.over && has)) { this.g[k] = mat; this.o[k] = this.n; }
     if (i < this.x0) this.x0 = i; if (i > this.x1) this.x1 = i; if (j < this.y0) this.y0 = j; if (j > this.y1) this.y1 = j;
   };
   Pad.prototype.ell = function (cx, cy, rx, ry, mat, o) {
@@ -257,12 +258,12 @@
       k = y * W + x;
       if (this.m[k]) continue;
       var best = 0, bo = -1;
-      for (q = 0; q < 4; q++) { var nk = k + D[q]; if (this.m[nk] && !(this.f[nk] & 1) && this.t[nk] > 0 && this.o[nk] > bo) { bo = this.o[nk]; best = this.m[nk]; } }
+      for (q = 0; q < 4; q++) { var nk = k + D[q]; if (this.m[nk] && !(this.f[nk] & 1) && this.t[nk] > 0 && this.o[nk] > bo) { bo = this.o[nk]; best = this.g[nk]; } }
       if (best) add.push(k, best);
     }
     this.n++;
     for (q = 0; q < add.length; q += 2) {
-      k = add[q]; this.m[k] = add[q + 1]; this.t[k] = 0; this.f[k] = 3; this.o[k] = this.n;
+      k = add[q]; this.m[k] = this.g[k] = add[q + 1]; this.t[k] = 0; this.f[k] = 3; this.o[k] = this.n;
       x = k % W; y = (k / W) | 0;
       if (x < this.x0) this.x0 = x; if (x > this.x1) this.x1 = x; if (y < this.y0) this.y0 = y; if (y > this.y1) this.y1 = y;
     }
@@ -374,11 +375,8 @@
       p.t[kk] = p.t[kk] >= 3 ? 4 : 2; p.m[kk] = M.seam; p.f[kk] = 2;
       if (R >= 3 && p.m[kk + W] === M.ball) { p.t[kk + W] = p.t[kk + W] >= 3 ? 4 : 2; p.m[kk + W] = M.seam; p.f[kk + W] = 2; }
     }
-    p.n++;
-    for (q = p.y0; q <= p.y1; q++) for (k = p.x0; k <= p.x1; k++) if (p.m[q * W + k] === M.seam) p.o[q * W + k] = 0;   // 描边听球的，不听白线的
     p.outline();
     if (R > 1) p.soften();
-    for (q = p.y0; q <= p.y1; q++) for (k = p.x0; k <= p.x1; k++) if (p.m[q * W + k] === M.seam && p.t[q * W + k] === 0) p.m[q * W + k] = M.ball;
     return p.done(key);
   }
 
@@ -388,8 +386,8 @@
   var shCache = {};
   function shadow(halfW, alpha, R) {
     R = resOf(R);
-    halfW = Math.max(0.5, +halfW || 2);
-    var a8 = clamp(round((+alpha || 0) * 255), 0, 255), key = 'sh_' + round(halfW * 4) / 4 + '_' + a8 + '@' + R;
+    halfW = Math.max(0.5, round((+halfW || 2) * 4) / 4);                 // 半宽按 1/4 个单位取整，免得缓存里攒一大堆差不多的图
+    var a8 = clamp(round((+alpha || 0) * 255), 0, 255), key = 'sh_' + halfW + '_' + a8 + '@' + R;
     if (shCache[key]) return shCache[key];
     var hw = Math.max(1, round(halfW * R)), hh = Math.max(1, round(clamp(0.45 + halfW * 0.09, 0.7, 2.3) * R));
     var w = hw * 2 + 2, h = hh * 2 + 2, d = new Uint8ClampedArray(w * h * 4);
@@ -409,6 +407,7 @@
   function px(color, R) {
     R = resOf(R);
     color = String(color || '#ffffff').toLowerCase();
+    if (/^#[0-9a-f]{3}$/.test(color)) color = '#' + color[1] + color[1] + color[2] + color[2] + color[3] + color[3];
     var key = 'px_' + color + '@' + R;
     if (pxCache[key]) return pxCache[key];
     var c = /^#[0-9a-f]{6}$/.test(color) ? rgbOf(color) : [255, 255, 255], d = new Uint8ClampedArray(R * R * 4);
@@ -527,9 +526,9 @@
     var hp = p.hp, r = [1.75, 2.75, 2.75][a], w = [0.5, 0.75, 0.5][a];
     p.box(-3.5, -3.5, 4, 3.5);
     if (a === 2) {
-      p.dot(hp, -2.75, M.gold, 4); p.dot(hp, 2.25, M.gold, 3); p.dot(hp - 2.5, -0.25, M.gold, 4); p.dot(hp + 2.5, -0.25, M.gold, 3);
-      p.disc(hp, 0, 0.75, M.gold, { tone: 4 });
-      p.dot(hp, -0.25, M.gold, 5, { lock: true });
+      p.dot(hp, -2.5, M.gold, 4); p.dot(hp, 2.5, M.gold, 3); p.dot(hp - 2.5, 0, M.gold, 4); p.dot(hp + 2.5, 0, M.gold, 3);
+      p.disc(hp, p.hp, 0.75, M.gold, { tone: 4 });
+      p.dot(hp, 0, M.gold, 5, { lock: true });
       p.outline();
       return;
     }
@@ -552,14 +551,14 @@
     p.outline(); p.soften();
   }
 
-  // 叫声：三道往外散开的短杠
-  function woof(p) {
-    var A = [-0.95, 0, 0.95], hp = p.hp, i;
+  // 叫声：三道往外散开的短杠。a = 放大几倍（不写就是 1）
+  function woof(p, a) {
+    var A = [-0.95, 0, 0.95], hp = p.hp, k = a || 1, i;
     for (i = 0; i < 3; i++) {
-      var c = Math.sin(A[i]), s = -Math.cos(A[i]), r0 = 2.3, r1 = i === 1 ? 4.3 : 4.0, w = 0.5;
+      var c = Math.sin(A[i]), s = -Math.cos(A[i]), r0 = 2.3 * k, r1 = (i === 1 ? 4.3 : 4.0) * k, w = 0.5 * k, y0 = 1.5 * k;
       // 一根短杠 = 一个斜着的长方形
-      p.poly([hp + c * r0 - s * w, 1.5 + s * r0 + c * w, hp + c * r1 - s * w, 1.5 + s * r1 + c * w,
-              hp + c * r1 + s * w, 1.5 + s * r1 - c * w, hp + c * r0 + s * w, 1.5 + s * r0 - c * w], M.gold, { tone: 3, raw: true });
+      p.poly([hp + c * r0 - s * w, y0 + s * r0 + c * w, hp + c * r1 - s * w, y0 + s * r1 + c * w,
+              hp + c * r1 + s * w, y0 + s * r1 - c * w, hp + c * r0 + s * w, y0 + s * r0 - c * w], M.gold, { tone: 3, raw: true });
     }
     p.rim(M.gold, -1, -1, 4); p.rim(M.gold, 1, 1, 2);
     p.outline();
@@ -591,12 +590,12 @@
     p.outline();
   }
 
-  // 小花（从上往下看，不描边，和草地上的花是一家）：a = 花瓣的材料
-  function flower(p, a) {
-    var m = M[a], hp = p.hp;
-    p.disc(hp, 0, 1.25, m, { tone: a === 'white' ? 4 : 3, ol: false });
-    p.rim(m, 1, 1, 2);
-    p.disc(hp, 0, 0.25, M.yolk, { tone: a === 'yolk' ? 2 : 3, ol: false, lock: true });
+  // 小花（从上往下看，不描边，和草地上的花是一家）：a.m = 花瓣的材料，a.big = 大一号
+  function bloom(p, a) {
+    var m = M[a.m], hp = p.hp;
+    p.disc(hp, 0, a.big ? 1.25 : 0.75, m, { tone: a.m === 'white' ? 4 : 3, ol: false });
+    p.rim(m, 1, 1, 2);                                                   // 右下的花瓣背光
+    p.disc(hp, 0, 0.25, M.yolk, { tone: a.m === 'yolk' ? 2 : 3, ol: false, lock: true });
   }
 
   // 萤火虫：a = 0 最亮 / 1 暗一点 / 2 灭着（只是一个小黑点）
@@ -658,9 +657,18 @@
     ['sod0', sod, { rot: 0 }, '被踢 / 刨起来的一小撮草，翻着跟头飞：第 1 帧'],
     ['sod1', sod, { rot: 2.1 }, '一小撮草：第 2 帧'],
     ['sod2', sod, { rot: 4.2 }, '一小撮草：第 3 帧'],
-    ['flower_w', flower, 'white', '小白花（从上往下看，不描边）'],
-    ['flower_y', flower, 'yolk', '小黄花'],
-    ['flower_p', flower, 'rose', '小粉花'],
+    ['sod0_dusk', sod, { rot: 0, m: 'grassD' }, '一小撮草（傍晚的草色）：第 1 帧'],
+    ['sod1_dusk', sod, { rot: 2.1, m: 'grassD' }, '一小撮草（傍晚）：第 2 帧'],
+    ['sod2_dusk', sod, { rot: 4.2, m: 'grassD' }, '一小撮草（傍晚）：第 3 帧'],
+    ['sod0_night', sod, { rot: 0, m: 'grassN' }, '一小撮草（夜里的草色）：第 1 帧'],
+    ['sod1_night', sod, { rot: 2.1, m: 'grassN' }, '一小撮草（夜里）：第 2 帧'],
+    ['sod2_night', sod, { rot: 4.2, m: 'grassN' }, '一小撮草（夜里）：第 3 帧'],
+    ['bloom_w', bloom, { m: 'white' }, '草地上的小白花（从上往下看，不描边，和草地自己长的花一个样）'],
+    ['bloom_y', bloom, { m: 'yolk' }, '草地上的小黄花'],
+    ['bloom_p', bloom, { m: 'rose' }, '草地上的小粉花'],
+    ['bloom2_w', bloom, { m: 'white', big: 1 }, '大一号的小白花'],
+    ['bloom2_y', bloom, { m: 'yolk', big: 1 }, '大一号的小黄花'],
+    ['bloom2_p', bloom, { m: 'rose', big: 1 }, '大一号的小粉花'],
     ['firefly0', firefly, 0, '萤火虫：亮着（带一圈光晕，夜里的草地上用）'],
     ['firefly1', firefly, 1, '萤火虫：暗下去一半'],
     ['firefly2', firefly, 2, '萤火虫：灭着，只是一个小点'],
@@ -689,5 +697,6 @@
   var EXTRA = [];
   SPRITES.forEach(function (e) { if (e[3]) EXTRA.push({ name: e[0], what: e[3] }); });
 
-  G.PET_FX = { build: build, ball: ball, shadow: shadow, px: px, EXTRA: EXTRA };
+  // RAMPS：每种材料的六级颜色（"#rrggbb"），给想配同色碎屑的人用
+  G.PET_FX = { build: build, ball: ball, shadow: shadow, px: px, EXTRA: EXTRA, RAMPS: RAMPS };
 })(typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : this));

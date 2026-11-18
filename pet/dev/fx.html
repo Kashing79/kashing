@@ -107,13 +107,14 @@
     strip(named(['puff0', 'puff1', 'puff2', 'puff3']), 12, 7, null, 'ground');
     strip(named(['bfly_a', 'bfly_b', 'bfly_c', 'bfly_b', 'bfly_rest', 'bfly2_a', 'bfly2_b', 'bfly2_c', 'bfly2_b', 'bfly2_rest']), 12, 9);
     h2('PET_FX.EXTRA：新加的图（' + (FX.EXTRA || []).length + ' 张）');
-    strip(named(['paw', 'paw_s', 'sod0', 'sod1', 'sod2', 'flower_w', 'flower_y', 'flower_p']), 10, 9);
+    strip(named(['paw', 'paw_s', 'sod0', 'sod1', 'sod2', 'sod0_dusk', 'sod1_dusk', 'sod2_dusk', 'sod0_night', 'sod1_night', 'sod2_night']), 10, 9);
+    strip(named(['bloom_w', 'bloom_y', 'bloom_p', 'bloom2_w', 'bloom2_y', 'bloom2_p']), 10, 6);
     strip(named(['leaf_a0', 'leaf_a1', 'leaf_a2', 'leaf_a3', 'leaf_b0', 'leaf_b1', 'leaf_b2', 'leaf_b3']), 10, 7);
     strip(named(['firefly0', 'firefly1', 'firefly2']), 10, 7, [['night', lawnNight], ['dark', '#20242b'], ['grass', lawnDay]]);
     var listed = {};
     ['bone', 'bfly_a', 'bfly_b', 'bfly2_a', 'bfly2_b', 'puff0', 'puff1', 'puff2', 'fx_heart', 'fx_hs', 'fx_bang', 'fx_note', 'fx_z', 'fx_zs', 'fx_q', 'fx_spark', 'fx_sweat', 'fx_woof',
       'fx_heart_pop0', 'fx_heart_pop1', 'fx_heart_pop2', 'fx_spark0', 'fx_spark1', 'fx_spark2', 'puff3', 'bfly_c', 'bfly_rest', 'bfly2_c', 'bfly2_rest',
-      'paw', 'paw_s', 'sod0', 'sod1', 'sod2', 'flower_w', 'flower_y', 'flower_p', 'leaf_a0', 'leaf_a1', 'leaf_a2', 'leaf_a3', 'leaf_b0', 'leaf_b1', 'leaf_b2', 'leaf_b3', 'firefly0', 'firefly1', 'firefly2'].forEach(function (n) { listed[n] = 1; });
+      'paw', 'paw_s', 'sod0', 'sod1', 'sod2', 'sod0_dusk', 'sod1_dusk', 'sod2_dusk', 'sod0_night', 'sod1_night', 'sod2_night', 'bloom_w', 'bloom_y', 'bloom_p', 'bloom2_w', 'bloom2_y', 'bloom2_p', 'leaf_a0', 'leaf_a1', 'leaf_a2', 'leaf_a3', 'leaf_b0', 'leaf_b1', 'leaf_b2', 'leaf_b3', 'firefly0', 'firefly1', 'firefly2'].forEach(function (n) { listed[n] = 1; });
     var rest = all.filter(function (n) { return !listed[n]; });
     if (rest.length) { h2('其余的图（后来加的）'); for (i = 0; i < rest.length; i += 8) strip(named(rest.slice(i, i + 8)), 16, 18); }
     if (FX.EXTRA && FX.EXTRA.length && !filt) {

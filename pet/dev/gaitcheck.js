@@ -108,6 +108,27 @@ for (const kind of ['gold', 'dax']) {
   }
 }
 
+// 斜着跑（屏幕上一边往右一边往下）：踩在地上的脚在屏幕上不能横着滑。这时"地面"按横向走过的距离算。
+console.log('');
+for (const kind of ['gold', 'dax']) {
+  const rig = D.create(kind, kind === 'gold' ? 'gold' : 'dax_red', 99), v = kind === 'gold' ? 62 : 64;
+  const inp = { pose: 'stand', speed: v, vx: v * 0.6, vy: v * 0.8 };
+  for (let i = 0; i < 240; i++) rig.update(DT, inp);
+  const st = [0, 1, 2, 3].map(() => ({ down: false, lo: 0, hi: 0, drift: 0 }));
+  for (let i = 0; i < 600; i++) {
+    rig.update(DT, inp);
+    const pr = rig.probe();
+    for (let k = 0; k < 4; k++) {
+      const f = pr.feet[k], s = st[k], wx = pr.S + f.x;
+      if (f.down) { if (!s.down) { s.down = true; s.lo = s.hi = wx; } else { s.lo = Math.min(s.lo, wx); s.hi = Math.max(s.hi, wx); s.drift = Math.max(s.drift, s.hi - s.lo); } }
+      else s.down = false;
+    }
+  }
+  const worst = Math.max(...st.map(s => s.drift));
+  console.log((kind === 'gold' ? '金毛' : '腊肠') + ' 斜着小跑（横向只占六成）：脚最多横着滑 ' + worst.toFixed(2));
+  if (worst > 0.6) bad(kind + ' 斜着跑时脚打滑 ' + worst.toFixed(2));
+}
+
 // 变速：从慢走一路加速到飞奔再减速，中间不许"跳一下"（脚掌一帧里挪得太远）
 for (const kind of ['gold', 'dax']) {
   const rig = D.create(kind, kind === 'gold' ? 'gold' : 'dax_red', 777), top = kind === 'gold' ? 170 : 150;

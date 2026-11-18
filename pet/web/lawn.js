@@ -19,6 +19,11 @@
 
   var PHASES = ['day', 'dusk', 'night'];
   var STRIP_H = 26;          // strip 模式：草带大约多高（世界单位）
+  var SLOPE = 0.06;          // 割草纹斜多少（每往右 1，往上 0.06）
+  var BAND_H = 30;           // 一道割草纹多宽（世界单位）
+  var BAND_STEP = 2;         // 相邻两道差几级颜色（一级很淡，两级刚好看得出）
+  var LIGHT = 2.6;           // 左上比右下亮多少（0 = 一样亮）
+  var SHARE = [0.05, 0.12, 0.2, 0.26, 0.2, 0.12, 0.05];     // 云影分七级，每级占多少面积：两头的少，中间的多
   var floor = Math.floor, round = Math.round, imul = Math.imul;
 
   // ---------- 颜色 ----------
@@ -31,13 +36,13 @@
   // 草的五个定位色：最深（草根的影子）、暗、本色、亮、叶尖。暗的偏青蓝，亮的偏黄。
   var GRASS = {
     day:   ['#2b5a47', '#478a60', '#5a9d60', '#6fae5c', '#9ccc66'],
-    dusk:  ['#2c2f4a', '#3d5c62', '#4f7a55', '#7c8f52', '#d2b95c'],
+    dusk:  ['#2a3046', '#41665a', '#527d58', '#6e9058', '#c2b466'],
     night: ['#10121c', '#1a292e', '#213836', '#2b453c', '#466151'],
   };
   // 三叶草比草偏青一点：暗、本色、亮
   var CLOVER = {
-    day:   ['#3f8763', '#58a874', '#86d093'],
-    dusk:  ['#3d6a5e', '#52856a', '#8aa878'],
+    day:   ['#3d8560', '#52a068', '#74c07e'],
+    dusk:  ['#3c6a5c', '#4f8468', '#7aa67a'],
     night: ['#182b30', '#234541', '#34594c'],
   };
   // 别的小东西只写白天的颜色，傍晚 / 夜里由 grade() 统一压暗、调色。
@@ -81,11 +86,11 @@
     return little ? ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0 : ((r << 24) | (g << 16) | (b << 8) | 255) >>> 0;
   }
   var palCache = {};
-  function paletteOf(phase, tryGrass) {
+  function paletteOf(phase) {
     if (PHASES.indexOf(phase) < 0) phase = 'day';
     var p = palCache[phase];
-    if (p && !tryGrass) return p;
-    var a = (tryGrass || GRASS[phase]).map(rgb), cl = CLOVER[phase].map(rgb), cols = [], i;
+    if (p) return p;
+    var a = GRASS[phase].map(rgb), cl = CLOVER[phase].map(rgb), cols = [], i;
     for (i = 1; i <= NG; i++) {
       var t = (i - 1) / 6, seg = Math.min(3, floor(t));
       cols[i] = mix(a[seg], a[seg + 1], t - seg);
@@ -95,8 +100,7 @@
     TN.forEach(function (name) { cols[T[name]] = grade(rgb(THINGS[name]), phase); });
     var lut = new Uint32Array(256);
     for (i = 1; i < cols.length; i++) if (cols[i]) lut[i] = pack(cols[i]);
-    p = { phase: phase, cols: cols, lut: lut };
-    if (!tryGrass) palCache[phase] = p;
+    p = palCache[phase] = { phase: phase, cols: cols, lut: lut };
     return p;
   }
   // 给别人用的：这个时段草地的几个颜色（"#rrggbb"）
@@ -174,7 +178,7 @@
   // ---------- 小图案（R = 2 时一个字符一个像素）----------
   // 草的颜色都是"相对脚下那一片"的：t 叶尖 l 亮叶 m 叶（草丛用）；n 叶尖 e 叶（零散的草叶用，淡一些）；
   // d 草缝里的暗 r 草根 s 落在草上的影子
-  var REL = { t: 10, l: 7, m: 4, n: 7, e: 3, d: -3, r: -5, s: -4 };
+  var REL = { t: 10, l: 7, m: 4, n: 8, e: 4, d: -3, r: -5, s: -4 };
   // 草叶：一两根，很淡，到处都有
   var TICKS = [
     ['n', 'e'],
@@ -209,17 +213,11 @@
     [['..455..', '.44555.', '4555556', '.66666.', '..778..', '..778ss'], ['.45.', '4556', '.78s']],     // 褐的
   ];
   var ROCKS = [['.GGg..', 'Ggggh.', 'ggghhs', '.hhhss'], ['.Gg.', 'Gghs', '.hss'], ['..GGg...', '.GGgggh.', 'Ggggghhs', '.ghhhhss', '...sssss']];
-  var LEAVES = [['....A.', '...AAa', '..AAai', '.AAais', '.Aaiss', 'i.sss.'], ['..Aa', '.Aai', '.ais', 'i.s.']];
-  var BUG = ['.x.', 'XxX', 'XXX'];
+  var LEAVES = [['....A.', '...AAa', '..AAai', '.AAais', '.Aaiss', 'i.sss.'], ['.A....', 'AAa...', 'AAai..', '.Aaai.', '..aiis', '...ssi'], ['..Aa', '.Aai', '.ais', 'i.s.']];
+  var BUG = ['.XX.', 'xXxX', '.XXs'];                                    // 瓢虫：头朝左，背上一个黑点
   var LUCKY = ['.ll.mm.', 'lll.mmm', 'lll.mmm', '...d...', 'mmm.mmm', 'mmm.mmm', '.mmdmm.'];       // 四叶草，整片草地只有一棵
-  var TREFOILS = [['.l.', 'mdm'], ['.l.', 'mdm'], ['m.l', '.d.'], ['.ll..', '.ll..', 'lldmm', 'll.mm'], ['..ll.', '..ll.', 'lldmm', 'll.mm']];
-  // 草带上沿的高草丛、探出头的小花和草穗（最下面一行是根，贴着草带的上沿）
-  var EDGE_TUFTS = [
-    ['...t...', '...l..t', 't..l..m', 'l..l.m.', '.l.l.m.', '.l.lm..', '..llm..', '..lmm..'],
-    ['..t..', '..l.t', 't.l.m', 'l.lm.', '.llm.', '.lmm.'],
-    ['.t...', '.l..t', '.l.m.', 't.lm.', '.llm.'],
-    ['t..t.', 'l..l.', '.l.lt', '.l.lm', '..llm', '..lm.'],
-  ];
+  var TREFOILS = [['.l.', 'mdm'], ['.l.', 'mdm'], ['l.m', '.d.'], ['.ll..', '.ll..', 'lldmm', 'll.mm'], ['..ll.', '..ll.', 'lldmm', 'll.mm']];
+  // 草带上沿探出头的小花和草穗（最下面一行是根，贴着草带的上沿）
   var EDGE_STEMS = [
     ['.w.', 'wov', '.v.', '.m.', '.m.', 'lm.', '.m.', '.m.'],
     ['.y.', 'you', '.u.', '.m.', '.ml', '.m.', '.m.'],
@@ -241,8 +239,7 @@
     if (R >= 4) return doubled(wWu, hWu, phase, R, opts, W, H);
     var seed = (opts.seed === undefined || opts.seed === null ? 20261118 : opts.seed) >>> 0;
     var strip = opts.mode === 'strip';
-    var K = opts.tune || {};
-    var pal = paletteOf(phase, K.grass), lut = pal.lut;
+    var pal = paletteOf(phase), lut = pal.lut;
     var data = new Uint8ClampedArray(W * H * 4), out = new Uint32Array(data.buffer);
     var g = new Uint8Array(W * H);        // 先存起伏的高低，后来存"这一格底色是第几级"；最高位 = 这里已经放了东西
     var rnd = rng(seed), x, y, i, j, k, o;
@@ -265,14 +262,15 @@
 
     // ---- 1. 底色的起伏 ----
     // 割草纹和深浅都顺着同一个方向微微斜着：先在"摆正了的坐标"里一行行算好，再按斜度错开来取
-    var slope = K.slope === undefined ? 0.06 : K.slope, FH = H + Math.ceil(W * Math.abs(slope)) + 2;
-    var L1 = layer(W, FH, (K.c1x || 120) * R, (K.c1y || 60) * R, 0.2, rnd), L2 = layer(W, FH, (K.c2x || 46) * R, (K.c2y || 26) * R, -0.3, rnd), L3 = layer(W, FH, (K.c3x || 17) * R, (K.c3y || 8) * R, 0.1, rnd);
-    var w1 = K.w1 === undefined ? 0.58 : K.w1, w2 = K.w2 === undefined ? 0.30 : K.w2, w3 = K.w3 === undefined ? 0.12 : K.w3;
-    var bandH = (K.bandH || 30) * R, bandS = K.band === undefined ? 2 : K.band, wob = K.wob === undefined ? 0.15 : K.wob;
-    var lgA = K.lg === undefined ? 1.5 : K.lg;
+    var slope = SLOPE, FH = H + Math.ceil(W * Math.abs(slope)) + 2;
+    // 三层起伏：大的管"哪一片亮哪一片暗"，小的让边缘不那么圆。都是横向拉长的（顺着割草的方向）
+    var L1 = layer(W, FH, 170 * R, 50 * R, 0.2, rnd), L2 = layer(W, FH, 70 * R, 22 * R, -0.3, rnd), L3 = layer(W, FH, 17 * R, 8 * R, 0.1, rnd);
+    var w1 = 0.58, w2 = 0.30, w3 = 0.12;
+    var bandH = BAND_H * R, bandS = BAND_STEP, wob = 0.15;
+    var lgA = LIGHT;
     var fld = new Uint8Array(W * FH);
     var hist = new Uint32Array(128), cnt = 0;
-    for (y = 0; y < FH; y++) {
+    for (y = y0; y < FH; y++) {               // strip 模式只有底下那一条要算
       layerRow(L1, y, W); layerRow(L2, y, W); layerRow(L3, y, W);
       var r1 = L1.row, r2 = L2.row, r3 = L3.row, i1 = L1.ix, i2 = L2.ix, i3 = L3.ix, t1 = L1.tx, t2 = L2.tx, t3 = L3.tx;
       var bq = y / bandH;
@@ -302,11 +300,11 @@
       }
     }
     // 按面积分成几级：两头的少，中间的多
-    var share = K.share || [0.05, 0.12, 0.2, 0.26, 0.2, 0.12, 0.05], NL = share.length, lev = new Uint8Array(128), acc = 0, cum = 0, li = 0;
-    var stepI = K.step || 1, lo = BASE - stepI * ((NL - 1) >> 1);
+    var share = SHARE, NL = share.length, lev = new Uint8Array(128), acc = 0, cum = 0, li = 0;
+    var lo = BASE - ((NL - 1) >> 1);
     for (i = 0; i < 128; i++) {
       while (li < NL - 1 && cum >= (acc + share[li]) * cnt) { acc += share[li]; li++; }
-      lev[i] = lo + li * stepI; cum += hist[i];
+      lev[i] = lo + li; cum += hist[i];
     }
     for (y = y0; y < H; y++) {
       o = y * W;
@@ -341,7 +339,8 @@
       return true;
     }
     function take(px, py, w, h) { for (var j = -1; j <= h; j++) for (var k = -1; k <= w; k++) g[(py + j) * W + px + k] |= 128; }
-    // 把一个小图案盖上去。草的颜色（REL 里的字母）按脚下的深浅算；cl = 用三叶草的颜色
+    // 把一个小图案盖上去。草的颜色（REL 里的字母）按脚下的深浅算；cl = 用三叶草的颜色。
+    // flip = 左右镜像（只给草叶、草丛用：镜像以后亮的那几根还是在左边；有明暗、有影子的小东西不镜像，光才不会乱）
     function stamp(rows, px, py, flip, cl) {
       var h = rows.length, w = rows[0].length;
       if (!free(px, py, w, h)) return false;
@@ -351,6 +350,7 @@
         for (var k = 0; k < w; k++) {
           var ch = row[flip ? w - 1 - k : k];
           if (ch === '.') continue;
+          if (flip) ch = ch === 'l' ? 'm' : (ch === 'm' ? 'l' : ch);
           var d = REL[ch];
           P(px + k, py + j, d !== undefined ? (cl && d > -4 ? CL0 : 0) + rel(l0, d) : T[ch]);
         }
@@ -378,7 +378,7 @@
       FLOWERS.forEach(function (fs) { fs.forEach(function (s) { putK(s); }); });
       SHROOMS.forEach(function (ss) { ss.forEach(function (s) { putK(s); }); }); ROCKS.forEach(function (s) { putK(s); });
       LEAVES.forEach(function (s) { putK(s); }); putK(recolor(LEAVES[0])); putK(BUG);
-      EDGE_TUFTS.forEach(function (s) { putK(s); }); EDGE_STEMS.forEach(function (s) { putK(s); });
+      EDGE_STEMS.forEach(function (s) { putK(s); });
       return { w: W, h: H, data: data, scale: R, ox: 0, oy: 0, key: null, ver: 1 };
     }
 
@@ -386,24 +386,24 @@
     var r4 = rng(seed ^ 0x7f4a7c15);
     if (area > 6000) {
       pts = scatter(AW, AH, 150 * R, r4);
-      for (i = 0; i < pts.length; i += 2) if (r4() < 0.5) stamp(ROCKS[(r4() * ROCKS.length) | 0], pts[i] | 0, y0 + (pts[i + 1] | 0), r4() < 0.5);
+      for (i = 0; i < pts.length; i += 2) if (r4() < 0.5) stamp(ROCKS[(r4() * ROCKS.length) | 0], pts[i] | 0, y0 + (pts[i + 1] | 0));
       pts = scatter(AW, AH, 205 * R, r4);
       for (i = 0; i < pts.length; i += 2) {
         if (r4() > 0.55) continue;
         px = pts[i] | 0; py = y0 + (pts[i + 1] | 0);
-        var ms = SHROOMS[r4() < 0.6 ? 0 : 1], fl = r4() < 0.5;
-        if (stamp(ms[0], px, py, fl)) {
-          stamp(ms[1], px + (fl ? -6 : 9), py + 3, fl);
-          if (r4() < 0.5) stamp(ms[1], px + (fl ? 9 : -6), py + 4, !fl);
+        var ms = SHROOMS[r4() < 0.6 ? 0 : 1], fl = r4() < 0.5;        // 一朵大的，旁边一两朵小的
+        if (stamp(ms[0], px, py)) {
+          stamp(ms[1], px + (fl ? -6 : 9), py + 3);
+          if (r4() < 0.5) stamp(ms[1], px + (fl ? 9 : -6), py + 4);
         }
       }
       pts = scatter(AW, AH, 120 * R, r4);
       for (i = 0; i < pts.length; i += 2) {
         if (r4() > 0.6) continue;
         var lf = LEAVES[(r4() * LEAVES.length) | 0];
-        stamp(r4() < 0.5 ? recolor(lf) : lf, pts[i] | 0, y0 + (pts[i + 1] | 0), r4() < 0.5);
+        stamp(r4() < 0.5 ? recolor(lf) : lf, pts[i] | 0, y0 + (pts[i + 1] | 0));
       }
-      if (!strip && phase !== 'night') stamp(BUG, (W * (0.2 + r4() * 0.6)) | 0, (H * (0.25 + r4() * 0.5)) | 0, r4() < 0.5);
+      if (!strip && phase !== 'night') stamp(BUG, (W * (0.2 + r4() * 0.6)) | 0, (H * (0.25 + r4() * 0.5)) | 0);
     }
 
     // ---- 4b. 小花：几朵凑成一小片 ----
@@ -416,7 +416,7 @@
         var an = r5() * 6.2832, di = (1.5 + r5() * spread) * R;
         px = (pts[i] + Math.cos(an) * di) | 0; py = y0 + ((pts[i + 1] + Math.sin(an) * di * 0.6) | 0);
         var fs = FLOWERS[kind], pick = r5();
-        stamp(fs[pick < 0.5 ? 0 : (pick < 0.88 ? 1 : 2)], px, py, r5() < 0.5);
+        stamp(fs[pick < 0.5 ? 0 : (pick < 0.88 ? 1 : 2)], px, py);
       }
     }
 
@@ -432,7 +432,7 @@
       for (j = 0; j < want * 3 && made < want; j++) {
         var an2 = r6() * 6.2832, dr = Math.sqrt(r6());
         px = (pts[i] + Math.cos(an2) * dr * rx) | 0; py = y0 + ((pts[i + 1] + Math.sin(an2) * dr * ry) | 0);
-        if (stamp(TREFOILS[(r6() * TREFOILS.length) | 0], px, py, r6() < 0.5, true)) made++;
+        if (stamp(TREFOILS[(r6() * TREFOILS.length) | 0], px, py, false, true)) made++;
       }
       if (made >= 4 && r6() < 0.7) {
         var nb = 1 + ((r6() * 2) | 0);
@@ -442,12 +442,12 @@
 
     // ---- 3. 草丛（少）和草叶（多）：有的地方密，有的地方空 ----
     var r7 = rng(seed ^ 0x1b873593);
-    pts = scatter(AW, AH, (K.tuftR || 17) * R, r7);
+    pts = scatter(AW, AH, 17 * R, r7);
     for (i = 0; i < pts.length; i += 2) {
       px = pts[i] | 0; py = y0 + (pts[i + 1] | 0);
       if (r7() < (0.15 + 0.85 * lush(px, py)) * 0.8 * dens) stamp(TUFTS[(r7() * TUFTS.length) | 0], px, py, r7() < 0.5);
     }
-    pts = scatter(AW, AH, (K.tickR || 5.2) * R, r7);
+    pts = scatter(AW, AH, 5.2 * R, r7);
     for (i = 0; i < pts.length; i += 2) {
       px = pts[i] | 0; py = y0 + (pts[i + 1] | 0);
       var lu = lush(px, py);
@@ -457,14 +457,14 @@
     // ---- strip：上沿长出高高低低的草，偶尔探出一朵花、一根草穗 ----
     if (strip) fringe();
     function fringe() {
-      var r8 = rng(seed ^ 0x85ebca6b), x, k, j, n;
+      var r8 = rng(seed ^ 0x85ebca6b), x, k;
       function fpx(xx, yy, c) { if (xx >= 0 && xx < W && yy >= 0 && yy < H) { out[yy * W + xx] = lut[c]; if (!g[yy * W + xx]) g[yy * W + xx] = 1; } }
       function lvl(xx) { xx = xx < 0 ? 0 : (xx >= W ? W - 1 : xx); return (g[Math.min(H - 1, top[xx] + 1) * W + xx] & 127) || BASE; }
       // 盖一个根在 (bx, top) 的图案（可以画到草带外面去）
-      function fstamp(rows, bx, flip) {
+      function fstamp(rows, bx) {
         var h = rows.length, w = rows[0].length, l0 = lvl(bx + (w >> 1));
         for (var j = 0; j < h; j++) for (var k = 0; k < w; k++) {
-          var ch = rows[j][flip ? w - 1 - k : k];
+          var ch = rows[j][k];
           if (ch === '.') continue;
           var xx = bx + k, d = REL[ch];
           if (xx < 0 || xx >= W) continue;
@@ -501,7 +501,7 @@
       while (x < W - 2) {
         var l1 = lvl(x);
         if (x >= nextStem) {
-          fstamp(EDGE_STEMS[(r8() * EDGE_STEMS.length) | 0], x, r8() < 0.5);
+          fstamp(EDGE_STEMS[(r8() * EDGE_STEMS.length) | 0], x);
           nextStem = x + (((22 + r8() * 46) * R) | 0);
           x += 5 + ((r8() * 4) | 0);
           continue;
