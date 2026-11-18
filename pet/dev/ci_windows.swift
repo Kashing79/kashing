@@ -26,7 +26,8 @@ if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: An
         let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
         func i(_ k: String) -> Int { return Int((b[k] as? NSNumber)?.doubleValue ?? 0) }
         let bounds = "\(i("X")),\(i("Y")),\(i("Width")),\(i("Height"))"
-        let mine = owner == "QiuQiu"
+        // App 显示的名字可能是"球球"（中文系统）或 QiuQiu；窗口名字是我们自己起的，最可靠
+        let mine = owner == "QiuQiu" || owner == "球球" || name.hasPrefix("QiuQiu")
         // 前 40 个都列出来；后面的只列我们自己的和桌面那几层的
         if n < 40 || mine || layer < 0 {
             print("WIN layer=\(layer) owner=\(owner) name=\(name) alpha=\(alpha) bounds=\(bounds) id=\(number)")

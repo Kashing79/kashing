@@ -160,7 +160,42 @@ extension AppDelegate {
                 o["battery"] = value
             }
         }
+        // 程序坞和菜单栏上的 🎾 在哪：两秒看一次，变了才说
+        if now - placesAt >= 2.0 {
+            placesAt = now
+            let p = places()
+            if p.text != placesTold {
+                placesTold = p.text
+                o["dock"] = p.dock
+                o["statusItem"] = p.item
+            }
+        }
         if !o.isEmpty { eng.sense(o) }
+    }
+
+    /// 程序坞（只认放在屏幕底下、没有自动隐藏的）和 🎾 的位置，都换成世界单位。
+    /// 程序坞具体多宽系统不告诉我们（要权限才行），就按屏幕宽度的一半估；剧本只用它中间那一段。
+    func places() -> (dock: Any, item: Any, text: String) {
+        var dock: Any = NSNull()
+        var item: Any = NSNull()
+        var text = "dock:none"
+        if unit > 0 && geo.bottom >= 8 {
+            let h = Double(geo.bottom / unit)
+            let w = (viewW * 0.5).rounded()
+            let x = ((viewW - w) / 2).rounded()
+            dock = ["x": x, "y": viewH - h, "w": w, "h": h] as [String: Any]
+            text = "dock:\(x),\(w),\(h)"
+        }
+        if unit > 0, let win = statusItem?.button?.window {
+            let f = win.frame
+            let pf = geo.frame
+            if f.width > 0 && f.midX >= pf.minX && f.midX <= pf.maxX && abs(f.maxY - pf.maxY) < 60 {
+                let x = (Double((f.midX - pf.minX) / unit) * 10).rounded() / 10
+                item = x
+                text += " item:\(x)"
+            }
+        }
+        return (dock, item, text)
     }
 
     /// 距离她上一次动键盘或鼠标过了几秒（系统只告诉我们"多久"，这不需要任何权限）

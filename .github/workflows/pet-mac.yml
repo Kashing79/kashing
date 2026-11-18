@@ -90,6 +90,19 @@ jobs:
           echo "---- no-argument path of the script (old bash + set -u) ----"
           bash pet/install.sh --no-open && bash pet/uninstall.sh
 
+      - name: One-line install from GitHub (curl | bash), then uninstall
+        run: |
+          # 和 README 里给她的那一行一样，只是钉在这一次提交上（main 上还没有 pet/）
+          REF="${{ github.sha }}"
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${REF}/pet/get.sh" \
+            | QIUQIU_REF="${REF}" QIUQIU_DIR="$RUNNER_TEMP/qq" bash -s -- --no-open
+          INST=/Applications/QiuQiu.app; [ -d "$INST" ] || INST="$HOME/Applications/QiuQiu.app"
+          if [ -x "$INST/Contents/MacOS/QiuQiu" ]; then echo "GET_SH_INSTALL_OK"; else echo "GET_SH_INSTALL_FAILED"; exit 1; fi
+          ls "$RUNNER_TEMP/qq" | head -20
+          bash "$RUNNER_TEMP/qq/uninstall.sh"
+          if [ -e /Applications/QiuQiu.app ] || [ -e "$HOME/Applications/QiuQiu.app" ]; then echo "LEFTOVERS"; exit 1; fi
+          echo "GET_SH_UNINSTALL_OK"
+
       - name: Self-test (the characters are drawn, the background is transparent)
         run: |
           APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu

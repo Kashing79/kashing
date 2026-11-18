@@ -66,6 +66,7 @@ final class Island {
     private var closeAt: CFTimeInterval = 0
     var pressed: IslandButton? = nil
     private var downInside = false
+    private var denDown = false         // 这一下按在岛里睡觉的那一小格上
 
     init() {
         clockFormat.locale = Locale(identifier: "en_GB")
@@ -250,13 +251,53 @@ final class Island {
         openAt = 0
         closeAt = 0
         pressed = button(at: p)
+        denDown = false
         if let b = pressed {
             b.down = true
             style(b)
+        } else if denHit(p) {
+            denDown = true                  // 松开时告诉引擎"给它们盖被子"
         } else {
             setOpen(!isOpen)
         }
         return true
+    }
+
+    /// 点在岛里睡觉的那一小格上没有（只有它们都在岛里、而且岛没弹开时才算）
+    private func denHit(_ p: CGPoint) -> Bool {
+        if st.home != "in" || isOpen || den.container.isHidden { return false }
+        let q = CGPoint(x: p.x - boxLeft, y: boxH - p.y)
+        return den.container.frame.insetBy(dx: -4, dy: -4).contains(q)
+    }
+
+    /// 剧本让岛动一下：鼓一下、咽一下、抖一下……（短短的弹簧，0.3–0.8 秒）
+    func pulse(_ kind: String) {
+        if !enabled || !laidOut { return }
+        if kind == "shake" || kind == "rummage" {
+            let a = CAKeyframeAnimation(keyPath: "transform.translation.x")
+            a.values = kind == "shake" ? [0, -2.5, 2.5, -2, 2, -1, 0] : [0, 1.5, -1.5, 1, 0]
+            a.duration = kind == "shake" ? 0.45 : 0.35
+            layer.add(a, forKey: "pulse")
+            return
+        }
+        var dw: CGFloat = 8, dh: CGFloat = 4
+        if kind == "bulge" { dw = 12; dh = 6 }
+        if kind == "gulp" { dw = -8; dh = 3 }
+        if kind == "drop" { dw = 4; dh = 9 }
+        let rt: CGFloat = isOpen ? 19 : 6
+        let rb: CGFloat = isOpen ? 24 : 14
+        let from = makePath(w: max(40, bodyW + dw), h: max(12, bodyH + dh), top: rt, bottom: rb)
+        let to = makePath(w: bodyW, h: bodyH, top: rt, bottom: rb)
+        let a = CASpringAnimation(keyPath: "path")
+        a.mass = 1
+        a.stiffness = 300
+        a.damping = 11
+        a.initialVelocity = 0
+        a.fromValue = from
+        a.toValue = to
+        a.duration = min(0.8, a.settlingDuration)
+        shape.add(a, forKey: "pulse")
+        if let c = a.copy() as? CAAnimation { clip.add(c, forKey: "pulse") }
     }
 
     /// 松开。返回要引擎做的事（按在按钮上才有）
@@ -264,6 +305,10 @@ final class Island {
         let b = pressed
         pressed = nil
         downInside = false
+        if denDown {
+            denDown = false
+            return denHit(p) ? "tuck" : nil
+        }
         guard let btn = b else { return nil }
         btn.down = false
         style(btn)
@@ -275,6 +320,7 @@ final class Island {
         if let b = pressed { b.down = false; style(b) }
         pressed = nil
         downInside = false
+        denDown = false
     }
 
     private func button(at p: CGPoint) -> IslandButton? {

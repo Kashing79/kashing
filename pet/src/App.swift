@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var idleTold = 0.0
     var batteryAt: CFTimeInterval = 0
     var batteryTold = ""
+    var placesAt: CFTimeInterval = 0
+    var placesTold = ""
 
     override init() {
         let args = CommandLine.arguments
@@ -183,6 +185,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         eng.islandHit = { [weak self] x, y in
             guard let s = self else { return false }
             return s.island.dropHit(s.toPanel(x, y))
+        }
+        eng.islandRim = { [weak self] in
+            guard let s = self, s.unit > 0, s.island.rect != nil else { return "" }
+            let a = s.toWorld(CGPoint(x: s.island.midX - s.island.bodyW / 2, y: s.island.bodyH))
+            let b = s.toWorld(CGPoint(x: s.island.midX + s.island.bodyW / 2, y: s.island.bodyH))
+            return "\(a.x),\(b.x),\(a.y)"
+        }
+        eng.islandPulse = { [weak self] kind in
+            self?.island.pulse(kind)
         }
         eng.load(from: webDir)
         if !eng.hasEngineScript {

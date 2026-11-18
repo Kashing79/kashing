@@ -91,7 +91,16 @@ var __qq = (function (G) {
       island: {
         center: function () { return +G.__qq_islandCenter() || 0; },
         visible: function () { return !!G.__qq_islandVisible(); },
-        hit: function (x, y) { return !!G.__qq_islandHit(+x || 0, +y || 0); }
+        hit: function (x, y) { return !!G.__qq_islandHit(+x || 0, +y || 0); },
+        // 岛的下沿在哪：{ x0, x1, y }（世界单位）；岛关掉了就是 null
+        rim: function () {
+          var p = String(G.__qq_islandRim() || '').split(',');
+          if (p.length !== 3) return null;
+          var r = { x0: +p[0], x1: +p[1], y: +p[2] };
+          return (r.x0 === r.x0 && r.x1 === r.x1 && r.y === r.y) ? r : null;
+        },
+        // 让岛动一下：rummage | drop | gulp | shake | bulge
+        pulse: function (kind) { G.__qq_islandPulse(String(kind)); }
       },
       log: function (msg) { G.__qq_log(String(msg)); }
     };

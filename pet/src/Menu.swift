@@ -45,7 +45,11 @@ extension AppDelegate: NSMenuDelegate {
         rebuildMenu()
     }
 
-    func menuNeedsUpdate(_ menu: NSMenu) { rebuildMenu() }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        rebuildMenu()
+        // 告诉引擎"她打开了菜单"（有的剧本会回头看一眼 🎾）
+        if let eng = engine, eng.hasSense { eng.sense(["menu": true]) }
+    }
 
     @discardableResult
     private func addItem(_ title: String, _ action: Selector, to m: NSMenu) -> NSMenuItem {

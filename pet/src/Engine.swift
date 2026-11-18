@@ -36,6 +36,8 @@ final class PetEngine {
     var islandCenter: () -> Double = { return 0 }
     var islandVisible: () -> Bool = { return false }
     var islandHit: (Double, Double) -> Bool = { _, _ in return false }
+    var islandRim: () -> String = { return "" }             // "x0,x1,y"：岛下沿（世界单位）；没有岛就是空的
+    var islandPulse: (String) -> Void = { _ in }            // 剧本让岛动一下
 
     private struct Texture {
         var image: CGImage
@@ -87,6 +89,14 @@ final class PetEngine {
             guard let s = self else { return 0 }
             return s.islandHit(x, y) ? 1 : 0
         }
+        let rim: @convention(block) () -> String = { [weak self] in
+            guard let s = self else { return "" }
+            return s.islandRim()
+        }
+        let pulse: @convention(block) (String) -> Void = { [weak self] kind in
+            guard let s = self else { return }
+            s.islandPulse(kind)
+        }
         let logLine: @convention(block) (String) -> Void = { [weak self] msg in
             guard let s = self else { return }
             if s.verbose { say("JS LOG " + msg) }
@@ -98,6 +108,8 @@ final class PetEngine {
         context.setObject(unsafeBitCast(center, to: AnyObject.self), forKeyedSubscript: "__qq_islandCenter" as NSString)
         context.setObject(unsafeBitCast(visible, to: AnyObject.self), forKeyedSubscript: "__qq_islandVisible" as NSString)
         context.setObject(unsafeBitCast(hit, to: AnyObject.self), forKeyedSubscript: "__qq_islandHit" as NSString)
+        context.setObject(unsafeBitCast(rim, to: AnyObject.self), forKeyedSubscript: "__qq_islandRim" as NSString)
+        context.setObject(unsafeBitCast(pulse, to: AnyObject.self), forKeyedSubscript: "__qq_islandPulse" as NSString)
         context.setObject(unsafeBitCast(logLine, to: AnyObject.self), forKeyedSubscript: "__qq_log" as NSString)
     }
 
@@ -124,11 +136,11 @@ final class PetEngine {
 
     /// 把 web/ 里的文件一个个读进来（有哪个读哪个），再读我们自己的那一小段胶水。
     func load(from dir: URL) {
-        let names = ["config.js", "sprites.js", "fx.js", "dogs.js", "person.js", "lawn.js", "pet.js"]
+        let names = ["config.js", "sprites.js", "fx.js", "dogs.js", "person.js", "lawn.js", "needs.js", "pet.js"]
         for name in names {
             if evaluateFile(dir.appendingPathComponent(name)) { loaded.append(name) }
         }
-        // 以后的"小剧场剧本"：scenes/ 里的每个 .js（现在还没有这个文件夹）
+        // "小剧场剧本"：scenes/ 里的每个 .js，按文件名排好一个个读（每个往 PET_SCENES 里加几场戏）
         let scenes = dir.appendingPathComponent("scenes", isDirectory: true)
         if let list = try? FileManager.default.contentsOfDirectory(atPath: scenes.path) {
             for name in list.sorted() where name.hasSuffix(".js") {
