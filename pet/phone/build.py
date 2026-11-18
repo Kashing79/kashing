@@ -11,9 +11,13 @@ js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/sc
 page = (here / 'template.html').read_text(encoding='utf-8')
 # 模板里每个 __名字__ 换成 web/ 里对应的那个文件（顺序见模板最后；画图的几个文件在前，玩法在后）
 for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), ('__FX__', 'fx.js'), ('__DOGS__', 'dogs.js'),
-                   ('__PERSON__', 'person.js'), ('__LAWN__', 'lawn.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
+                   ('__PERSON__', 'person.js'), ('__LAWN__', 'lawn.js'), ('__NEEDS__', 'needs.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
     assert mark in page, mark
     page = page.replace(mark, js(name))
+# 小剧本：scenes/ 里的每个 .js，按文件名排好，一个接一个（每个都往 PET_SCENES 里加记录）
+scenes = '\n'.join(js('scenes/' + f.name) for f in sorted((web / 'scenes').glob('*.js'))) if (web / 'scenes').exists() else ''
+assert '__SCENES__' in page
+page = page.replace('__SCENES__', scenes)
 # 保险：这几个文件要是有人正改到一半（里面还没把自己挂出来），打出来的页面会缺东西，不如不打
 for name, glob in [('config.js', 'PET_CONFIG'), ('sprites.js', 'PET_SPRITES'), ('dogs.js', 'PET_DOGS'), ('pet.js', 'PET_ENGINE')]:
     if not re.search(glob + r'\s*=', js(name)):

@@ -51,7 +51,9 @@ window.PET_CONFIG.roam = true;
 <script>__PERSON__</script>
 <script>__LAWN__</script>
 <script>__ISLAND__</script>
+<script>__NEEDS__</script>
 <script>__PET__</script>
+<script>__SCENES__</script>
 <script>__WEB__</script>
 <script>
 // 页面底色、状态栏的颜色，跟着草地这个时段的颜色走（草地换了新画法以后，和原来写死的绿色不一样了）
@@ -71,8 +73,11 @@ window.PET_CONFIG.roam = true;
 """
 out = HEAD + style + EXTRA + island + TAIL
 for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), ('__FX__', 'fx.js'), ('__DOGS__', 'dogs.js'), ('__PERSON__', 'person.js'),
-                   ('__LAWN__', 'lawn.js'), ('__ISLAND__', 'island.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
+                   ('__LAWN__', 'lawn.js'), ('__ISLAND__', 'island.js'), ('__NEEDS__', 'needs.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
     out = out.replace(mark, js(name))
+# 小剧本：scenes/ 里的每个 .js，按文件名排好
+scenes = '\n'.join(js('scenes/' + f.name) for f in sorted((web / 'scenes').glob('*.js'))) if (web / 'scenes').exists() else ''
+out = out.replace('__SCENES__', scenes)
 # 保险：这几个文件要是有人正改到一半（里面还没把自己挂出来），打出来的页面会缺东西
 for name, glob in [('config.js', 'PET_CONFIG'), ('sprites.js', 'PET_SPRITES'), ('dogs.js', 'PET_DOGS'), ('pet.js', 'PET_ENGINE')]:
     if not re.search(glob + r'\s*=', js(name)):
