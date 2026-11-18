@@ -28,30 +28,34 @@ jobs:
           fi
           xcrun swiftc -O -target "$(uname -m)-apple-macos11.0" -o "$RUNNER_TEMP/probe2" pet/dev/ci_probe2.swift
           xcrun swiftc -O -o "$RUNNER_TEMP/ci_windows" pet/dev/ci_windows.swift
-          for MODE in belowIcons desktop; do
-            "$RUNNER_TEMP/probe2" pet/web/dogs.js $MODE > "$RUNNER_TEMP/p_$MODE.log" 2>&1 &
-            PID=$!
-            sleep 7
-            echo "==== $MODE"
-            cat "$RUNNER_TEMP/p_$MODE.log" | head -20
-            "$RUNNER_TEMP/ci_windows" | grep -E "Probe|Menubar|Finder|Wallpaper|Dock" | head -8 || true
-            screencapture -x "$RUNNER_TEMP/full_$MODE.png" || true
-            sips -s format jpeg -s formatOptions 55 -Z 1024 "$RUNNER_TEMP/full_$MODE.png" --out "$RUNNER_TEMP/full_$MODE.jpg" >/dev/null
-            echo "-----BEGIN full_$MODE JPG-----"
-            base64 -i "$RUNNER_TEMP/full_$MODE.jpg" | fold -w 120
-            echo "-----END full_$MODE JPG-----"
-            kill $PID 2>/dev/null || true
-            sleep 0.7
-          done
-          echo "==== same benchmark with the JIT switched off (to see whether the JIT was on above)"
-          JSC_useJIT=0 "$RUNNER_TEMP/probe2" pet/web/dogs.js belowIcons > "$RUNNER_TEMP/p_nojit.log" 2>&1 &
-          PID=$!
-          sleep 12
-          grep "JSC bench" "$RUNNER_TEMP/p_nojit.log" || cat "$RUNNER_TEMP/p_nojit.log" | head -5
-          kill $PID 2>/dev/null || true
-          echo "==== memory of the native probe"
-          "$RUNNER_TEMP/probe2" pet/web/dogs.js belowIcons > /dev/null 2>&1 &
-          PID=$!
-          sleep 4
-          ps -o pid,rss,%cpu,comm -p $PID || true
-          kill $PID 2>/dev/null || true
+          echo "==== A. as built (linker ad-hoc signature, no entitlements)"
+          codesign -d --entitlements - "$RUNNER_TEMP/probe2" 2>&1 | head -5 || true
+          "$RUNNER_TEMP/probe2" pet/web/dogs.js belowIcons > "$RUNNER_TEMP/a.log" 2>&1 &
+          PID=$!; sleep 9; grep "JSC bench" "$RUNNER_TEMP/a.log" || head -5 "$RUNNER_TEMP/a.log"; kill $PID 2>/dev/null || true; sleep 0.5
+          cat > "$RUNNER_TEMP/jit.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>com.apple.security.cs.allow-jit</key><true/>
+          </dict></plist>
+          PLIST
+          sed -i '' 's/^          //' "$RUNNER_TEMP/jit.plist"
+          plutil -lint "$RUNNER_TEMP/jit.plist"
+          echo "==== B. re-signed ad hoc WITH com.apple.security.cs.allow-jit"
+          cp "$RUNNER_TEMP/probe2" "$RUNNER_TEMP/probe2_jit"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/jit.plist" "$RUNNER_TEMP/probe2_jit"
+          codesign -d --entitlements - "$RUNNER_TEMP/probe2_jit" 2>&1 | head -8 || true
+          "$RUNNER_TEMP/probe2_jit" pet/web/dogs.js belowIcons > "$RUNNER_TEMP/b.log" 2>&1 &
+          PID=$!; sleep 9; grep "JSC bench" "$RUNNER_TEMP/b.log" || head -5 "$RUNNER_TEMP/b.log"; kill $PID 2>/dev/null || true; sleep 0.5
+          echo "==== C. same, plus the hardened runtime"
+          cp "$RUNNER_TEMP/probe2" "$RUNNER_TEMP/probe2_hr"
+          codesign --force --sign - --options runtime --entitlements "$RUNNER_TEMP/jit.plist" "$RUNNER_TEMP/probe2_hr"
+          "$RUNNER_TEMP/probe2_hr" pet/web/dogs.js belowIcons > "$RUNNER_TEMP/c.log" 2>&1 &
+          PID=$!; sleep 9; grep "JSC bench" "$RUNNER_TEMP/c.log" || head -5 "$RUNNER_TEMP/c.log"; kill $PID 2>/dev/null || true; sleep 0.5
+          echo "==== D. inside an .app bundle, signed like install.sh does but with the entitlement"
+          APPD="$RUNNER_TEMP/Probe.app"; mkdir -p "$APPD/Contents/MacOS"
+          cp "$RUNNER_TEMP/probe2" "$APPD/Contents/MacOS/Probe"
+          printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>local.qiuqiu.probe</string><key>CFBundleExecutable</key><string>Probe</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>\n' > "$APPD/Contents/Info.plist"
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/jit.plist" "$APPD"
+          "$APPD/Contents/MacOS/Probe" "$PWD/pet/web/dogs.js" belowIcons > "$RUNNER_TEMP/d.log" 2>&1 &
+          PID=$!; sleep 9; grep "JSC bench" "$RUNNER_TEMP/d.log" || head -5 "$RUNNER_TEMP/d.log"; kill $PID 2>/dev/null || true
