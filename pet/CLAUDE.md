@@ -65,6 +65,7 @@
 | `/Applications/QiuQiu.app`（没有写入权限时是 `~/Applications/QiuQiu.app`） | 安装好的 App |
 | `~/Library/LaunchAgents/local.qiuqiu.deskpet.plist` | 只有选了开机自动启动才有 |
 | `defaults` 里的 `local.qiuqiu.deskpet` | 几个小设定：大小、是否自动丢球、是否满屏幕跑、是否显示岛、在哪个屏幕 |
+| `~/Library/WebKit/local.qiuqiu.deskpet`、`~/Library/Caches/local.qiuqiu.deskpet`、`~/Library/HTTPStorages/local.qiuqiu.deskpet` | 系统网页引擎运行时自动建的小数据（"今天丢了几次球"记在这里），不是 install.sh 放的 |
 
 卸载：`bash uninstall.sh`（会把上面这些都清掉）。
 
@@ -87,10 +88,15 @@
 ## 遇到问题时
 
 - **编译报错**：`src/main.swift` 不长，只用到 AppKit 和 WebKit，请直接修。
-  这份代码在 macOS 15（Swift 6.1）、macOS 26（Swift 6.3）和 macOS 27 的云端 Mac 上编译通过。
+  这份代码在 macOS 15（Swift 6.1）、macOS 26（Swift 6.3）和 macOS 27（Swift 6.4）的云端 Mac 上编译通过。
 - **整个屏幕蒙上一层不透明的白色或灰色**：说明这个系统版本上网页背景没能变透明。
   相关代码在 `src/main.swift` 的 `buildWindow()` 里（`drawsBackground` 那几行）。
   先用菜单栏 🎾 →「先躲起来」或「退出」（或 `pkill -x QiuQiu`），不要让它挡着她用电脑。
+- **看得到岛，但看不到小人和狗**（或者自检最后是 `SELFTEST FAIL … hasPets=false`）：
+  小人和狗都画在网页的画布上；这说明这台 Mac 上系统默认的"显卡画布"画不出东西。
+  程序启动时会自己检查并自动换成不用显卡的画法（终端里用 `QiuQiu --debug` 启动能看到 `CANVAS …` 那一行）。
+  如果自动切换没生效，可以手动指定：`defaults write local.qiuqiu.deskpet softCanvas -bool true`，然后重新打开 App。
+  相关代码在 `src/main.swift` 的 `makeWebView()` 和 `web/pet.js` 最后的 `canvasOK()`。
 - **顶上看不到那颗岛**：窗口必须比系统菜单栏高一层才能画在菜单栏上。
   层级在 `buildWindow()` 里设（`panel.level`，要写在 `isFloatingPanel` 后面）。
   可以用 `QIUQIU_LEVEL=数字` 这个环境变量临时换一层试试。

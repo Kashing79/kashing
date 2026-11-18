@@ -72,11 +72,15 @@ jobs:
           echo "instances: $(pgrep -x QiuQiu | wc -l | tr -d ' ')"
           echo "---- memory / cpu after a few seconds ----"
           ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu|com.apple.WebKit" | grep -v grep | head -8 || true
+          echo "---- everything this app has left under ~/Library so far ----"
+          find "$HOME/Library" -maxdepth 3 -iname '*qiuqiu*' 2>/dev/null | sed "s|$HOME|~|" | head -20 || true
           echo "---- uninstall ----"
           bash pet/uninstall.sh
           sleep 1
           if pgrep -x QiuQiu >/dev/null; then echo "STILL RUNNING"; exit 1; fi
           if [ -e /Applications/QiuQiu.app ] || [ -e "$HOME/Applications/QiuQiu.app" ] || [ -e "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist" ]; then echo "LEFTOVERS"; exit 1; fi
+          LEFT=$(find "$HOME/Library" -maxdepth 3 -iname '*qiuqiu*' 2>/dev/null | grep -v '/Preferences/' | sed "s|$HOME|~|" | head -20 || true)
+          if [ -n "$LEFT" ]; then echo "LEFTOVERS in ~/Library:"; echo "$LEFT"; exit 1; fi
           echo "UNINSTALL_OK"
           echo "---- no-argument path of the script (old bash + set -u) ----"
           bash pet/install.sh --no-open && bash pet/uninstall.sh

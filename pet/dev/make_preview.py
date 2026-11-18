@@ -16,7 +16,7 @@ HEAD = """<title>球球桌宠</title>
 EXTRA = """
   body { background: var(--lawn); position: relative; }
   #hint2 {
-    position: absolute; left: 0; right: 0; top: 46px; z-index: 2; pointer-events: none;
+    position: absolute; left: 0; right: 0; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 2; pointer-events: none;
     display: flex; flex-direction: column; align-items: center; gap: 8px;
     padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
     font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "PingFang TC", "Microsoft YaHei", sans-serif; color: var(--ink);
@@ -38,7 +38,11 @@ TAIL = """
 <script>__CONFIG__
 window.PET_CONFIG.grass = true;
 window.PET_CONFIG.roam = true;
-(function () { var n = 0, h = document.getElementById('hint2'); window.addEventListener('pointerdown', function () { if (++n >= 3) h.classList.add('quiet'); }); })();
+(function () {   // 提示放在最下面，玩几下或者过一会儿就自己淡掉，不挡着它们
+  var n = 0, h = document.getElementById('hint2');
+  window.addEventListener('pointerdown', function () { if (++n >= 3) h.classList.add('quiet'); });
+  setTimeout(function () { h.classList.add('quiet'); }, 20000);
+})();
 </script>
 <script>__SPRITES__</script>
 <script>__DOGS__</script>
