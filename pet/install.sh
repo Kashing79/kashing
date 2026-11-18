@@ -24,13 +24,14 @@ MIN_MACOS="11.0"
 BUILD_ONLY=0
 AUTOSTART=0
 NO_OPEN=0
-for arg in "$@"; do
-  case "$arg" in
+# 注意：Mac 自带的 bash 很老（3.2），变量后面紧跟中文时必须写成 ${变量}，否则会被读错。
+for arg in ${1+"$@"}; do
+  case "${arg}" in
     --build-only) BUILD_ONLY=1 ;;
     --autostart)  AUTOSTART=1 ;;
     --no-open)    NO_OPEN=1 ;;
     -h|--help)    sed -n '2,16p' "$0"; exit 0 ;;
-    *) echo "不认识的参数：$arg"; exit 2 ;;
+    *) echo "不认识的参数：${arg}"; exit 2 ;;
   esac
 done
 
@@ -54,7 +55,7 @@ EOF
 fi
 
 for f in src/main.swift web/index.html web/pet.js web/sprites.js web/config.js; do
-  if [ ! -f "$f" ]; then echo "缺少文件：$f（请确认整个文件夹都拷过来了）"; exit 1; fi
+  if [ ! -f "${f}" ]; then echo "缺少文件：${f} （请确认整个文件夹都拷过来了）"; exit 1; fi
 done
 
 # ---- 2. 编译 ----
@@ -64,7 +65,7 @@ ARCH="$(uname -m)"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-echo "正在编译（$ARCH）……"
+echo "正在编译 (${ARCH}) ……"
 xcrun swiftc -O \
   -target "${ARCH}-apple-macos${MIN_MACOS}" \
   -o "$APP/Contents/MacOS/$APP_NAME" \
@@ -100,7 +101,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 xattr -cr "$APP" 2>/dev/null || true
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 
-echo "编译完成：$(pwd)/$APP"
+echo "编译完成： $(pwd)/${APP}"
 if [ "$BUILD_ONLY" = "1" ]; then exit 0; fi
 
 # ---- 3. 安装 ----
@@ -113,7 +114,7 @@ rm -rf "$DEST/$APP_NAME.app"
 ditto "$APP" "$DEST/$APP_NAME.app"
 xattr -cr "$DEST/$APP_NAME.app" 2>/dev/null || true
 codesign --force --sign - "$DEST/$APP_NAME.app" >/dev/null 2>&1 || true
-echo "已安装到：$DEST/$APP_NAME.app"
+echo "已安装到： ${DEST}/${APP_NAME}.app"
 
 # ---- 开机自动启动（可选）----
 AGENT="$HOME/Library/LaunchAgents/$BUNDLE_ID.plist"

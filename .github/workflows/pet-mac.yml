@@ -48,6 +48,31 @@ jobs:
           codesign -dv pet/build/QiuQiu.app 2>&1 | head -8 || true
           du -sh pet/build/QiuQiu.app
 
+      - name: Full install, run, autostart file, uninstall
+        run: |
+          bash pet/install.sh --autostart
+          sleep 4
+          if pgrep -x QiuQiu >/dev/null; then echo "RUNNING_OK"; else echo "NOT RUNNING"; exit 1; fi
+          ls -d /Applications/QiuQiu.app "$HOME/Applications/QiuQiu.app" 2>/dev/null || true
+          echo "---- LaunchAgent ----"
+          cat "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
+          plutil -lint "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist"
+          plutil -lint /Applications/QiuQiu.app/Contents/Info.plist 2>/dev/null || plutil -lint "$HOME/Applications/QiuQiu.app/Contents/Info.plist"
+          echo "---- second launch must not create a second copy ----"
+          open -n /Applications/QiuQiu.app 2>/dev/null || open -n "$HOME/Applications/QiuQiu.app"
+          sleep 3
+          echo "instances: $(pgrep -x QiuQiu | wc -l | tr -d ' ')"
+          echo "---- memory / cpu after a few seconds ----"
+          ps -axo pid,rss,%cpu,comm | grep -E "QiuQiu|com.apple.WebKit" | grep -v grep | head -8 || true
+          echo "---- uninstall ----"
+          bash pet/uninstall.sh
+          sleep 1
+          if pgrep -x QiuQiu >/dev/null; then echo "STILL RUNNING"; exit 1; fi
+          if [ -e /Applications/QiuQiu.app ] || [ -e "$HOME/Applications/QiuQiu.app" ] || [ -e "$HOME/Library/LaunchAgents/local.qiuqiu.deskpet.plist" ]; then echo "LEFTOVERS"; exit 1; fi
+          echo "UNINSTALL_OK"
+          echo "---- no-argument path of the script (old bash + set -u) ----"
+          bash pet/install.sh --no-open && bash pet/uninstall.sh
+
       - name: Self-test (page renders, background is transparent)
         run: |
           APP=pet/build/QiuQiu.app/Contents/MacOS/QiuQiu
