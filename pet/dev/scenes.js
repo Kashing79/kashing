@@ -17,7 +17,15 @@ const { execFileSync } = require('child_process');
     await page.goto('file://' + path.resolve(__dirname, '../web/index.html') + '?scale=3&grass=1&entrance=0&auto=0&bare=1&roam=' + (roam ? 1 : 0));
     await page.waitForTimeout(250);
     await page.evaluate(() => { window.pet.configure({ paused: true }); window.pet._t.set('touch', 0); });
-    const ok = await page.evaluate((n) => { const T = window.pet._t; for (let i = 0; i < 30; i++) { T.set('touch', T.state().now); T.step(1 / 60); } return n === 'fetch' ? (window.pet.command('throw'), true) : T.scene(n); }, name);
+    // 刚打开时小人会先挥一下手，那会儿排不了戏：多走几步再试，最多等 6 秒
+    const ok = await page.evaluate((n) => {
+      const T = window.pet._t;
+      const run = (k) => { for (let i = 0; i < k; i++) { T.set('touch', T.state().now); T.step(1 / 60); } };
+      run(30);
+      if (n === 'fetch') { window.pet.command('throw'); return true; }
+      for (let k = 0; k < 60; k++) { if (T.scene(n)) return true; run(6); }
+      return false;
+    }, name);
     if (!ok) { console.log(name, 'could not start'); await page.close(); continue; }
     const files = [];
     for (let k = 0; k < 40; k++) {

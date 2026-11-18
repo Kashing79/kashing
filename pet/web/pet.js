@@ -26,7 +26,6 @@
               roam: true, grass: false, res: 2, rigFps: 15 };
   var GRAV = 420;
   var BALL_R = 4;
-  var CALM_FPS = 6;          // 只是呼吸、轻轻摇尾巴的时候，每秒重画几次
   var KIND = {
     dax:  { half: 17, accel: 760, run: 150, back: 105, trot: 64, walk: 26, reach: 12, grab: 7 },
     gold: { half: 21, accel: 340, run: 170, back: 90,  trot: 62, walk: 24, reach: 22, grab: 8 },
@@ -64,7 +63,8 @@
     var CFG = Object.assign({}, DEF, cfg || {});
     var opt = { auto: CFG.auto !== false, roam: !!CFG.roam, grass: !!CFG.grass, soft: !!CFG.soft };
     var R = resOf(CFG.res);          // 一个世界单位画成几个像素
-    var RIG_FPS = +CFG.rigFps > 0 ? +CFG.rigFps : 15;
+    var RIG_FPS = +CFG.rigFps > 0 ? +CFG.rigFps : 15;     // 角色在动的时候，每秒重画几次
+    var CALM_FPS = 6;                                      // 只是呼吸、轻轻摇尾巴的时候，每秒重画几次
     var quality = 1;
 
     var DOGS = G.PET_DOGS || null;
@@ -192,7 +192,7 @@
     //  表情、粒子、说话、震动
     // ------------------------------------------------------------
     function emote(type, ent, dx, life) {
-      emotes.push({ id: ++serial, type: type, ent: ent, dx: dx || 0, t: 0, life: life || 1.1 });
+      emotes.push({ id: ++serial, type: type, ent: ent, dx: dx || 0, t: 0, life: life || 1.1, ph: emotes.length });
     }
     function emoteAt(type, x, y, life) { emote(type, { x: x, top: y }, 0, life); }
     function puff(x, y, big) { parts.push({ id: ++serial, k: 'puff', x: x, y: y, t: 0, life: big ? 0.42 : 0.3, vx: rand(-6, 6), vy: -6 }); }
@@ -1695,7 +1695,7 @@
         var kk = e.t / e.life;
         if (kk > 0.8 && Math.floor(e.t * 16) % 2) continue;   // 快消失时闪一闪
         var zz = e.type === 'z' || e.type === 'zs';
-        var ex2 = e.ent.x + e.dx - (es.l + es.r) / 2 + (zz ? e.t * 4 : Math.sin(e.t * 5 + e.id) * 1.2);
+        var ex2 = e.ent.x + e.dx - (es.l + es.r) / 2 + (zz ? e.t * 4 : Math.sin(e.t * 5 + e.ph) * 1.2);
         var ey2 = (e.ent.top || 0) - es.b - 2 - e.t * 9;
         put(list, 'emote:' + e.id, es.im, ex2, Math.max(-es.t, ey2), false);
       }
@@ -1863,6 +1863,7 @@
         set: function (k, v) {
           if (k === 'nextAt') play.nextAt = v; if (k === 'msgAt') person.msgAt = v; if (k === 'energy') gold.energy = v;
           if (k === 'sceneAt') nextSceneAt = v; if (k === 'bfly') bfly.nextAt = v; if (k === 'touch') lastTouch = v;
+          if (k === 'rigFps') { RIG_FPS = v; CALM_FPS = v; }      // 测试时可以让骨架每一帧都重画
         },
         scene: function (name) { nextSceneAt = 1e9; return pickScene(name); },
         endScene: function () { endScene(true); },
