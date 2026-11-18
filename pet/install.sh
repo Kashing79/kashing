@@ -2,7 +2,7 @@
 # 球球 · 安装脚本
 #
 # 这个脚本做的事（不联网、不用 sudo、不改系统设置）：
-#   1. 用这台 Mac 自带的 swiftc，把 src/main.swift 编译成一个小程序
+#   1. 用这台 Mac 自带的 swiftc，把 src/ 里的几个 Swift 文件编译成一个小程序
 #   2. 把 web/ 里的像素画和玩法放进去，组成 QiuQiu.app
 #   3. 放到 /Applications（没有写入权限就放到 ~/Applications）
 #   4. 打开它
@@ -18,7 +18,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="QiuQiu"
 BUNDLE_ID="local.qiuqiu.deskpet"
-VERSION="2.0.0"
+VERSION="3.0.0"
 MIN_MACOS="11.0"
 
 BUILD_ONLY=0
@@ -54,7 +54,10 @@ EOF
   exit 3
 fi
 
-for f in src/main.swift web/index.html web/pet.js web/dogs.js web/island.js web/sprites.js web/config.js; do
+for f in src/main.swift src/App.swift src/Engine.swift src/Glue.swift src/Frame.swift src/Stage.swift \
+         src/Loop.swift src/Input.swift src/Island.swift src/IslandParts.swift src/Lawn.swift src/Menu.swift \
+         src/Sense.swift src/SelfTest.swift \
+         web/config.js web/sprites.js web/fx.js web/dogs.js web/person.js web/lawn.js web/pet.js; do
   if [ ! -f "${f}" ]; then echo "缺少文件：${f} （请确认整个文件夹都拷过来了）"; exit 1; fi
 done
 
@@ -69,7 +72,7 @@ echo "正在编译 (${ARCH}) ……"
 xcrun swiftc -O \
   -target "${ARCH}-apple-macos${MIN_MACOS}" \
   -o "$APP/Contents/MacOS/$APP_NAME" \
-  src/main.swift
+  src/*.swift
 
 cp -R web "$APP/Contents/Resources/web"
 if [ -f assets/AppIcon.icns ]; then cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"; fi
@@ -97,9 +100,29 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# 玩法是 JavaScript，由系统自带的引擎来跑。签名时带上这一条许可，引擎才会用"即时编译"，
+# 不然会慢十倍左右（也能玩，只是它们动得没那么细）。这条许可只管这个 App 自己，不碰系统设置。
+ENT="$BUILD/$APP_NAME.entitlements"
+cat > "$ENT" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+</dict>
+</plist>
+EOF
+
+# 本机签名（带上面那条许可）；万一带不上，就做不带许可的本机签名
+sign_app() {
+  codesign --force --sign - --entitlements "$ENT" "$1" >/dev/null 2>&1 \
+    || codesign --force --sign - "$1" >/dev/null 2>&1 \
+    || true
+}
+
 # 这是在本机刚编译出来的程序：清掉拷贝文件时带过来的附加属性，再做一个本机签名
 xattr -cr "$APP" 2>/dev/null || true
-codesign --force --sign - "$APP" >/dev/null 2>&1 || true
+sign_app "$APP"
 
 echo "编译完成： $(pwd)/${APP}"
 if [ "$BUILD_ONLY" = "1" ]; then exit 0; fi
@@ -113,7 +136,7 @@ sleep 0.5
 rm -rf "$DEST/$APP_NAME.app"
 ditto "$APP" "$DEST/$APP_NAME.app"
 xattr -cr "$DEST/$APP_NAME.app" 2>/dev/null || true
-codesign --force --sign - "$DEST/$APP_NAME.app" >/dev/null 2>&1 || true
+sign_app "$DEST/$APP_NAME.app"
 echo "已安装到： ${DEST}/${APP_NAME}.app"
 
 # ---- 开机自动启动（可选）----
@@ -142,10 +165,10 @@ if [ "$NO_OPEN" = "0" ]; then
   open "$DEST/$APP_NAME.app"
   echo
   echo "好了！看屏幕最上面正中间：穿西装的小人、小腊肠和大金毛会从那颗黑色的小岛里跳出来，"
-  echo "然后在整个屏幕上到处跑。"
+  echo "然后在整个屏幕上到处跑。桌面上还会多一片像素草地。"
   echo "  · 拖住小球甩出去，狗狗会去追"
   echo "  · 点小人，他会帮你丢球；点小狗，摸摸它"
   echo "  · 按住小人或小狗可以把它拎起来，放到别的地方"
   echo "  · 鼠标移到顶上的小岛：丢球 / 摸摸 / 集合 / 回岛睡觉"
-  echo "  · 菜单栏右上角的 🎾 可以调大小、只在屏幕底部活动、隐藏、退出"
+  echo "  · 菜单栏右上角的 🎾 可以调大小、换草地（整个桌面 / 只在底部 / 不要）、只在屏幕底部活动、隐藏、退出"
 fi

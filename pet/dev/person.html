@@ -1,0 +1,796 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>person rig gallery (dev)</title>
+<!--
+  开发用：把 web/person.js 画的小人摆出来放大看。
+  网址里可以加：
+    ?set=designs      几种候选长相并排（最后一个是定下来的）
+    ?set=poses        每个画面名字摆好以后的样子
+    ?set=walk / run   走（24、46）和跑（62、80）各 16 帧
+    ?set=throw        丢球 16 帧
+    ?set=transitions  几种过渡：站 → 蹲、站 → 坐、侧面 → 正面 → 挥手、拿球 → 摸狗、转身、起步和停下
+    ?set=faces        每种表情（侧面 + 正面）
+    ?set=variants     换 config.js 里的颜色
+    ?set=res          R = 1、2、3、4
+    ?set=lineup       和两只狗站在一起比身高
+    ?set=compare      和旧版的手画小人对比
+    ?set=all          上面全部（默认）
+    &R=2（一个世界单位画几个像素）  &zoom=4（放大几倍）  &dark=1（深色底）  &face=laugh（poses 里统一用这个表情）
+-->
+<style>
+  body { margin: 10px; font: 11px/1.3 monospace; background: #e9edf2; color: #333; }
+  body.dark { background: #18161e; color: #c8c8cf; }
+  h2 { font: bold 13px monospace; margin: 16px 0 4px; }
+  .note { opacity: .7; margin: 0 0 6px; max-width: 1500px; }
+  .row { display: flex; flex-wrap: wrap; gap: 0; margin-bottom: 6px; }
+  .cell { text-align: center; }
+  .cell span { display: block; height: 14px; white-space: nowrap; overflow: hidden; }
+  canvas { image-rendering: pixelated; display: block; }
+  #err { color: #c00; white-space: pre-wrap; font-size: 14px; }
+</style></head>
+<body>
+<div id="err"></div><div id="out"></div>
+<script src="../web/config.js"></script>
+<script src="../web/sprites.js"></script>
+<script src="../web/fx.js"></script>
+<script src="../web/dogs.js"></script>
+<script src="../web/person.js"></script>
+<script>
+// ============================================================
+//  候选长相：做选择时并排比过的四种（都是对 PET_PERSON.DESIGN 的覆盖）。定下来的那一种就是 person.js 里的 DESIGN。
+// ============================================================
+window.PERSON_CANDS = (function () {
+  var module = { exports: {} };
+  // 候选长相（开发用）。每个都是对 PET_PERSON.DESIGN 的覆盖。
+  // ---------------------------------------------------------------- A：圆润可爱（约 2.6 头身），软软的刘海
+  const A = {
+    hip: 11, thigh: 4.8, shin: 4.7, waist: 3.2, torso: 8.5, shY: 6.7, shZ: 5.0, hipZ: 1.7, armU: 4.3, armL: 4.1, headTop: 12,
+    head: {
+      ox: 12, oy: 0, order: 'sefhgbrq', span: { s: 'gbr' },
+      side: [
+        '.........hhhhhhhh.......',
+        '......hhhhhhhhhhhhhh....',
+        '....hhhhhhhhhhhhhhhhhh..',
+        '...hhhhhhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhsbbbbsrrrsggg.',
+        '.hhhhhhhhssbbbsssrrssgg.',
+        '.hhhhhhhsssssssssssssg..',
+        '.hhhhhhssssssssssssss...',
+        '.hhhhhsssssssssssssss...',
+        '.hhheesssssssssssssss...',
+        '.hhheesssssssssssssss...',
+        '..hheesssssssssssssss...',
+        '..hhhesssssssssssssss...',
+        '...hh.ssssssssssssss....',
+        '.......sssssssssssss....',
+        '........sssssssssss.....',
+        '..........ssssssss......',
+        '............sssss.......',
+      ],
+      front: [
+        '........hhhhhhhh........',
+        '.....hhhhhhhhhhhhhh.....',
+        '...hhhhhhhhhhhhhhhhhh...',
+        '..hhhhhhhhhhhhhhhhhhhh..',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhsbbbbsrrrrsggggg.',
+        '.hhhhhssbbbsssrrssssggg.',
+        '.hhhhsssssssssssssssggg.',
+        '.hhhssssssssssssssssggg.',
+        '.hhessssssssssssssssfgg.',
+        '.heessssssssssssssssffg.',
+        '..eessssssssssssssssff..',
+        '..eessssssssssssssssff..',
+        '...essssssssssssssssf...',
+        '....ssssssssssssssss....',
+        '....ssssssssssssssss....',
+        '.....ssssssssssssss.....',
+        '......ssssssssssss......',
+        '........ssssssss........',
+      ],
+    },
+    shine: {
+      ox: 12, oy: 17, order: 'HL',
+      side:  ['......LLLL.LLL..........', '....HHHHHHHHHHHH........', '........................'],
+      sideL: ['..........LLL.LLLL......', '........HHHHHHHHHHHH....', '........................'],
+      front: ['......LLLL.LLL..........', '....HHHHHHHHHHHH........', '........................'],
+    },
+    face: {
+      eyeN: [[-1, 9], [-5, 9]], eyeF: [[5, 9], [3, 9]], eyeW: [[2, 2], [2, 2]],
+      browN: [[-2, 11], [-6, 11]], browF: [[5, 11], [3, 11]], browW: [[3, 2], [3, 3]],
+      nose: null, mouth: [[3, 3], [0, 3]], blushN: [[-4, 5], [-7, 5]], blushF: [[7, 5], [5, 5]], top: [[1, 24], [0, 24]],
+    },
+    body: {
+      ox: 8, oy: -4, order: 'jnwcdlmutpo',
+      side: [
+        '.......nnnn.....',
+        '...jjjccnndd....',
+        '.jjjjjjccttdjjj.',
+        '.jjjjjjlwttwjjjj',
+        '.jjjjjjjlwwwjjjj',
+        '.jjjjjjjlwwwjjjj',
+        '.jjjjjjjjlwwjjjj',
+        '.jjjjjjjjlwwjjjj',
+        '.jjjjjjjjjlwjjjj',
+        '.jjjjjjjjjjojjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjjj',
+        '.jjjjjjjjjjjjjj.',
+        '.jjjjjjjjjjjjj..',
+      ],
+      fox: 10,
+      front: [
+        '........nnnn........',
+        '......jjcnndjj......',
+        '...jjjjccttddjjjj...',
+        '..jjjjjlwttwmjjjjj..',
+        '..jjjjjlwwwwmjjjjj..',
+        '..jjjjjjlwwmjjjjjj..',
+        '..jjjjjjlwwmjjjjjj..',
+        '..jjjjjjlwwmjjppjj..',
+        '..jjjjjjlwwmjjjjjj..',
+        '..jjjjjjjlmjjjjjjj..',
+        '..jjjjjjjjojjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+        '..jjjjjjjujjjjjjjj..',
+      ],
+    },
+    tie: { at: [[2, 14], [-1, 14]], len: 4, sway: [[0, 0, 0, 1, 1, 1, 2], [0, 0, 0, 0, 0, 0, 0]] },
+  };
+  // ---------------------------------------------------------------- B：经典侧分（约 3 头身）
+  const B = {
+    hip: 13.5, thigh: 6.05, shin: 5.95, waist: 4, torso: 10.5, shY: 8.6, shZ: 4.5, hipZ: 1.6, headTop: 11.5,
+    head: {
+      ox: 10, oy: 0, order: 'sefhgbrq', span: { s: 'gbr' },
+      side: [
+        '.............qqqqq..',
+        '........hhhhqqqqqqq.',
+        '.....hhhhhhhqqqqqqqq',
+        '...hhhhhhhhhqqqqqqqq',
+        '..hhhhhhhhhhhhhhhhhh',
+        '.hhhhhhhhhhhhhhhhhhh',
+        '.hhhhhhhhhhhhhhhhhhh',
+        'hhhhhhhhhhhhhhhhhhhh',
+        'hhhhhhhhhhsssssggggg',
+        'hhhhhhhhsssssssssggg',
+        'hhhhhhhsssssssssssgg',
+        'hhhhhhsssssssssssss.',
+        'hhhhhbsssssssssssss.',
+        'hhhhbbsssssssssssss.',
+        'hheebssssssssssssss.',
+        'hheesssssssssssssss.',
+        '.heesssssssssssssss.',
+        '.hhesssssssssssssss.',
+        '..h..sssssssssssss..',
+        '......ssssssssssss..',
+        '.......ssssssssss...',
+        '.........sssssss....',
+        '...........ssss.....',
+      ],
+      front: [
+        '............qqqqq...',
+        '.......hhhhqqqqqqq..',
+        '....hhhhhhhqqqqqqqq.',
+        '..hhhhhhhhhqqqqqqqq.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhsssssggggggggg.',
+        '.hhhsssssssssgggggg.',
+        '.hhsssssssssssssggg.',
+        '.hhssssssssssssssgg.',
+        '.hbssssssssssssssrg.',
+        '.ebssssssssssssssrf.',
+        '.eessssssssssssssff.',
+        '.eessssssssssssssff.',
+        '.eessssssssssssssff.',
+        '..essssssssssssssf..',
+        '...ssssssssssssss...',
+        '....ssssssssssss....',
+        '.....ssssssssss.....',
+        '.......ssssss.......',
+        '........ssss........',
+      ],
+    },
+    shine: {
+      ox: 10, oy: 16, order: 'HL',
+      side:  ['......LLLL.LL.......', '....HHHHHHHHHH......', '....................', '....................'],
+      sideL: ['.........LL.LLLL....', '.......HHHHHHHHHH...', '....................', '....................'],
+      front: ['.....LLLL.LL........', '...HHHHHHHHHH.......', '....................', '....................'],
+    },
+    face: {
+      eyeN: [[-1, 10], [-4, 10]], eyeF: [[5, 10], [2, 10]], eyeW: [[2, 2], [2, 2]],
+      browN: [[-2, 12], [-5, 12]], browF: [[5, 12], [2, 12]], browW: [[3, 2], [3, 3]],
+      nose: [[4, 6], [0, 6]], mouth: [[3, 3], [0, 3]], blushN: [[-3, 6], [-6, 6]], blushF: [[7, 6], [4, 6]], top: [[2, 23], [1, 23]],
+    },
+    body: {
+      ox: 8, oy: -5, order: 'jnwcdlmutpo',
+      side: [
+        '.......nnnn.....',
+        '....jjccnndd....',
+        '..jjjjjccttdjj..',
+        '..jjjjjlwttwjjj.',
+        '..jjjjjjlwwwwjj.',
+        '..jjjjjjlwwwwjj.',
+        '..jjjjjjjlwwwjj.',
+        '..jjjjjjjlwwwjj.',
+        '..jjjjjjjjlwwjj.',
+        '..jjjjjjjjlwwjj.',
+        '..jjjjjjjjjlwjj.',
+        '...jjjjjjjjlwj..',
+        '...jjjjjjjjjoj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjj...',
+        '..jjjjjjjjjj....',
+      ],
+      fox: 10,
+      front: [
+        '........nnnn........',
+        '......jjcnndjj......',
+        '.....jjccttddjj.....',
+        '...jjjjlwttwmjjjj...',
+        '...jjjjlwwwwmjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjppj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjjlmjjjjjj...',
+        '....jjjjjjojjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+      ],
+    },
+    tie: { at: [[2, 18], [-1, 18]], len: 5, sway: [[0, 0, 0, 1, 1, 1, 2], [0, 0, 0, 0, 0, 0, 0]] },
+  };
+  // ---------------------------------------------------------------- C：修长后梳（约 3.5 头身）
+  const C = {
+    hip: 16.5, thigh: 7.55, shin: 7.45, waist: 4, torso: 10.5, shY: 8.6, shZ: 4.5, hipZ: 1.6, headTop: 10.5, armU: 5.5, armL: 5.3,
+    head: {
+      ox: 10, oy: 0, order: 'sefhgbrq', span: { s: 'gbr' },
+      side: [
+        '.......hhhhhhhhh....',
+        '....hhhhhhhhhhhhhh..',
+        '...hhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhssssss..',
+        '.hhhhhhhhhssssssss..',
+        '.hhhhhhhssssssssss..',
+        '.hhhhhhbssssssssss..',
+        '.hhhhhbbssssssssss..',
+        '.hhhhbbsssssssssss..',
+        '.hheebssssssssssss..',
+        '.hheesssssssssssss..',
+        '..heesssssssssssss..',
+        '..hhessssssssssss...',
+        '...h.ssssssssssss...',
+        '......sssssssssss...',
+        '.......ssssssssss...',
+        '........ssssssss....',
+        '..........sssss.....',
+      ],
+      front: [
+        '......hhhhhhhh......',
+        '....hhhhhhhhhhhh....',
+        '...hhhhhhhhhhhhhh...',
+        '...hhhhhhhhhhhhhh...',
+        '..hhhhhhhhhhhhhhhh..',
+        '..hhhhhhhhhhhhhhhh..',
+        '..hhhhssssssssgggg..',
+        '..hhhssssssssssggg..',
+        '..hhssssssssssssgg..',
+        '..hbssssssssssssrg..',
+        '..hbssssssssssssrg..',
+        '...bssssssssssssr...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '....ssssssssssss....',
+        '....ssssssssssss....',
+        '....ssssssssssss....',
+        '....ssssssssssss....',
+        '.....ssssssssss.....',
+        '.......ssssss.......',
+      ],
+    },
+    shine: {
+      ox: 10, oy: 15, order: 'HL',
+      side:  ['.....LLLL.LLL.......', '...HHHHHHHHHHH......', '....................', '....................'],
+      sideL: ['........LLL.LLLL....', '......HHHHHHHHHHH...', '....................', '....................'],
+      front: ['.....LLL.LLL........', '....HHHHHHHHHH......', '....................', '....................'],
+    },
+    face: {
+      eyeN: [[-1, 10], [-5, 10]], eyeF: [[5, 10], [2, 10]], eyeW: [[3, 2], [3, 3]], eyeH: 2,
+      browN: [[-2, 12], [-5, 12]], browF: [[5, 12], [2, 12]], browW: [[4, 2], [3, 3]],
+      nose: [[4, 6], [0, 6]], noseF: 1, mouth: [[3, 3], [0, 3]], blushN: [[-3, 6], [-6, 6]], blushF: [[6, 6], [4, 6]], top: [[1, 21], [0, 21]],
+    },
+    body: B.body,
+    tie: B.tie,
+  };
+  // ---------------------------------------------------------------- D：清爽刘海（约 3.2 头身）
+  const D = {
+    hip: 15, thigh: 6.8, shin: 6.7, waist: 4, torso: 10, shY: 8.1, shZ: 4.5, hipZ: 1.6, headTop: 11,
+    head: {
+      ox: 10, oy: 0, order: 'sefhgbrq', span: { s: 'gbr' },
+      side: [
+        '..........hhhhhh....',
+        '......hhhhhhhhhhhh..',
+        '....hhhhhhhhhhhhhhh.',
+        '...hhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhhhhhhhhhhh.',
+        '.hhhhhhhhssgggggggg.',
+        '.hhhhhhhsssssgggggg.',
+        '.hhhhhhsssssssssggg.',
+        '.hhhhhbsssssssssssg.',
+        '.hhhhbbsssssssssss..',
+        '.hhhhbssssssssssss..',
+        '.hheesssssssssssss..',
+        '.hheesssssssssssss..',
+        '..heesssssssssssss..',
+        '..hhessssssssssss...',
+        '...h..sssssssssss...',
+        '.......ssssssssss...',
+        '........ssssssss....',
+        '.........sssssss....',
+        '...........ssss.....',
+      ],
+      front: [
+        '.........hhhhhh.....',
+        '......hhhhhhhhhhh...',
+        '....hhhhhhhhhhhhhh..',
+        '...hhhhhhhhhhhhhhh..',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhhhhhhhhhhhhh.',
+        '..hhhhhssgggggggggg.',
+        '..hhhhssssgggggggg..',
+        '..hhhsssssssgggggg..',
+        '..hhsssssssssssggg..',
+        '..hbssssssssssssrg..',
+        '..hbssssssssssssrg..',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '...essssssssssssf...',
+        '....ssssssssssss....',
+        '....ssssssssssss....',
+        '....ssssssssssss....',
+        '.....ssssssssss.....',
+        '......ssssssss......',
+        '.......ssssss.......',
+      ],
+    },
+    shine: {
+      ox: 10, oy: 15, order: 'HL',
+      side:  ['.....LLLL.LLL.......', '...HHHHHHHHHHH......', '....................', '....................'],
+      sideL: ['........LLL.LLLL....', '......HHHHHHHHHHH...', '....................', '....................'],
+      front: ['.....LLLL.LLL.......', '...HHHHHHHHHHH......', '....................', '....................'],
+    },
+    face: {
+      eyeN: [[0, 10], [-4, 10]], eyeF: [[5, 10], [2, 10]], eyeW: [[2, 2], [2, 2]], lash: 1,
+      browN: [[-1, 12], [-5, 12]], browF: [[5, 12], [2, 12]], browW: [[3, 2], [3, 3]],
+      nose: [[4, 6], [0, 6]], mouth: [[3, 3], [0, 3]], blushN: [[-2, 6], [-6, 6]], blushF: [[6, 6], [4, 6]], top: [[2, 22], [1, 22]],
+    },
+    body: {
+      ox: 8, oy: -5, order: 'jnwcdlmutpo',
+      side: [
+        '.......nnnn.....',
+        '....jjccnndd....',
+        '..jjjjjccttdjj..',
+        '..jjjjjlwttwjjj.',
+        '..jjjjjjlwwwwjj.',
+        '..jjjjjjlwwwwjj.',
+        '..jjjjjjjlwwwjj.',
+        '..jjjjjjjlwwwjj.',
+        '..jjjjjjjjlwwjj.',
+        '...jjjjjjjjlwj..',
+        '...jjjjjjjjjoj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjjjj...',
+        '..jjjjjjjjjj....',
+      ],
+      fox: 10,
+      front: [
+        '........nnnn........',
+        '......jjcnndjj......',
+        '.....jjccttddjj.....',
+        '...jjjjlwttwmjjjj...',
+        '...jjjjlwwwwmjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjppj...',
+        '...jjjjjlwwmjjjjj...',
+        '...jjjjjlwwmjjjjj...',
+        '....jjjjjlmjjjjj....',
+        '....jjjjjjojjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '....jjjjjujjjjjj....',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+        '...jjjjjjujjjjjjj...',
+      ],
+    },
+    tie: { at: [[2, 16], [-1, 16]], len: 5, sway: [[0, 0, 0, 1, 1, 1, 2], [0, 0, 0, 0, 0, 0, 0]] },
+  };
+
+  module.exports = { A, B, C, D };
+  return module.exports;
+})();
+</script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var set = q.get('set') || 'all', R = Math.max(1, Math.min(4, parseInt(q.get('R') || '2', 10)));
+  var Z = parseInt(q.get('zoom') || String(Math.max(1, Math.round(8 / R))), 10), dark = !!q.get('dark'), faceQ = q.get('face') || null;
+  if (dark) document.body.classList.add('dark');
+  var out = document.getElementById('out'), P = window.PET_PERSON, CFG = window.PET_CONFIG || {}, FX = window.PET_FX, DOGS = window.PET_DOGS;
+  var BG = dark ? '#18161e' : '#e9edf2', LAWN = '#599966', GROUND = dark ? '#2a2833' : '#cfd5dd';
+
+  function h2(t, note) {
+    var h = document.createElement('h2'); h.textContent = t; out.appendChild(h);
+    if (note) { var p = document.createElement('div'); p.className = 'note'; p.textContent = note; out.appendChild(p); }
+  }
+  function row() { var r = document.createElement('div'); r.className = 'row'; out.appendChild(r); return r; }
+  // 把一张 Img 抄成一张小画布（骨架会重复用自己的缓冲，所以要马上抄走）
+  function toCanvas(im) {
+    var c = document.createElement('canvas'); c.width = im.w; c.height = im.h;
+    var id = c.getContext('2d').createImageData(im.w, im.h); id.data.set(im.data); c.getContext('2d').putImageData(id, 0, 0);
+    return c;
+  }
+  // 一格：w x h（世界单位），地面线在离底 gb 的地方。draw(ctx, ox, oy, k) 里自己画；k = 这一格的 R
+  function cell(parent, wWu, hWu, label, draw, opts) {
+    opts = opts || {};
+    var r = opts.R || R, z = opts.zoom || Z, gb = opts.gb === undefined ? 3 : opts.gb;
+    var c = document.createElement('canvas'); c.width = wWu * r * z; c.height = hWu * r * z;
+    var ctx = c.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = opts.bg || BG; ctx.fillRect(0, 0, c.width, c.height);
+    if (opts.ground !== false) { ctx.fillStyle = opts.groundColor || GROUND; ctx.fillRect(0, (hWu - gb) * r * z, c.width, Math.max(1, z)); }
+    ctx.save(); ctx.scale(z, z);
+    draw(ctx, Math.round(wWu * r / 2), (hWu - gb) * r, r);
+    ctx.restore();
+    var d = document.createElement('div'); d.className = 'cell'; d.appendChild(c);
+    var s = document.createElement('span'); s.textContent = label || ''; d.appendChild(s);
+    parent.appendChild(d);
+    return d;
+  }
+  // 把小人画在 (ox, oy)（他两脚中间的地面）
+  function put(ctx, im, ox, oy) { ctx.drawImage(toCanvas(im), ox - im.ox, oy - im.oy); }
+  function putBall(ctx, im, ox, oy, r) {
+    if (!im.holds || !FX || !FX.ball) return;
+    var b = FX.ball(0.6, 0, r);
+    ctx.drawImage(toCanvas(b), ox + Math.round(im.hand[0] * r) - b.ox, oy - Math.round(im.hand[1] * r) - b.oy);
+  }
+  function mk(design, cfg) { var rig = P.create(cfg || CFG, design || null); rig.blinkAt = 1e9; rig.glAt = 1e9; rig.swayAt = 1e9; return rig; }
+  // 摆好一个姿势
+  function settled(inp, left, sec, design, cfg, r) {
+    var rig = mk(design, cfg);
+    rig.update(0, inp); rig.render(!!left, r || R);
+    for (var i = 0; i < (sec === undefined ? 1.4 : sec) * 60; i++) rig.update(1 / 60, inp);
+    return rig.render(!!left, r || R);
+  }
+  // 演一段：script = [[输入, 秒, 朝左?], ...]；times = 要截的时刻；每到一个时刻就调 shot(im, i)
+  function play(script, times, shot, pre) {
+    var rig = mk(), t = 0, si = 0, st = 0, k = 0, dt = 1 / 120, guard = 0;
+    var first = pre || script[0];
+    rig.update(0, first[0]); rig.render(!!first[2], R);
+    for (var i = 0; i < 90; i++) rig.update(1 / 60, first[0]);
+    rig.render(!!first[2], R);
+    while (k < times.length && guard++ < 200000) {
+      var seg = script[Math.min(si, script.length - 1)];
+      if (t >= times[k] - 1e-9) { shot(rig.render(!!seg[2], R), k, seg[0]); k++; continue; }
+      rig.update(dt, seg[0]); t += dt; st += dt;
+      if (st >= seg[1] - 1e-9 && si < script.length - 1) { si++; st = 0; }
+    }
+  }
+  function strip(title, note, script, t0, t1, n, wWu, pre) {
+    if (title) h2(title, note);
+    var r = row(), times = [];
+    for (var i = 0; i < n; i++) times.push(t0 + (t1 - t0) * i / (n - 1));
+    play(script, times, function (im, k, inp) {
+      cell(r, wWu || 30, 44, (times[k] - t0).toFixed(2) + 's', function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding === 'ball') putBall(ctx, im, ox, oy, rr); });
+    }, pre);
+  }
+
+  var SETS = {
+    // ---------------------------------------------------------- 候选长相
+    designs: function () {
+      h2('候选长相（每种：侧面、正面）',
+         'A 圆润可爱 约 2.6 头身、软刘海、大眼睛、宽松西装 ｜ B 经典侧分 约 3 头身、额前翘起的一撮 ｜ C 修长后梳 约 3.5 头身、细长眼、露额头 ｜ D 清爽刘海 约 3.2 头身、带眼线的眼睛、修身短西装 ｜ ' +
+         'E 定下来的：D 的身材再收一点（约 3 头身、36 高），侧分往一边梳的刘海，头顶有一撮翘起来，脸留出眉毛和嘴活动的地方');
+      var C = window.PERSON_CANDS, list = [['A', C.A], ['B', C.B], ['C', C.C], ['D', C.D], ['E（定稿）', null]];
+      [BG, LAWN].forEach(function (bg) {
+        var r = row();
+        list.forEach(function (it) {
+          [['p_idle', '侧'], ['p_front', '正']].forEach(function (v) {
+            var im = settled({ frame: v[0] }, false, 1.2, it[1]);
+            cell(r, 19, 42, it[0] + ' ' + v[1], function (ctx, ox, oy) { put(ctx, im, ox, oy); }, { bg: bg, groundColor: bg === LAWN ? '#4a8761' : GROUND });
+          });
+        });
+      });
+      h2('头部放大');
+      var r2 = row();
+      list.forEach(function (it) {
+        [['p_idle', '侧'], ['p_front', '正']].forEach(function (v) {
+          var rig = mk(it[1]), inp = { frame: v[0] };
+          rig.update(0, inp); rig.render(false, R); for (var i = 0; i < 70; i++) rig.update(1 / 60, inp);
+          var im = rig.render(false, R), D = rig.D, base = D.hip + D.torso - 1;
+          cell(r2, 13, 15, it[0] + ' ' + v[1], function (ctx, ox, oy, rr) { put(ctx, im, ox, oy + Math.round(base * rr)); }, { zoom: Z * 1.5, gb: 0, ground: false });
+        });
+      });
+    },
+    // ---------------------------------------------------------- 每个画面
+    poses: function () {
+      h2('每个画面名字摆好以后的样子', '手里有球的画面把球也画上了（球画在 hand 那个点）。最后两格：被鼠标拎起来、跳在半空。');
+      var names = P.FRAMES.slice(), r = row(), n = 0;
+      var withBall = { p_hold: 1, p_hold2: 1, p_windup: 1 };
+      names.concat(['carried', 'air']).forEach(function (nm) {
+        if (n && n % 7 === 0) r = row();
+        n++;
+        var inp = { frame: nm, face: faceQ || undefined };
+        if (nm === 'carried') { inp.frame = 'p_cheer'; inp.carried = true; }
+        if (nm === 'air') { inp.frame = 'p_idle'; inp.air = 1; }
+        if (withBall[nm]) inp.holding = 'ball';
+        if (nm.indexOf('p_walk') === 0) { inp.moving = true; inp.speed = 24; }
+        var sec = nm === 'p_windup' ? 0.39 : (nm === 'p_release' ? 0.1 : (nm === 'p_follow' ? 0.14 : (nm.indexOf('p_walk') === 0 ? 1 + 0.19 * (+nm.slice(6)) : 1.5)));
+        var im = settled(inp, false, sec);
+        cell(r, 34, 46, nm, function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding) putBall(ctx, im, ox, oy, rr); });
+      });
+      h2('手里拿着球的时候（球在哪只手、放在哪儿）');
+      r = row();
+      ['p_idle', 'p_hold', 'p_walk0', 'p_pat', 'p_crouch', 'p_sit', 'p_cheer', 'p_tie_a', 'p_watch', 'p_front', 'p_wave_a'].forEach(function (nm, i) {
+        if (i === 6) r = row();
+        var inp = { frame: nm, holding: 'ball', face: faceQ || undefined };
+        if (nm === 'p_walk0') { inp.moving = true; inp.speed = 24; }
+        var im = settled(inp, false, 1.3);
+        cell(r, 36, 46, nm + ' + 球', function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); putBall(ctx, im, ox, oy, rr); });
+      });
+      h2('朝左（光还是从左上来：高光在左、暗面在右）');
+      r = row();
+      ['p_idle', 'p_hold', 'p_pat', 'p_crouch', 'p_sit', 'p_cheer', 'p_watch'].forEach(function (nm) {
+        var inp = { frame: nm, holding: nm === 'p_hold' ? 'ball' : null };
+        var im = settled(inp, true, 1.3);
+        cell(r, 34, 46, nm + ' ←', function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding) putBall(ctx, im, ox, oy, rr); });
+      });
+    },
+    // ---------------------------------------------------------- 走
+    walk: function () {
+      strip('走：速度 24（散步，一个循环 0.75 秒）', '落地 → 下沉 → 交叉 → 蹬起；手臂和同侧的腿反着摆。', [[{ frame: 'p_walk0', moving: true, speed: 24 }, 9]], 1.5, 1.5 + 0.75 * 15 / 16, 16);
+      strip('走：速度 46（快走，一个循环约 0.5 秒）', null, [[{ frame: 'p_walk1', moving: true, speed: 46 }, 9]], 1.5, 1.5 + 0.507 * 15 / 16, 16);
+      strip('拿着球走：速度 30', '拿球的手弯着不摆，只跟着颠。', [[{ frame: 'p_walk0', moving: true, speed: 30, holding: 'ball' }, 9]], 1.5, 1.5 + 0.667 * 15 / 16, 16);
+    },
+    run: function () {
+      strip('跑：速度 80（有腾空，衣摆和领带往后飘）', null, [[{ frame: 'p_walk0', moving: true, speed: 80 }, 9]], 1.5, 1.5 + 0.413 * 15 / 16, 16);
+      strip('小跑：速度 62', null, [[{ frame: 'p_walk0', moving: true, speed: 62 }, 9]], 1.5, 1.5 + 0.43 * 15 / 16, 16);
+    },
+    // ---------------------------------------------------------- 丢球
+    'throw': function () {
+      var sc = [[{ frame: 'p_hold', holding: 'ball' }, 0.3], [{ frame: 'p_windup', holding: 'ball' }, 0.4], [{ frame: 'p_release' }, 0.15], [{ frame: 'p_follow' }, 0.34], [{ frame: 'p_idle' }, 1]];
+      strip('丢球（引擎的节拍：预备 0.4 秒 → 出手 0.15 秒 → 随势 0.34 秒）',
+            '先往后下方荡一下，再举到脑后停住、前脚迈出去；出手那一帧手臂直接到位、带一道残影；然后身子压下去、慢慢收回来。', sc, 0.26, 1.34, 16, 32);
+      strip('出手前后（每格 1/60 秒）', null, sc, 0.7 - 2 / 60, 0.7 + 5 / 60, 8, 32);
+      strip('假动作（球还在手里）', null, [[{ frame: 'p_hold', holding: 'ball' }, 0.3], [{ frame: 'p_windup', holding: 'ball' }, 0.4], [{ frame: 'p_release', holding: 'ball' }, 0.2], [{ frame: 'p_hold', holding: 'ball' }, 1]], 0.3, 1.3, 8, 32);
+    },
+    // ---------------------------------------------------------- 过渡
+    transitions: function () {
+      strip('站 → 蹲', null, [[{ frame: 'p_idle' }, 0.2], [{ frame: 'p_crouch' }, 2]], 0.2, 0.9, 8);
+      strip('蹲 → 站', null, [[{ frame: 'p_crouch' }, 0.2], [{ frame: 'p_idle' }, 2]], 0.2, 0.9, 8);
+      strip('站 → 坐', null, [[{ frame: 'p_idle' }, 0.2], [{ frame: 'p_sit' }, 2]], 0.2, 1.0, 8, 34);
+      strip('侧面 → 正面 → 挥手', null, [[{ frame: 'p_idle' }, 0.2], [{ frame: 'p_front' }, 0.5], [{ frame: 'p_wave_a' }, 2]], 0.2, 1.5, 8);
+      strip('拿球 → 摸狗（球换到另一只手，藏到身后）', null, [[{ frame: 'p_hold', holding: 'ball' }, 0.2], [{ frame: 'p_pat', holding: 'ball' }, 2]], 0.2, 0.9, 8, 34);
+      strip('转身（朝右 → 朝左：先转成正面，再转过去）', null, [[{ frame: 'p_idle' }, 0.2, false], [{ frame: 'p_idle' }, 2, true]], 0.2, 0.55, 8);
+      strip('站 → 走 → 停', '起步：后脚先迈；停下：还在半空的脚就近落下，再把另一只脚收回来。', [[{ frame: 'p_idle' }, 0.2], [{ frame: 'p_walk0', moving: true, speed: 24 }, 0.9], [{ frame: 'p_idle' }, 2]], 0.15, 1.75, 16);
+      strip('被拎起来（手乱挥、腿乱蹬）', null, [[{ frame: 'p_cheer', carried: true }, 3]], 0.5, 0.5 + 0.43, 8, 34);
+      strip('举手欢呼', null, [[{ frame: 'p_idle' }, 0.2], [{ frame: 'p_cheer' }, 3]], 0.2, 1.0, 8, 34);
+    },
+    // ---------------------------------------------------------- 表情
+    faces: function () {
+      h2('每种表情（左：侧面，右：正面）');
+      var r = row(), list = P.FACES;
+      list.forEach(function (f, n) {
+        if (n && n % 4 === 0) r = row();
+        [['p_idle', '侧'], ['p_front', '正']].forEach(function (v) {
+          var rig = mk(), inp = { frame: v[0], face: f };
+          rig.update(0, inp); rig.render(false, R); for (var i = 0; i < 70; i++) rig.update(1 / 60, inp);
+          var im = rig.render(false, R), D = rig.D, base = D.hip + D.torso - 1;
+          cell(r, 15, 15, f + ' ' + v[1], function (ctx, ox, oy, rr) { put(ctx, im, ox, oy + Math.round(base * rr)); }, { zoom: Z * 2, gb: 0, ground: false });
+        });
+      });
+      h2('表情之间的过渡（每格 1/30 秒）：neutral → laugh → surprised → sleepy');
+      r = row();
+      (function () {
+        var rig = mk(), seq = [['neutral', 0.2], ['laugh', 0.3], ['surprised', 0.3], ['sleepy', 0.3]], D = rig.D, base = D.hip + D.torso - 1;
+        seq.forEach(function (s) {
+          for (var i = 0; i < s[1] * 30; i++) {
+            rig.update(1 / 30, { frame: 'p_front', face: s[0] });
+            if (s[0] === 'neutral' && i < 5) continue;
+            var im = rig.render(false, R);
+            cell(r, 14, 15, s[0], function (ctx, ox, oy, rr) { put(ctx, im, ox, oy + Math.round(base * rr)); }, { zoom: Z, gb: 0, ground: false });
+          }
+        });
+      })();
+      h2('眨眼（每格 1/60 秒）和眼神（看上、看前、看下、看后；正面看左、看右）');
+      r = row();
+      (function () {
+        var rig = mk(), D = rig.D, base = D.hip + D.torso - 1, i;
+        for (i = 0; i < 60; i++) rig.update(1 / 60, { frame: 'p_idle' });
+        rig.blinkAt = 0.02;
+        for (i = 0; i < 12; i++) {
+          rig.update(1 / 60, { frame: 'p_idle' });
+          var im = rig.render(false, R);
+          cell(r, 13, 15, i === 0 ? '眨眼' : '', function (ctx, ox, oy, rr) { put(ctx, im, ox, oy + Math.round(base * rr)); }, { zoom: Z, gb: 0, ground: false });
+        }
+        [['p_idle', [40, 70], '看上'], ['p_idle', [60, 30], '看前'], ['p_idle', [14, 4], '看下'], ['p_idle', [-40, 30], '看后'], ['p_front', [-40, 30], '看左'], ['p_front', [40, 30], '看右']].forEach(function (v) {
+          var im2 = settled({ frame: v[0], look: v[1] }, false, 1);
+          cell(r, 13, 15, v[2], function (ctx, ox, oy, rr) { put(ctx, im2, ox, oy + Math.round(base * rr)); }, { zoom: Z, gb: 0, ground: false });
+        });
+      })();
+    },
+    // ---------------------------------------------------------- 换颜色
+    variants: function () {
+      h2('换 config.js 里的颜色（每条色阶都是从底色推出来的）');
+      var vs = [
+        ['默认', {}],
+        ['炭灰西装 + 酒红领带', { suit: '#4a4f5c', tie: '#8c2f45' }],
+        ['棕发 + 浅灰西装 + 蓝领带', { hair: '#5a3a28', suit: '#8a93a6', tie: '#2f5fa8', shoes: '#4a3024' }],
+        ['黑西装 + 黑领带 + 深肤色', { suit: '#2e2e38', tie: '#23232b', skin: '#c68e62', hair: '#1c1a1f' }],
+        ['米色西装 + 绿领带 + 浅发', { suit: '#b9a581', tie: '#3c7a52', hair: '#c9a56a', shoes: '#6b4a32', shirt: '#fbf7ec' }],
+        ['酒红西装 + 粉衬衫', { suit: '#7a3044', shirt: '#f3d6dc', tie: '#2b2a4a' }],
+      ];
+      var r = row();
+      vs.forEach(function (v) {
+        var cfg = Object.assign({}, CFG, { person: Object.assign({}, CFG.person || {}, v[1]) });
+        [['p_idle', '侧'], ['p_front', '正']].forEach(function (f) {
+          var im = settled({ frame: f[0] }, false, 1.2, null, cfg);
+          cell(r, 19, 42, f[1] === '侧' ? v[0] : '', function (ctx, ox, oy) { put(ctx, im, ox, oy); });
+        });
+      });
+    },
+    // ---------------------------------------------------------- 分辨率
+    res: function () {
+      h2('R = 1、2、3、4（同样的实际大小）');
+      var r = row();
+      [1, 2, 3, 4].forEach(function (rr) {
+        [['p_idle', false], ['p_front', false], ['p_crouch', true]].forEach(function (f) {
+          var im = settled({ frame: f[0] }, f[1], 1.3, null, null, rr);
+          cell(r, 24, 42, 'R=' + rr + ' ' + f[0], function (ctx, ox, oy) { put(ctx, im, ox, oy); }, { R: rr, zoom: 12 / rr });
+        });
+      });
+    },
+    // ---------------------------------------------------------- 和狗比身高
+    lineup: function () {
+      h2('和两只狗站在一起', DOGS ? '（狗是 dogs.js 现在的样子。摸狗、蹲下揉狗时，手要去的地方是按狗的头、背的位置传给 input.touch 的）' : '（dogs.js 没加载成功，只画了小人）');
+      var r = row();
+      [[BG, GROUND], [LAWN, '#4a8761'], ['#18161e', '#2a2833']].forEach(function (bg) {
+        cell(r, 250, 46, '', function (ctx, ox, oy, rr) {
+          // 画一只狗，返回它的图（带锚点）；画不出来就返回 null
+          function dog(kind, coat, inp, x, left) {
+            if (!DOGS) return null;
+            try {
+              var d = DOGS.create(kind, coat);
+              for (var i = 0; i < 90; i++) d.update(1 / 60, inp);
+              var im = d.render(!!left, rr);
+              ctx.drawImage(toCanvas(im), ox + x * rr - im.ox, oy - im.oy);
+              return im;
+            } catch (e) { return null; }
+          }
+          function man(inp, x, left) { var im = settled(inp, left, 1.4, null, null, rr); put(ctx, im, ox + x * rr, oy); if (inp.holding === 'ball') putBall(ctx, im, ox + x * rr, oy, rr); return im; }
+          man({ frame: 'p_front', face: 'smile' }, -108, false);
+          // 大金毛坐着，他伸手摸它的头
+          var g = dog('gold', 'gold', { pose: 'sit', wag: 0.6, happy: true }, -76, false);
+          var gx = g && g.headX !== undefined ? g.headX : 9, gt = g && g.headY !== undefined ? g.headY + 4.5 : 25;
+          man({ frame: 'p_pat', touch: [-9.6, gt] }, -76 + gx + 9.6, true);
+          // 拿着球，小腊肠坐着等
+          man({ frame: 'p_hold', holding: 'ball' }, -18, false);
+          dog('dax', 'dax_red', { pose: 'sit', wag: 0.8, look: 0.6 }, 10, true);
+          // 蹲下来揉小腊肠
+          var dx = dog('dax', 'dax_red', { pose: 'stand', wag: 0.9, happy: true }, 70, true);
+          var dt = dx && dx.back ? dx.back[1] : 9;
+          man({ frame: 'p_crouch', touch: [8, dt + 0.5] }, 44, false);
+          // 大金毛站着
+          dog('gold', 'gold', { pose: 'stand', wag: 0.4 }, 106, true);
+        }, { bg: bg[0], groundColor: bg[1], zoom: Math.min(Z, 3) });
+      });
+    },
+    // ---------------------------------------------------------- 和旧版对比
+    compare: function () {
+      h2('和旧版对比', '上：v2 的手画小人（每个字符一个像素，12 x 26）。下：现在的（R = 2）。两排按同样的"世界大小"摆。');
+      var names = ['p_front', 'p_wave_a', 'p_idle', 'p_hold', 'p_walk0', 'p_windup', 'p_release', 'p_pat', 'p_cheer', 'p_crouch', 'p_sit', 'p_tie_a'];
+      var SPR = (window.PET_SPRITES && window.PET_SPRITES.build) ? window.PET_SPRITES.build(CFG) : null;
+      var r = row();
+      names.forEach(function (nm) {
+        cell(r, 26, 42, 'v2 ' + nm, function (ctx, ox, oy, rr) {
+          if (!SPR || !SPR[nm]) return;
+          var s = SPR[nm], cv = toCanvas(s);
+          ctx.save(); ctx.translate(ox - s.ox * rr, oy - s.oy * rr); ctx.scale(rr, rr); ctx.imageSmoothingEnabled = false; ctx.drawImage(cv, 0, 0); ctx.restore();
+        }, { zoom: Math.max(2, Z - 1) });
+      });
+      r = row();
+      names.forEach(function (nm) {
+        var inp = { frame: nm, holding: (nm === 'p_hold' || nm === 'p_windup') ? 'ball' : null };
+        if (nm === 'p_walk0') { inp.moving = true; inp.speed = 24; }
+        var im = settled(inp, false, nm === 'p_windup' ? 0.39 : (nm === 'p_release' ? 0.1 : 1.3));
+        cell(r, 26, 42, 'v3 ' + nm, function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding) putBall(ctx, im, ox, oy, rr); }, { zoom: Math.max(2, Z - 1) });
+      });
+    },
+  };
+  try {
+    if (!P) throw new Error('person.js 没加载成功');
+    var order = ['designs', 'poses', 'walk', 'run', 'throw', 'transitions', 'faces', 'variants', 'res', 'lineup', 'compare'];
+    (set === 'all' ? order : set.split(',')).forEach(function (s) { if (SETS[s]) SETS[s](); });
+  } catch (e) { document.getElementById('err').textContent = String(e && e.stack || e); }
+})();
+</script></body></html>

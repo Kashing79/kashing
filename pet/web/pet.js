@@ -301,7 +301,9 @@
       if (d < 1.8 && sp < 45) { e.vx = e.vy = 0; e.x = tx; e.y = ty; return true; }
       var brake = sp * sp / (2 * acc);
       var want = d <= brake + 1 ? 0 : maxSpd;
-      var wx = dx / d * want, wy = dy / d * want * 0.8;
+      // 目标正好在脚下（比如屏幕变小后两个都被挤到边上）时 d 是 0：只刹车，不能除以 0
+      var inv = d > 1e-6 ? 1 / d : 0;
+      var wx = dx * inv * want, wy = dy * inv * want * 0.8;
       var ax = wx - e.vx, ay = wy - e.vy, al = hyp(ax, ay), step = acc * dt;
       if (al > step) { ax *= step / al; ay *= step / al; }
       e.vx += ax; e.vy += ay;

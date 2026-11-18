@@ -11,154 +11,6 @@ import Cocoa
 import JavaScriptCore
 import QuartzCore
 
-// MARK: - 一帧里有什么
-
-/// 清单里的一项：一张图贴在哪里
-struct SpriteItem {
-    var id: String
-    var texKey: String      // 这张图的名字（没名字的是 "#编号"）
-    var ver: Int            // 像素每变一次加一
-    var x: Double           // 左上角（世界单位）
-    var y: Double
-    var w: Double           // 图有多大（世界单位）
-    var h: Double
-    var flip: Bool
-    var alpha: Double
-    var image: CGImage?
-}
-
-/// 一帧
-struct StageFrame {
-    var items: [SpriteItem] = []
-    var hot: [CGRect] = []          // 可以点的范围（世界单位）
-    var drag = false                // 她正拖着球 / 拎着谁
-    var bubbleText: String? = nil   // 小人在说的话
-    var bubbleX = 0.0               // 他头顶在哪（世界单位）
-    var bubbleY = 0.0
-    var bubbleId = 0
-    var home = "out"
-    var busy = 2
-}
-
-/// 在岛里睡觉时，岛上那一小格里画什么
-struct DenFrame {
-    var w = 0.0
-    var h = 0.0
-    var items: [SpriteItem] = []
-}
-
-/// 喂饭、便便那一套（引擎有才有）
-struct CareStatus {
-    var meal = "idle"           // idle | due | serving
-    var kind: String? = nil     // full | snack | biscuit
-    var meals = 0
-    var poops = 0
-    var fedByHer = 0
-    var byHer = 0
-    var lucky = false
-    var feeding = true
-    var potty = true
-}
-
-struct EngineStatus {
-    var home = "out"            // out | going | in | leaving
-    var fetch = 0
-    var pets = 0
-    var night = false
-    var auto = true
-    var roam = true
-    var scene = ""
-    var phase: String? = nil    // day | dusk | night
-    var care: CareStatus? = nil
-}
-
-/// 从 JavaScript 那边拿回来的值，小心地变成数字 / 开关 / 文字
-enum JSRead {
-    static func at(_ a: [Any], _ i: Int) -> Any? { return (i >= 0 && i < a.count) ? a[i] : nil }
-    static func double(_ v: Any?) -> Double {
-        guard let n = v as? NSNumber else { return 0 }
-        let d = n.doubleValue
-        return d.isFinite ? d : 0
-    }
-    static func int(_ v: Any?) -> Int {
-        let d = double(v)
-        if d > 1e9 || d < -1e9 { return 0 }
-        return Int(d)
-    }
-    static func flag(_ v: Any?) -> Bool {
-        guard let n = v as? NSNumber else { return false }
-        return n.boolValue
-    }
-    static func string(_ v: Any?) -> String { return (v as? String) ?? "" }
-
-    static func status(_ d: [String: Any]) -> EngineStatus {
-        var s = EngineStatus()
-        let h = string(d["home"])
-        if !h.isEmpty { s.home = h }
-        s.fetch = int(d["fetch"])
-        s.pets = int(d["pets"])
-        s.night = flag(d["night"])
-        s.auto = d["auto"] == nil ? true : flag(d["auto"])
-        s.roam = d["roam"] == nil ? true : flag(d["roam"])
-        s.scene = string(d["scene"])
-        let p = string(d["phase"])
-        if !p.isEmpty { s.phase = p }
-        if let c = d["care"] as? [String: Any] {
-            var k = CareStatus()
-            let m = string(c["meal"])
-            if !m.isEmpty { k.meal = m }
-            let kind = string(c["kind"])
-            if !kind.isEmpty { k.kind = kind }
-            k.meals = int(c["meals"])
-            k.poops = int(c["poops"])
-            k.fedByHer = int(c["fedByHer"])
-            k.byHer = int(c["byHer"])
-            k.lucky = flag(c["lucky"])
-            k.feeding = c["feeding"] == nil ? true : flag(c["feeding"])
-            k.potty = c["potty"] == nil ? true : flag(c["potty"])
-            s.care = k
-        }
-        return s
-    }
-}
-
-// MARK: - 像素 → 图
-
-enum Pixels {
-    /// 抄一份像素，顺手把"直通 alpha"换成显卡要的"预乘 alpha"
-    static func premultiplied(_ src: UnsafeRawPointer, _ count: Int) -> Data {
-        var data = Data(count: count)
-        data.withUnsafeMutableBytes { (raw: UnsafeMutableRawBufferPointer) -> Void in
-            guard let base = raw.baseAddress else { return }
-            memcpy(base, src, count)
-            let p = base.assumingMemoryBound(to: UInt8.self)
-            var i = 0
-            while i + 3 < count {
-                let a = Int(p[i + 3])
-                if a == 0 {
-                    p[i] = 0; p[i + 1] = 0; p[i + 2] = 0
-                } else if a < 255 {
-                    p[i] = UInt8((Int(p[i]) * a + 127) / 255)
-                    p[i + 1] = UInt8((Int(p[i + 1]) * a + 127) / 255)
-                    p[i + 2] = UInt8((Int(p[i + 2]) * a + 127) / 255)
-                }
-                i += 4
-            }
-        }
-        return data
-    }
-
-    /// 一块（预乘好的）RGBA 像素 → 一张图。放大时不抹匀。
-    static func image(_ data: Data, width: Int, height: Int) -> CGImage? {
-        guard width > 0, height > 0, data.count >= width * height * 4 else { return nil }
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
-    }
-}
-
 // MARK: - 引擎
 
 final class PetEngine {
@@ -208,14 +60,14 @@ final class PetEngine {
         context.exceptionHandler = { [weak self] _, e in
             self?.noteException(e)
         }
-        let now: @convention(block) () -> Double = {
+        let clock: @convention(block) () -> Double = {
             return CACurrentMediaTime()
         }
         // "今天丢了几次球"这些小数据，存在系统给每个 App 的设定里
-        let get: @convention(block) (String) -> String = { key in
+        let readStore: @convention(block) (String) -> String = { key in
             return UserDefaults.standard.string(forKey: "js." + key) ?? ""
         }
-        let set: @convention(block) (String, String) -> Void = { key, value in
+        let writeStore: @convention(block) (String, String) -> Void = { key, value in
             UserDefaults.standard.set(value, forKey: "js." + key)
         }
         // 触控板轻轻"嗒"一下（没有这种触控板就什么都不会发生）
@@ -235,18 +87,18 @@ final class PetEngine {
             guard let s = self else { return 0 }
             return s.islandHit(x, y) ? 1 : 0
         }
-        let log: @convention(block) (String) -> Void = { [weak self] msg in
+        let logLine: @convention(block) (String) -> Void = { [weak self] msg in
             guard let s = self else { return }
             if s.verbose { say("JS LOG " + msg) }
         }
-        context.setObject(unsafeBitCast(now, to: AnyObject.self), forKeyedSubscript: "__qq_now" as NSString)
-        context.setObject(unsafeBitCast(get, to: AnyObject.self), forKeyedSubscript: "__qq_get" as NSString)
-        context.setObject(unsafeBitCast(set, to: AnyObject.self), forKeyedSubscript: "__qq_set" as NSString)
+        context.setObject(unsafeBitCast(clock, to: AnyObject.self), forKeyedSubscript: "__qq_now" as NSString)
+        context.setObject(unsafeBitCast(readStore, to: AnyObject.self), forKeyedSubscript: "__qq_get" as NSString)
+        context.setObject(unsafeBitCast(writeStore, to: AnyObject.self), forKeyedSubscript: "__qq_set" as NSString)
         context.setObject(unsafeBitCast(haptic, to: AnyObject.self), forKeyedSubscript: "__qq_haptic" as NSString)
         context.setObject(unsafeBitCast(center, to: AnyObject.self), forKeyedSubscript: "__qq_islandCenter" as NSString)
         context.setObject(unsafeBitCast(visible, to: AnyObject.self), forKeyedSubscript: "__qq_islandVisible" as NSString)
         context.setObject(unsafeBitCast(hit, to: AnyObject.self), forKeyedSubscript: "__qq_islandHit" as NSString)
-        context.setObject(unsafeBitCast(log, to: AnyObject.self), forKeyedSubscript: "__qq_log" as NSString)
+        context.setObject(unsafeBitCast(logLine, to: AnyObject.self), forKeyedSubscript: "__qq_log" as NSString)
     }
 
     /// JavaScript 出错了：打印出来（是哪个文件第几行）。同样的错刷屏的话只挑着印。
@@ -511,154 +363,4 @@ final class PetEngine {
               let d = bytes(v, count: pw * ph * 4) else { return nil }
         return (d, pw, ph, scale)
     }
-
-    // MARK: 胶水（JavaScript）
-    // 引擎那一头的一小段：把外壳的几个函数包成引擎要的 host，把每帧的清单压成一维数组。
-
-    static let shim = #"""
-var __qq = (function (G) {
-  'use strict';
-  var eng = null, last = [], ids = new WeakMap(), nid = 0, lawnImg = null;
-
-  function fin(v, d) { v = +v; return (v === v && v !== Infinity && v !== -Infinity) ? v : d; }
-  // 每张图一个名字：有 key 的用 key；没有的（三个角色各自那一张）按"是不是同一个对象"编号
-  function keyOf(im) {
-    if (im.key) return 'k:' + im.key;
-    var n = ids.get(im);
-    if (!n) { n = ++nid; ids.set(im, n); }
-    return '#' + n;
-  }
-  // 清单 → 接在 out 后面，每项 10 格：id、图的名字、ver、宽、高、scale、x、y、flip、a
-  function flat(out, items) {
-    var n = 0;
-    last = [];
-    for (var i = 0; items && i < items.length; i++) {
-      var it = items[i], im = it && it.img;
-      if (!im || !im.data || !(im.w > 0) || !(im.h > 0)) continue;
-      var s = fin(im.scale, 1);
-      last.push(im);
-      out.push(String(it.id), keyOf(im), im.key ? 1 : (im.ver | 0), im.w | 0, im.h | 0, s > 0 ? s : 1,
-               fin(it.x, 0), fin(it.y, 0), it.flip ? 1 : 0, (it.a === undefined || it.a === null) ? 1 : fin(it.a, 1));
-      n++;
-    }
-    return n;
-  }
-
-  // 往前走 dt 秒（一小步最多 1/60 秒），再把这一帧压成：
-  //   [几项, 几个可点范围, 在拖吗, 有气泡吗, 气泡的字, 气泡 x, 气泡 y, 气泡编号, home, busy, 清单……, 可点范围……]
-  function frame(dt) {
-    if (!eng) return null;
-    dt = fin(dt, 0);
-    if (dt > 0) {
-      if (dt > 0.25) dt = 0.25;
-      var n = Math.max(1, Math.ceil(dt * 60 - 1e-6));
-      for (var i = 0; i < n; i++) eng.step(dt / n);
-    }
-    var f = eng.compose() || {}, st = eng.status() || {};
-    var out = [0, 0, f.drag ? 1 : 0, 0, '', 0, 0, 0, String(st.home || 'out'), eng.busy() | 0];
-    out[0] = flat(out, f.items);
-    var hot = f.hot || [], nh = 0;
-    for (var j = 0; j < hot.length; j++) {
-      var h = hot[j];
-      if (!h || h.length < 4) continue;
-      out.push(fin(h[0], 0), fin(h[1], 0), fin(h[2], 0), fin(h[3], 0));
-      nh++;
-    }
-    out[1] = nh;
-    var b = f.bubble;
-    if (b && b.text) {
-      out[3] = 1; out[4] = String(b.text); out[5] = fin(b.x, 0); out[6] = fin(b.y, 0);
-      out[7] = (b.id === undefined || b.id === null) ? 0 : (b.id | 0);
-    }
-    return out;
-  }
-
-  // 岛上那一小格：[宽, 高, 几项, 清单……]
-  function den(R) {
-    if (!eng || typeof eng.den !== 'function') return null;
-    var d = eng.den(R);
-    if (!d) return null;
-    var out = [fin(d.w, 0), fin(d.h, 0), 0];
-    out[2] = flat(out, d.items);
-    return out;
-  }
-
-  function create(json) {
-    var o = JSON.parse(json), cfg = {}, C = G.PET_CONFIG || {}, k;
-    for (k in C) cfg[k] = C[k];
-    for (k in o) cfg[k] = o[k];
-    if (!G.PET_ENGINE || typeof G.PET_ENGINE.create !== 'function') return false;
-    var host = {
-      now: function () { return G.__qq_now(); },
-      storage: {
-        get: function (key) { var v = G.__qq_get(String(key)); return (v === undefined || v === null || v === '') ? null : String(v); },
-        set: function (key, v) { G.__qq_set(String(key), String(v)); }
-      },
-      haptic: function (kind) { G.__qq_haptic(String(kind)); },
-      island: {
-        center: function () { return +G.__qq_islandCenter() || 0; },
-        visible: function () { return !!G.__qq_islandVisible(); },
-        hit: function (x, y) { return !!G.__qq_islandHit(+x || 0, +y || 0); }
-      },
-      log: function (msg) { G.__qq_log(String(msg)); }
-    };
-    eng = G.PET_ENGINE.create(host, cfg);
-    return !!eng;
-  }
-
-  return {
-    create: create,
-    frame: frame,
-    den: den,
-    // 刚才那张清单里第 i 项的像素
-    data: function (i) { var im = last[i]; return im ? im.data : null; },
-    configure: function (json) { if (eng) eng.configure(JSON.parse(json)); },
-    sense: function (json) { if (eng && typeof eng.sense === 'function') eng.sense(JSON.parse(json)); },
-    command: function (name) { if (eng) eng.command(String(name)); },
-    pointer: function (type, x, y) { return (eng && eng.pointer(String(type), +x || 0, +y || 0)) ? true : false; },
-    status: function () { return eng ? JSON.stringify(eng.status() || {}) : '{}'; },
-    quality: function (q) { if (eng && typeof eng.setQuality === 'function') eng.setQuality(+q); },
-    state: function () {
-      if (!eng) return 'null';
-      return JSON.stringify((eng._t && typeof eng._t.state === 'function') ? eng._t.state() : eng.status());
-    },
-    extra: function () {
-      var o = {}, t = eng && eng._t;
-      if (t && typeof t.perf === 'function') o.rigs = t.perf();
-      if (t && typeof t.errors === 'function') o.artErrors = t.errors();
-      return JSON.stringify(o);
-    },
-    // 草地：先画，返回 [宽, 高, scale]；像素另外拿（拿完就放手，不占着内存）
-    lawn: function (w, h, phase, R, mode) {
-      var L = G.PET_LAWN;
-      lawnImg = null;
-      if (!L || typeof L.render !== 'function') return null;
-      var im = L.render(w, h, String(phase), R, { mode: String(mode) });
-      if (!im || !im.data || !(im.w > 0) || !(im.h > 0)) return null;
-      lawnImg = im;
-      return [im.w | 0, im.h | 0, fin(im.scale, R)];
-    },
-    lawnData: function () { var d = lawnImg ? lawnImg.data : null; lawnImg = null; return d; },
-    has: function () {
-      var C = G.PET_CONFIG || {}, r = Math.round(+C.res);
-      return JSON.stringify({
-        engine: !!(G.PET_ENGINE && typeof G.PET_ENGINE.create === 'function'),
-        created: !!eng,
-        sense: !!(eng && typeof eng.sense === 'function'),
-        quality: !!(eng && typeof eng.setQuality === 'function'),
-        den: !!(eng && typeof eng.den === 'function'),
-        lawn: !!(G.PET_LAWN && typeof G.PET_LAWN.render === 'function'),
-        person: !!(G.PET_PERSON && typeof G.PET_PERSON.create === 'function'),
-        fx: !!G.PET_FX,
-        dogs: !!G.PET_DOGS,
-        res: (r >= 1 && r <= 4) ? r : 2,
-        clock: (C.clock && C.clock.length) ? C.clock : null,
-        reunion: C.reunion ? String(C.reunion) : null
-      });
-    },
-    // 空转三百万圈：开了"即时编译"十几毫秒就转完，没开要一百多毫秒
-    probe: function () { var s = 0; for (var k = 0; k < 3000000; k++) { s = (s + k * 7) % 1000003; } return s; }
-  };
-})(typeof globalThis !== 'undefined' ? globalThis : this);
-"""#
 }

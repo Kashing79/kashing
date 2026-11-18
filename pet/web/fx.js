@@ -10,6 +10,12 @@
 //    1. 写一个小函数  function xxx(p, a) { ……用画板 p 画…… }
 //    2. 在下面的 SPRITES 表里加一行  ['名字', xxx, 参数, '一句话说明']
 //  画板 p 的用法见"画板"那一节；(0, 0) 是这张图自己的原点，x 向右、y 向下，单位是世界单位。
+//  · 新颜色：在 RAMPS 里加一行（六级，从描边色到高光）。
+//  · 同一样东西的几种状态（空碗 / 半碗 / 满碗）：同一个函数、不同的参数，表里各占一行。
+//  · 几帧动画：函数开头先 p.box(...) 说好同一个摆放框，换帧时才不会跳。
+//  · 放在地上的东西：把地面画在 y = 0，原点就是"脚下那一点"。
+//  · 要告诉引擎"手 / 嘴拿哪儿"：p.anchor('grip', x, y)，图上就多一个 grip: [像素 x, 像素 y]。
+//  · 歪着、倒着的样子：p.move(0, 0, 角度) 之后照原样画，光还是从左上来。
 //
 //  这个文件不碰网页的任何东西，在 Mac 外壳的 JavaScriptCore 里也能直接跑。
 // ============================================================
@@ -73,6 +79,7 @@
   //    p.rim(材料, dx, dy, 第几级, 宽)           朝 (dx, dy) 那个方向挨着边的像素，改成第几级（比如右下一圈暗）
   //    p.outline()                               描边（颜色跟着挨着的材料走）
   //    p.soften()                                描边拐弯处里面那个像素暗一级，圆的东西更圆（描边之后用；有棱角的字别用）
+  //    p.move(dx, dy, rot) / p.home()            之后画的东西整体挪到 (dx, dy)、再转 rot 弧度 / 恢复原样（画"歪着、倒着"的同一样东西时用）
   //    p.box(x0, y0, x1, y1)                     说明"摆放时按这个框来"（几帧动画用同一个框才不会跳）
   //    p.anchor('grip', x, y)                    记一个位置（比如手拿哪儿），会出现在图的属性里
   //  o 里可以写：
@@ -102,7 +109,14 @@
     }
     this.x0 = this.W; this.y0 = this.H; this.x1 = -1; this.y1 = -1;
     this.n = 0; this.bb = null; this.marks = null;
+    this.home();
   };
+  // 整体挪动 / 转动：之后给出的坐标都先转 rot、再挪 (dx, dy)
+  Pad.prototype.move = function (dx, dy, rot) { this.tx = dx || 0; this.ty = dy || 0; this.tr = rot || 0; this.tc = Math.cos(this.tr); this.ts = Math.sin(this.tr); };
+  Pad.prototype.home = function () { this.move(0, 0, 0); };
+  // 世界单位 → 画板上的像素位置
+  Pad.prototype.X = function (x, y) { return this.cx + (this.tx + x * this.tc - y * this.ts) * this.R; };
+  Pad.prototype.Y = function (x, y) { return this.cy + (this.ty + x * this.ts + y * this.tc) * this.R; };
   // 往 (i, j) 这个像素上画
   Pad.prototype.set = function (i, j, mat, tone, o) {
     if (i < 1 || j < 1 || i >= this.W - 1 || j >= this.H - 1) return;
@@ -122,7 +136,7 @@
   };
   Pad.prototype.ell = function (cx, cy, rx, ry, mat, o) {
     o = o || {};
-    var R = this.R, px = this.cx + cx * R, py = this.cy + cy * R, ax = rx * R, ay = ry * R, rot = o.rot || 0;
+    var R = this.R, px = this.X(cx, cy), py = this.Y(cx, cy), ax = rx * R, ay = ry * R, rot = rx === ry ? 0 : (o.rot || 0) + this.tr;
     if (!rot && !o.raw) {
       // 对齐像素：直径取整；偶数直径圆心落在像素的角上，奇数直径落在像素正中
       var dx = round(ax * 2), dy = round(ay * 2);
@@ -149,7 +163,7 @@
   Pad.prototype.disc = function (cx, cy, r, mat, o) { this.ell(cx, cy, r, r, mat, o); };
   Pad.prototype.cap = function (x0, y0, x1, y1, r0, r1, mat, o) {
     o = o || {};
-    var R = this.R, ax = this.cx + x0 * R, ay = this.cy + y0 * R, bx = this.cx + x1 * R, by = this.cy + y1 * R;
+    var R = this.R, ax = this.X(x0, y0), ay = this.Y(x0, y0), bx = this.X(x1, y1), by = this.Y(x1, y1);
     r0 *= R; r1 *= R;
     var vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1, ext = Math.max(r0, r1) + 1;
     var i0 = floor(Math.min(ax, bx) - ext), i1 = ceil(Math.max(ax, bx) + ext), j0 = floor(Math.min(ay, by) - ext), j1 = ceil(Math.max(ay, by) + ext);
@@ -166,7 +180,7 @@
     o = o || {};
     var R = this.R, n = pts.length >> 1, X = [], Y = [], i, j, k, i0 = 1e9, i1 = -1e9, j0 = 1e9, j1 = -1e9;
     for (k = 0; k < n; k++) {
-      var x = this.cx + pts[k * 2] * R, y = this.cy + pts[k * 2 + 1] * R;
+      var x = this.X(pts[k * 2], pts[k * 2 + 1]), y = this.Y(pts[k * 2], pts[k * 2 + 1]);
       if (!o.raw) { x = round(x); y = round(y); }             // 顶点对齐到像素的边上
       X.push(x); Y.push(y);
       if (x < i0) i0 = x; if (x > i1) i1 = x; if (y < j0) j0 = y; if (y > j1) j1 = y;
@@ -188,7 +202,7 @@
     var R = this.R, n = pts.length >> 1, X = [], Y = [], k, wp = Math.max(1, round(w * R)), half = wp / 2;
     var i0 = 1e9, i1 = -1e9, j0 = 1e9, j1 = -1e9;
     for (k = 0; k < n; k++) {
-      var x = this.cx + pts[k * 2] * R, y = this.cy + pts[k * 2 + 1] * R;
+      var x = this.X(pts[k * 2], pts[k * 2 + 1]), y = this.Y(pts[k * 2], pts[k * 2 + 1]);
       if (wp & 1) { x = floor(x) + 0.5; y = floor(y) + 0.5; } else { x = round(x); y = round(y); }   // 线的正中对齐像素，粗细才均匀
       X.push(x); Y.push(y);
       if (x < i0) i0 = x; if (x > i1) i1 = x; if (y < j0) j0 = y; if (y > j1) j1 = y;
@@ -206,7 +220,7 @@
     }
   };
   Pad.prototype.line = function (x0, y0, x1, y1, mat, tone, o) {
-    var R = this.R, i = floor(this.cx + x0 * R), j = floor(this.cy + y0 * R), i1 = floor(this.cx + x1 * R), j1 = floor(this.cy + y1 * R);
+    var i = floor(this.X(x0, y0)), j = floor(this.Y(x0, y0)), i1 = floor(this.X(x1, y1)), j1 = floor(this.Y(x1, y1));
     var dx = abs(i1 - i), dy = -abs(j1 - j), sx = i < i1 ? 1 : -1, sy = j < j1 ? 1 : -1, err = dx + dy;
     this.n++;
     for (;;) {
@@ -218,7 +232,7 @@
     }
   };
   Pad.prototype.dot = function (x, y, mat, tone, o) {
-    var R = this.R, s = Math.max(1, round(R / 2)), i = floor(this.cx + x * R), j = floor(this.cy + y * R);
+    var s = Math.max(1, round(this.R / 2)), i = floor(this.X(x, y)), j = floor(this.Y(x, y));
     this.n++;
     for (var b = 0; b < s; b++) for (var a = 0; a < s; a++) this.set(i + a, j + b, mat, tone, o);
   };
@@ -280,7 +294,7 @@
     for (q = 0; q < hit.length; q++) this.t[hit[q]]--;
   };
   Pad.prototype.box = function (x0, y0, x1, y1) { var R = this.R; this.bb = [round(this.cx + x0 * R), round(this.cy + y0 * R), round(this.cx + x1 * R) - 1, round(this.cy + y1 * R) - 1]; };
-  Pad.prototype.anchor = function (name, x, y) { (this.marks || (this.marks = {}))[name] = [x, y]; };
+  Pad.prototype.anchor = function (name, x, y) { (this.marks || (this.marks = {}))[name] = [this.X(x, y), this.Y(x, y)]; };
   // 收工：裁出有像素的那一块（四周留 1 个像素的空），交出一张图
   Pad.prototype.done = function (key) {
     var W = this.W, x0 = this.x0, y0 = this.y0, x1 = this.x1, y1 = this.y1, bb = this.bb;
@@ -296,7 +310,7 @@
       d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = this.a[k] || 255;
     }
     var im = { w: w, h: h, data: d, scale: this.R, ox: this.cx - x0, oy: this.cy - y0, key: key, ver: 1, bb: [bb[0] - x0, bb[1] - y0, bb[2] - x0, bb[3] - y0] };
-    if (this.marks) for (var name in this.marks) im[name] = [this.cx - x0 + this.marks[name][0] * this.R, this.cy - y0 + this.marks[name][1] * this.R];
+    if (this.marks) for (var name in this.marks) im[name] = [this.marks[name][0] - x0, this.marks[name][1] - y0];
     return im;
   };
   var pads = {};
@@ -418,10 +432,12 @@
   // ============================================================
   //  一样一样的小东西
   // ============================================================
-  // 骨头：中间一根细杆，两头各两个圆疙瘩
+  // 骨头（也是狗饼干）：中间一根杆，两头各两个圆疙瘩
   function bone(p) {
-    p.cap(-2.6, 0, 2.6, 0, 0.6, 0.6, M.ivory, { f: 0.2 });
-    p.disc(-3, -1, 1, M.ivory); p.disc(-3, 1, 1, M.ivory); p.disc(3, -1, 1, M.ivory); p.disc(3, 1, 1, M.ivory);
+    var hp = p.hp;
+    p.cap(hp - 2.5, hp, hp + 2.5, hp, 0.75, 0.75, M.ivory, { f: 0.15 });
+    p.disc(hp - 2.75, hp - 1, 1.25, M.ivory); p.disc(hp - 2.75, hp + 1, 1.25, M.ivory);
+    p.disc(hp + 2.75, hp - 1, 1.25, M.ivory); p.disc(hp + 2.75, hp + 1, 1.25, M.ivory);
     p.outline(); p.soften();
   }
 
@@ -432,9 +448,11 @@
     if (w === 3) {             // 停着：侧面，翅膀竖着合在一起，头朝左
       p.ell(hp + 1.0, 0.1, 1.0, 0.9, m, { tone: 2 });                                       // 后翅
       p.poly([hp - 0.75, 0.75, hp - 0.25, -3.25, hp + 1.25, -2.75, hp + 2.0, -0.75, hp + 0.75, 0.75], m, { tone: 3 });    // 前翅
+      p.rim(m, 1, 0, 2);                                                                    // 翅膀靠外的一圈深一点，像花纹
       p.rim(m, -1, -1, 4);
-      p.ell(hp + 0.6, -1.6, 0.55, 0.9, m, { rot: 0.3, tone: 4, over: m, thin: true });
+      p.ell(hp + 0.5, -1.6, 0.5, 0.9, m, { rot: 0.3, tone: 4, over: m, thin: true });
       p.dot(hp + 0.75, -2.5, M.white, 4, { over: m, lock: true });
+      p.dot(hp + 1.0, -0.25, M.white, 4, { over: m, lock: true });
       p.outline(); p.soften();
       p.line(hp - 1.5, 1.25, hp + 1.25, 1.25, M.dark, 2, NO);                               // 身子
       p.line(hp - 1.5, 0.75, hp - 2.25, -0.5, M.dark, 2, NO);                               // 触角
@@ -580,13 +598,13 @@
 
   // 被踢起来的一小撮草：a.rot = 转到哪个角度（翻着跟头飞），a.m = 哪个时段的草色
   function sod(p, a) {
-    var m = M[a.m || 'grass'], r = a.rot || 0, c = Math.cos(r), s = Math.sin(r), i;
-    function X(x, y) { return x * c - y * s; }
-    function Y(x, y) { return x * s + y * c; }
+    var m = M[a.m || 'grass'], i;
     var B = [[-2.1, -2.2, 3], [0, -3.2, 4], [2.1, -2.2, 3]];      // 三根草叶：尖在哪儿、第几级
     p.box(-3.5, -3.5, 3.5, 3.5);
-    for (i = 0; i < B.length; i++) p.cap(X(0, 0.4), Y(0, 0.4), X(B[i][0], B[i][1]), Y(B[i][0], B[i][1]), 0.5, 0.2, m, { tone: B[i][2] });
-    p.disc(X(0, 0.9), Y(0, 0.9), 0.75, M.soil, { tone: 3 });
+    p.move(0, 0, a.rot);                                           // 整个转过去画
+    for (i = 0; i < B.length; i++) p.cap(0, 0.4, B[i][0], B[i][1], 0.5, 0.2, m, { tone: B[i][2] });
+    p.disc(0, 0.9, 0.75, M.soil, { tone: 3 });
+    p.home();
     p.outline();
   }
 

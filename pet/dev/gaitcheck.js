@@ -129,6 +129,38 @@ for (const kind of ['gold', 'dax']) {
   if (worst > 0.6) bad(kind + ' 斜着跑时脚打滑 ' + worst.toFixed(2));
 }
 
+// 再从画出来的像素上量一遍（不光看算出来的骨架）：把"原点落在像素格子里的零头"告诉骨架，
+// 然后盯着近侧两只脚贴地的那一行像素：脚踩在地上的那段时间里，这一小段像素在地面上应该不动（最多差一格）。
+console.log('');
+for (const kind of ['gold', 'dax']) {
+  for (const v of kind === 'gold' ? [24, 62, 170] : [26, 64, 150]) {
+    const R = 2, rig = D.create(kind, kind === 'gold' ? 'gold' : 'dax_red', 5), inp = { pose: 'stand', speed: v };
+    for (let i = 0; i < 240; i++) rig.update(DT, inp);
+    const st = [0, 2].map(() => ({ down: false, lo: 0, hi: 0, drift: 0, n: 0 }));
+    for (let i = 0; i < 480; i++) {
+      rig.update(DT, inp);
+      const pr = rig.probe(), gx = pr.S * R, o = rig.render(false, R, gx - Math.floor(gx));
+      const row = (Math.round(o.oy) - 1) * o.w, ox = Math.floor(o.ox);
+      [0, 2].forEach((k, n) => {
+        const f = pr.feet[k], s = st[n];
+        if (!f.down) { s.down = false; return; }
+        // 别的脚正好踩在旁边（走路时后脚会落在前脚的脚印边上）：两只脚的像素连成一片，分不清，这一帧不量
+        if (pr.feet.some((g, m) => m !== k && Math.abs(g.x - f.x) < 5 && g.y < rig.B.padY + 1.5)) return;
+        // 这只脚贴地的那一段像素从哪到哪
+        let c = Math.round(ox + f.x * R + 1), a = c;
+        if (!o.data[(row + c) * 4 + 3]) { s.down = false; return; }
+        while (a > 0 && o.data[(row + a - 1) * 4 + 3]) a--;
+        const wx = Math.floor(gx) + a - ox;                  // 这一段的左端在地面上的位置（像素）
+        if (!s.down) { s.down = true; s.lo = s.hi = wx; s.n++; }
+        else { s.lo = Math.min(s.lo, wx); s.hi = Math.max(s.hi, wx); s.drift = Math.max(s.drift, s.hi - s.lo); }
+      });
+    }
+    const worst = Math.max(st[0].drift, st[1].drift);
+    console.log((kind === 'gold' ? '金毛' : '腊肠') + ' ' + String(v).padStart(3) + '：画出来的脚掌在地面上最多挪 ' + worst + ' 个像素（近前 ' + st[0].drift + '，近后 ' + st[1].drift + '；R=2 时一个像素是半个世界单位）');
+    if (worst > 2) bad(kind + ' ' + v + ' 画出来的脚掌挪了 ' + worst + ' 个像素');
+  }
+}
+
 // 变速：从慢走一路加速到飞奔再减速，中间不许"跳一下"（脚掌一帧里挪得太远）
 for (const kind of ['gold', 'dax']) {
   const rig = D.create(kind, kind === 'gold' ? 'gold' : 'dax_red', 777), top = kind === 'gold' ? 170 : 150;

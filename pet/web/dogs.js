@@ -27,6 +27,16 @@
 //
 // 坐标：身体自己的坐标里 x 朝前、y 朝上，原点在身体中心正下方的地面上；单位是"世界单位"。
 // 光永远从屏幕左上方来。狗转身时是把骨架左右翻过来重新打光，不是把画好的图翻过来。
+//
+// 想加东西的话：
+//   · 加一个姿势：在 POSE_DEF 里加一条（两只狗各写一份目标），把名字写进 POSES。
+//     能边摆边走的再写进 WALKS，动作大的写进 BIG。姿势只管"摆成什么样"，怎么过渡是自动的。
+//   · 姿势自己的小动作（刨、挠、蹬……）：加在 solve() 里标着"小动作"的那一段，用 this.pw('名字') 当权重。
+//   · 加一种心情：在 MOODS 里加一行。心情只动脸、耳朵、尾巴、头的高低，不碰身体。
+//   · 加一个部位：在 draw() 里用 brush() 定好远近和材质，再 cap() / ell() 画；
+//     新的部位编号要在 GRP（和谁算一整块）和 SEAM（被压住时怎么描缝）里各添一格。
+//   · 改完跑一下：node pet/dev/gaitcheck.js（脚打不打滑）、node pet/dev/dogbench.js（画一帧多久）、
+//     再打开 pet/dev/dogs.html 看图。
 (function (root) {
   'use strict';
 
@@ -1232,8 +1242,12 @@
   var PAWS = new Float64Array(4 * 6), nPaw = 0;     // 这一帧画了哪几只近侧的脚掌：中心、脚趾朝向、大小（最后点脚趾缝用）
   function drawPaw(px, py, ma, sz, mat, z, part, pd) {
     var cm = cos(ma), sm = sin(ma), w = clamp((-sm - 0.3) / 0.4, 0, 1);
-    var tx = -sm * w + cm * (1 - w), ty = cm * w + sm * (1 - w), tl = sqrt(tx * tx + ty * ty) || 1, lift = (sz[1] - pd) * w;
+    var tx = -sm * w + cm * (1 - w), ty = cm * w + sm * (1 - w), lift = (sz[1] - pd) * w;
+    var g = w * clamp(1 - (py - pd) / 1.2, 0, 1);            // 踩在地上：脚掌平平地贴着地，不跟着腿前后滚
+    tx += (1 - tx) * g; ty -= ty * g;
+    var tl = sqrt(tx * tx + ty * ty) || 1;
     tx /= tl; ty /= tl;
+    cm *= 1 - g; sm = sm * (1 - g) - g;
     brush(z, 0.8, mat, part, 0.42, 0);
     var pcx = px + tx * sz[0] * 0.36 - cm * lift, pcy = py + ty * sz[0] * 0.36 - sm * lift;
     ell(pcx, pcy, sz[0], sz[1], atan2(ty, tx));
