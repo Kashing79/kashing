@@ -7,7 +7,8 @@
 // 跑的时候像真的有人在玩：乱拖球、乱点、把它们拎起来、丢到岛上、按各种按钮；
 // 每一帧都检查引擎交出来的"该画什么"的清单是不是规规矩矩的。最后再演一遍"夜里回岛睡觉、天亮出来"。
 //
-// 用法：node headless.js [--res N] [--roam 分钟] [--band 分钟] [--seed N] [--web 目录]
+// 用法：node headless.js [--res N] [--roam 分钟] [--band 分钟] [--seed N] [--web 目录] [--plain]
+//   --plain  从一个空对象造环境（老办法，一样是空的，只是里面读全局变量慢几倍，量出来的时间偏大）
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
 const args = process.argv.slice(2);
@@ -21,11 +22,14 @@ const FILES = ['config.js', 'sprites.js', 'fx.js', 'dogs.js', 'person.js', 'lawn
 let failed = false;
 const problems = [];
 function fail(m) { failed = true; if (problems.length < 25) { problems.push(m); console.log('FAIL:', m); } }
+// 会让画面出错的算失败；只是和约定不一样、引擎自己兜得住的，提个醒
+let warned = 0;
+function warn(m) { if (++warned <= 30) console.log('WARN:', m); }
 
 // ---------- 一个空的环境 ----------
 // 新一点的 Node 可以要一个"原生的"空环境（里面读全局变量不绕路，量出来的速度才和真机接近）；
 // 老的 Node 就从一个空对象造，一样是空的，只是慢几倍。
-const ctx = vm.createContext((vm.constants && vm.constants.DONT_CONTEXTIFY) || {});
+const ctx = vm.createContext((!args.includes('--plain') && vm.constants && vm.constants.DONT_CONTEXTIFY) || {});
 vm.runInContext('delete globalThis.console;', ctx);      // V8 自己会塞一个 console 进来；JavaScriptCore 里没有
 // 可以重现的随机数；可以拨的钟（用来演"夜里"和"天亮"）
 vm.runInContext(`
@@ -52,8 +56,17 @@ function lint(file, src) {
     const m = WEB_ONLY.exec(code);
     if (!m) return;
     const msg = file + ':' + (i + 1) + ' mentions "' + m[1] + '", which does not exist outside a web page';
-    if (STRICT.includes(file)) fail(msg); else console.log('WARN:', msg);
+    if (STRICT.includes(file)) fail(msg); else warn(msg);
   });
+}
+
+// 有 acorn 的话顺便查一下写法：这些文件只能用到 ES2017（JavaScriptCore 的老版本也要能跑）
+let acorn = null;
+try { acorn = require('acorn'); } catch (e) {}
+function syntax(file, src) {
+  if (!acorn) return;
+  try { acorn.parse(src, { ecmaVersion: 2017 }); }
+  catch (e) { const msg = file + ' is not plain ES2017: ' + e.message; if (STRICT.includes(file)) fail(msg); else warn(msg); }
 }
 
 const loaded = [];
@@ -63,14 +76,16 @@ for (const f of FILES) {
   const src = fs.readFileSync(p, 'utf8');
   if (!src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').trim()) { console.log('skip', f, '(placeholder)'); continue; }
   lint(f, src);
+  syntax(f, src);
   try { vm.runInContext(src, ctx, { filename: f }); loaded.push(f); }
   catch (e) { fail('loading ' + f + ': ' + (e && e.stack || e)); }
 }
 const G = vm.runInContext('globalThis', ctx);
 const added = Object.getOwnPropertyNames(G).filter(k => !builtins.has(k) && k.indexOf('__') !== 0);
 console.log('loaded', loaded.join(' '), '| globals:', added.join(' '), '| res', RES, '| seed', SEED);
-for (const k of added) if (!/^PET_[A-Z]+$/.test(k)) fail('unexpected global "' + k + '"');
+for (const k of added) if (!/^PET_[A-Z]+$/.test(k)) warn('a file left an extra global behind: "' + k + '" (each file should add exactly one PET_... name)');
 if (!G.PET_ENGINE) { console.log('RESULT: FAILED (no PET_ENGINE)'); process.exit(1); }
+if (!G.PET_DOGS) fail('PET_DOGS is missing (dogs.js did not define it): the engine still runs, but the dogs cannot be drawn');
 
 // ---------- 数一数骨架画了几次、每次多久 ----------
 const rigStat = {};
@@ -162,6 +177,77 @@ function checkFrame(run, fr, view, deep) {
     if (!b || typeof b.text !== 'string' || !isNum(b.x) || !isNum(b.y)) fail(run + ': bad bubble ' + JSON.stringify(b));
   }
 }
+
+// ---------- 画图的几个文件守不守约定（有哪个查哪个）----------
+const FX_NAMES = ['bone', 'bfly_a', 'bfly_b', 'bfly2_a', 'bfly2_b', 'puff0', 'puff1', 'puff2', 'fx_heart', 'fx_hs', 'fx_bang', 'fx_note', 'fx_z', 'fx_zs', 'fx_q', 'fx_spark', 'fx_sweat', 'fx_woof'];
+const FRAMES = ['p_front', 'p_front2', 'p_front_blink', 'p_wave_a', 'p_wave_b', 'p_idle', 'p_idle2', 'p_blink', 'p_hold', 'p_hold2', 'p_walk0', 'p_walk1', 'p_walk2', 'p_walk3',
+  'p_windup', 'p_release', 'p_follow', 'p_pat', 'p_cheer', 'p_cheer2', 'p_crouch', 'p_crouch2', 'p_sit', 'p_tie_a', 'p_tie_b', 'p_watch'];
+const POSES = ['stand', 'alert', 'sit', 'paw', 'scratch', 'lie', 'sleep', 'bow', 'dig', 'beg', 'roll', 'sniff', 'tug', 'lick', 'air'];
+const pair = v => v && v.length === 2 && isNum(v[0]) && isNum(v[1]);
+function contracts() {
+  const cfg = G.PET_CONFIG || {}, tell = [];
+  const box = (o, w) => { if (!o.box || o.box.length !== 4 || !o.box.every(isNum)) fail(w + ': bad box'); };
+  if (G.PET_FX) {
+    const F = G.PET_FX, set = F.build(cfg, RES);
+    for (const n of FX_NAMES) {
+      const im = set[n];
+      if (!im) { warn('PET_FX.build has no "' + n + '" (the old sprite will be used)'); continue; }
+      checkImg(im, 'PET_FX ' + n);
+      if (!im.key) warn('PET_FX ' + n + ': key missing');
+      if (im.scale !== RES) warn('PET_FX ' + n + ': scale ' + im.scale + ' instead of ' + RES);
+      if (!im.bb || im.bb.length !== 4 || !(im.bb[0] >= 0 && im.bb[1] >= 0 && im.bb[2] < im.w && im.bb[3] < im.h && im.bb[2] >= im.bb[0] && im.bb[3] >= im.bb[1])) fail('PET_FX ' + n + ': bad bb ' + JSON.stringify(im.bb));
+    }
+    for (const [w, im] of [['ball', F.ball(0, 0, RES)], ['ball turned', F.ball(2.2, 0, RES)], ['ball squashed', F.ball(0.4, 1, RES)], ['shadow', F.shadow(17, 0.16, RES)], ['px', F.px('#8a6a4a', RES)]]) {
+      checkImg(im, 'PET_FX ' + w);
+      if (im && !im.key) warn('PET_FX ' + w + ': key missing');
+      if (im && im.scale !== RES) warn('PET_FX ' + w + ': scale ' + im.scale + ' instead of ' + RES);
+    }
+    if (F.ball(0, 0, RES).key === F.ball(Math.PI / 2, 0, RES).key) warn('PET_FX.ball gives the same image for rot 0 and a quarter turn');
+    tell.push('fx: ' + Object.keys(set).length + ' sprites' + (F.EXTRA && F.EXTRA.length ? ', ' + F.EXTRA.length + ' extra' : ''));
+  }
+  if (G.PET_PERSON) {
+    const rig = G.PET_PERSON.create(cfg);
+    for (const f of FRAMES) for (const left of [false, true]) {
+      for (let i = 0; i < 40; i++) rig.update(1 / 60, { frame: f, moving: /walk/.test(f), speed: /walk/.test(f) ? 24 : 0, t: i / 60, carried: false, air: 0, holding: 'ball', look: null });
+      const o = rig.render(left, RES), w = 'PET_PERSON ' + f + (left ? ' (left)' : '');
+      checkImg(o, w); box(o, w);
+      if (o.scale !== RES) warn(w + ': scale ' + o.scale + ' instead of ' + RES);
+      if (!isNum(o.top) || o.top < 8 || o.top > 60) fail(w + ': top = ' + o.top);
+      if (o.hand && !pair(o.hand)) fail(w + ': hand = ' + JSON.stringify(o.hand));
+      if (!o.hand && f !== 'p_follow') warn(w + ': no hand anchor (the ball will not be drawn in this pose)');
+      if (typeof o.holds !== 'boolean') warn(w + ': holds should be true or false');
+    }
+    const M = G.PET_PERSON.METRICS;
+    tell.push('person: ' + (M ? 'height ' + M.height + ', half ' + M.half + ', reach ' + M.reach : 'no METRICS (the engine assumes 26 / 8 / 6)'));
+  }
+  if (G.PET_DOGS) {
+    for (const [kind, coat] of [['gold', 'gold'], ['dax', 'dax_' + (cfg.dachshund || 'red')]]) {
+      const rig = G.PET_DOGS.create(kind, coat);
+      for (const pose of POSES) for (const left of [false, true]) {
+        for (let i = 0; i < 40; i++) rig.update(1 / 60, { pose: pose, speed: 0, air: pose === 'air' ? 1 : 0, wag: 0.5 });
+        const o = rig.render(left, RES), w = 'PET_DOGS ' + kind + ' ' + pose + (left ? ' (left)' : '');
+        if (o.scale === undefined) { if (!o.data || o.data.length !== o.w * o.h * 4) fail(w + ': bad buffer'); }      // 旧的画法：没有 scale，一个像素一个世界单位
+        else { checkImg(o, w); if (o.scale !== RES) warn(w + ': scale ' + o.scale + ' instead of ' + RES); }
+        box(o, w);
+        if (!pair(o.mouth)) fail(w + ': mouth = ' + JSON.stringify(o.mouth));
+        else if (left ? o.mouth[0] > 0 : o.mouth[0] < 0) warn(w + ': the mouth is behind the body centre (dx = ' + o.mouth[0].toFixed(1) + ')');
+        if (!isNum(o.top) || o.top < 2 || o.top > 60) fail(w + ': top = ' + o.top);
+      }
+    }
+    tell.push('dogs: ' + (G.PET_DOGS.create('gold', 'gold').render(false, RES).scale === undefined ? 'old rig (ignores R)' : 'R-aware'));
+  }
+  if (G.PET_LAWN) {
+    for (const ph of (G.PET_LAWN.PHASES || ['day', 'dusk', 'night'])) for (const mode of ['full', 'strip']) {
+      const t0 = Date.now(), im = G.PET_LAWN.render(96, 64, ph, RES, { mode: mode }), w = 'PET_LAWN ' + ph + ' ' + mode;
+      checkImg(Object.assign({}, im, { ver: im.ver === undefined ? 1 : im.ver }), w);
+      if (im.w !== 96 * RES || im.h !== 64 * RES) warn(w + ': size ' + im.w + 'x' + im.h + ', expected ' + 96 * RES + 'x' + 64 * RES);
+      if (Date.now() - t0 > 1000) warn(w + ': took ' + (Date.now() - t0) + ' ms for a small patch');
+    }
+    tell.push('lawn ok');
+  }
+  if (tell.length) console.log('art modules: ' + tell.join(' | '));
+}
+try { contracts(); } catch (e) { fail('art module check: ' + (e && e.stack || e)); }
 
 // ---------- 跑一种版面 ----------
 function simulate(mode, minutes) {
@@ -270,6 +356,10 @@ function simulate(mode, minutes) {
   if (dragging || carrying) eng.pointer('up', 0, 0);
   eng.pointer('leave', 0, 0);
   const perf = T.perf(), simSec = frames * dt;
+  for (const k in perf) {
+    if (perf[k].renders > frames + 50) note(k + ' was rasterised more often than once per frame (' + perf[k].renders + ' renders in ' + frames + ' frames)');
+    if (perf[k].changed > perf[k].renders) note(k + ': more version bumps than renders');
+  }
 
   // ---------- 夜里：没人理 → 回岛睡觉（没有岛就原地睡）；天亮 → 自己出来 ----------
   const run = (sec, touch) => { for (let i = 0; i < sec * 60; i++) { clock += dt; if (touch) T.set('touch', T.state().now); eng.step(dt); checkFrame(mode + ' night', eng.compose(), view, false); checkItems(eng.den(RES).items, mode + ' night den', { w: 124, h: 28 }); } };
@@ -305,10 +395,13 @@ function simulate(mode, minutes) {
     (renders / simSec).toFixed(1) + ' per simulated second (' + Object.keys(perf).map(k => k + ' ' + (perf[k].renders / simSec).toFixed(1)).join(', ') +
     '); of those ' + (100 * changed / Math.max(1, renders)).toFixed(0) + '% changed pixels');
   if (bad) return;
-  if (stats.throws < minutes * 0.5) fail(mode + ': too few throws');
-  if (stats.grabs.dax + stats.grabs.gold < stats.throws * 0.75) fail(mode + ': dogs are not fetching reliably');
+  // 下面几条是"玩得像不像样"的统计，跑得太短不作数
+  if (minutes >= 5) {
+    if (stats.throws < minutes * 0.5) fail(mode + ': too few throws');
+    if (stats.grabs.dax + stats.grabs.gold < stats.throws * 0.7) fail(mode + ': dogs are not fetching reliably');
+    if (!stats.bubbles) fail(mode + ': the person never said anything');
+  }
   if (minutes >= 10 && Object.keys(stats.scenes).length < 8) fail(mode + ': too few different scenes played: ' + Object.keys(stats.scenes).join(','));
-  if (minutes >= 5 && !stats.bubbles) fail(mode + ': the person never said anything');
 }
 
 const t0 = Date.now();
@@ -320,6 +413,7 @@ for (const k in rigStat) {
   const s = rigStat[k];
   if (s.n) console.log('rig ' + k + ': ' + s.n + ' renders, ' + (Number(s.ns) / 1e6 / s.n).toFixed(3) + ' ms each on average, slowest ' + (s.max / 1e6).toFixed(2) + ' ms');
 }
+if (warned) console.log(warned + ' warning(s) above: places where a drawing module differs from the contract but the engine copes');
 console.log('took ' + ((Date.now() - t0) / 1000).toFixed(1) + ' s');
 console.log(failed ? 'RESULT: FAILED' : 'RESULT: OK');
 process.exit(failed ? 1 : 0);

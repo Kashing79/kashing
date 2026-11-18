@@ -6,9 +6,13 @@ here = pathlib.Path(__file__).resolve().parent
 web = here.parent / 'web'
 out = here.parent.parent / 'docs' / 'qiuqiu'
 out.mkdir(parents=True, exist_ok=True)
-js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script')
+js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script') if (web / n).exists() else ''
 page = (here / 'template.html').read_text(encoding='utf-8')
-page = page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__DOGS__', js('dogs.js')).replace('__PET__', js('pet.js'))
+# 模板里每个 __名字__ 换成 web/ 里对应的那个文件（顺序见模板最后；画图的几个文件在前，玩法在后）
+for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), ('__FX__', 'fx.js'), ('__DOGS__', 'dogs.js'),
+                   ('__PERSON__', 'person.js'), ('__LAWN__', 'lawn.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
+    assert mark in page, mark
+    page = page.replace(mark, js(name))
 (out / 'index.html').write_text(page, encoding='utf-8')
 (out / 'manifest.webmanifest').write_text(json.dumps({
     "name": "球球", "short_name": "球球", "start_url": "./", "scope": "./", "display": "standalone",

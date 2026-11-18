@@ -100,22 +100,27 @@
   }
 
   // ------------------------------------------------------------
-  //  把一张图（一块 RGBA 像素）变成可以直接贴的小画布；像素没变就一直用同一张
+  //  把一张图（一块 RGBA 像素）变成可以直接贴的小画布；像素没变就一直用同一张。
+  //  有名字（key）的图内容不会变，按名字记；没名字的（三个角色）按 ver 看变没变
   // ------------------------------------------------------------
-  var cache = new WeakMap();
+  var byKey = {}, byImg = new WeakMap();
   function canvasOf(im) {
-    var c = cache.get(im);
-    if (!c) { c = { cv: document.createElement('canvas'), cx: null, id: null, ver: -1 }; c.cx = c.cv.getContext('2d'); cache.set(im, c); }
+    var c = im.key ? byKey[im.key] : byImg.get(im);
+    if (!c) {
+      c = { cv: document.createElement('canvas'), cx: null, id: null, ver: -1 };
+      c.cx = c.cv.getContext('2d');
+      if (im.key) byKey[im.key] = c; else byImg.set(im, c);
+    }
     if (c.cv.width !== im.w || c.cv.height !== im.h) { c.cv.width = im.w; c.cv.height = im.h; c.id = null; c.ver = -1; }
-    if (im.ver == null || c.ver !== im.ver) {
+    if (c.ver === -1 || (!im.key && c.ver !== im.ver)) {
       if (!c.id) c.id = c.cx.createImageData(im.w, im.h);
       c.id.data.set(im.data);
       c.cx.putImageData(c.id, 0, 0);
-      c.ver = im.ver;
+      c.ver = im.key ? 1 : (im.ver == null ? -1 : im.ver);
     }
     return c.cv;
   }
-  // 照着清单画：位置对齐到像素；图自己的精细度和画布不一样时，按整数倍放大（不抹匀）
+  // 照着清单画：位置对齐到像素；图自己的精细度和画布不一样时（比如旧图），照比例放大，不抹匀
   function paint(c, items, RR) {
     for (var i = 0; i < items.length; i++) {
       var it = items[i], im = it.img, cv = canvasOf(im), k = RR / (im.scale || 1);

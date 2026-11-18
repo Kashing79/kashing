@@ -8,14 +8,48 @@
 //
 // 这个文件只管"玩法"：不碰网页、不碰画布、不用定时器，只用得到语言自带的东西。
 // 所以同一份代码可以跑在浏览器 / 手机网页里（外壳是 web.js），也可以跑在 Mac 外壳的 JavaScriptCore 里。
+// 画图的活在别的文件里：dogs.js（狗）、person.js（小人）、fx.js（小球、表情、影子……）；
+// 后两个不在时，就用 sprites.js 里旧的手画图。
 //
-// 外壳怎么用它：
+// 单位：一个"世界单位"= 旧版的一个像素（金毛大约 45 长）。x 向右，y 向下，z 是离地的高度。
+//       图可以画得更细：R = 一个世界单位里有几个像素（默认 2）。
+//
+// ---------------- 外壳怎么用它 ----------------
 //   var eng = PET_ENGINE.create(host, cfg);
-//   eng.configure({ view: { w, h }, insets: { top, bottom, left, right } });   // 场地多大（世界单位）
-//   每一帧： eng.step(dt)  往前走一小步；  eng.compose()  拿到"现在该画什么"的清单，照着画
-//   鼠标 / 手指： eng.pointer('down' | 'move' | 'up' | 'hover' | 'leave', x, y)
 //
-// 单位：一个"世界单位"就是旧版的一个像素（金毛大约 45 长）。图可以画得更细：R = 一个世界单位里有几个像素。
+//   host（除了 now 都可以不给）：
+//     now()                    现在几秒了（只要一直往前走就行）
+//     storage.get(k) / set(k, v)   存"今天丢了几次球"（键是 qiuqiu-stats）
+//     haptic(kind)             'light' | 'soft'：手机上震一下
+//     island                   屏幕顶上有没有岛：{ center() 岛的中心在哪（世界单位的 x）, visible() 现在显示着吗,
+//                              hit(x, y) 把谁拎到这里放下算不算"放到岛上" }；没有岛就给 null
+//     log(msg)
+//   cfg：config.js 里的设定，外壳可以再加几样：
+//     res（R，默认 2）、rigFps（原地做动作时每秒重画几次，默认 12）、auto（自动丢球，默认开）、
+//     roam、grass（有草地：影子深一点，打滚会带起草屑）、
+//     entrance（刚打开时从岛里跳出来，默认开）、lawnTap（点空地 = 往那儿丢球；只有网页版开）
+//
+//   eng.configure({ view: { w, h }, insets: { top, bottom, left, right }, res, roam, auto, grass, soft })
+//       画面多大、四边各让出多少（都是世界单位）。第一次给 view 时角色才摆到场地上。
+//   eng.step(dt)        往前走 dt 秒（每画一帧调一次就行；隔得久它自己会拆成几小步走）
+//   eng.compose()       这一帧该画什么 → { items, hot, drag, bubble }
+//       items   从后到前排好的清单，每一项 { id, img, x, y, flip, a }：
+//               img = { w, h, data(RGBA), scale, ox, oy, key, ver }；(x, y) 是图的左上角（世界单位，不取整）；
+//               flip = 左右镜像；a = 不透明度。id 每个东西固定不变：
+//               gold / person / dax / ball / held（手里的零食）/ shadow:gold… / puff:编号 / px:编号 / item:编号 / bfly / emote:编号
+//               三个角色各自一直用同一张 img：像素变了它的 ver 才加一（key 是 null）；其余的图 key 不变就不会变
+//       hot     可以点的范围 [x, y, w, h]（已经留好边）：先是球（抓得到的时候），然后金毛、小人、小腊肠
+//       drag    她正拖着球 / 拎着谁
+//       bubble  小人在说话：{ text, x, y, id }，(x, y) 是他头顶；换了一句 id 会变；没在说就是 null
+//       顺便会更新"可以点的范围"和嘴、手的位置，所以每画一帧调一次就好
+//   eng.pointer(type, x, y)   'down' | 'move' | 'up' | 'hover' | 'leave'（世界单位）；返回 true = 点在球或者谁身上了
+//   eng.command(name)   'throw' | 'wave' | 'home' | 'out' | 'toggleHome' | 'love' | 'gather'
+//   eng.status()        { home: 'out' | 'going' | 'in' | 'leaving', fetch, pets, night, auto, roam, scene,
+//                         phase: 'day' | 'dusk' | 'night'（草地该用哪套颜色）, drag }
+//   eng.busy()          0 没什么在动 / 1 鼠标在附近、有蝴蝶 / 2 正在动（外壳据此决定画得多勤）
+//   eng.den(R)          它们在岛里睡觉时，岛上那一小格里画什么 → { w, h, items }（坐标相对那一格的左上角）
+//   eng.setQuality(q)   0..1：机器吃力时调低，角色就少重画几次
+//   eng._t              给测试脚本用的
 (function (G) {
   'use strict';
 
@@ -23,7 +57,7 @@
   //  设定
   // ------------------------------------------------------------
   var DEF = { messages: [], messageMinutes: [25, 60], autoPlaySeconds: [35, 90], nightSleep: [0, 7], dachshund: 'red',
-              roam: true, grass: false, res: 2, rigFps: 15 };
+              roam: true, grass: false, res: 2, rigFps: 12 };
   var GRAV = 420;
   var BALL_R = 4;
   var KIND = {
@@ -63,14 +97,23 @@
     var CFG = Object.assign({}, DEF, cfg || {});
     var opt = { auto: CFG.auto !== false, roam: !!CFG.roam, grass: !!CFG.grass, soft: !!CFG.soft };
     var R = resOf(CFG.res);          // 一个世界单位画成几个像素
-    var RIG_FPS = +CFG.rigFps > 0 ? +CFG.rigFps : 15;     // 角色在动的时候，每秒重画几次
+    var RIG_FPS = +CFG.rigFps > 0 ? +CFG.rigFps : 12;     // 角色在原地做动作的时候，每秒重画几次
     var CALM_FPS = 6;                                      // 只是呼吸、轻轻摇尾巴的时候，每秒重画几次
+    var STRIDE = 0.5;                                      // 在地上每走出这么远（世界单位）就重画一次，脚才不会打滑
     var quality = 1;
 
     var DOGS = G.PET_DOGS || null;
     var FXM = G.PET_FX || null;          // 新的小道具画法（没有就用旧的手画图）
     var PERSON = G.PET_PERSON || null;   // 新的小人画法（同上）
     var SPR = (G.PET_SPRITES && G.PET_SPRITES.build) ? G.PET_SPRITES.build(CFG) : {};
+    // 新画法的小人比旧的高：多高、半个身子多宽、手能伸多远，听画的人的（没有就按旧图：26 高、半宽 8、手伸 6）
+    var PM = (PERSON && PERSON.METRICS) || null;
+    var P_H = PM && PM.height > 0 ? +PM.height : 26;
+    var P_HALF = PM && PM.half > 0 ? +PM.half : 8;
+    var P_REACH = PM && PM.reach > 0 ? +PM.reach : 6;
+    var P_GRAB = Math.round(P_H * 0.54);          // 被拎起来时，手抓在脚上面多高的地方
+    function pr(n) { return n + Math.max(0, P_REACH - 6); }     // 狗凑到他手边要站多远：手伸得远就站远一点
+    var PY0 = 0;               // 小人的脚最靠上能站到哪里（头不能顶到菜单栏）
 
     var VW = 300, VH = 110;    // 外壳给的画面大小（世界单位）
     var INS = { top: 0, bottom: 0, left: 0, right: 0 };   // 菜单栏、程序坞、刘海各占多少（世界单位）
@@ -84,23 +127,26 @@
     function clock() { return host.now ? host.now() : now; }
     function after(sec) { var t = now + sec; return function () { return now >= t; }; }
     function all() { var fs = arguments; return function () { for (var i = 0; i < fs.length; i++) if (!fs[i]()) return false; return true; }; }
-    function qz(v) { return Math.round(v * R) / R; }      // 对齐到像素格子（只用在"贴在别人身上的东西"的相对位置上）
+    // 对齐到像素格子。图的位置不取整（那是外壳的事），只用在两处：
+    // 贴在别人身上的东西（手里、嘴里的球）的相对位置；"可以点的范围"（看到哪里就点得到哪里）
+    function qz(v) { return Math.round(v * R) / R; }
 
     // ------------------------------------------------------------
     //  角色
     // ------------------------------------------------------------
-    // 每个角色自己的那张图：骨架隔几帧才重画一次，中间只挪位置
+    // 每个角色自己的那张图（img）和重画的节奏；骨架上嘴、手、头顶的位置也记在这里
     function makeVis(phase) {
       return {
         im: { w: 0, h: 0, data: null, scale: 1, ox: 0, oy: 0, key: null, ver: 0 },
-        ph: phase, acc: 0, seen: 0, sig: -1, left: false, R: 0, hot: 0,
-        bx0: 0, by0: 0, bx1: 0, by1: 0, px: 1, top: 0, mx: 0, my: 0, hand: false, holds: false, hx: 0, hy: 0,
+        ph: phase, acc: 0, seen: 0, sig: -1, cls: -1, left: false, R: 0, hot: 0, dist: 0, lx: 0, ly: 0,
+        bx0: 0, by0: 0, bx1: 0, by1: 0, px: 1, top: 0, mx: 0, my: 0, hand: false, holds: false, hx: 0, hy: 0, seat: false, sx: 0, sy: 0,
         ry0: 0, ry1: 0, s8: null, s32: null, p32: null, n: 0, ch: 0,
       };
     }
     function makeDog(kind) {
+      var m = DOGS && DOGS.METRICS && DOGS.METRICS[kind];
       return {
-        kind: kind, name: kind, K: KIND[kind], half: KIND[kind].half,
+        kind: kind, name: kind, K: KIND[kind], half: m && m.half > 0 ? +m.half : KIND[kind].half,
         rig: DOGS ? DOGS.create(kind, kind === 'gold' ? 'gold' : 'dax_' + (CFG.dachshund || 'red')) : null,
         vis: makeVis(kind === 'gold' ? 0 : 0.66), ri: {},
         x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, sp: 0, face: 1, lift: 0,
@@ -108,7 +154,7 @@
         tx: 0, ty: 0, spd: 0, react: 0, hopAt: 0, sideAt: 0, way: null,
         pant: false, happy: 0, hype: 0, bark: 0, look: 0,
         box: null, bpx: 1, top: 0, mx: kind === 'gold' ? 15 : 16, zAt: 0, dustAt: 0, lastSp: 0,
-        land: 0, rSp: 0, rFace: 1, rLook: 0,
+        land: 0, rSp: 0, rFace: 1, rLook: 0, near: false, la: null,
         scene: null, cmd: null, hidden: false, carried: false,
       };
     }
@@ -117,9 +163,9 @@
     var dogs = [gold, dax];
     function other(d) { return d === dax ? gold : dax; }
     var person = {
-      isPerson: true, name: 'person', half: 8, x: 0, y: 0, z: 0, vz: 0, lift: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, ty: 0, next: 4,
+      isPerson: true, name: 'person', half: P_HALF, x: 0, y: 0, z: 0, vz: 0, lift: 0, face: 1, st: 'idle', t: 0, dur: 0, anim: 0, tx: 0, ty: 0, next: 4,
       msgAt: 0, waveCd: 0, hoverT: 0, box: null, bpx: 1, top: 0, zAt: 0, giveTo: null, spr: null, sprAt: 0, act: null, patSpr: null, item: null,
-      scene: null, cmd: null, hidden: false, carried: false, moving: false, spd: 0,
+      scene: null, cmd: null, hidden: false, carried: false, moving: false, spd: 0, la: null,
       rig: (PERSON && PERSON.create) ? PERSON.create(CFG) : null, vis: makeVis(0.33), ri: { frame: 'p_idle' },
     };
     var actors = [gold, person, dax];
@@ -152,8 +198,9 @@
       F.y1 = LH - Math.ceil(INS.bottom);
       F.y0 = opt.roam ? Math.min(F.y1, Math.ceil(INS.top) + 34) : F.y1;
       SK = clamp(Math.min(LW, 400) / 400, 0.55, 1);
+      PY0 = clamp(Math.ceil(INS.top) + P_H + 6, F.y0, F.y1);
       if (!booted) boot();
-      actors.forEach(function (a) { a.x = clamp(a.x, F.x0 + a.half + 1, F.x1 - a.half - 1); a.y = clamp(a.y, F.y0, F.y1); });
+      actors.forEach(function (a) { a.x = clamp(a.x, F.x0 + a.half + 1, F.x1 - a.half - 1); a.y = clamp(a.y, a.isPerson ? PY0 : F.y0, F.y1); });
       ball.x = clamp(ball.x, F.x0 + BALL_R, F.x1 - BALL_R); ball.y = clamp(ball.y, F.y0, F.y1);
     }
     function boot() {
@@ -202,6 +249,11 @@
       }
     }
     function haptic(k) { if (host.haptic) { try { host.haptic(k); } catch (e) {} } }
+    // 在草地上打滚带起来的草屑是什么颜色：新的草地会告诉我们这个时段的颜色，没有就用旧草地的
+    function grassBits() {
+      var L = G.PET_LAWN, p = (L && L.palette) ? L.palette(dayPhase()) : null;
+      return (p && p.bits && p.bits.length) ? p.bits : ['#9ad584', '#77b363'];
+    }
     var bubble = null;         // 小人正在说的话：{ text, until, id }（气泡本身由外壳画）
     function say(text) {
       bubble = { text: text, until: now + Math.max(4.5, Math.min(9, text.length * 0.35 + 3)), id: ++serial };
@@ -317,6 +369,7 @@
     }
     // 小人把东西丢出去的那一下，手在哪里（旧画面 p_release 里手的位置）
     function handPos(sprName, face) {
+      if (PM) { var k = P_H / 26; return { x: person.x + face * 9.5 * k, z: 17 * k }; }      // 新画法：按身高放大
       var s = SPR[sprName], w = s ? s.w : 22, hh = s ? s.h : 28, h = (s && s.hand) || [19, 10];
       var x0 = Math.round(person.x - w / 2), ax = h[0] + 1;
       return { x: face < 0 ? x0 + (w - 1 - ax) : x0 + ax, z: hh - (h[1] + 1) };
@@ -401,7 +454,8 @@
       yield 0.5;
       hold(dax, 'stand'); hop(dax, 150);
       yield function () { return dax.vz < 0 && dax.z <= 9; };
-      dax.x = gold.x - gold.face * 4; dax.y = gold.y + ry(0.5); dax.vx = dax.vy = 0; dax.z = 0; dax.vz = 0; dax.lift = 8;
+      var seat = gold.vis.seat;          // 新画法会说"背上哪里能坐"；旧画法按老位置
+      dax.x = seat ? gold.x + gold.vis.sx : gold.x - gold.face * 4; dax.y = gold.y + ry(0.5); dax.vx = dax.vy = 0; dax.z = 0; dax.vz = 0; dax.lift = seat ? gold.vis.sy : 8;
       dax.face = gold.face; hold(dax, 'sit'); dax.wag = 1; gold.wag = 0.9; emote('heart', dax);
       yield 2.8;
       dax.lift = 0; hop(dax, 100);
@@ -426,14 +480,14 @@
     function* scBelly() {      // 揉肚子
       var s = person.x < dax.x ? -1 : 1;
       hold(dax, 'sit'); faceTo(dax, person.x); dax.wag = 0.8;
-      yield go(person, dax.x + s * 19, dax.y + ry(-1), 26);
+      yield go(person, dax.x + s * pr(19), dax.y + ry(-1), 26);
       person.face = -s; faceTo(dax, person.x);
       hold(dax, 'roll'); dax.happy = 1;
       hold(person, { f: ['p_crouch', 'p_crouch2'], fps: 5 });
       for (var i = 0; i < 3; i++) { emote(i % 2 ? 'hs' : 'heart', dax, rand(-4, 4)); yield 0.8; }
       // 金毛也要
       emote('bang', gold, 0, 0.6);
-      yield go(gold, person.x + s * (gold.mx + 12), person.y + ry(1), spd(gold, 'trot') * 1.3);
+      yield go(gold, person.x + s * (gold.mx + pr(12)), person.y + ry(1), spd(gold, 'trot') * 1.3);
       faceTo(gold, person.x); hold(gold, 'sit'); gold.wag = 1;
       yield 0.4;
       person.face = s; hold(person, 'p_pat'); gold.happy = 1; emote('heart', gold);
@@ -444,7 +498,7 @@
     function* scPaw() {        // 握手
       var s = person.x < gold.x ? -1 : 1;
       hold(gold, 'sit'); faceTo(gold, person.x); gold.wag = 0.7;
-      yield go(person, gold.x + s * (gold.mx + 13), gold.y + ry(0), 26);
+      yield go(person, gold.x + s * (gold.mx + pr(13)), gold.y + ry(0), 26);
       person.face = -s; faceTo(gold, person.x);
       hold(person, 'p_crouch2');
       yield 0.5;
@@ -511,12 +565,12 @@
     }
     function* scPets() {       // 金毛来讨摸，小腊肠吃醋
       var s = gold.x < person.x ? -1 : 1;
-      yield go(gold, person.x + s * (gold.mx + 12), person.y + ry(1), spd(gold, 'trot') * 1.2);
+      yield go(gold, person.x + s * (gold.mx + pr(12)), person.y + ry(1), spd(gold, 'trot') * 1.2);
       faceTo(gold, person.x); hold(gold, 'sit'); gold.wag = 1;
       person.face = s; hold(person, 'p_pat'); gold.happy = 1; emote('heart', gold);
       yield 1.2;
       emote('bang', dax, 0, 0.6);
-      yield go(dax, person.x - s * 22, person.y + ry(2), spd(dax, 'run'));
+      yield go(dax, person.x - s * pr(22), person.y + ry(2), spd(dax, 'run'));
       faceTo(dax, person.x); hold(dax, 'stand');
       for (var i = 0; i < 3; i++) { hop(dax, 105); dax.bark = 0.3; yield 0.42; }
       person.face = -s; gold.happy = 0;
@@ -599,14 +653,14 @@
 
     // 站在小人 / 另一只狗的正后方会被挡住（看起来像骑在人家头上）：返回挡住它的那个
     function blocker(d) {
-      if (!person.hidden && !person.carried && Math.abs(d.x - person.x) < d.half * 0.7 + 7 && d.y <= person.y && d.y > person.y - 25) return person;
+      if (!person.hidden && !person.carried && Math.abs(d.x - person.x) < d.half * 0.7 + P_HALF - 1 && d.y <= person.y && d.y > person.y - (P_H - 1)) return person;
       var o = other(d);
       if (!o.hidden && !o.carried && !o.scene && o.z === 0 && Math.abs(d.x - o.x) < o.half * 0.75 &&
           (d.y < o.y || (d.y === o.y && d === dax)) && d.y > o.y - 13) return o;
       return null;
     }
     function sidestep(d, b) {
-      var s = d.x >= b.x ? 1 : -1, gap = (b.isPerson ? 9 : b.half) + d.half + rand(6, 14);
+      var s = d.x >= b.x ? 1 : -1, gap = (b.isPerson ? P_HALF + 1 : b.half) + d.half + rand(6, 14);
       var tx = b.x + s * gap;
       if (tx < F.x0 + d.half + 4 || tx > F.x1 - d.half - 4) tx = b.x - s * gap;
       walkTo(d, tx, b.y + ry(rand(1, 7)), spd(d, 'trot'));
@@ -702,7 +756,7 @@
             if (d.t > d.dur) { if (sleepyTime()) d.t = 0; else think(d); }
           } else {
             if (d.pose === 'dig' && Math.random() < dt * 14) bits(d.x + d.face * 10, d.y - 1, 1, ['#8a6a4a', '#6f5238', '#a98a62'], 26, 60);
-            if (d.pose === 'roll' && opt.grass && Math.random() < dt * 6) bits(d.x + rand(-8, 8), d.y - 2, 1, ['#9ad584', '#77b363'], 18, 40);
+            if (d.pose === 'roll' && opt.grass && Math.random() < dt * 6) bits(d.x + rand(-8, 8), d.y - 2, 1, grassBits(), 18, 40);
             var blk = (d.t > 0.5 && d.z === 0 && now > d.sideAt) ? blocker(d) : null;
             if (blk) { d.sideAt = now + 2.5; sidestep(d, blk); break; }
             if (d.t > d.dur) think(d);
@@ -781,7 +835,7 @@
         case 'return': {
           if (ball.st !== 'mouth' || ball.holder !== d) { d.st = 'wait'; d.t = 0; break; }
           var side = sgn(d.x - person.x);
-          if (drive(d, person.x + side * (d.mx + 9), person.y + ry(1), spd(d, 'back'), dt) || d.t > 12) { d.face = -side; handover(d); }
+          if (drive(d, person.x + side * (d.mx + pr(9)), person.y + ry(1), spd(d, 'back'), dt) || d.t > 12) { d.face = -side; handover(d); }
           break;
         }
 
@@ -839,8 +893,10 @@
       }
 
       // 鼠标靠近：看过来、摇尾巴；小腊肠会蹦一下
+      d.near = false;
       if (pointer.inside && !pointer.drag && !pointer.grab && !d.scene && !d.carried && awake(d) && (d.st === 'pose' || d.st === 'idle') && d.pose !== 'lie' && d.pose !== 'roll') {
         var px = pointer.x, near = hyp(px - d.x, (pointer.y - (d.y - 12)) * 1.2) < 46;
+        d.near = near;
         if (near) {
           faceTo(d, px); d.wag = Math.max(d.wag, 0.8); d.look = clamp((d.y - 14 - pointer.y) / 30, -0.6, 1);
           if (d.kind === 'dax' && d.z === 0 && now > d.hopAt && Math.abs(px - d.x) < 24) { hop(d, 110); d.hopAt = now + rand(1.4, 3); }
@@ -868,11 +924,19 @@
       I.shake = d.st === 'tug' ? 1 : 0;
       I.bark = d.bark > 0;
       // 第三版新加的几样（旧的画法用不到）
-      I.vx = d.vx; I.vy = d.vy;
+      I.vx = d.vx; I.vy = d.vy; I.vz = d.z > 0 ? d.vz : 0;
       I.accel = dt > 0 ? (d.sp - d.rSp) / dt : 0;
       I.landing = d.land;
       I.turn = d.face !== d.rFace;
       I.sleepy = sleepyTime() ? 1 : clamp((now - Math.max(lastTouch, play.lastPlay) - 40) / 140, 0, 0.7);
+      // 眼睛盯着什么：球、蝴蝶、或者凑过来的鼠标（相对脚下的位置：往前多远、多高）
+      var L = d.la;
+      if (d.hidden) L = null;
+      else if (ball.st === 'free' || ball.st === 'drag' || d.st === 'wait') { L = L || [0, 0]; L[0] = ball.x - d.x; L[1] = d.y - ball.y + ball.z; }
+      else if (bfly.on && (d.st === 'bfly' || (d.st === 'pose' && d.look > 0.5))) { L = L || [0, 0]; L[0] = bfly.x - d.x; L[1] = d.y - bfly.y; }
+      else if (d.near) { L = L || [0, 0]; L[0] = pointer.x - d.x; L[1] = d.y - pointer.y; }
+      else L = null;
+      I.lookAt = L; if (L) d.la = L;
       d.rSp = d.sp; d.rFace = d.face;
       if (Math.abs(d.look - d.rLook) > 0.02) { d.rLook = d.look; d.vis.hot = now + 0.5; }     // 头在转：这阵子画勤一点
       return I;
@@ -976,10 +1040,12 @@
     }
 
     function movePerson(tx, ty, speed, dt) {
-      var p = person, dx = tx - p.x, dy = ty - p.y, d = hyp(dx, dy);
+      var p = person;
+      if (PY0 > F.y0 && ty < PY0) ty = PY0;
+      var dx = tx - p.x, dy = ty - p.y, d = hyp(dx, dy);
       if (d < 1.4) { p.moving = false; return true; }
       var st = Math.min(d, speed * SK * dt);
-      p.x = clamp(p.x + dx / d * st, F.x0 + 9, F.x1 - 9); p.y = clamp(p.y + dy / d * st * (Math.abs(dy) > Math.abs(dx) ? 0.85 : 1), F.y0, F.y1);
+      p.x = clamp(p.x + dx / d * st, F.x0 + P_HALF + 1, F.x1 - P_HALF - 1); p.y = clamp(p.y + dy / d * st * (Math.abs(dy) > Math.abs(dx) ? 0.85 : 1), PY0, F.y1);
       if (Math.abs(dx) > 1.5) p.face = sgn(dx);
       p.anim += dt * (speed > 40 ? 9 : 6.5);
       p.moving = true; p.spd = speed;
@@ -1116,11 +1182,14 @@
       I.carried = p.carried;
       I.air = p.z > 1.5 ? 1 : 0;
       I.holding = p.hidden ? null : (p.item ? p.item : (ball.st === 'hand' ? 'ball' : null));
-      // 球在外面的时候，眼睛跟着球
-      if (!p.hidden && (ball.st === 'free' || ball.st === 'drag' || ball.st === 'mouth' || ball.st === 'tug')) {
-        if (!I.look) I.look = [0, 0];
-        I.look[0] = ball.x - p.x; I.look[1] = (p.y - ball.y) + ball.z;
-      } else I.look = null;
+      // 眼睛看哪里（相对脚下：往旁边多远、多高）：球在外面就跟着球；正在摸的那只狗；凑过来的鼠标
+      var L = p.la, g = p.giveTo;
+      if (p.hidden) L = null;
+      else if (ball.st === 'free' || ball.st === 'drag' || ball.st === 'mouth' || ball.st === 'tug') { L = L || [0, 0]; L[0] = ball.x - p.x; L[1] = (p.y - ball.y) + ball.z; }
+      else if (g && g.mouthX !== undefined) { L = L || [0, 0]; L[0] = g.mouthX - p.x; L[1] = p.y - g.mouthY; }
+      else if (pointer.inside && !p.scene && hyp(pointer.x - p.x, pointer.y - (p.y - P_H * 0.6)) < 70) { L = L || [0, 0]; L[0] = pointer.x - p.x; L[1] = p.y - pointer.y; }
+      else L = null;
+      I.look = L; if (L) p.la = L;
       return I;
     }
 
@@ -1222,7 +1291,7 @@
           var q = home.q[i];
           if (now < q.at) continue;
           var a = q.a;
-          a.hidden = false; a.x = clamp(q.x, F.x0 + a.half + 2, F.x1 - a.half - 2); a.y = ip.y; a.z = 0.01; a.vz = 120; a.scene = null; a.cmd = null; a.lift = 0;
+          a.hidden = false; a.x = clamp(q.x, F.x0 + a.half + 2, F.x1 - a.half - 2); a.y = a.isPerson ? Math.max(ip.y, PY0) : ip.y; a.z = 0.01; a.vz = 120; a.scene = null; a.cmd = null; a.lift = 0;
           puff(a.x, a.y - 16, true);
           if (a.isPerson) { a.st = 'come'; a.t = 0; a.tx = ip.x + rand(-20, 20); a.ty = clamp(ip.y + (F.y1 - F.y0) * rand(0.4, 0.6), F.y0, F.y1); }
           else { var p = randPt(60 * SK, a); a.st = 'zoom'; a.t = 0; a.pose = 'stand'; a.wag = 1; a.vx = a.vy = 0; a.way = [p, { x: ip.x + (a === dax ? 30 : -40), y: clamp(ip.y + (F.y1 - F.y0) * 0.5, F.y0, F.y1) }]; }
@@ -1355,8 +1424,8 @@
         if (g.moved) {
           var c = g.a;
           c.x = clamp(x, F.x0 + c.half + 1, F.x1 - c.half - 1);
-          if (opt.roam) { c.y = clamp(y + (c.isPerson ? 14 : 8), F.y0, F.y1); c.z = 5; }
-          else { c.y = F.y1; c.z = clamp(F.y1 - y - (c.isPerson ? 14 : 8), 0, LH); }
+          if (opt.roam) { c.y = clamp(y + (c.isPerson ? P_GRAB : 8), c.isPerson ? PY0 : F.y0, F.y1); c.z = 5; }
+          else { c.y = F.y1; c.z = clamp(F.y1 - y - (c.isPerson ? P_GRAB : 8), 0, LH); }
         }
         return true;
       }
@@ -1479,7 +1548,8 @@
     }
 
     // ------------------------------------------------------------
-    //  角色的图："一拍二"——骨架隔几帧才重画一次，中间只挪位置
+    //  角色的图：把骨架画成像素是最费力气的事，所以不是每一帧都重画——
+    //  看得出变化了才画，其余时候接着用上一张，只挪位置
     // ------------------------------------------------------------
     function qual() { return clamp(quality, 0.2, 1) * (opt.soft ? 0.56 : 1); }
     // 两张图在 [i0, i1) 这些像素上是不是一模一样
@@ -1510,21 +1580,39 @@
       if (o.mouth) { v.mx = o.mouth[0]; v.my = o.mouth[1]; }
       v.hand = !!o.hand; v.holds = !!o.hand && o.holds !== false;
       if (o.hand) { v.hx = o.hand[0]; v.hy = o.hand[1]; }
+      v.seat = !!o.seat;
+      if (o.seat) { v.sx = o.seat[0]; v.sy = o.seat[1]; }
     }
-    // 该不该重画这个角色：姿势变了 / 起跳落地 / 叼到球 / 转身 → 马上画；否则按节奏来（动得多画得勤）
-    function shoot(a, left, RR, sig, active) {
-      var v = a.vis, per = 1 / ((active ? RIG_FPS : CALM_FPS) * qual());
+    // 该不该重画这个角色。下面任何一条成立就画，否则接着用上一张（位置照样每帧都挪）：
+    //   · 出了大动静：换了姿势 / 画面 / 心情、起跳、落地、叼到球、转身
+    //   · 在地上走出了半个世界单位（跑着的狗每一帧都重画，踩在地上的脚才不会打滑）
+    //   · 在原地做动作，离上次画过了 1/rigFps 秒
+    //   · 只是呼吸、轻轻摇尾巴，离上次画过了大约 1/6 秒
+    function shoot(a, left, RR, sig, cls, active) {
+      var v = a.vis, q = qual(), per = 1 / ((active ? RIG_FPS : CALM_FPS) * q);
       var el = now - v.seen;
       v.seen = now;
       v.acc += el > 0 ? (el > 1 ? 1 : el) : 0;
       var must = v.im.ver === 0 || sig !== v.sig || left !== v.left || RR !== v.R;
-      if (!must && v.acc < per - 1e-6) return v;
-      if (must) { v.acc = v.ph * per; v.hot = Math.max(v.hot, now + 0.6); }   // 姿势在过渡，这阵子画勤一点；三个角色的节拍互相错开
+      var moved = v.dist >= STRIDE / q;
+      if (!must && !moved && v.acc < per - 1e-6) return v;
+      if (must) {
+        v.acc = v.ph * per;                                                      // 三个角色的节拍互相错开
+        if (cls !== v.cls || left !== v.left) v.hot = Math.max(v.hot, now + 0.6);   // 换了姿势，正在过渡：这阵子画勤一点
+      }
+      else if (moved) v.acc = 0;
       else v.acc = Math.min(v.acc - per, per * 0.5);
-      v.sig = sig; v.left = left; v.R = RR;
+      v.dist = 0;
+      v.sig = sig; v.cls = cls; v.left = left; v.R = RR;
       v.n++;
       adopt(a, a.rig.render(left, RR));
       return v;
+    }
+    // 这一步在地上走了多远（被拎着、躲在岛里的不算）
+    function travelled(a) {
+      var v = a.vis;
+      if (!a.carried && !a.hidden) v.dist += hyp(a.x - v.lx, a.y - v.ly);
+      v.lx = a.x; v.ly = a.y;
     }
     function dogSig(d) {
       var I = d.ri;
@@ -1537,7 +1625,7 @@
     }
     function personSig() {
       var I = person.ri;
-      return (PCLASS[I.frame] || 0) * 16 + (I.holding === 'ball' ? 1 : (I.holding ? 2 : 0)) + (I.carried ? 4 : 0) + (I.air ? 8 : 0);
+      return I.frame + (I.holding === 'ball' ? 1 : (I.holding ? 2 : 0)) + (I.carried ? 'c' : '') + (I.air ? 'a' : '');
     }
     function personActive() {
       var p = person;
@@ -1552,22 +1640,24 @@
       var s = shadowOf(Math.max(2, Math.round(w)), al);
       put(list, id, s.im, x - s.cx, y - s.cy, false);
     }
-    // 画小球，球心在 (cx, cy)。(px, py) = 它贴着的那张图的左上角（在手里 / 嘴里时），相对位置对齐到像素格子
+    // 画小球，球心在 (cx, cy)。
+    // 贴在别人身上（手里 / 嘴里）时多给 (px, py) = 那张图的左上角，这时 (cx, cy) 是球心相对它的位置，对齐到像素格子：
+    // 这样不管外壳怎么取整，球和手 / 嘴之间都不会差出一个像素来回抖
     function putBall(list, cx, cy, px, py) {
       var im, x, y, s;
       if (FXM && FXM.ball) {
         im = FXM.ball(ball.rot * Math.PI / 2, ball.sq > 0 ? clamp(ball.sq / 0.07, 0, 1) : 0, R);
         s = im.scale || 1;
         x = cx - im.ox / s; y = cy - im.oy / s;
-        if (px !== undefined) { x = px + qz(x - px); y = py + qz(y - py); }
-        cx = x + im.ox / s; cy = y + im.oy / s;
+        if (px !== undefined) { x = px + qz(x); y = py + qz(y); }
+        cx = qz(x) + im.ox / s; cy = qz(y) + im.oy / s;
         ball.box = [cx - BALL_R, cy - BALL_R, cx + BALL_R - 1 / s, cy + BALL_R - 1 / s]; ball.bpx = 1 / s;
       } else {
         im = ball.sq > 0 ? SPR.ball_sq : SPR['ball' + (((Math.floor(ball.rot) % 4) + 4) % 4)];
         if (!im) return;
         x = cx - im.w / 2; y = cy - im.h / 2 + (ball.sq > 0 ? 2 : 0);
-        if (px !== undefined) { x = px + qz(x - px); y = py + qz(y - py); }
-        ball.box = [x, y, x + im.w - 1, y + im.h - 1]; ball.bpx = 1;
+        if (px !== undefined) { x = px + qz(x); y = py + qz(y); }
+        ball.box = [qz(x), qz(y), qz(x) + im.w - 1, qz(y) + im.h - 1]; ball.bpx = 1;
       }
       put(list, 'ball', im, x, y, false);
       ball.vis = true;
@@ -1575,35 +1665,35 @@
     function ballLoose() { return ball.st === 'free' || ball.st === 'drag' || ball.st === 'handing'; }
     // 画小人；返回 true = 球画在他手里了
     function putPerson(list, a) {
-      var face = personFace(), x, y, hx = 0, hy = 0, has = false, half = 0;
+      var face = personFace(), x, y, hx = 0, hy = 0, has = false, half = 0;      // (hx, hy)：手心相对这张图左上角的位置
       if (a.rig) {
         var gy = a.y - 1 - a.z;
-        var v = shoot(a, face < 0, R, personSig(), personActive()), im = v.im, s = im.scale;
+        var v = shoot(a, face < 0, R, personSig(), PCLASS[a.ri.frame] || 0, personActive()), im = v.im, s = im.scale;
         x = a.x - im.ox / s; y = gy - im.oy / s;
         put(list, 'person', im, x, y, false);
-        a.box = [x + v.bx0, y + v.by0, x + v.bx1, y + v.by1]; a.bpx = v.px;
+        a.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; a.bpx = v.px;
         a.top = gy - v.top;
-        if (v.holds) { has = true; hx = a.x + v.hx; hy = gy - v.hy; }
+        if (v.holds) { has = true; hx = im.ox / s + v.hx; hy = im.oy / s - v.hy; }
       } else {
         var sp = SPR[personSprite()];
         if (!sp) return false;
         x = a.x - sp.w / 2; y = a.y - a.z - sp.h;
         put(list, 'person', sp, x, y, face < 0);
         var bb = sp.bb, bx0 = face < 0 ? sp.w - 1 - bb[2] : bb[0], bx1 = face < 0 ? sp.w - 1 - bb[0] : bb[2];
-        a.box = [x + bx0, y + bb[1], x + bx1, y + bb[3]]; a.bpx = 1;
+        a.box = [qz(x) + bx0, qz(y) + bb[1], qz(x) + bx1, qz(y) + bb[3]]; a.bpx = 1;
         a.top = a.box[1];
-        if (sp.hand) {       // 手的位置记的是"哪一个像素"：球心在那个像素的正中
+        if (sp.hand) {       // 旧图里手的位置记的是"哪一个像素"：球心在那个像素的正中
           var ax = sp.hand[0] + 1, ay = sp.hand[1] + 1;
-          has = true; half = 0.5;
-          hx = x + (face < 0 ? sp.w - 1 - ax : ax) + 0.5; hy = y + ay + 0.5;
+          has = true; half = 0.5;        // （手里拿的零食，旧版是按那个像素的左上角摆的，差半个像素）
+          hx = (face < 0 ? sp.w - 1 - ax : ax) + 0.5; hy = ay + 0.5;
         }
       }
       if (has && a.item) {
         var it = sd(a.item);
-        if (it) put(list, 'held', it.im, x + qz(hx - half - (it.l + it.r) / 2 - x), y + qz(hy - half - (it.t + it.b) / 2 - y), false);
+        if (it) put(list, 'held', it.im, x + qz(hx - half - (it.l + it.r) / 2), y + qz(hy - half - (it.t + it.b) / 2), false);
       } else if (has && ball.st === 'hand') {
         putBall(list, hx, hy, x, y);
-        ball.x = hx - half; ball.y = a.y; ball.z = Math.max(BALL_R, a.y - (hy - half));
+        ball.x = x + hx; ball.y = a.y; ball.z = Math.max(BALL_R, a.y - (y + hy));
         return true;
       }
       return false;
@@ -1611,16 +1701,16 @@
     // 画一只狗；返回 true = 球画在它嘴里了
     function putDog(list, d) {
       if (!d.rig) return false;
-      var v = shoot(d, d.face < 0, R, dogSig(d), dogActive(d)), im = v.im, s = im.scale;
+      var sig = dogSig(d), v = shoot(d, d.face < 0, R, sig, sig, dogActive(d)), im = v.im, s = im.scale;
       var gy = d.y - 1 - d.z - d.lift, x = d.x - im.ox / s, y = gy - im.oy / s;
       put(list, d.name, im, x, y, false);
-      d.box = [x + v.bx0, y + v.by0, x + v.bx1, y + v.by1]; d.bpx = v.px;
+      d.box = [qz(x) + v.bx0, qz(y) + v.by0, qz(x) + v.bx1, qz(y) + v.by1]; d.bpx = v.px;
       d.top = gy - v.top;
       d.mx = Math.abs(v.mx);
       d.mouthX = d.x + v.mx; d.mouthY = gy - v.my;
       if ((ball.st === 'mouth' || ball.st === 'tug') && ball.holder === d) {
         var jx = ball.st === 'tug' ? (Math.sin(now * 46) > 0 ? 0.6 : -0.6) : 0;
-        putBall(list, d.mouthX + jx, d.mouthY, x, y);
+        putBall(list, im.ox / s + v.mx + jx, im.oy / s - v.my, x, y);
         ball.x = d.mouthX; ball.y = d.y; ball.z = Math.max(BALL_R, d.y - d.mouthY);
         return true;
       }
@@ -1649,7 +1739,7 @@
         for (i = 0; i < actors.length; i++) {
           a = actors[i];
           if (a.hidden) continue;
-          putShadow(list, 'shadow:' + a.name, a.x, a.y, a.isPerson ? 6 : a.half * 0.8, shade * (a.z > 8 || a.lift ? 0.6 : 1));
+          putShadow(list, 'shadow:' + a.name, a.x, a.y, a.isPerson ? a.half * 0.75 : a.half * 0.8, shade * (a.z > 8 || a.lift ? 0.6 : 1));
         }
         if (ballLoose()) putShadow(list, 'shadow:ball', ball.x, ball.y, clamp(4 - ball.z / 30, 2, 4), shade);
       }
@@ -1723,7 +1813,7 @@
         var a = slots[i][0], cx = slots[i][1];
         if (!a.hidden) continue;
         if (a.rig) {
-          var v = shoot(a, !a.isPerson && cx > w / 2, RR, a.isPerson ? personSig() : dogSig(a), false), im = v.im;
+          var sig = a.isPerson ? personSig() : dogSig(a), v = shoot(a, !a.isPerson && cx > w / 2, RR, sig, a.isPerson ? PCLASS[a.ri.frame] || 0 : sig, false), im = v.im;
           put(list, 'den:' + a.name, im, cx - im.ox / im.scale, h - im.oy / im.scale, false);
         } else if (a.isPerson) {
           var s = SPR.p_sit || SPR.p_front_blink;      // 坐在两只睡着的狗狗中间守着
@@ -1740,7 +1830,14 @@
     // ------------------------------------------------------------
     //  主循环
     // ------------------------------------------------------------
+    // 往前走 dt 秒。一小步最多 1/60 秒（外壳一帧隔得久，这里自己拆成几小步）；隔了太久（电脑刚睡醒）就不追了
     function step(dt) {
+      if (!(dt > 0)) return;
+      if (dt > 0.25) dt = 0.25;
+      var n = Math.ceil(dt * 60 - 1e-6);
+      for (var i = 0; i < n; i++) tick(dt / n);
+    }
+    function tick(dt) {
       if (!booted) relayout();
       now += dt;
       if (!entered && now >= enterAt) { entered = true; enter(); }
@@ -1755,6 +1852,7 @@
       var i;
       for (i = 0; i < dogs.length; i++) { var I = rigInput(dogs[i], dt); if (dogs[i].rig) dogs[i].rig.update(dt, I); }
       if (person.rig) person.rig.update(dt, personInput());
+      for (i = 0; i < actors.length; i++) travelled(actors[i]);
       for (i = emotes.length - 1; i >= 0; i--) { emotes[i].t += dt; if (emotes[i].t >= emotes[i].life) emotes.splice(i, 1); }
       for (i = parts.length - 1; i >= 0; i--) {
         var p = parts[i]; p.t += dt;

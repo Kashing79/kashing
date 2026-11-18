@@ -1,5 +1,6 @@
 // 开发用：把每一段"小剧场"单独演一遍，隔一会儿截一张图，拼成一张连环画，方便检查动作对不对。
 // 用法：node scenes.js <输出目录> [场景名,场景名…] [roam=1|0]
+//   想拿另一份 web/ 来跑：PET_WEB=那个目录 node scenes.js ...
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
@@ -14,7 +15,7 @@ const { execFileSync } = require('child_process');
   for (const name of only) {
     const page = await browser.newPage({ viewport: roam ? { width: 660, height: 400 } : { width: 900, height: 200 } });
     page.on('pageerror', e => errors.push(name + ': ' + (e.stack || e)));
-    await page.goto('file://' + path.resolve(__dirname, '../web/index.html') + '?scale=3&grass=1&entrance=0&auto=0&bare=1&roam=' + (roam ? 1 : 0));
+    await page.goto('file://' + path.resolve(process.env.PET_WEB || path.join(__dirname, '../web'), 'index.html') + '?scale=3&grass=1&entrance=0&auto=0&bare=1&roam=' + (roam ? 1 : 0));
     await page.waitForTimeout(250);
     await page.evaluate(() => { window.pet.configure({ paused: true }); window.pet._t.set('touch', 0); });
     // 刚打开时小人会先挥一下手，那会儿排不了戏：多走几步再试，最多等 6 秒

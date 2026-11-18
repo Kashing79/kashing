@@ -3,9 +3,12 @@
 // 用法：node pet/iphone/build.js [网页版网址]
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const root = path.resolve(__dirname, '..');
-const sandbox = { window: {} };
-for (const f of ['web/config.js', 'web/sprites.js', 'web/dogs.js']) vm.runInNewContext(fs.readFileSync(path.join(root, f), 'utf8'), sandbox);
-const W = sandbox.window, frames = {};
+// 这几个文件有的把自己挂在 window 上，有的挂在全局上：让 window 就是全局，两种写法都接得住
+const sandbox = {};
+sandbox.window = sandbox;
+vm.createContext(sandbox);
+for (const f of ['web/config.js', 'web/sprites.js', 'web/dogs.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), sandbox, { filename: f });
+const W = sandbox, frames = {};
 
 // 小人、小球、表情
 const want = ['p_front', 'p_front_blink', 'p_wave_a', 'p_hold', 'ball0', 'fx_heart', 'fx_z', 'fx_zs'];
@@ -26,15 +29,23 @@ function dogFrame(kind, coat, input) {
   const rig = W.PET_DOGS.create(kind, coat);
   rig.blinkAt = 99; rig.t = 0; rig.wagT = 0.25;
   for (let i = 0; i < 90; i++) rig.update(1 / 60, input);
-  const o = rig.render(false), pal = {}, rev = {}, rows = [];
+  const o = rig.render(false, 1);      // 小组件里一个像素画成 3x3 pt，用最粗的那一档就够了
+  const px = (x, y) => { const k = (y * o.w + x) * 4; return o.data[k + 3] < 128 ? null : '#' + [0, 1, 2].map(i => o.data[k + i].toString(16).padStart(2, '0')).join(''); };
+  // 颜色太多、字母不够用时：把用得最少的颜色并到离它最近的颜色上
+  const count = {};
+  for (let y = o.box[1]; y <= o.box[3]; y++) for (let x = o.box[0]; x <= o.box[2]; x++) { const c = px(x, y); if (c) count[c] = (count[c] || 0) + 1; }
+  const keep = Object.keys(count).sort((a, b) => count[b] - count[a]).slice(0, CH.length), merge = {};
+  const rgb = c => [1, 3, 5].map(i => parseInt(c.substr(i, 2), 16));
+  const near = c => { if (!merge[c]) { const p = rgb(c); let best = keep[0], bd = 1e9; for (const k of keep) { const q = rgb(k), d = (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2; if (d < bd) { bd = d; best = k; } } merge[c] = best; } return merge[c]; };
+  const pal = {}, rev = {}, rows = [];
   let n = 0;
   for (let y = o.box[1]; y <= o.box[3]; y++) {
     let row = '';
     for (let x = o.box[0]; x <= o.box[2]; x++) {
-      const k = (y * o.w + x) * 4;
-      if (!o.data[k + 3]) { row += '.'; continue; }
-      const hex = '#' + [0, 1, 2].map(i => o.data[k + i].toString(16).padStart(2, '0')).join('');
-      if (!rev[hex]) { if (n >= CH.length) throw new Error('too many colours'); rev[hex] = CH[n++]; pal[rev[hex]] = hex; }
+      let hex = px(x, y);
+      if (!hex) { row += '.'; continue; }
+      if (!keep.includes(hex)) hex = near(hex);
+      if (!rev[hex]) { rev[hex] = CH[n++]; pal[rev[hex]] = hex; }
       row += rev[hex];
     }
     rows.push(row);

@@ -1,6 +1,7 @@
 // 开发用：在无头浏览器里把玩法快进跑一遍，检查有没有报错 / 卡死 / 跑出屏幕。
 // 两种模式都跑：满屏幕跑（roam）和只在底部一条（band）。
 // 用法：node sim.js [输出目录] [快进多少分钟]
+//   想拿另一份 web/ 来跑（比如别人正改到一半时留的备份）：PET_WEB=那个目录 node sim.js ...
 const { chromium } = require('playwright');
 const path = require('path');
 const fs = require('fs');
@@ -9,7 +10,7 @@ const fs = require('fs');
   const outDir = process.argv[2] || '/tmp/pet-sim';
   const minutes = parseFloat(process.argv[3] || '30');
   fs.mkdirSync(outDir, { recursive: true });
-  const url = 'file://' + path.resolve(__dirname, '../web/index.html');
+  const url = 'file://' + path.resolve(process.env.PET_WEB || path.join(__dirname, '../web'), 'index.html');
   const browser = await chromium.launch();
   const errors = [];
   let failed = false;

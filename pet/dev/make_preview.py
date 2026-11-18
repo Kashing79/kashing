@@ -3,7 +3,7 @@
 用法：python3 make_preview.py <输出.html>"""
 import sys, pathlib, re
 web = pathlib.Path(__file__).resolve().parent.parent / 'web'
-js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script')
+js = lambda n: (web / n).read_text(encoding='utf-8').replace('</script', '<\\/script') if (web / n).exists() else ''
 index = (web / 'index.html').read_text(encoding='utf-8')
 style = re.search(r'<style>(.*?)</style>', index, re.S).group(1)
 island = re.search(r'(<div id="island">.*?</div>\n  </div>\n</div>)', index, re.S).group(1)
@@ -45,12 +45,32 @@ window.PET_CONFIG.roam = true;
 })();
 </script>
 <script>__SPRITES__</script>
+<script>__FX__</script>
 <script>__DOGS__</script>
+<script>__PERSON__</script>
+<script>__LAWN__</script>
 <script>__ISLAND__</script>
 <script>__PET__</script>
+<script>__WEB__</script>
+<script>
+// 页面底色、状态栏的颜色，跟着草地这个时段的颜色走（草地换了新画法以后，和原来写死的绿色不一样了）
+(function () {
+  function tint() {
+    var L = window.PET_LAWN;
+    if (!L || !L.palette || !window.pet) return;
+    var p = L.palette(window.pet.status().phase);
+    if (!p || !p.base) return;
+    document.documentElement.style.setProperty('--lawn', p.base);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', p.base);
+  }
+  tint(); setInterval(tint, 5 * 60 * 1000);
+})();
+</script>
 """
-page = HEAD + style + EXTRA + island + TAIL
-out = (page.replace('__CONFIG__', js('config.js')).replace('__SPRITES__', js('sprites.js')).replace('__DOGS__', js('dogs.js'))
-           .replace('__ISLAND__', js('island.js')).replace('__PET__', js('pet.js')))
+out = HEAD + style + EXTRA + island + TAIL
+for mark, name in [('__CONFIG__', 'config.js'), ('__SPRITES__', 'sprites.js'), ('__FX__', 'fx.js'), ('__DOGS__', 'dogs.js'), ('__PERSON__', 'person.js'),
+                   ('__LAWN__', 'lawn.js'), ('__ISLAND__', 'island.js'), ('__PET__', 'pet.js'), ('__WEB__', 'web.js')]:
+    out = out.replace(mark, js(name))
 pathlib.Path(sys.argv[1]).write_text(out, encoding='utf-8')
 print('wrote', sys.argv[1], len(out), 'bytes')
