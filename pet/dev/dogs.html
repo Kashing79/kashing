@@ -29,6 +29,11 @@
 //       coats            所有毛色
 //       res              R = 1、2、3、4 画出来的样子（同样的实际大小）
 //       live             实时动起来（speed=速度 pose=姿势 mood=心情）
+//       care             吃喝拉撒的新姿势（R6）：站定的样子 + 站 → 姿势 → 站 的过程
+//       r5               互动的新姿势（R5）：同上
+//       acts             一次性的动作（yawn、shakeoff……）从头到尾一条
+//       micro            狗自己的小行为（R5 第 2 节，act 名字）从头到尾一条
+//       family           全家福：每个姿势一格
 //   R=2                  一个世界单位画成几个像素
 //   zoom=4               放大几倍
 //   bg=lawn|white|dark|night|black   背景（dark=1 也行）
@@ -250,8 +255,46 @@
     requestAnimationFrame(tick);
   }
 
+  // ---------- 新姿势：站定 + 进出 ----------
+  function setNew(list, head) {
+    var Z = +q.get('zoom') || 3, o = { zoom: Z, up: UP + 10, down: 7 };
+    title(head + '：站定以后');
+    row(list.map(function (p) { return still({ pose: p, wag: 0.4 }, Object.assign({ label: p }, o)); }));
+    list.forEach(function (p) {
+      var rig = mk(null, null, 77), cells = [], i;
+      run(rig, { pose: 'stand', wag: 0.4 }, 2);
+      for (i = 0; i <= 156; i++) {
+        rig.update(1 / 60, { pose: i >= 6 && i < 96 ? p : 'stand', wag: 0.4 });
+        if (i % 12 === 0) cells.push(cell(snap(rig.render(false, R)), Object.assign({ label: (i / 60).toFixed(2) + 's' }, o)));
+      }
+      title(p + '：站 → ' + p + '（0.1 秒起）→ 站（1.6 秒起）'); row(cells);
+    });
+  }
+  // ---------- 一次性的动作 / 小行为：从头到尾 ----------
+  function setActs(list) {
+    var Z = +q.get('zoom') || 3, o = { zoom: Z, up: UP + 10, down: 7 };
+    list.forEach(function (a) {
+      var T = D.ACT_TIME[a][gold ? 0 : 1], rig = mk(null, null, 78), cells = [], i, steps = Math.round(T * 60) + 3, every = Math.max(1, Math.round(steps / 9));
+      var base = /^(tail_thump|sleepy_ack|dream_bubble)$/.test(a) ? 'sleep' : 'stand';
+      run(rig, { pose: base }, 2);
+      for (i = 0; i <= steps; i++) {
+        rig.update(1 / 60, { pose: base, act: a, wag: 0.3 });
+        if (i % every === 0) cells.push(cell(snap(rig.render(false, R)), Object.assign({ label: (i / 60).toFixed(2) + 's' }, o)));
+      }
+      title('act=' + a + '（' + T + ' 秒，基础姿势 ' + base + '）'); row(cells);
+    });
+  }
+  var R6_POSES = ['eat', 'lickbowl', 'drink', 'taps', 'circle', 'squat', 'kick'];
+  var R5_POSES = ['rear', 'lean', 'flop', 'stalk', 'cradle', 'held'];
+  var PRIMS = ['yawn', 'lickchops', 'stretch', 'shakeoff', 'sneeze', 'nudge', 'kick'];
+
   try {
     if (set === 'poses') setPoses();
+    else if (set === 'care') setNew(R6_POSES, '吃喝拉撒（R6）');
+    else if (set === 'r5') setNew(R5_POSES, '互动（R5）');
+    else if (set === 'acts') setActs(PRIMS);
+    else if (set === 'micro') setActs(D.ACTS.filter(function (a) { return PRIMS.indexOf(a) < 0; }));
+    else if (set === 'family') { var Zf = +q.get('zoom') || 3; title('全家福：' + D.POSES.length + ' 个姿势'); row(D.POSES.map(function (p) { return still({ pose: p, wag: 0.4 }, { zoom: Zf, label: p, up: UP + 10, down: 7 }); })); }
     else if (set === 'gaits') setGaits();
     else if (set === 'walk' || set === 'trot' || set === 'gallop') setGaits(set);
     else if (set === 'moves') setScripts(['start', 'stop', 'turn', 'jump', 'hop', 'held', 'gaitup']);

@@ -13,6 +13,9 @@
     ?set=res          R = 1、2、3、4
     ?set=lineup       和两只狗站在一起比身高
     ?set=compare      和旧版的手画小人对比
+    ?set=newframes    动作库的新画面：摆好 + 进出的过程
+    ?set=acts         每个独角戏（input.act）一行
+    ?set=contact      一览：所有画面 + 所有独角戏
     ?set=all          上面全部（默认）
     &R=2（一个世界单位画几个像素）  &zoom=4（放大几倍）  &dark=1（深色底）  &face=laugh（poses 里统一用这个表情）
 -->
@@ -786,10 +789,62 @@ window.PERSON_CANDS = (function () {
         cell(r, 26, 42, 'v3 ' + nm, function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding) putBall(ctx, im, ox, oy, rr); }, { zoom: Math.max(2, Z - 1) });
       });
     },
+    // ---------------------------------------------------------- 动作库：新画面（摆好 + 进出的过程）
+    newframes: function () {
+      var LEG = P.FRAMES.slice(P.FRAMES.indexOf('p_pocket'));
+      h2('新画面（R6 5.2 照顾狗狗 13 个 + R5 3.2 先做的这些）：摆好以后', '有球的那一格把球也画上（hand 那个点）。');
+      var r = row();
+      LEG.forEach(function (nm, i) {
+        if (i && i % 8 === 0) r = row();
+        var inp = { frame: nm, face: faceQ || undefined, holding: nm === 'p_show' ? 'ball' : null };
+        var im = settled(inp, false, 1.6);
+        cell(r, nm === 'p_lie' ? 46 : 34, 46, nm, function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (inp.holding) putBall(ctx, im, ox, oy, rr); });
+      });
+      h2('进出的过程：站着 → 这个画面 → 站着（每格 0.1 秒）');
+      LEG.forEach(function (nm) {
+        var front = P.POSES[nm] && P.POSES[nm].q === 1, base = front ? 'p_front' : 'p_idle', r2 = row(), times = [];
+        for (var i = 0; i < 14; i++) times.push(i * 0.1);
+        play([[{ frame: nm }, 0.9, false], [{ frame: base }, 0.6, false]], times, function (im) {
+          cell(r2, nm === 'p_lie' ? 44 : 30, 44, nm, function (ctx, ox, oy) { put(ctx, im, ox, oy); }, { zoom: Math.max(1, Z - 2) });
+        }, [{ frame: base }, 1, false]);
+      });
+    },
+    // ---------------------------------------------------------- 独角戏：每个一行
+    acts: function () {
+      h2('独角戏（input.act）：每个均匀取 10 帧，最后一格 actDone = true', P.ACTS.join(' · '));
+      P.ACTS.forEach(function (a) {
+        var r2 = row(), len = P.ACT_LEN[a], times = [], ball = /ball|throw/.test(a) ? 'ball' : null;
+        var front = /bow|thumbs|heart|kiss|glance/.test(a), base = { frame: front ? 'p_front' : 'p_idle', holding: ball };
+        for (var i = 0; i < 10; i++) times.push(len * i / 9);
+        play([[Object.assign({ act: a }, base), len + 0.2, false]], times, function (im, i) {
+          cell(r2, 34, 46, i === 0 ? a + ' (' + len + 's)' : (i === 9 ? (im.actDone ? 'actDone' : '') : ''), function (ctx, ox, oy, rr) { put(ctx, im, ox, oy); if (ball) putBall(ctx, im, ox, oy, rr); }, { zoom: Math.max(1, Z - 2) });
+        }, [base, 1, false]);
+      });
+    },
+    // ---------------------------------------------------------- 一览：所有画面 + 所有独角戏的中间那一帧
+    contact: function () {
+      h2('一览：所有画面（' + P.FRAMES.length + '）');
+      var r = row();
+      P.FRAMES.forEach(function (nm, i) {
+        if (i && i % 12 === 0) r = row();
+        var inp = { frame: nm };
+        if (nm.indexOf('p_walk') === 0) { inp.moving = true; inp.speed = 30; }
+        var im = settled(inp, false, 1.2);
+        cell(r, nm === 'p_lie' ? 44 : 30, 44, nm, function (ctx, ox, oy) { put(ctx, im, ox, oy); }, { zoom: Math.max(1, Z - 3) });
+      });
+      h2('一览：所有独角戏（' + P.ACTS.length + '，取中间那一帧）');
+      r = row();
+      P.ACTS.forEach(function (a, i) {
+        if (i && i % 12 === 0) r = row();
+        play([[{ frame: 'p_idle', act: a }, 30, false]], [P.ACT_LEN[a] * 0.45], function (im) {
+          cell(r, 34, 44, a, function (ctx, ox, oy) { put(ctx, im, ox, oy); }, { zoom: Math.max(1, Z - 3) });
+        }, [{ frame: 'p_idle' }, 1, false]);
+      });
+    },
   };
   try {
     if (!P) throw new Error('person.js 没加载成功');
-    var order = ['designs', 'poses', 'walk', 'run', 'throw', 'transitions', 'faces', 'variants', 'res', 'lineup', 'compare'];
+    var order = ['designs', 'poses', 'walk', 'run', 'throw', 'transitions', 'faces', 'variants', 'res', 'lineup', 'compare', 'newframes', 'acts', 'contact'];
     (set === 'all' ? order : set.split(',')).forEach(function (s) { if (SETS[s]) SETS[s](); });
   } catch (e) { document.getElementById('err').textContent = String(e && e.stack || e); }
 })();

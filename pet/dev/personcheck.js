@@ -62,6 +62,35 @@ console.log('  画了 ' + shots + ' 张；站姿宽 ' + maxW.toFixed(1) + '、�
 ok(maxW <= 16.01, '站着比 16 个世界单位宽');
 ok(maxH >= 30 && maxH <= 39.01, '站着的高度不在 30~38（加描边 39）之间');
 
+// ---------- 1b. 独角戏 ----------
+console.log('1b. 独角戏（input.act）');
+(function () {
+  ok(P.ACTS && P.ACTS.length >= 18, '独角戏少于 18 个');
+  let n = 0;
+  for (const a of P.ACTS) {
+    const len = P.ACT_LEN[a];
+    ok(len >= 0.9 && len <= 8.5, a + '：长度 ' + len + ' 秒不在 1~8 秒');
+    const rig = P.create(cfg), inp = { frame: 'p_idle', act: a, holding: /ball|throw/.test(a) ? 'ball' : null };
+    let done = false, early = false;
+    for (let t = 0; t < len + 0.3; t += 1 / 60) {
+      rig.update(1 / 60, inp);
+      const im = rig.render(false, 2);
+      if (t < len - 0.05 && im.actDone) early = true;
+      done = im.actDone;
+      for (const k of ['hand', 'hand2', 'head', 'mouth']) if (!(good(im[k][0]) && good(im[k][1]))) { ok(false, a + '：锚点 ' + k + ' 不对'); break; }
+    }
+    ok(done && !early, a + '：actDone 不对（' + done + ', 提前 ' + early + '）');
+    n++;
+  }
+  // 换成别的 act 要重新开始；去掉 act 以后 actDone 清掉
+  const rig = P.create(cfg);
+  for (let i = 0; i < 300; i++) rig.update(1 / 60, { act: 'clap' });
+  ok(rig.render(false, 2).actDone === true, 'clap 演完了 actDone 应该是 true');
+  rig.update(1 / 60, { act: 'bow' }); ok(rig.render(false, 2).actDone === false, '换了 act 以后 actDone 应该重新变 false');
+  rig.update(1 / 60, {}); ok(rig.render(false, 2).actDone === false && rig.render(false, 2).act === null, '没有 act 时 actDone = false');
+  console.log('  ' + n + ' 个独角戏都能演完；最长 ' + Math.max.apply(null, P.ACTS.map(a => P.ACT_LEN[a])) + ' 秒');
+})();
+
 // ---------- 2. 同样的输入 → 同样的图 ----------
 console.log('2. 同样的输入画两遍');
 (function () {

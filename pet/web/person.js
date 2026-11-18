@@ -122,11 +122,11 @@
     put(TROU, [suit[0], mixc(suit[0], suit[1], 0.5), suit[1], suit[2], suit[3], suit[4]]);     // 裤子：比上衣暗一级
     put(SHIRT, ramp(rgbOf(p.shirt))); put(TIE, ramp(rgbOf(p.tie))); put(SHOE, ramp(rgbOf(p.shoes)));
     var sk = toHsv(rgbOf(p.skin)), hv = toHsv(rgbOf(p.hair));
-    var mouth = fromHsv(sk[0] - 30, Math.min(100, sk[1] + 24), sk[2] * 0.66);
+    var mouth = fromHsv(sk[0] - 22, Math.min(100, sk[1] + 22), sk[2] * 0.62);
     var dark = hv[2] < 45 ? hair[1] : fromHsv(hv[0], Math.min(60, hv[1] + 10), 16);            // 瞳孔：头发再浅也得是深的
     var f = [];
     f[F_PUPIL] = dark;
-    f[F_IRIS] = fromHsv(22, 52, 34);
+    f[F_IRIS] = fromHsv(18, 58, 25);
     f[F_WHITE] = [255, 255, 255];
     f[F_BROW] = hv[2] < 45 ? mixc(hair[3], hair[4], 0.45) : hair[2];
     f[F_MOUTH] = mouth;
@@ -447,67 +447,66 @@
   //  字符画一律画成"面向右"。一个字符 = 半个世界单位（R = 2 时正好 1 个像素）。
   // ============================================================
   var DESIGN = {
-    // —— 身材（世界单位）——
-    hip: 14.5,                // 髋关节离地
-    thigh: 6.55, shin: 6.45,  // 大腿、小腿（加起来正好是髋到脚踝：站着腿是直的）
+    // —— 身材（世界单位）——  头大约占身高的 1/3.2：腿长一点、头小一点，像个大人
+    hip: 15.5,                // 髋关节离地
+    thigh: 7.0, shin: 7.0,    // 大腿、小腿（加起来正好是髋到脚踝：站着腿是直的）
     ankle: 1.5,               // 脚踝离地
     waist: 4,                 // 髋 → 腰（上身从这里弯）
     torso: 10,                // 髋 → 头的轴心（下巴底）
-    shY: 8.1, shZ: 4.5,       // 肩关节：比髋高多少、离中线多远
+    shY: 8.1, shZ: 4.6,       // 肩关节：比髋高多少、离中线多远（肩膀宽一点，西装才挺）
     hipZ: 1.25,               // 髋关节离中线多远
-    armU: 5.2, armL: 5.0,     // 上臂、前臂
+    armU: 5.4, armL: 5.2,     // 上臂、前臂
     rArm: [1.12, 1.05, 0.95], // 手臂粗细（半径）：肩、肘、腕
-    rLeg: [1.3, 1.2, 1.15],   // 腿：髋、膝、踝
+    rLeg: [1.3, 1.12, 1.15],  // 腿：髋、膝、踝（小腿收一点，裤脚盖住鞋面）
     headX: 0.5,               // 侧面时头比脊柱靠前多少
     side: 0.25,               // 侧面时身体朝看的人这边偏多少（0 = 纯侧面）
-    headTop: 12,              // 下巴底 → 头顶
+    headTop: 11.5,            // 下巴底 → 头顶（含头发蓬起来的那一截）
 
     // —— 头：侧面（脸朝右的 3/4 视角）和正面 ——
-    //    s 皮肤  e/f 耳朵  E 耳朵里的一点影子  h 头发（顶、后、近侧）  g 梳向另一边的刘海  b 刘海的一绺  r 鬓角
+    //    s 皮肤  e/f 耳朵  E 耳朵里的一点影子  h 头发（顶、后、近侧）  g 往前上方梳起来的那一片（侧分、微微翘起的刘海）
+    //    r 鬓角  q 正面右边鬓角
+    //    下巴是方一点的、有下颌角；额头露出来一块，头发从分线往另一边梳，前面翘起来
     head: {
       ox: 10, oy: 0, order: 'seEfhgbrq', span: { s: 'gbrE' },
       side: [
-        '.............hhh....',
-        '.........hhhhhhhhh..',
-        '......hhhhhhhhhhhhh.',
-        '....hhhhhhhhhhhhhhh.',
-        '...hhhhhhhhhhhhhhhh.',
-        '..hhhhhhhhhhhhhhhhh.',
-        '..hhhhhhhhhhhhhhhhh.',
-        '..hhhhhhhhhhhhhhhhh.',
-        '..hhhhhhssggggggggg.',
-        '..hhhhhsssssggggggg.',
-        '..hhhhssssssssbbsgg.',
-        '..hhhhssssssssssssg.',
-        '..hhhrssssssssssss..',
-        '..hhhrssssssssssss..',
-        '...hhrssssssssssss..',
-        '..heErssssssssssss..',
-        '..heEsssssssssssss..',
-        '..heEssssssssssssss.',
-        '..hhessssssssssss...',
-        '...h..sssssssssss...',
-        '.......ssssssssss...',
-        '........ssssssss....',
-        '.........sssssss....',
-        '...........ssss.....',
+        '.............ggg....',
+        '..........hhgggggg..',
+        '.......hhhhhhggggggg',
+        '.....hhhhhhhhhgggggg',
+        '....hhhhhhhhhhhggggg',
+        '...hhhhhhhhhhhhhgggg',
+        '...hhhhhhhhhhhhhhggg',
+        '...hhhhhhhhhhhssgggg',
+        '...hhhhhhhhhssssssg.',
+        '...hhhhhhhsssssssss.',
+        '...hhhhhrssssssssss.',
+        '...hhhhrsssssssssss.',
+        '...hheerssssssssss..',
+        '...hheEsssssssssss..',
+        '...hheEssssssssssss.',
+        '....heEssssssssssss.',
+        '.....essssssssssssss',
+        '......sssssssssssss.',
+        '......sssssssssssss.',
+        '.......ssssssssssss.',
+        '........sssssssssss.',
+        '..........ssssssss..',
+        '............sssss...',
       ],
       front: [
-        '...........hhh......',
-        '.......hhhhhhhhh....',
-        '.....hhhhhhhhhhhhh..',
-        '....hhhhhhhhhhhhhhh.',
-        '...hhhhhhhhhhhhhhhh.',
-        '...hhhhhhhhhhhhhhhh.',
-        '...hhhhhhhhhhhhhhhh.',
-        '...hhhhhhhhhhhhhhhh.',
-        '...hhssgggggggggggg.',
-        '...hsssssgggggggggg.',
-        '...hssssssssbbsgggg.',
-        '...hssssssssssssggg.',
+        '..........ggg.......',
+        '........gggggggg....',
+        '......hhggggggggg...',
+        '.....hhhhggggggggg..',
+        '....hhhhhhgggggggggg',
+        '...hhhhhhhhggggggggg',
+        '...hhhhhhhhhgggggggg',
+        '...hhhhhsssssgggggg.',
+        '...hhhsssssssssgggg.',
         '...hssssssssssssgg..',
-        '...hssssssssssssg...',
-        '...hssssssssssssg...',
+        '...hssssssssssssq...',
+        '...hssssssssssssq...',
+        '...hssssssssssssq...',
         '...essssssssssssf...',
         '...essssssssssssf...',
         '...essssssssssssf...',
@@ -517,68 +516,77 @@
         '.....ssssssssss.....',
         '......ssssssss......',
         '.......ssssss.......',
+        '........ssss........',
       ],
     },
     // 头发上的亮纹（H 亮、L 高光）和暗纹（K）。只画在头发上。
+    // 头顶一道弯弯的亮带（"光环"），翘起来的那片前沿再亮一点；K 是分线下面那一缕的阴影。
     // 光一直从左上来：人朝右用 side，朝左用 sideL（翻过去以后亮的还是左上）。
     shine: {
-      ox: 10, oy: 14, order: 'HLK',
+      ox: 10, oy: 11, order: 'HLK',
       side: [
         '....................',
+        '..............L.....',
+        '.........HHH...LLL..',
+        '......HHLLLLH....L..',
+        '.....HL.....K.......',
+        '....H........K......',
+        '....H.........K.....',
+        '....H...............',
+        '.....H..............',
         '....................',
-        '.......LLL..........',
-        '.....HHHLLLL........',
-        '.......HHHHHHH......',
-        '...........HHHH.....',
         '....................',
-        '....................',
-        '..............KKKKK.',
         '....................',
       ],
       sideL: [
         '....................',
-        '..............LL....',
-        '...........LLLLH....',
-        '.........HHHHHH.....',
-        '.......HHHH.........',
+        '..............H.....',
+        '............HH.HHH..',
+        '.........HHLLLLL....',
+        '......HHLL..K.......',
+        '.....LL....K........',
+        '....LL....K.........',
+        '....L...............',
         '....................',
         '....................',
         '....................',
-        '..............KKKKK.',
         '....................',
       ],
       front: [
         '....................',
+        '..........LL........',
+        '........LL..HHH.....',
+        '.......LL......HH...',
+        '.....HH..K.......H..',
+        '....HL....K.........',
+        '...HL......K........',
+        '...H................',
         '....................',
-        '......LLL...........',
-        '....HHHLLLL.........',
-        '......HHHHHHH.......',
-        '..........HHHH......',
         '....................',
         '....................',
-        '.............KKKKKK.',
         '....................',
       ],
     },
     // 五官的位置（字符画里的格子，x 从轴心算、y 从下巴底往上）：[侧面, 正面]
     face: {
-      eyeN: [[0, 10], [-4, 10]],       // 近侧的眼睛：左上角
-      eyeF: [[5, 10], [2, 10]],        // 远侧的眼睛
+      eyeN: [[0, 10], [-5, 10]],       // 近侧的眼睛：左上角
+      eyeF: [[4, 10], [3, 10]],        // 远侧的眼睛
       eyeW: [[2, 2], [2, 2]],          // 眼睛宽几格：[近, 远]
       eyeH: 3,                         // 眼睛高几格
       lash: 1,                         // 上眼线往眼尾多挑出 1 格
-      browN: [[-1, 12], [-5, 12]],     // 眉毛：左上角
-      browF: [[5, 12], [2, 12]],
+      browN: [[-1, 12], [-6, 12]],     // 眉毛：左上角
+      browF: [[4, 12], [3, 12]],
       browW: [[3, 2], [3, 3]],
-      nose: null,                      // 鼻子：侧面靠脸的轮廓凸出来的那一格；这里不另画
+      nose: [[3, 7], [0, 7]],          // 鼻子：侧面一格影子（正面不画）
       mouth: [[3, 3], [0, 3]],         // 嘴的中心
       blushN: [[-2, 6], [-6, 6]],
       blushF: [[6, 6], [4, 6]],
-      top: [[2, 24], [1, 24]],         // 头顶（放帽子）
+      top: [[3, 23], [1, 23]],         // 头顶（放帽子）
     },
 
     // —— 上身：西装、衬衫领口、领带结、脖子 ——
     //    j 西装  n 脖子  w 衬衫  c/d 领尖  l/m 驳头的边线  t 领带结  o 扣子  p 口袋巾  u 门襟线
+    //    肩宽、腰收一格、下摆盖住臀：倒三角，西装才合身
     body: {
       ox: 8, oy: -5, order: 'jnwcdlmutpo',
       side: [
@@ -590,13 +598,12 @@
         '..jjjjjjlwwwwjj.',
         '..jjjjjjjlwwwjj.',
         '..jjjjjjjlwwwjj.',
-        '..jjjjjjjjlwwjj.',
-        '..jjjjjjjjjlwj..',
-        '..jjjjjjjjjjjj..',
-        '..jjjjjjjjjjjj..',
-        '..jjjjjjjjjjjj..',
-        '..jjjjjjjjjjjj..',
-        '..jjjjjjjjjjjj..',
+        '..jjjjjjjjlwwj..',
+        '...jjjjjjjjlwj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
+        '...jjjjjjjjjjj..',
         '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjjj..',
@@ -607,23 +614,24 @@
         '..jjjjjjjjjjjj..',
         '..jjjjjjjjjjj...',
         '..jjjjjjjjjj....',
+        '..jjjjjjjjj.....',
       ],
       fox: 10,
       front: [
         '........nnnn........',
         '......jjcnndjj......',
-        '.....jjccttddjj.....',
+        '....jjjccttddjjj....',
         '...jjjjlwttwmjjjj...',
         '...jjjjlwwwwmjjjj...',
         '...jjjjjlwwmjjjjj...',
         '...jjjjjlwwmjjppj...',
-        '...jjjjjlwwmjjjjj...',
-        '...jjjjjlwwmjjjjj...',
+        '....jjjjlwwmjjjj....',
+        '....jjjjjlwmjjjj....',
         '....jjjjjlmjjjjj....',
-        '....jjjjjjojjjjj....',
-        '....jjjjjujjjjjj....',
-        '....jjjjjujjjjjj....',
-        '....jjjjjujjjjjj....',
+        '.....jjjjjojjjj.....',
+        '.....jjjjujjjjj.....',
+        '.....jjjjujjjjj.....',
+        '.....jjjjujjjjj.....',
         '....jjjjjujjjjjj....',
         '....jjjjjujjjjjj....',
         '....jjjjjujjjjjj....',
@@ -694,6 +702,10 @@
     pout:      { eyes: 'half',   brow: [0, -1],  mouth: 'pout',  blush: 2 },
     kiss:      { eyes: 'happy',  brow: [1, 0],   mouth: 'kiss',  blush: 2 },
     wistful:   { eyes: 'half',   brow: [0, 1],   mouth: 'soft',  blush: 1, gaze: [0, -1] },
+    // 下面几个是动作库要用的（R5 / R6 说不需要新表情，这几个只是让动作更像）
+    whistle:   { eyes: 'open',   brow: [1, 0],   mouth: 'kiss',  blush: 0 },                    // 吹口哨、叫狗
+    sigh:      { eyes: 'closed', brow: [-1, 1],  mouth: 'flat',  blush: 1, extra: 'sweat' },    // "好吧，我来" —— 无奈但体面
+    wry:       { eyes: 'soft',   brow: [1, 1],   mouth: 'smirk', blush: 1 },                    // 手伸得老远拿着东西：有点尴尬地笑
   };
   var FACES = Object.keys(FACE);
   // 眼睛"睁开多少"：过渡的时候就是在这个数上滑
@@ -734,8 +746,12 @@
   //    sn sf  站着时近脚、远脚想站的位置（差得多了会自己迈一步过去）；sw 两脚左右分开多少
   //    tn tf  近脚、远脚踮起来（脚跟抬起的角度）
   //    fr     1 = 腿不踩地，脚踝直接去 ln / lf = [x, y, 脚背角度]（坐下、被拎起来）
+  //    sh     耸肩（世界单位，正 = 肩膀抬起来）；fd 低头鞠躬时五官往下挪几格（正面看得出在低头）
   //  其它：
   //    face   默认表情；hold 'N' | 'F' | null：球在哪只手；held {…} 手里有东西时再叠加的改动
+  //    mid    1 = hand 锚点取两只手中间（两只手一起拿着长柄、托着一摞碗）
+  //    swingF 1 = 走路时只有远侧那只手摆（近侧那只手伸着拿东西）
+  //    phone  1 = 近侧手里拿着手机（骨架自己画）；anim 里还可以写 P.fdx / P.fdy（远侧手的目标再挪一点）
   //    gb     [x, y]：球心相对手心在哪儿（不写就自动：手臂垂着时球吊在手下面，抬起来时托在手心上）
   //    tin    摆过去要几秒；swing 走路时手臂跟着摆；stride 走路时步子缩到几成（端着东西走的小碎步）
   //    keys   [{ at: 秒, …}]：这个画面里再分几步（先后摆的几个目标）
@@ -745,11 +761,12 @@
     q: 0, px: 0, py: 0, lean: 0, bend: 0, tilt: 0, hp: 0, hx: 0, hy: 0,
     na1: 3, na2: 9, nz1: 0, nz2: 0, fa1: -8, fa2: -3, fz1: 0, fz2: 0,
     sn: 0, sf: 0.9, sw: 0.5, tn: 0, tf: 0, fr: 0, lnx: 0, lny: 1.5, lnp: 0, lfx: 0, lfy: 1.5, lfp: 0,
+    sh: 0, fd: 0,
   };
   var PK = Object.keys(BASE);
   // 每一项跟着哪一拨动：身体先动，手臂慢半拍，头最后
   var PGRP = { q: 0, px: 0, py: 0, lean: 0, bend: 0, tilt: 0, hp: 2, hx: 2, hy: 2, na1: 1, na2: 1, nz1: 1, nz2: 1, fa1: 1, fa2: 1, fz1: 1, fz2: 1,
-               sn: 0, sf: 0, sw: 0, tn: 0, tf: 0, fr: 0, lnx: 0, lny: 0, lnp: 0, lfx: 0, lfy: 0, lfp: 0 };
+               sn: 0, sf: 0, sw: 0, tn: 0, tf: 0, fr: 0, lnx: 0, lny: 0, lnp: 0, lfx: 0, lfy: 0, lfp: 0, sh: 1, fd: 2 };
 
   var WRAP = { na1: 1, na2: 1, fa1: 1, fa2: 1 };
 
@@ -764,15 +781,16 @@
     p_walk0: { swing: 1, face: 'neutral', tin: 0.16, held: { na1: 18, na2: 62, nh: 'grip', hold: 'N' } },
     p_walk1: 'p_walk0', p_walk2: 'p_walk0', p_walk3: 'p_walk0',
     // —— 丢球：先往后下方荡一下（预备），再把手举到脑后停住，重心在后脚，前脚往前迈出去 ——
+    // 丢球的这只手臂一直画在头的后面（zn 0.5）：举到脑后、甩过头顶都不会挡住脸
     p_windup: {
-      face: 'focus', hold: 'N', nh: 'grip',
+      face: 'focus', hold: 'N', nh: 'grip', zn: 0.5,
       keys: [
         { at: 0, tin: 0.11, na1: -36, na2: -20, lean: 5, px: 0.3, hp: -2, fa1: 12, fa2: 30 },
         { at: 0.1, tin: 0.2, na1: -94, na2: -176, lean: -9, bend: -4, px: -1.0, sf: 5.2, hp: 4, fa1: 44, fa2: 70 },
       ],
     },
     // —— 出手：手臂一下子甩到前面（那一帧带一道残影），重心压到前脚，后腿蹬直、脚跟抬起来 ——
-    p_release: { face: 'focus', hold: 'N', nh: 'open', gb: [3.4, 0.6], tin: 0.07, na1: 106, na2: 97, lean: 12, bend: 5, px: 3.6, py: -0.5, sf: 5.2, tn: 34, hp: 2, fa1: -34, fa2: -16, smear: 1 },
+    p_release: { face: 'focus', hold: 'N', nh: 'open', gb: [3.4, 0.6], tin: 0.07, zn: 0.5, na1: 94, na2: 88, lean: 12, bend: 5, px: 3.6, py: -0.5, sf: 5.2, tn: 34, hp: 2, fa1: -34, fa2: -16, smear: 1 },
     // —— 随势：手臂继续往下划过去，身子跟着压低，然后慢慢收回来 ——
     p_follow: {
       face: 'smile', hold: null, nh: 'relax',
@@ -795,14 +813,14 @@
     p_cheer2: 'p_cheer',
     // —— 蹲下来，和小腊肠一样高，揉一揉 ——
     p_crouch: {
-      face: 'soft', tin: 0.3, py: -8, px: -2.4, lean: 22, bend: 14, tn: 32, tf: 32, sf: 1.2, hp: -8, nh: 'flat', touch: [7.7, 7.0], zl: 0.3,
+      face: 'soft', tin: 0.3, py: -9, px: -2.4, lean: 22, bend: 14, tn: 32, tf: 32, sf: 1.2, hp: -8, nh: 'flat', touch: [7.7, 7.0], zl: 0.3,
       fik: [3.6, 9.2], held: { fik: [-4.5, 7.5], fh: 'grip', hold: 'F' }, zf: -3,
       anim: function (t, P) { var s = Math.sin(t * 2 * PI * 2.6); P.tdx = s * 1.0; P.tdy = Math.abs(s) * 0.3; },
     },
     p_crouch2: 'p_crouch',
     // —— 坐在草地上：近腿曲着，手搭在膝盖上 ——
     p_sit: {
-      face: 'soft', tin: 0.42, py: -11.2, px: -2.6, lean: -9, bend: 8, hp: 3, fr: 1,
+      face: 'soft', tin: 0.42, py: -12.2, px: -2.6, lean: -9, bend: 8, hp: 3, fr: 1,
       lnx: 4.2, lny: 1.5, lnp: 0, lfx: 9.4, lfy: 1.6, lfp: -38, zl: 0.3,
       nik: [3.4, 8.2], fik: [-6.2, 1.2], fh: 'flat', hold: null,
       held: { nik: [4.6, 6.2], nh: 'grip', hold: 'N' },
@@ -828,6 +846,324 @@
       anim: function (t, P) { var s = Math.sin(t * 2 * PI * 2.5); P.fa2 += s * 21; P.fa1 += s * 3; P.tilt += s * 0.8; },
     },
     p_wave_b: 'p_wave_a',
+    // ============ 照顾狗狗（R6 5.2）============
+    // —— 手伸进西装内袋掏东西（0.4 秒进去，停住，0.3 秒拿着东西出来）；远侧手垂着拿球 ——
+    p_pocket: {
+      face: 'focus', hold: 'N', zn: 2,
+      keys: [
+        { at: 0, tin: 0.3, nik: [1.6, 19.0], nh: 'flat', hp: -9, lean: 2 },
+        { at: 0.55, tin: 0.26, nik: [5.6, 17.8], nh: 'grip', hp: -4, face: 'smile' },
+      ],
+      held: { fa1: -10, fa2: -5, fh: 'grip', hold: 'F' },
+    },
+    // —— 双手托着一摞东西（碗、蛋糕、小腊肠）：小臂平端在腰前，往后仰一点，看着手里；走路时手不摆、碎步、肘部随步子沉一下 ——
+    p_carry: {
+      face: 'soft', tin: 0.28, lean: -2, hp: -7, nik: [7.4, 15.6], fik: [6.6, 15.4], nh: 'flat', fh: 'flat', zf: 0.5, hold: 'N', mid: 1, stride: 0.6,
+      anim: function (t, P, rig) { if (rig.walking) { var b = Math.abs(Math.sin(rig.ph * 2 * PI)); P.tdy = -b * 0.6; P.fdy = -b * 0.6; } },
+    },
+    // —— 屈膝弯腰，把东西放到脚前的地上 / 从地上拿起来；远侧手撑在膝盖上 ——
+    p_place: {
+      face: 'focus', tin: 0.3, py: -5.4, px: -0.6, lean: 36, bend: 10, hp: -14, sf: 3.4, tf: 16, zl: 0.3,
+      nik: [12.0, 3.4], nh: 'flat', fik: [5.6, 9.2], fh: 'flat', zf: -3, hold: 'N',
+      held: { fh: 'grip', fik: [5.0, 8.6], hold: 'F' },
+    },
+    // —— 倒狗粮：身子前倾，近侧手往前下方拿着袋子抖一抖，远侧手叉腰 ——
+    p_pour: {
+      face: 'focus', tin: 0.3, lean: 12, bend: 4, hp: -11, nik: [10.7, 13.3], nh: 'grip', hold: 'N', fik: [-0.8, 16.6], fh: 'fist', zf: -3,
+      anim: function (t, P) { var s = Math.sin(t * 2 * PI * 6); P.tdx = s * 0.5; P.tdy = -Math.abs(s) * 0.3; },
+    },
+    // —— "等一下"：近侧手平平地举在胸前，手心朝狗；往后仰一点 ——
+    p_stay: {
+      face: 'focus', tin: 0.22, lean: -2, hp: -3, nik: [8.6, 23.2], nh: 'open', hold: 'N',
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— "去吧！"：手往前下方一指，迈半步、身子前倾 ——
+    p_point: {
+      face: 'grin', tin: 0.25, lean: 9, bend: 2, hp: -4, px: 0.8, sf: 3.6, nik: [11.1, 11.1], nh: 'point', hold: 'N',
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 叹一口气："好吧，我来"。肩膀先耸起来，再落下去、低头闭眼，然后抬起头笑一下。体面，不嫌弃 ——
+    p_sigh: {
+      face: 'pout', na1: 2, na2: 5, fa1: -5, fa2: -2,
+      keys: [
+        { at: 0, tin: 0.25, sh: 0.7, hp: 4, face: 'pout' },
+        { at: 0.28, tin: 0.42, sh: -0.9, hp: -12, lean: 3, face: 'sigh' },
+        { at: 0.78, tin: 0.3, sh: 0, hp: 0, lean: 0, face: 'soft' },
+      ],
+      held: { na1: 8, na2: 22, nh: 'grip', hold: 'N' },
+    },
+    // —— 打结：两只手在肚子前面一上一下地绕，一秒六下；hand = 下面那只手（袋子挂在这里）——
+    p_knot: {
+      face: 'focus', tin: 0.25, lean: 6, hp: -13, nik: [6.7, 14.8], fik: [5.2, 16.3], nh: 'grip', fh: 'grip', zf: 0.5, hold: 'N',
+      anim: function (t, P) { var k = Math.floor(t * 6) % 2 ? 0.5 : -0.5; P.tdx = k; P.tdy = -k * 0.6; P.fdx = -k; P.fdy = k * 0.6; },
+    },
+    // —— 长柄夹子：两只手一上一下握着长柄，夹子头点在前面的地上；脸稍微别开；hand = 柄的中间 ——
+    p_scooper: {
+      face: 'focus', tin: 0.3, lean: 10, hp: 4, gaze: [-1, 0], nik: [4.4, 17.0], fik: [7.4, 13.0], nh: 'grip', fh: 'grip', zf: 0.5, hold: 'N', mid: 1,
+    },
+    // —— 胳膊伸直，把东西拿得远远的；身子往后仰、下巴抬起来别开；走路时只有远侧手在摆 ——
+    p_armlen: {
+      face: 'wry', tin: 0.25, lean: -6, hp: 7, gaze: [-1, 0], nik: [12.2, 20.0], nh: 'grip', hold: 'N', swingF: 1,
+    },
+    // —— "过来"：微微屈膝前倾，近侧手拍两下大腿，嘴撮起来像吹口哨 ——
+    p_call: {
+      face: 'whistle', tin: 0.2, py: -0.9, lean: 10, hp: -2, nik: [3.0, 10.6], nh: 'flat', hold: 'N',
+      anim: function (t, P) { if (t < 0.8) P.tdy = -Math.abs(Math.sin(t * 2 * PI * 2.5)) * 1.4; },
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 正面，并脚，右手平放在胸口领带上，微微鞠一躬（头低 2 像素）停一下再直起来 ——
+    p_bow: {
+      q: 1, face: 'smile', sn: -0.15, sf: 0.15, na1: 18, na2: 112, nz1: -72, nz2: -90, nh: 'flat', fa1: -4, fa2: -2, fz1: 90, fz2: 90, zn: 2,
+      keys: [
+        { at: 0, tin: 0.3 },
+        { at: 0.3, tin: 0.28, hy: -2, sh: -0.5, fd: 1 },
+        { at: 0.9, tin: 0.3, hy: 0, sh: 0, fd: 0 },
+      ],
+      held: { fa1: 4, fa2: 14, fh: 'grip', hold: 'F' },
+    },
+    // —— 拍拍手：两只手在肚子前面来回擦过去 ——
+    p_dust: {
+      face: 'smile', tin: 0.2, lean: 4, hp: -7, nik: [5.2, 15.6], fik: [5.6, 16.2], nh: 'flat', fh: 'flat', zf: 0.5, hold: 'N',
+      anim: function (t, P) { var s = Math.sin(t * 2 * PI * 4); P.tdx = s * 1.3; P.fdx = -s * 1.3; P.tdy = Math.abs(s) * 0.3; },
+    },
+
+    // ============ 互动（R5 3.2），按 3.7 的顺序先做第一、二批 ============
+    // —— 被撞得一晃：两只手抡一圈，退一两步，最后叉开腿站稳（可以一直停在这儿）——
+    p_stagger: {
+      face: 'surprised',
+      keys: [
+        { at: 0, tin: 0.12, px: -1.6, lean: -12, na1: -130, na2: -150, fa1: 120, fa2: 150, nh: 'open', fh: 'open', sn: -2.0 },
+        { at: 0.18, tin: 0.18, px: -0.6, lean: 6, na1: 70, na2: 80, fa1: -60, fa2: -40, sn: -1.4, sf: 2.2, face: 'oops' },
+        { at: 0.4, tin: 0.22, px: -0.4, py: -1.2, lean: 3, na1: 40, na2: 60, nz1: 0, fa1: -30, fa2: -10, sw: 1.3, sn: -1.6, sf: 2.6, face: 'oops' },
+      ],
+    },
+    // —— 笑弯了腰：一只手捂着肚子，肩膀一秒抖四下 ——
+    p_laugh: {
+      face: 'laugh', tin: 0.2, lean: 10, bend: 6, hp: -2, nik: [4.6, 16.8], nh: 'flat', hold: 'N',
+      anim: function (t, P) { var b = Math.abs(Math.sin(t * 2 * PI * 2)); P.sh = b * 0.6; P.hp += b * 3; },
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 踮着脚偷偷走：膝盖抬高、缩着肩、手收在胸前（走的时候用；站着就是缩着身子）——
+    p_sneak: {
+      face: 'focus', tin: 0.25, sh: 0.6, lean: 9, hp: -3, na1: 26, na2: 112, fa1: 22, fa2: 108, nh: 'flat', fh: 'flat', stride: 0.7, lift: 2.2, tn: 18, tf: 18,
+    },
+    // —— 两手背在身后、挺胸（藏着球、散步、踮脚晃）——
+    p_behind: {
+      face: 'smile', tin: 0.28, lean: -3, hp: 2, nik: [-3.0, 14.6], fik: [-3.4, 15.0], nh: 'fist', fh: 'fist', zf: -3, hold: 'N', stride: 0.85,
+    },
+    // —— 打哈欠：一只手捂住嘴，肩膀抬起、头往后仰、闭眼 ——
+    p_yawn: {
+      face: 'yawn', hold: 'N',
+      keys: [
+        { at: 0, tin: 0.32, nik: [5.0, 26.2], nh: 'fist', sh: 0.7, hp: 9 },
+        { at: 0.85, tin: 0.32, na1: 3, na2: 9, sh: 0, hp: 0, face: 'sleepy' },
+      ],
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 往后一坐，坐在草地上，两腿伸出去，手撑在身后 ——
+    p_fall: {
+      face: 'surprised', hold: null,
+      keys: [
+        { at: 0, tin: 0.15, px: -1.6, lean: -22, na1: 70, na2: 100, fa1: 90, fa2: 120, nh: 'open', fh: 'open', sn: -1.0 },
+        { at: 0.16, tin: 0.3, py: -12.6, px: -3.4, lean: -16, bend: 4, hp: 4, fr: 1, lnx: 7.0, lny: 1.4, lnp: -24, lfx: 9.2, lfy: 1.6, lfp: -34, zl: 0.3,
+          nik: [-6.2, 2.4], fik: [-6.8, 2.2], nh: 'flat', fh: 'flat', face: 'laugh' },
+      ],
+    },
+    // —— 擦脸 / 摸摸头顶把头发捋平 ——
+    p_wipe: {
+      face: 'grin', tin: 0.2, hp: -3, nik: [0.4, 37.4], nh: 'flat', hold: 'N',
+      anim: function (t, P) { P.tdx = Math.sin(t * 2 * PI * 3) * 0.9; },
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 背着手站稳、叉腰（正面）——
+    p_hips: {
+      q: 1, face: 'proud', tin: 0.25, tilt: 3, na1: 34, na2: -38, nz1: 90, nz2: -90, fa1: 34, fa2: -38, fz1: 90, fz2: -90, nh: 'fist', fh: 'fist', sn: -0.6, sf: 0.6,
+    },
+    // —— 正面，两只拳头伸在前面（猜猜在哪只手）——
+    p_fists: {
+      q: 1, face: 'grin', tin: 0.25, na1: 62, na2: 92, nz1: 10, nz2: 0, fa1: 62, fa2: 92, fz1: 10, fz2: 0, nh: 'fist', fh: 'fist', fd: 0, sn: -0.4, sf: 0.4,
+    },
+    // —— 正面耸肩：两只手摊开在肩膀高、肩膀耸起、歪头 ——
+    p_shrug: {
+      q: 1, face: 'grin', tin: 0.2, sh: 0.8, tilt: 4, na1: 20, na2: 118, nz1: 90, nz2: 90, fa1: 20, fa2: 118, fz1: 90, fz2: 90, nh: 'open', fh: 'open', sn: -0.3, sf: 0.3,
+    },
+    // —— 跪下一条腿，上身直着，两只手张开迎狗 ——
+    p_kneel: {
+      face: 'grin', tin: 0.35, py: -6.6, px: -0.6, fr: 1, lnx: -4.6, lny: 1.2, lnp: 64, lfx: 4.8, lfy: 1.5, lfp: 0, zl: -1,
+      nik: [10.0, 15.0], fik: [9.4, 17.6], nh: 'open', fh: 'open', hold: 'N',
+      held: { nik: [7.0, 13.0], nh: 'grip', hold: 'N' },
+    },
+    // —— 躺在草地上，膝盖弯起来，两手枕在脑后，呼吸 ——
+    p_lie: {
+      face: 'sleepy', tin: 0.5, py: -13.4, px: -7.5, lean: -82, bend: -4, hp: -4, fr: 1, lnx: 3.6, lny: 1.6, lnp: -14, lfx: 5.8, lfy: 1.6, lfp: -10, zl: 0.3,
+      nik: [-17.0, 4.6], fik: [-17.6, 4.0], nh: 'fist', fh: 'fist', zf: -3, hold: null,
+      anim: function (t, P) { P.sh = Math.max(0, Math.sin(t * 2 * PI * 0.3)) * 0.4; },
+    },
+    // —— 低头看手里的小东西（照片、日历、一根狗毛），肩膀松下来 ——
+    p_gaze: {
+      face: 'soft', tin: 0.3, sh: -0.3, hp: -13, lean: 3, nik: [5.6, 19.4], nh: 'grip', hold: 'N',
+      anim: function (t, P) { P.tdy = Math.sin(t * 2 * PI * 0.5) * 0.2; },
+    },
+    // —— 正面，食指竖在嘴前："嘘" ——
+    p_shh: {
+      q: 1, face: 'wink', tin: 0.25, na1: 22, na2: 168, nz1: -60, nz2: -40, nh: 'point', fa1: -4, fa2: -2, fz1: 90, fz2: 90, sn: -0.3, sf: 0.3,
+    },
+    // —— 正面，指尖碰一下嘴唇，再把手朝外打开：飞吻 ——
+    p_kiss: {
+      q: 1, face: 'kiss', hold: 'N', fa1: -4, fa2: -2, fz1: 90, fz2: 90, sn: -0.3, sf: 0.3, zn: 2,
+      keys: [
+        { at: 0, tin: 0.25, na1: 22, na2: 166, nz1: -55, nz2: -50, nh: 'fist' },
+        { at: 0.42, tin: 0.2, na1: 70, na2: 110, nz1: 60, nz2: 75, nh: 'open', tilt: 3 },
+      ],
+    },
+    // —— 正面，右手平放在心口，头微微低下 ——
+    p_heart: {
+      q: 1, face: 'soft', tin: 0.3, fd: 1, hy: -1, na1: 20, na2: 116, nz1: -78, nz2: -90, nh: 'flat', fa1: -4, fa2: -2, fz1: 90, fz2: 90, sn: -0.2, sf: 0.2, zn: 2,
+    },
+    // —— 正面，一只手把东西举到头那么高给看的人看（球、杯子）——
+    p_show: {
+      q: 1, face: 'grin', tin: 0.25, fa1: 150, fa2: 168, fz1: 70, fz2: 60, fh: 'grip', na1: -4, na2: -2, nz1: 90, nz2: 90, hold: 'F', zf: 2, tilt: -2, sn: -0.3, sf: 0.3,
+    },
+    // —— 正面，两只手捧着东西递向看的人，微微欠身 ——
+    p_offer: {
+      q: 1, face: 'smile', tin: 0.3, fd: 1, hy: -1, na1: 44, na2: 84, nz1: -30, nz2: -40, fa1: 44, fa2: 84, fz1: -30, fz2: -40, nh: 'flat', fh: 'flat', hold: 'N', mid: 1, zf: 2,
+    },
+    // —— 两手（或一只手）举过头顶，踮脚（敲岛、接狗、把小腊肠举高）——
+    p_reach: {
+      face: 'focus', tin: 0.3, na1: 158, na2: 170, fa1: 150, fa2: 164, nh: 'open', fh: 'open', tn: 30, tf: 30, hp: 10, zn: 0.5, hold: 'N',
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    // —— 端着杯子喝一口：举到嘴边、闭眼、停一下、放下 ——
+    p_sip: {
+      face: 'soft', hold: 'N', nh: 'grip',
+      keys: [
+        { at: 0, tin: 0.3, nik: [5.4, 19.0] },
+        { at: 0.35, tin: 0.35, nik: [4.6, 26.6], hp: 6, face: 'proud' },
+        { at: 1.3, tin: 0.35, nik: [5.4, 19.0], hp: 0, face: 'soft' },
+      ],
+    },
+
+    // ============ 独角戏里用到的几个小动作（不对外，名字以 a_ 开头）============
+    a_pockets: {   // 两只手插在裤兜里，踮脚前后晃
+      face: 'soft', tin: 0.3, nik: [0.6, 14.4], fik: [0.2, 14.6], nh: 'fist', fh: 'fist', zn: -0.5, zf: -3, lean: -2, hp: 2,
+      anim: function (t, P) { var r = Math.sin(t * 2 * PI * 0.8); P.tn = r * 16; P.tf = r * 16; P.px = r * 0.3; },
+    },
+    a_rock: {      // 背着手踮脚晃（M24），左右看看
+      face: 'smile', tin: 0.3, lean: -3, hp: 2, nik: [-3.0, 14.6], fik: [-3.4, 15.0], nh: 'fist', fh: 'fist', zf: -3, hold: 'N',
+      anim: function (t, P) { var r = Math.sin(t * 2 * PI * 0.8); P.tn = r * 14; P.tf = r * 14; P.hx = Math.sin(t * 2 * PI * 0.3) * 0.8; },
+    },
+    a_hair: {      // 一只手从额前往后捋头发
+      face: 'proud', hold: 'N', zn: 2,
+      keys: [
+        { at: 0, tin: 0.3, nik: [1.4, 34.2], nh: 'open', hp: 4 },
+        { at: 0.45, tin: 0.6, nik: [-2.4, 36.4], nh: 'open', hp: 8 },
+        { at: 1.15, tin: 0.35, na1: 3, na2: 9, hp: 0, nh: 'relax' },
+      ],
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    a_cuff: {      // 拉一拉袖口（先远侧手拉近侧的袖口）
+      face: 'focus', tin: 0.25, hp: -8, nik: [5.2, 17.2], nh: 'relax', fik: [5.6, 17.8], fh: 'grip', zf: 0.5, hold: 'N',
+      anim: function (t, P) { P.fdx = Math.min(1, t * 3) * 0.8 - 0.4; },
+    },
+    a_cuff2: {     // 再换一边，抖一抖手腕
+      face: 'proud', tin: 0.25, hp: -4, nik: [6.0, 18.0], nh: 'relax', fik: [5.0, 17.4], fh: 'grip', zf: 0.5, hold: 'N',
+      anim: function (t, P) { P.tdx = Math.sin(t * 2 * PI * 3) * 0.4; },
+    },
+    a_phone: {     // 低头看手机，偶尔用拇指划一下
+      face: 'focus', tin: 0.3, hp: -12, sh: -0.2, nik: [5.4, 20.2], nh: 'grip', phone: 1, hold: null,
+      anim: function (t, P) { P.tdy = (Math.floor(t * 1.2) % 2) * 0.2; },
+    },
+    a_toss: {      // 把球往上抛 12 个单位再接住，两次（M23）
+      face: 'focus', tin: 0.25, hp: 6, nik: [5.6, 17.6], nh: 'grip', hold: 'N', toss: 1,
+      anim: function (t, P, rig) {
+        var c = t % 1.25, u = (c - 0.25) / 0.9;
+        rig.ballUp = (u > 0 && u < 1) ? 48 * u * (1 - u) : 0;
+        if (c < 0.25) P.tdy = -Math.sin(c / 0.25 * PI) * 1.2;          // 往下一沉再往上送
+        else if (u >= 0.92) P.tdy = -Math.sin((u - 0.92) / 0.1 * PI) * 0.8;   // 接住时手一沉
+        P.hp = 6 + rig.ballUp * 0.8;
+      },
+    },
+    a_spin: {      // 球在食指尖上转
+      face: 'grin', tin: 0.3, nik: [9.4, 25.0], nh: 'point', hold: 'N', gb: [0.6, 4.6], hp: 8,
+      anim: function (t, P) { P.tdx = Math.sin(t * 2 * PI * 1.5) * 0.3; },
+    },
+    a_fake: {      // 空丢：手臂甩到前面，球还在手里
+      face: 'grin', tin: 0.1, hold: 'N', nh: 'grip', zn: 0.5, na1: 88, na2: 70, lean: 8, px: 1.6, sf: 4.4, tn: 18, gb: [2.2, 3.2],
+    },
+    a_lace: {      // 单膝跪下系鞋带（M25 擦鞋也用它）
+      face: 'focus', tin: 0.35, py: -6.6, px: -0.6, fr: 1, lnx: -4.6, lny: 1.2, lnp: 64, lfx: 4.8, lfy: 1.5, lfp: 0, zl: -1, lean: 28, bend: 8, hp: -12,
+      nik: [7.2, 3.2], fik: [6.4, 3.6], nh: 'grip', fh: 'grip', zf: 0.5, hold: null,
+      anim: function (t, P) { var k = Math.floor(t * 5) % 2 ? 0.4 : -0.4; P.tdx = k; P.fdx = -k; },
+    },
+    a_shine: {     // 弯腰拿手帕擦鞋尖，擦三下
+      face: 'focus', tin: 0.3, py: -5.4, px: -0.6, lean: 36, bend: 10, hp: -14, sf: 3.4, tf: 16, zl: 0.3, nik: [6.6, 2.2], nh: 'flat', fik: [5.6, 9.2], fh: 'flat', zf: -3, hold: 'N',
+      anim: function (t, P) { P.tdx = Math.sin(t * 2 * PI * 1.4) * 1.0; },
+    },
+    a_tug: {       // 往下拽一拽西装下摆
+      face: 'proud', tin: 0.2, nik: [2.6, 14.0], fik: [2.0, 14.4], nh: 'grip', fh: 'grip', zf: 0.5, hold: 'N', hp: 3,
+      anim: function (t, P) { var d = Math.max(0, Math.sin(t * 2 * PI * 1.6)); P.tdy = -d * 0.6; P.fdy = -d * 0.6; P.sh = -d * 0.3; },
+    },
+    a_sky: {       // 抬头看天
+      face: 'wistful', tin: 0.5, hp: 18, lean: -4, hx: -0.5, na1: -6, na2: -2, gaze: [1, 1],
+      held: { na1: 10, na2: 24, nh: 'grip', hold: 'N' },
+    },
+    a_thumb: {     // 正面，竖大拇指
+      q: 1, face: 'wink', tin: 0.22, fa1: 54, fa2: 84, fz1: 30, fz2: 20, fh: 'thumb', na1: -4, na2: -2, nz1: 90, nz2: 90, zf: 2, sn: -0.3, sf: 0.3, tilt: 2,
+    },
+    a_heart: {     // 正面，两只手在胸前比心
+      q: 1, face: 'blush', tin: 0.3, na1: 30, na2: 128, nz1: -52, nz2: -90, fa1: 30, fa2: 128, fz1: -52, fz2: -90, nh: 'open', fh: 'open', zn: 2, zf: 2, tilt: 2,
+      anim: function (t, P) { P.tilt += Math.sin(t * 2 * PI * 0.8) * 1.5; },
+    },
+    a_dance: {     // 两步舞：左右各迈一步并脚，打响指，点头
+      face: 'grin', tin: 0.18, na1: 34, na2: 96, fa1: 30, fa2: 92, nh: 'fist', fh: 'fist',
+      anim: function (t, P) {
+        var b = t * 2.2, ph = b % 1, side = Math.floor(b) % 2 ? 1 : -1;
+        P.sn = side * 1.6 * Math.min(1, ph * 3); P.sf = 0.9 - side * 1.6 * Math.min(1, ph * 3);
+        P.px = side * 0.7 * Math.sin(Math.min(1, ph * 2) * PI / 2); P.hp = Math.sin(b * 2 * PI) * 4; P.lean = Math.sin(b * PI) * 3;
+        P.na1 += Math.sin(b * PI * 2) * 18; P.fa1 -= Math.sin(b * PI * 2) * 18; P.tn = ph < 0.3 ? 20 : 0;
+      },
+    },
+    a_jog: {       // 原地小跑：两只脚轮流抬起来，手臂弯着前后摆
+      face: 'focus', tin: 0.15, fr: 1, na1: 30, na2: 112, fa1: -30, fa2: 52, nh: 'fist', fh: 'fist', lean: 5,
+      lnx: 0.2, lny: 1.5, lnp: 0, lfx: 0.8, lfy: 1.5, lfp: 0,
+      anim: function (t, P) {
+        var c = Math.sin(t * 2 * PI * 2.6), up0 = Math.max(0, c), up1 = Math.max(0, -c);
+        P.lny = 1.5 + up0 * 3.2; P.lnx = 0.2 + up0 * 1.6; P.lnp = up0 * 30; P.lfy = 1.5 + up1 * 3.2; P.lfx = 0.8 + up1 * 1.6; P.lfp = up1 * 30;
+        P.py = -Math.abs(c) * 0.3 + 0.3; P.na1 = 30 * c; P.na2 = P.na1 + 82; P.fa1 = -30 * c; P.fa2 = P.fa1 + 82;
+      },
+    },
+    a_startle: {   // 吓一跳：往后一缩、两手抬起来
+      face: 'surprised', tin: 0.08, px: -1.2, lean: -8, sh: 0.8, na1: 40, na2: 120, fa1: 30, fa2: 110, nh: 'open', fh: 'open', hp: 6, tn: 10, tf: 10,
+    },
+    a_nod: {       // 得意地点点头
+      face: 'proud', tin: 0.2, lean: -2,
+      anim: function (t, P) { P.hp = -Math.max(0, Math.sin(t * 2 * PI * 1.6)) * 9; P.sh = 0.2; },
+    },
+    a_scratch: {   // 不好意思地挠后脑勺
+      face: 'blush', tin: 0.25, nik: [-1.4, 33.2], nh: 'flat', hp: -4, tilt: 0, hold: 'N', zn: 2,
+      anim: function (t, P) { P.tdx = Math.sin(t * 2 * PI * 4) * 0.5; P.tdy = Math.cos(t * 2 * PI * 4) * 0.3; },
+      held: { fa1: -10, fa2: -4, fh: 'grip', hold: 'F' },
+    },
+    a_shiver: {    // 被甩了一身水：缩着肩膀抖
+      face: 'oops', tin: 0.08, sh: 0.8, na1: 18, na2: 100, fa1: 14, fa2: 96, nh: 'fist', fh: 'fist', hp: -4,
+      anim: function (t, P) { var s = (Math.floor(t * 18) % 2 ? 1 : -1); P.px = s * 0.35; P.hp += s * 2; },
+    },
+    a_look: {      // 东张西望找球：手搭凉棚
+      face: 'focus', tin: 0.25, nik: [5.0, 31.6], nh: 'flat', hold: null, hp: 2,
+      anim: function (t, P) { var s = Math.sin(t * 2 * PI * 0.6); P.hp += s * 6; P.lean = s * 3; P.hx = s * 1.0; },
+    },
+    a_clap: {      // 鼓掌
+      face: 'grin', tin: 0.15, nik: [6.0, 19.0], fik: [6.4, 19.6], nh: 'flat', fh: 'flat', zf: 0.5, hold: null,
+      anim: function (t, P) { var c = Math.abs(Math.sin(t * 2 * PI * 2.4)); P.tdx = c * 1.4; P.fdx = -c * 0.6; P.tdy = c * 0.4; },
+    },
+    a_headshake: { // 笑着摇摇头
+      face: 'grin', tin: 0.2, hp: -4,
+      anim: function (t, P) { P.hx = Math.sin(t * 2 * PI * 3) * 1.0; P.lean = Math.sin(t * 2 * PI * 3) * 1.0; },
+    },
+    a_hum: {       // 哼着歌，一只脚点地四下，身子轻轻晃
+      face: 'whistle', tin: 0.25, nik: [-3.0, 14.6], fik: [-3.4, 15.0], nh: 'fist', fh: 'fist', zf: -3, hold: 'N',
+      anim: function (t, P) { var b = t * 2 * PI * 1.4; P.tn = Math.max(0, -Math.sin(b)) * -22; P.px = Math.sin(b / 2) * 0.4; P.tilt = Math.sin(b / 2) * 2; P.hp = Math.sin(b) * 2; },
+    },
     // —— 被鼠标拎起来：吊着，手乱挥、腿乱蹬 ——
     carried: {
       face: 'oops', tin: 0.16, na1: -146, na2: -160, fa1: 140, fa2: 158, nh: 'open', fh: 'open', fr: 1, hp: 3, hold: null,
@@ -844,7 +1180,64 @@
   };
   var FRAMES = ['p_front', 'p_front2', 'p_front_blink', 'p_wave_a', 'p_wave_b', 'p_idle', 'p_idle2', 'p_blink', 'p_hold', 'p_hold2',
                 'p_walk0', 'p_walk1', 'p_walk2', 'p_walk3', 'p_windup', 'p_release', 'p_follow', 'p_pat', 'p_cheer', 'p_cheer2',
-                'p_crouch', 'p_crouch2', 'p_sit', 'p_tie_a', 'p_tie_b', 'p_watch'];
+                'p_crouch', 'p_crouch2', 'p_sit', 'p_tie_a', 'p_tie_b', 'p_watch',
+                // 照顾狗狗（R6 5.2）
+                'p_pocket', 'p_carry', 'p_place', 'p_pour', 'p_stay', 'p_point', 'p_sigh', 'p_knot', 'p_scooper', 'p_armlen', 'p_call', 'p_bow', 'p_dust',
+                // 互动（R5 3.2，先做了第一、二批和独角戏要用的）
+                'p_stagger', 'p_laugh', 'p_sneak', 'p_behind', 'p_yawn', 'p_fall', 'p_wipe', 'p_hips', 'p_fists', 'p_shrug', 'p_kneel', 'p_lie',
+                'p_gaze', 'p_shh', 'p_kiss', 'p_heart', 'p_show', 'p_offer', 'p_reach', 'p_sip'];
+  // ============================================================
+  //  独角戏（input.act = 名字）：骨架自己按时间演，演完 out.actDone = true（一直是 true，直到引擎换掉 act）。
+  //  每一步：[画面, 秒, 表情]（表情不写 = 用画面自己的；input.face 有值时听 input 的）。
+  //  最后一步都是"收回来"的样子，所以演完停在那儿也自然。球在手里时（holding）照样拿着。
+  // ============================================================
+  var ACT = {
+    // —— 他自己一个人的时候 ——
+    pockets_rock:   [['a_pockets', 3.2, 'soft'], ['p_idle', 0.5, 'smile']],                       // 手插兜，踮脚前后晃
+    hair_run:       [['a_hair', 1.6], ['p_idle', 0.5, 'smile']],                                  // 捋一下头发
+    cuffs:          [['a_cuff', 0.9], ['a_cuff2', 0.9], ['p_idle', 0.4, 'proud']],                // 拉袖口、抖手腕
+    tie_fix:        [['p_tie_a', 1.8, 'proud'], ['p_idle', 0.4, 'smile']],                        // 正一正领带
+    watch_check:    [['p_watch', 1.8, 'neutral'], ['p_idle', 0.5, 'smile']],                      // 看手表
+    phone_smile:    [['a_phone', 1.3, 'focus'], ['a_phone', 1.9, 'soft'], ['p_idle', 0.5, 'smile']], // 看手机，看着看着笑了
+    stretch:        [['p_reach', 1.6, 'proud'], ['p_idle', 0.6, 'soft']],                         // 两手举过头顶伸懒腰
+    yawn:           [['p_yawn', 1.3], ['p_idle', 0.5, 'sleepy']],                                 // 捂着嘴打哈欠
+    sit_grass:      [['p_sit', 4.6, 'soft'], ['p_idle', 0.9, 'smile']],                           // 在草地上坐一会儿
+    lie_back:       [['p_sit', 1.0, 'soft'], ['p_lie', 4.6, 'sleepy'], ['p_sit', 1.2, 'smile'], ['p_idle', 0.9, 'smile']], // 躺下枕着手，再起来
+    ball_toss:      [['a_toss', 2.6], ['p_hold', 0.4, 'proud']],                                  // 把球抛起来接住，两次
+    ball_spin:      [['a_spin', 2.6, 'grin'], ['p_hold', 0.4, 'proud']],                          // 球在指尖上转
+    practice_throw: [['p_windup', 0.45, 'focus'], ['a_fake', 0.5, 'grin'], ['p_hold', 0.6, 'smile']], // 空丢一下，球没出手
+    shoelace:       [['a_lace', 3.0, 'focus'], ['p_idle', 0.6, 'smile']],                         // 单膝跪下系鞋带
+    dust_jacket:    [['p_dust', 0.8, 'smile'], ['a_tug', 0.7, 'proud'], ['p_idle', 0.4, 'smile']], // 拍拍手，拽一拽西装
+    whistle:        [['p_behind', 2.8, 'whistle'], ['p_idle', 0.4, 'smile']],                     // 背着手吹口哨（mouth 那个点放音符）
+    sky:            [['a_sky', 2.8], ['p_idle', 0.5, 'soft']],                                    // 抬头看天
+    bow:            [['p_bow', 1.4], ['p_front', 0.5, 'smile']],                                  // 对着看的人鞠一小躬
+    thumbs_up:      [['a_thumb', 1.6, 'wink'], ['p_front', 0.4, 'smile']],                        // 竖大拇指
+    heart_hands:    [['a_heart', 2.0, 'blush'], ['p_front', 0.4, 'soft']],                        // 比心
+    blow_kiss:      [['p_kiss', 1.0, 'kiss'], ['p_front', 0.6, 'blush']],                         // 飞吻（少见）
+    two_step:       [['a_dance', 3.6, 'grin'], ['p_idle', 0.4, 'proud']],                         // 跳两步
+    jog_spot:       [['a_jog', 3.0, 'focus'], ['p_idle', 0.5, 'smile']],                          // 原地小跑
+    // —— 反应（1~2 秒）——
+    startled:       [['a_startle', 0.6, 'surprised'], ['p_idle', 0.6, 'oops']],                   // 吓一跳
+    laugh:          [['p_laugh', 1.4, 'laugh'], ['p_idle', 0.3, 'grin']],                         // 看狗狗闹，笑弯了腰
+    proud_nod:      [['a_nod', 1.0, 'proud'], ['p_idle', 0.3, 'smile']],                          // 得意地点头
+    embarrassed:    [['a_scratch', 1.4, 'blush'], ['p_idle', 0.3, 'smile']],                      // 不好意思，挠挠头
+    shiver:         [['a_shiver', 1.1, 'oops'], ['p_dust', 0.5, 'grin']],                         // 被小腊肠甩了一身水
+    duty_sigh:      [['p_sigh', 1.1], ['p_idle', 0.3, 'soft']],                                   // "好吧，我来"：叹气 + 一滴汗，体面
+    look_around:    [['a_look', 1.8, 'focus'], ['p_idle', 0.3, 'neutral']],                       // 手搭凉棚找球
+    point_go:       [['p_stay', 0.5, 'focus'], ['p_point', 1.0, 'grin'], ['p_idle', 0.3, 'smile']], // "去吧！"
+    beckon:         [['p_call', 1.2, 'whistle'], ['p_idle', 0.3, 'smile']],                       // "过来"：拍拍腿
+    clap:           [['a_clap', 1.4, 'grin'], ['p_idle', 0.3, 'smile']],                          // 鼓掌
+    // —— R5 第 2 节里他的几个小习惯（名字照抄）——
+    man_ball_toss:  [['a_toss', 2.6], ['p_hold', 0.4, 'proud']],                                  // M23
+    man_rock_heels: [['a_rock', 3.0, 'smile'], ['p_idle', 0.3, 'smile']],                         // M24
+    man_shoe_shine: [['p_pocket', 0.7, 'focus'], ['a_shine', 2.4, 'focus'], ['p_pocket', 0.6, 'proud'], ['p_idle', 0.4, 'smile']], // M25
+    man_lint:       [['p_dust', 0.6, 'focus'], ['p_gaze', 0.6, 'focus'], ['p_sigh', 1.1], ['p_idle', 0.3, 'smile']],              // M26
+    man_glance:     [['p_front', 1.0, 'soft'], ['p_idle', 0.3, 'neutral']],                       // M27
+    man_chuckle:    [['p_laugh', 0.7, 'laugh'], ['a_headshake', 0.5, 'grin'], ['p_idle', 0.3, 'smile']], // M28
+    man_hum:        [['a_hum', 3.0, 'whistle'], ['p_idle', 0.3, 'smile']],                        // M29
+  };
+  var ACTS = Object.keys(ACT);
+
   function poseOf(name) {
     var p = POSES[name];
     while (typeof p === 'string') { name = p; p = POSES[name]; }
@@ -861,7 +1254,8 @@
     grip:  { len: 1.0, r: 1.05, tip: 0.9, thumb: 0.9 },             // 抓着、托着东西
     open:  { len: 1.7, r: 1.1, tip: 0.92, thumb: 1.3, out: 1 },     // 张开（挥手、举手）
     flat:  { len: 1.9, r: 0.72, tip: 0.7, thumb: 0 },               // 手心朝下（摸、按）
-    point: { len: 0.9, r: 1.0, tip: 0.95, thumb: 0.5, finger: 1.5 } // 伸出食指
+    point: { len: 0.9, r: 1.0, tip: 0.95, thumb: 0.5, finger: 1.5 }, // 伸出食指
+    thumb: { len: 0.9, r: 1.05, tip: 0.95, thumb: 1.7 },            // 竖大拇指
   };
 
   // 过渡用的几种"缓急"
@@ -935,6 +1329,8 @@
     this.sway = 0; this.swayH = 0; this.swayTo = 0; this.swayAt = 5; this.glAt = 6; this.glT = 0; this.glX = 0; this.glY = 0;
     this.S = { top: 0 };
     this.imgs = {};
+    // 独角戏
+    this.actName = null; this.actT = 0; this.actDone = false; this.actStep = -1; this.actFace = null; this.ballUp = 0; this.fdd = 0;
   }
   Rig.prototype.rand = function () { this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff; return this.seed / 0x7fffffff; };
 
@@ -974,10 +1370,22 @@
     var held = !!I.holding;
     this.heldWhat = I.holding || null;
 
+    // ---------- 独角戏：input.act 有名字时，按 ACT 里排好的几步自己演 ----------
+    var act = I.act && ACT[I.act] ? I.act : null, aframe = null;
+    if (act !== this.actName) { this.actName = act; this.actT = 0; this.actDone = false; this.actStep = -1; this.ballUp = 0; }
+    this.actFace = null;
+    if (act) {
+      var list = ACT[act], acc = 0, si;
+      this.actT += h;
+      for (si = 0; si < list.length; si++) { acc += list[si][1]; if (this.actT < acc) break; }
+      if (si >= list.length) { this.actDone = true; si = list.length - 1; }
+      this.actStep = si; aframe = list[si][0]; this.actFace = list[si][2] || null;
+    }
+
     // ---------- 现在该摆哪个姿势 ----------
-    var name = I.carried ? 'carried' : (I.air > 0.5 ? 'air' : (I.frame || 'p_idle'));
+    var name = I.carried ? 'carried' : (I.air > 0.5 ? 'air' : (aframe || I.frame || 'p_idle'));
     var pose = poseOf(name);
-    if (pose.swing && !moving) pose = poseOf(held ? 'p_hold' : 'p_idle');           // 走路的画面但其实没在走
+    if (pose.swing && !moving && !aframe) pose = poseOf(held ? 'p_hold' : 'p_idle');           // 走路的画面但其实没在走
     if (pose !== this.pose || held !== this.held) {
       var same = pose === this.pose;
       this.pose = pose; this.held = held;
@@ -993,7 +1401,8 @@
     applyFields(T, pose);
     if (kd) applyFields(T, kd);
     if (held && pose.held) applyFields(T, pose.held);
-    T.tdx = 0; T.tdy = 0; T.tie = 0;
+    T.tdx = 0; T.tdy = 0; T.fdx = 0; T.fdy = 0; T.tie = 0;
+    if (!pose.toss) this.ballUp = 0;
     if (pose.anim) pose.anim(this.ft, T, this);
     this.tdx = T.tdx; this.tdy = T.tdy; this.tieUp = T.tie;
     // 手要去够的地方
@@ -1011,7 +1420,7 @@
       this.hasTouch = false;
       if (nik) reach(D, T, nik[0] + T.tdx, nik[1] + T.tdy, true);
     }
-    if (fik) reach(D, T, fik[0], fik[1], false);
+    if (fik) reach(D, T, fik[0] + T.fdx, fik[1] + T.fdy, false);
     // 走路时的手臂、身子
     if (moving) this.swingArms(T, pose, speed, held);
 
@@ -1071,7 +1480,7 @@
     this.holdHand = pick('hold', p === POSES.p_follow ? null : 'N');
     if (p.smear) {                                           // 残影从哪个角度扫过来（最多留 50 度那么长）
       var dd = this.cur.na2 - p.na2; dd -= Math.round(dd / 360) * 360;
-      this.sa1 = Math.abs(dd) > 40 ? 1 : 0; this.sa2 = p.na2 + clamp(dd, -50, 50);
+      this.sa1 = Math.abs(dd) > 40 ? 1 : 0; this.sa2 = p.na2 + clamp(dd, -28, 28);
     }
   };
 
@@ -1086,6 +1495,7 @@
       T.lean = lerp(2 + clamp((v - 24) / 22, 0, 1) * 3, 11, run);
       T.hp = lerp(0, 3, run);
     } else {
+      if (pose.swingF) { T.fa1 = amp * c - 2; T.fa2 = T.fa1 + bend + Math.max(0, c) * 12; T.fz1 = 0; T.fz2 = 0; }
       T.lean += lerp(1, 5, run);
     }
   };
@@ -1109,6 +1519,7 @@
     if (moving) {
       gaitParams(v);
       if (pose.stride) { GS *= pose.stride; GAF *= pose.stride; GLIFT *= 0.5 + 0.5 * pose.stride; }     // 小心翼翼的小碎步
+      if (pose.lift) GLIFT *= pose.lift;                                                                     // 踮着脚、膝盖抬得高
       this.v = v; this.run = GRUN;
       var dd = v * h;
       this.dist += dd;
@@ -1182,7 +1593,7 @@
 
   // 表情：眼睛、眉毛、嘴各自往目标过渡；眨眼自己来
   Rig.prototype.faceStep = function (h, I, pose, kd, moving) {
-    var name = I.face && FACE[I.face] ? I.face : ((kd && kd.face) || pose.face || 'neutral');
+    var name = I.face && FACE[I.face] ? I.face : (this.actFace || (kd && kd.face) || pose.face || 'neutral');
     if (!I.face && moving && this.run > 0.5 && pose.swing) name = 'smile';
     var F = FACE[name];
     this.faceName = name;
@@ -1309,9 +1720,9 @@
     S.wy2 = S.wy + br;
     // 肩、头的轴心（都长在上半截上）
     var su = Math.sin(S.up), cu = Math.cos(S.up), d1 = D.shY - D.waist, d2 = D.torso - D.waist;
-    S.sx = S.wx + d1 * su; S.sy = S.wy2 + d1 * cu;
+    S.sx = S.wx + d1 * su; S.sy = S.wy2 + d1 * cu + C.sh;
     var hxo = D.headX * (1 - wq);
-    S.nx = S.wx + d2 * su + hxo * cu + C.hx * 0.5 - (this.sway - this.swayH) * 0.5; S.ny = S.wy2 + d2 * cu - hxo * su + C.hy * 0.5;
+    S.nx = S.wx + d2 * su + hxo * cu + C.hx * 0.5 - (this.sway - this.swayH) * 0.5; S.ny = S.wy2 + d2 * cu - hxo * su + C.hy * 0.5 + C.sh * 0.4;
     S.hp = (C.hp + this.lookP) * (1 - wq * 0.6);
     // 手臂
     S.arm = S.arm || [{}, {}];
@@ -1453,6 +1864,12 @@
     cap(ex, ey, r[1] * R, wx, wy, r[2] * R, SUIT, far, true);
     // 袖口露出的一圈衬衫
     cap(wx, wy, r[2] * R * 0.96, wx + dx * 0.5 * R, wy + dy * 0.5 * R, r[2] * R * 0.96, SHIRT, far, true, 0.6);
+    if (i === 0 && this.pose.phone) {                 // 手机：一块深色的小板，屏幕亮一格
+      var k3 = clipM, px3 = Math.round(wx + dx * 1.3 * R), py3 = Math.round(wy + dy * 1.3 * R);
+      box(px3 - Math.round(0.7 * R), py3 - Math.round(1.3 * R), px3 + Math.round(0.7 * R), py3 + Math.round(0.9 * R), SHOE, 1);
+      box(px3 - Math.round(0.4 * R), py3 - Math.round(1.0 * R), px3 + Math.max(1, Math.round(0.3 * R)), py3 + Math.round(0.4 * R), FEAT, F_WATER2);
+      clipM = k3;
+    }
     if (i === 0 && this.watch > 0.5) { var k2 = clipM; box(Math.round(wx - dx * R * 0.9 - 0.5 * R), Math.round(wy - dy * R * 0.9 - R * 0.5), Math.round(wx - dx * R * 0.9 + 0.5 * R), Math.round(wy - dy * R * 0.9 + 0.5 * R), FEAT, F_SPARK); clipM = k2; }
     // 手：手掌 + 大拇指（+ 伸出来的食指）。几种手型见 HANDS
     var hs = HANDS[i ? this.fh : this.nh] || HANDS.relax, rad = hs.r;
@@ -1552,7 +1969,7 @@
   }
   Rig.prototype.fpt = function (p, w, dx, dy, wid) {
     // 字符画里的格子 → 画布像素（wid：这个零件宽几格；人朝左时要从另一头算起）
-    var lx = lerp(p[0][0], p[1][0], w) + dx, ly = lerp(p[0][1], p[1][1], w) + dy;
+    var lx = lerp(p[0][0], p[1][0], w) + dx, ly = lerp(p[0][1], p[1][1], w) + dy - this.fdd;
     if (this.dir < 0) lx += wid;
     at(lx, ly);
     FCX = Math.round(LOCX); FCY = Math.round(LOCY);
@@ -1561,6 +1978,7 @@
     var S = this.S, D = this.D, F = D.face, R = c.R, w = S.wq, wi = w >= 0.5 ? 1 : 0, i;
     cg = G_FEAT; clipM = SKIN; FCK = R / 2; FCD = this.dir;
     var gx = this.gx * (w > 0.5 ? this.dir : 1), gy = this.gy;
+    this.fdd = Math.round(this.cur.fd);
     if (R < 2) { this.drawFaceTiny(F, w, wi); clipM = 0; return; }
     // 腮红
     var bl = Math.round(this.bl);
@@ -1655,7 +2073,8 @@
       if (gb) { ox = gb[0]; oy = gb[1]; }
       else { ox = lerp(A.dx * 0.9, A.dx * 3.9, hang); oy = lerp(3.9 + A.dy * 0.4, A.dy * 3.9, hang); }
     }
-    img.hand[0] = d * (A.hx + ox); img.hand[1] = A.hy + oy;
+    if (this.pose.mid) { ox = (B.hx - A.hx) * 0.5; oy = (B.hy - A.hy) * 0.5; }      // 两只手一起拿着：取中间
+    img.hand[0] = d * (A.hx + ox); img.hand[1] = A.hy + oy + this.ballUp;
     img.grip = img.grip || [0, 0];
     img.grip[0] = d * A.hx; img.grip[1] = A.hy;
     img.hand2[0] = d * B.hx; img.hand2[1] = B.hy;
@@ -1667,6 +2086,19 @@
     img.head[0] = (LOCX - c.ox) / R; img.head[1] = (c.oy - LOCY) / R;
     img.mouth[0] = (S.mx - c.ox) / R + d * 0.5; img.mouth[1] = (c.oy - S.my) / R;
     // 两只脚：[脚踝 dx, 脚踝离地, 是不是踩着地, 着地点 dx]（着地点：脚跟先着地时是脚跟，之后是前脚掌；检查"脚滑不滑"用）
+    // 新的几个点（R5 3.2）：胸口、口袋（西装内袋）、膝盖、坐着时的腿上、近侧袖口、近侧鞋尖、领带尖
+    img.chest = img.chest || [0, 0]; img.pocket = img.pocket || [0, 0]; img.knee = img.knee || [0, 0]; img.lap = img.lap || [0, 0];
+    img.cuff = img.cuff || [0, 0]; img.shoe = img.shoe || [0, 0]; img.tieTip = img.tieTip || [0, 0];
+    var su = Math.sin(S.up), cu = Math.cos(S.up);
+    img.chest[0] = d * (S.wx + 3.2 * su + 1.6 * cu); img.chest[1] = S.wy2 + 3.2 * cu;
+    img.pocket[0] = d * (S.wx + 3.6 * su + 1.0 * cu); img.pocket[1] = S.wy2 + 3.6 * cu;
+    var LN = S.leg[0];
+    img.knee[0] = d * LN.kx * S.pa; img.knee[1] = LN.ky;
+    img.lap[0] = d * (S.hx * S.pa + LN.kx * S.pa) * 0.5; img.lap[1] = Math.max(S.hy, LN.ky) + 1.0;
+    var A0 = S.arm[0]; img.cuff[0] = d * A0.wx; img.cuff[1] = A0.wy;
+    img.shoe[0] = d * (LN.ax + BALLX + 0.6) * S.pa; img.shoe[1] = Math.max(0.5, LN.ay - 1.0);
+    img.tieTip[0] = d * (S.wx + 1.0 * su + 1.4 * cu + clamp(this.tieX, -2.2, 5) * 0.5); img.tieTip[1] = S.wy2 + 1.0 * cu;
+    img.actDone = this.actDone; img.act = this.actName;
     img.feet = img.feet || [[0, 0, 0, 0], [0, 0, 0, 0]];
     for (var i = 0; i < 2; i++) {
       var lg = S.leg[i], pr = lg.p * RAD, cx = lg.p >= 0 ? BALLX : HEELX;
@@ -1689,7 +2121,7 @@
     r.step(1 / 60, { frame: 'p_release', holding: 'ball' });
     im = r.render(false, 2);
     function r1(v) { return Math.round(v * 10) / 10; }
-    return { height: D.hip + D.torso + D.headTop, half: 6.5, reach: POSES.p_pat.touch[0], eye: [D.headX + 1.5, D.hip + D.torso + 4.25],
+    return { height: D.hip + D.torso + D.headTop, half: 6.5, reach: POSES.p_pat.touch[0], eye: [D.headX + 1.0, D.hip + D.torso + 4.5],
              chest: [1.4, D.hip + D.shY - 2], release: [r1(im.hand[0]), r1(im.hand[1])], hip: D.hip };
   })();
 
@@ -1697,8 +2129,11 @@
     create: function (cfg, design) { return new Rig(cfg, design); },
     FRAMES: FRAMES,
     FACES: FACES,
+    ACTS: ACTS,
+    // 每个独角戏多长（秒）
+    ACT_LEN: (function () { var o = {}; for (var k in ACT) { var t = 0; for (var i = 0; i < ACT[k].length; i++) t += ACT[k][i][1]; o[k] = Math.round(t * 100) / 100; } return o; })(),
     METRICS: METRICS,
-    DESIGN: DESIGN, POSES: POSES, FACE: FACE,
+    DESIGN: DESIGN, POSES: POSES, FACE: FACE, ACT: ACT,
     // 开发用：上一次 render 的工作画布（每个像素的材质 mat、分组 grp）。检查脚的像素、数颜色时用
     _peek: function (R) { return getCanvas(R); },
     _ids: { HAIR: HAIR, SKIN: SKIN, SUIT: SUIT, TROU: TROU, SHIRT: SHIRT, TIE: TIE, SHOE: SHOE, FEAT: FEAT, LEGN: G_LEGN, LEGF: G_LEGF },

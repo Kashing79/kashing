@@ -17,6 +17,9 @@ const DAY = [
   [{ frame: 'p_pat' }, 1.0, false], [{ frame: 'p_crouch' }, 1.2, true], [{ frame: 'p_sit' }, 1.2, true], [{ frame: 'p_cheer' }, 1.0, false],
   [{ frame: 'p_tie_a' }, 1.0, false], [{ frame: 'p_watch' }, 1.0, false], [{ frame: 'p_front' }, 1.0, false], [{ frame: 'p_wave_a', face: 'laugh' }, 1.2, false],
   [{ frame: 'p_cheer', carried: true }, 1.0, false],
+  // 动作库
+  [{ frame: 'p_place' }, 0.8, false], [{ frame: 'p_knot' }, 0.8, false], [{ frame: 'p_carry', moving: true, speed: 24 }, 1.0, false], [{ frame: 'p_bow' }, 1.0, false],
+  [{ frame: 'p_lie' }, 1.0, true], [{ frame: 'p_idle', act: 'two_step' }, 1.5, false], [{ frame: 'p_idle', act: 'ball_toss', holding: 'ball' }, 1.5, false],
 ];
 function run(R, loops) {
   const rig = P.create(cfg);
